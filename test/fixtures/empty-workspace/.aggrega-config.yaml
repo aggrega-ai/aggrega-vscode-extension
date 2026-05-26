@@ -1,0 +1,3 @@
+# Empty configuration — daemon falls back to defaults for every
+# field. Used by integration tests that need a valid workspace
+# anchor without exercising config-dependent behavior.

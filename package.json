@@ -1,0 +1,70 @@
+{
+  "name": "aggrega-vscode-extension",
+  "displayName": "Aggrega",
+  "description": "Language support for Aggrega YAML — validation, navigation, hover, completion via the aggrega daemon.",
+  "version": "0.1.0",
+  "publisher": "aggrega-ai",
+  "license": "Apache-2.0",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Linters"
+  ],
+  "activationEvents": [
+    "onLanguage:yaml",
+    "workspaceContains:**/.aggrega-config.yaml"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "aggrega.server.restart",
+        "title": "Aggrega: Restart language server"
+      }
+    ],
+    "configuration": {
+      "title": "Aggrega",
+      "properties": {
+        "aggrega.server.binaryPath": {
+          "type": "string",
+          "default": "aggrega",
+          "description": "Path to the aggrega binary. Plain name resolves via PATH; absolute or relative paths are honored as written."
+        },
+        "aggrega.server.autoRevalidate": {
+          "type": "boolean",
+          "default": false,
+          "description": "When true, silently revalidates a file on cache-miss and retries the request. When false, surfaces a notification with a Revalidate action."
+        },
+        "aggrega.server.debounceMs": {
+          "type": "number",
+          "default": 300,
+          "description": "Debounce window in milliseconds for proactive validate-on-change."
+        },
+        "aggrega.server.respawnAttempts": {
+          "type": "number",
+          "default": 5,
+          "description": "Maximum daemon respawn attempts within the sliding window before the extension surfaces a stopped-responding notification."
+        },
+        "aggrega.server.respawnWindowSeconds": {
+          "type": "number",
+          "default": 180,
+          "description": "Sliding window in seconds for counting daemon respawn attempts."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "test": "npm run compile && mocha out/test/suite/**/*.test.js"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.0",
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "mocha": "^10.0.0",
+    "typescript": "^5.3.0"
+  }
+}
