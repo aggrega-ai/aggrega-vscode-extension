@@ -42,7 +42,16 @@ export interface DaemonLocation {
 
 // Request param shapes for the aggrega/* methods.
 export interface ValidateParams { file: string; content: string; }
-export interface InvalidateParams { file: string; }
+export interface InvalidateParams {
+  file: string;
+  // granularity selects the daemon's cache-eviction scope. When
+  // omitted (or set to "workspace"), the daemon drops the workspace-
+  // level resolved-catalog cache alongside the per-file parse +
+  // diagnostics caches. The "file" value drops only the per-file
+  // caches; "entity" is reserved at the daemon and currently falls
+  // through to workspace behavior.
+  granularity?: 'file' | 'workspace' | 'entity';
+}
 export interface DiagnosticsParams { file: string; }
 export interface ResolveParams { uri: string; position: DaemonPosition; }
 export interface FindReferencesParams { uri: string; position: DaemonPosition; }

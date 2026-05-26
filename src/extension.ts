@@ -3,6 +3,7 @@
 
 import * as path from 'path';
 import * as vscode from 'vscode';
+import { applyDocumentClose } from './close-handler';
 import { Daemon, DaemonState } from './daemon';
 import { debounce } from './debounce';
 import { publishDiagnostics, publishShapes } from './diagnostics';
@@ -143,13 +144,14 @@ function registerCloseHandler(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.workspace.onDidCloseTextDocument(doc => {
       if (doc.languageId !== 'yaml') { return; }
-      // Clear local diagnostic-collection entry only. No
-      // aggrega/invalidate call: the daemon's current invalidate
-      // semantics drop the workspace-wide resolved-catalog cache,
-      // which is a measurable cost on every file flip. The daemon's
-      // parse cache evicts on access via mtime check; per-URI
-      // cache trim is wired once daemon ships per-file granularity.
-      diagnosticCollection?.delete(doc.uri);
+      applyDocumentClose(doc.uri, doc.uri.fsPath, {
+        diagnosticCollection,
+        daemonRequest: daemon
+          ? (method, params) => daemon!.request(method, params)
+          : null,
+        logLine: line => outputChannel?.appendLine(line),
+        describeError,
+      });
     }),
   );
 }
