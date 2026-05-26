@@ -1,0 +1,128 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Cognitio S.r.l.
+
+import type * as vscode from 'vscode';
+import {
+  ERR_ENTITY_NOT_RESOLVABLE,
+  ERR_LOCKFILE_ABSENT,
+  ERR_RELEASE_NOT_RESOLVED,
+  ERR_SHUTTING_DOWN,
+  JsonRpcError,
+} from './types';
+import { ConvertedShape } from './diagnostics-shape';
+
+// LOCKFILE_GENERATE_COMMAND is the shell command the 1003 toast's
+// button runs in the integrated terminal. The user sees the command
+// execute so any output / errors are visible inline.
+const LOCKFILE_GENERATE_COMMAND = 'aggrega lockfile generate';
+
+// LOCKFILE_TOAST_BUTTON is the label of the actionable button on
+// the 1003 toast. The handler matches against this literal.
+const LOCKFILE_TOAST_BUTTON = 'Generate Lockfile';
+
+// DaemonErrorContext carries the surfaces the per-code dispatcher
+// writes into. Injecting the surfaces (rather than reaching into
+// module-level singletons or vscode runtime) keeps the dispatcher
+// testable: tests pass fakes for every field.
+export interface DaemonErrorContext {
+  uri: vscode.Uri;
+  workspaceRoot: string;
+  publishShape: (uri: vscode.Uri, shapes: ConvertedShape[]) => void;
+  logLine: (line: string) => void;
+  toastInfo: (message: string, ...items: string[]) => Thenable<string | undefined>;
+  createTerminal: (options: vscode.TerminalOptions) => vscode.Terminal;
+  // toastDedup tracks which error codes already surfaced a toast in
+  // this daemon session. Session-based per-code debounce avoids
+  // toast spam on repeated errors of the same kind while the user
+  // is mid-fix. The caller (extension.ts) owns the Map and clears
+  // it on daemon start/restart via resetSessionDedup.
+  toastDedup: Map<number, true>;
+}
+
+// handleDaemonError routes a daemon-emitted error envelope to the
+// surface appropriate for its code:
+//
+//   1002 (release-not-resolved)   → Error diagnostic at uri:1:1
+//   1003 (lockfile-absent)        → toast with Generate Lockfile button
+//   1004 (entity-not-resolvable)  → Error diagnostic at uri:1:1
+//   1005 (daemon-shutting-down)   → output channel log; no UI
+//
+// Returns true when the code was recognized and handled, false
+// otherwise (so the caller can fall through to its existing generic
+// logging path).
+export function handleDaemonError(err: JsonRpcError, ctx: DaemonErrorContext): boolean {
+  switch (err.code) {
+    case ERR_RELEASE_NOT_RESOLVED:
+      surfaceDiagnostic(ctx, `Release not resolved: ${err.message}`);
+      return true;
+    case ERR_LOCKFILE_ABSENT:
+      surfaceLockfileToast(ctx, err.message);
+      return true;
+    case ERR_ENTITY_NOT_RESOLVABLE:
+      surfaceDiagnostic(ctx, `Entity not resolvable: ${err.message}`);
+      return true;
+    case ERR_SHUTTING_DOWN:
+      ctx.logLine(`[shutting down] ${err.message}`);
+      return true;
+    default:
+      return false;
+  }
+}
+
+function surfaceDiagnostic(ctx: DaemonErrorContext, message: string): void {
+  // Daemon does not populate the error envelope's data field with
+  // source-location info (verified at plan time). Diagnostic
+  // positioning falls back to file:1:1 — squiggle anchors at the
+  // start of the file. A future daemon-side polish populating data
+  // would let this surface attach the diagnostic at the exact
+  // offending position.
+  const shape: ConvertedShape = {
+    startLine: 0,
+    startChar: 0,
+    endLine: 0,
+    endChar: 0,
+    severity: 'error',
+    message,
+    source: 'aggrega',
+  };
+  ctx.publishShape(ctx.uri, [shape]);
+}
+
+function surfaceLockfileToast(ctx: DaemonErrorContext, message: string): void {
+  if (ctx.toastDedup.has(ERR_LOCKFILE_ABSENT)) {
+    // Already shown once this daemon session; log for traceability
+    // and skip the toast to avoid spamming the user.
+    //
+    // Known UX edge case: a user who dismisses the first toast
+    // without clicking the action button gets no further visible
+    // reminder until daemon restart. The output-channel log still
+    // records every emission, but the user has to look. Time-based
+    // re-firing or button-vs-dismissal differentiation are
+    // documented alternatives.
+    ctx.logLine(`[lockfile absent] ${message} (toast suppressed; already shown this session)`);
+    return;
+  }
+  ctx.toastDedup.set(ERR_LOCKFILE_ABSENT, true);
+  ctx.logLine(`[lockfile absent] ${message}`);
+  void ctx.toastInfo(
+    `Aggrega: lockfile missing. ${message}`,
+    LOCKFILE_TOAST_BUTTON,
+  ).then(choice => {
+    if (choice !== LOCKFILE_TOAST_BUTTON) {
+      return;
+    }
+    const terminal = ctx.createTerminal({
+      name: 'Aggrega Lockfile',
+      cwd: ctx.workspaceRoot,
+    });
+    terminal.show();
+    terminal.sendText(LOCKFILE_GENERATE_COMMAND, true);
+  });
+}
+
+// resetSessionDedup clears the per-code debounce state. Called by
+// extension.ts whenever the daemon starts or restarts so the
+// operator gets a fresh chance to see each toast after a fix.
+export function resetSessionDedup(dedup: Map<number, true>): void {
+  dedup.clear();
+}

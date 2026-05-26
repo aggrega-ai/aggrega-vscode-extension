@@ -75,8 +75,36 @@ export interface JsonRpcError {
   data?: unknown;
 }
 
-// Daemon application error codes (see internal/serve/dispatch.go).
+// Daemon application error codes (see internal/serve/errors.go).
 export const ERR_FILE_NOT_VALIDATED = 1001;
 export const ERR_RELEASE_NOT_RESOLVED = 1002;
 export const ERR_LOCKFILE_ABSENT = 1003;
 export const ERR_ENTITY_NOT_RESOLVABLE = 1004;
+export const ERR_SHUTTING_DOWN = 1005;
+
+// ServerInitMetadata is the subset of the aggrega/initialize
+// response that the extension surfaces in the status bar. Populated
+// when the handshake completes; null until then.
+export interface ServerInitMetadata {
+  workspaceRoot: string;
+  configSource: string;
+}
+
+// DaemonDiagnostic mirrors the daemon's per-file Diagnostic wire
+// shape from aggrega/validate and aggrega/diagnostics. Line and
+// column are 1-based per the daemon's LSP-aligned convention;
+// severity is one of "error" | "warning" | "info".
+export interface DaemonDiagnostic {
+  line: number;
+  column: number;
+  severity: string;
+  message: string;
+}
+
+// ValidateResponse is the body the daemon returns for
+// aggrega/validate — diagnostics are returned directly in the
+// response, so no separate aggrega/diagnostics poll is needed for
+// the publish path.
+export interface ValidateResponse {
+  diagnostics: DaemonDiagnostic[];
+}

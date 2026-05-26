@@ -5,20 +5,37 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 
 const CONFIG_FILENAME = '.aggrega-config.yaml';
+const AGGREGA_DIR = '.aggrega';
+const GLOB_PREFIXES = ['aggregate', 'release', 'manifest'] as const;
+const LOCKFILE_SUFFIX = '.lock.yaml';
+const YAML_SUFFIX = '.yaml';
 
-// findAggregaConfigUpward walks parent directories from start looking
-// for .aggrega-config.yaml. Returns the absolute path of the first
-// match (deepest-first wins since the walk goes from start upward),
-// or null if the filesystem root is reached without a match.
+// findAggregaWorkspaceAnchor walks parent directories from start
+// looking for any of the five workspace anchor markers the daemon
+// recognizes:
 //
-// The file's presence is the workspace anchor for the aggrega
-// daemon; its contents are not inspected here.
-export async function findAggregaConfigUpward(start: string): Promise<string | null> {
+//   1. .aggrega-config.yaml         (file)
+//   2. .aggrega/                    (directory)
+//   3. aggregate*.yaml              (glob)
+//   4. release*.yaml                (glob)
+//   5. manifest*.yaml               (glob)
+//
+// Lockfile-suffixed matches (e.g., release.lock.yaml) are excluded
+// from the glob tier so a lockfile alone does not anchor a workspace.
+// Returns the absolute path of the first match (any tier) found in
+// the walk, or null when the filesystem root is reached without a
+// match.
+//
+// The walk is lexical (filepath.Dir-equivalent); symlinks are not
+// dereferenced. Matches the daemon's discoverWorkspaceRoot semantics
+// 1:1 so client and server agree on which workspace folders are
+// Aggrega workspaces.
+export async function findAggregaWorkspaceAnchor(start: string): Promise<string | null> {
   let current = path.resolve(start);
   while (true) {
-    const candidate = path.join(current, CONFIG_FILENAME);
-    if (await fileExists(candidate)) {
-      return candidate;
+    const hit = await checkMarkersInDir(current);
+    if (hit !== null) {
+      return hit;
     }
     const parent = path.dirname(current);
     if (parent === current) {
@@ -28,10 +45,56 @@ export async function findAggregaConfigUpward(start: string): Promise<string | n
   }
 }
 
-async function fileExists(p: string): Promise<boolean> {
+async function checkMarkersInDir(dir: string): Promise<string | null> {
+  const configPath = path.join(dir, CONFIG_FILENAME);
+  if (await isFile(configPath)) {
+    return configPath;
+  }
+  const aggregaDir = path.join(dir, AGGREGA_DIR);
+  if (await isDirectory(aggregaDir)) {
+    return aggregaDir;
+  }
+  // Sort entries for lexical-order parity with the daemon's
+  // filepath.Glob semantics (Go's documented behavior). Node's
+  // readdir order is filesystem-dependent and not part of its API
+  // contract; sorting makes downstream consumers of the returned
+  // path deterministic across platforms.
+  const entries = (await readdirSafe(dir)).sort();
+  for (const prefix of GLOB_PREFIXES) {
+    for (const name of entries) {
+      if (
+        name.startsWith(prefix) &&
+        name.endsWith(YAML_SUFFIX) &&
+        !name.endsWith(LOCKFILE_SUFFIX)
+      ) {
+        return path.join(dir, name);
+      }
+    }
+  }
+  return null;
+}
+
+async function readdirSafe(dir: string): Promise<string[]> {
+  try {
+    return await fs.readdir(dir);
+  } catch {
+    return [];
+  }
+}
+
+async function isFile(p: string): Promise<boolean> {
   try {
     const st = await fs.stat(p);
     return st.isFile();
+  } catch {
+    return false;
+  }
+}
+
+async function isDirectory(p: string): Promise<boolean> {
+  try {
+    const st = await fs.stat(p);
+    return st.isDirectory();
   } catch {
     return false;
   }

@@ -8,6 +8,7 @@ import {
   JsonRpcRequest,
   JsonRpcResponse,
   ServerEncoding,
+  ServerInitMetadata,
 } from './types';
 import { Settings } from './settings';
 
@@ -26,9 +27,17 @@ export enum DaemonState {
 // daemon that misses the window is treated as deadlocked.
 const INITIALIZE_TIMEOUT_MS = 5000;
 
-// SHUTDOWN_GRACE_MS bounds the wait for SIGTERM to take effect
-// before SIGKILL.
-const SHUTDOWN_GRACE_MS = 5000;
+// COOPERATIVE_SHUTDOWN_GRACE_MS bounds how long stop() waits for
+// the daemon to exit on its own after the aggrega/shutdown
+// notification before falling through to SIGTERM. WI-25+ daemons
+// honor the notification and exit within their own 2-second drain
+// budget; pre-WI-25 daemons ignore it and we incur this full wait
+// before escalating. Total stop() worst case: COOPERATIVE + SIGTERM
+// + SIGKILL = 3 + 2 = 5 seconds.
+const COOPERATIVE_SHUTDOWN_GRACE_MS = 3000;
+
+// SIGTERM_GRACE_MS bounds the wait between SIGTERM and SIGKILL.
+const SIGTERM_GRACE_MS = 2000;
 
 // STARTUP_QUEUE_LIMIT caps the requests queued while the subprocess
 // is starting. Excess requests fail with a queue-overflow error.
@@ -102,6 +111,7 @@ export class Daemon extends EventEmitter {
   private startupQueue: QueuedRequest[] = [];
   private nextId = 1;
   private serverEncoding: ServerEncoding = 'utf-16';
+  private serverInitMetadata: ServerInitMetadata | null = null;
   private readBuffer = Buffer.alloc(0);
   private respawnTracker: RespawnTracker;
   private workspaceRoot: string | null = null;
@@ -120,6 +130,49 @@ export class Daemon extends EventEmitter {
   getState(): DaemonState { return this.state; }
   getServerEncoding(): ServerEncoding { return this.serverEncoding; }
 
+  // getServerInitMetadata returns the workspaceRoot + configSource
+  // fields the daemon reported in its aggrega/initialize response,
+  // or null when the handshake has not completed or the response
+  // omitted them (e.g., pre-WI-25 daemons that only carry
+  // capabilities).
+  getServerInitMetadata(): ServerInitMetadata | null { return this.serverInitMetadata; }
+
+  /**
+   * Test-only factory that constructs a Daemon with an
+   * externally-spawned subprocess already attached, bypassing the
+   * usual start() + spawn() + initialize-handshake flow. Used by
+   * tests that need to exercise the daemon's termination path
+   * against a stub subprocess (which cannot satisfy the real
+   * aggrega/initialize handshake).
+   *
+   * The factory transitions the daemon to Running via the normal
+   * setState path so stateChange listeners fire as they would in
+   * production. The subprocess's stdout / stderr / exit handlers
+   * are wired identically to spawnAndInitialize() so handleExit
+   * runs on subprocess termination and lifecycle observation stays
+   * coherent.
+   *
+   * The double-underscore prefix and @internal tag mark this as a
+   * test seam; production callers MUST NOT invoke it. Project lint
+   * rules may ban __-prefixed identifiers in non-test paths.
+   *
+   * @internal
+   */
+  static __forTesting(
+    settings: Settings,
+    proc: ChildProcessWithoutNullStreams,
+  ): Daemon {
+    const d = new Daemon(settings);
+    d.proc = proc;
+    proc.stdout.on('data', (chunk: Buffer) => d.handleStdoutChunk(chunk));
+    proc.stderr.on('data', (chunk: Buffer) => {
+      d.log(`[aggrega serve stderr] ${chunk.toString('utf8').trimEnd()}`);
+    });
+    proc.on('exit', (code, signal) => d.handleExit(code, signal));
+    d.setState(DaemonState.Running);
+    return d;
+  }
+
   async start(workspaceRoot: string): Promise<void> {
     if (this.state !== DaemonState.Stopped) {
       throw new Error(`cannot start: state is ${this.state}`);
@@ -134,7 +187,7 @@ export class Daemon extends EventEmitter {
     }
     this.setState(DaemonState.Stopping);
     this.rejectPending(new Error('daemon shutting down'));
-    await this.terminateSubprocess();
+    await this.terminateSubprocess(/*cooperative=*/ true);
     this.setState(DaemonState.Stopped);
   }
 
@@ -237,9 +290,10 @@ export class Daemon extends EventEmitter {
     if (encoding === null) {
       this.log('initialize response missing capabilities.positionEncoding; defaulting to UTF-16');
       this.serverEncoding = 'utf-16';
-      return;
+    } else {
+      this.serverEncoding = encoding;
     }
-    this.serverEncoding = encoding;
+    this.serverInitMetadata = extractServerInitMetadata(result);
   }
 
   private dispatch(
@@ -343,13 +397,43 @@ export class Daemon extends EventEmitter {
     this.startupQueue = [];
   }
 
-  private async terminateSubprocess(): Promise<void> {
+  private async terminateSubprocess(cooperative = false): Promise<void> {
     const proc = this.proc;
     if (!proc) { return; }
     if (proc.exitCode !== null || proc.signalCode !== null) {
       this.proc = null;
       return;
     }
+
+    // Phase 1 (cooperative, optional): send aggrega/shutdown
+    // notification and wait COOPERATIVE_SHUTDOWN_GRACE_MS. On
+    // WI-25+ daemons the subprocess exits on its own and phases
+    // 2-3 are skipped. On pre-WI-25 daemons (which ignore the
+    // notification) the wait expires and we fall through to
+    // signal-based termination. Skipped on restart() and the
+    // initialize-failure path because cooperative shutdown does not
+    // help when the daemon is unhealthy.
+    if (cooperative) {
+      try {
+        const notification = JSON.stringify({
+          jsonrpc: '2.0',
+          method: 'aggrega/shutdown',
+        });
+        const payload = Buffer.from(notification, 'utf8');
+        const header = Buffer.from(`Content-Length: ${payload.byteLength}\r\n\r\n`, 'ascii');
+        proc.stdin.write(Buffer.concat([header, payload]));
+      } catch {
+        // Subprocess stdin already closed or otherwise unwritable;
+        // fall through to phase 2.
+      }
+      const exitedCooperatively = await waitForExit(proc, COOPERATIVE_SHUTDOWN_GRACE_MS);
+      if (exitedCooperatively) {
+        this.proc = null;
+        return;
+      }
+    }
+
+    // Phase 2: SIGTERM with SIGTERM_GRACE_MS budget.
     await new Promise<void>(resolve => {
       let resolved = false;
       const done = () => { if (!resolved) { resolved = true; resolve(); } };
@@ -357,13 +441,14 @@ export class Daemon extends EventEmitter {
       proc.kill('SIGTERM');
       // Windows: SIGTERM is emulated via TerminateProcess; the grace
       // window collapses to immediate termination. POSIX honors the
-      // 5-second window before SIGKILL escalates.
+      // grace window before SIGKILL escalates.
       setTimeout(() => {
         if (proc.exitCode === null && proc.signalCode === null) {
+          // Phase 3: SIGKILL.
           proc.kill('SIGKILL');
         }
         setTimeout(done, 100);
-      }, SHUTDOWN_GRACE_MS);
+      }, SIGTERM_GRACE_MS);
     });
     this.proc = null;
   }
@@ -386,4 +471,45 @@ function extractServerEncoding(result: unknown): ServerEncoding | null {
   const pe = (caps as { positionEncoding?: unknown }).positionEncoding;
   if (pe === 'utf-8' || pe === 'utf-16') { return pe; }
   return null;
+}
+
+// extractServerInitMetadata reads workspaceRoot + configSource from
+// an aggrega/initialize result. Returns null when either field is
+// missing or malformed — pre-WI-25 daemons omit these fields, in
+// which case the extension's status bar stays hidden until a future
+// daemon upgrade.
+function extractServerInitMetadata(result: unknown): ServerInitMetadata | null {
+  if (!result || typeof result !== 'object') { return null; }
+  const workspaceRoot = (result as { workspaceRoot?: unknown }).workspaceRoot;
+  const configSource = (result as { configSource?: unknown }).configSource;
+  if (typeof workspaceRoot !== 'string' || workspaceRoot === '') { return null; }
+  if (typeof configSource !== 'string' || configSource === '') { return null; }
+  return { workspaceRoot, configSource };
+}
+
+// waitForExit resolves true when the child process exits within
+// timeoutMs, false on timeout. Used by terminateSubprocess's
+// cooperative phase to bound the wait for an aggrega/shutdown
+// initiated exit before escalating to SIGTERM.
+function waitForExit(
+  proc: ChildProcessWithoutNullStreams,
+  timeoutMs: number,
+): Promise<boolean> {
+  return new Promise(resolve => {
+    if (proc.exitCode !== null || proc.signalCode !== null) {
+      resolve(true);
+      return;
+    }
+    let settled = false;
+    const settle = (exited: boolean) => {
+      if (settled) { return; }
+      settled = true;
+      proc.removeListener('exit', onExit);
+      clearTimeout(timer);
+      resolve(exited);
+    };
+    const onExit = () => settle(true);
+    proc.once('exit', onExit);
+    const timer = setTimeout(() => settle(false), timeoutMs);
+  });
 }

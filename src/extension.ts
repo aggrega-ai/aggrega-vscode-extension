@@ -5,12 +5,15 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { Daemon, DaemonState } from './daemon';
 import { debounce } from './debounce';
+import { publishDiagnostics, publishShapes } from './diagnostics';
+import { handleDaemonError, resetSessionDedup } from './error-surfaces';
 import {
   notifyDaemonStartupFailed,
   notifyStoppedResponding,
   promptCacheMiss,
 } from './notifications';
 import { getSettings } from './settings-vscode';
+import { createAggregaStatusBar } from './status-bar';
 import {
   lspCompletionToCompletion,
   lspDefinitionToResolve,
@@ -24,11 +27,17 @@ import {
   ERR_FILE_NOT_VALIDATED,
   JsonRpcError,
   ValidateParams,
+  ValidateResponse,
 } from './types';
-import { findAggregaConfigUpward } from './workspace';
+import { findAggregaWorkspaceAnchor } from './workspace';
 
 let daemon: Daemon | null = null;
 let outputChannel: vscode.OutputChannel | null = null;
+let diagnosticCollection: vscode.DiagnosticCollection | null = null;
+let workspaceRootForCommands: string | null = null;
+const toastDedup = new Map<number, true>();
+
+const BINARY_PATH_TOAST_BUTTON = 'Restart Now';
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   outputChannel = vscode.window.createOutputChannel('Aggrega');
@@ -38,14 +47,25 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   if (!workspaceRoot) {
     return;
   }
+  workspaceRootForCommands = workspaceRoot;
 
-  const configFound = await findAggregaConfigUpward(workspaceRoot);
-  if (!configFound) {
+  const anchor = await findAggregaWorkspaceAnchor(workspaceRoot);
+  if (!anchor) {
     return;
   }
 
+  diagnosticCollection = vscode.languages.createDiagnosticCollection('aggrega');
+  context.subscriptions.push(diagnosticCollection);
+
   daemon = new Daemon(getSettings(), msg => outputChannel?.appendLine(msg));
   daemon.on('stoppedResponding', () => notifyStoppedResponding());
+  daemon.on('stateChange', (next) => {
+    if (next === DaemonState.Running || next === DaemonState.Restarting) {
+      resetSessionDedup(toastDedup);
+    }
+  });
+
+  createAggregaStatusBar(context, daemon);
 
   try {
     await daemon.start(workspaceRoot);
@@ -57,8 +77,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration(e => {
-      if (e.affectsConfiguration('aggrega.server') && daemon) {
-        daemon.updateSettings(getSettings());
+      if (!e.affectsConfiguration('aggrega.server') || !daemon) {
+        return;
+      }
+      daemon.updateSettings(getSettings());
+      if (e.affectsConfiguration('aggrega.server.binaryPath')) {
+        promptBinaryPathRestart();
       }
     }),
   );
@@ -67,6 +91,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   registerLanguageFeatures(context);
   registerFileWatcher(context);
   registerRestartCommand(context);
+  registerCloseHandler(context);
 }
 
 export async function deactivate(): Promise<void> {
@@ -81,9 +106,20 @@ function registerDocumentLifecycle(context: vscode.ExtensionContext): void {
     if (!daemon || daemon.getState() !== DaemonState.Running) { return; }
     if (doc.languageId !== 'yaml') { return; }
     const params: ValidateParams = { file: doc.uri.fsPath, content: doc.getText() };
-    daemon.request('aggrega/validate', params).catch(err => {
-      outputChannel?.appendLine(`validate failed: ${describeError(err)}`);
-    });
+    daemon.request<ValidateResponse>('aggrega/validate', params).then(
+      response => {
+        if (diagnosticCollection) {
+          publishDiagnostics(diagnosticCollection, doc.uri, response.diagnostics ?? []);
+        }
+      },
+      err => {
+        const ctx = buildErrorContext(doc.uri);
+        if (ctx && isJsonRpcError(err) && handleDaemonError(err, ctx)) {
+          return;
+        }
+        outputChannel?.appendLine(`validate failed: ${describeError(err)}`);
+      },
+    );
   };
 
   context.subscriptions.push(
@@ -101,6 +137,21 @@ function registerDocumentLifecycle(context: vscode.ExtensionContext): void {
   for (const doc of vscode.workspace.textDocuments) {
     validate(doc);
   }
+}
+
+function registerCloseHandler(context: vscode.ExtensionContext): void {
+  context.subscriptions.push(
+    vscode.workspace.onDidCloseTextDocument(doc => {
+      if (doc.languageId !== 'yaml') { return; }
+      // Clear local diagnostic-collection entry only. No
+      // aggrega/invalidate call: the daemon's current invalidate
+      // semantics drop the workspace-wide resolved-catalog cache,
+      // which is a measurable cost on every file flip. The daemon's
+      // parse cache evicts on access via mtime check; per-URI
+      // cache trim is wired once daemon ships per-file granularity.
+      diagnosticCollection?.delete(doc.uri);
+    }),
+  );
 }
 
 function registerLanguageFeatures(context: vscode.ExtensionContext): void {
@@ -193,6 +244,17 @@ function registerRestartCommand(context: vscode.ExtensionContext): void {
   }));
 }
 
+function promptBinaryPathRestart(): void {
+  void vscode.window.showInformationMessage(
+    'Aggrega: binary path changed. Restart the language server for the change to take effect.',
+    BINARY_PATH_TOAST_BUTTON,
+  ).then(choice => {
+    if (choice === BINARY_PATH_TOAST_BUTTON) {
+      void vscode.commands.executeCommand('aggrega.server.restart');
+    }
+  });
+}
+
 async function navigationRequest(
   method: string,
   doc: vscode.TextDocument,
@@ -246,12 +308,38 @@ async function tryRequest<T>(method: string, params: unknown, doc: vscode.TextDo
   try {
     return await daemon.request<T>(method, params);
   } catch (err) {
-    if (isJsonRpcError(err) && err.code === ERR_FILE_NOT_VALIDATED) {
-      return await handleCacheMiss<T>(method, params, doc);
+    if (isJsonRpcError(err)) {
+      if (err.code === ERR_FILE_NOT_VALIDATED) {
+        return await handleCacheMiss<T>(method, params, doc);
+      }
+      const ctx = buildErrorContext(doc.uri);
+      if (ctx && handleDaemonError(err, ctx)) {
+        return null;
+      }
     }
     outputChannel?.appendLine(`${method} failed: ${describeError(err)}`);
     return null;
   }
+}
+
+function buildErrorContext(uri: vscode.Uri) {
+  if (!diagnosticCollection || !outputChannel || !workspaceRootForCommands) {
+    return null;
+  }
+  const collection = diagnosticCollection;
+  const channel = outputChannel;
+  return {
+    uri,
+    workspaceRoot: workspaceRootForCommands,
+    publishShape: (u: vscode.Uri, shapes: Parameters<typeof publishShapes>[2]) =>
+      publishShapes(collection, u, shapes),
+    logLine: (line: string) => channel.appendLine(line),
+    toastInfo: (message: string, ...items: string[]) =>
+      vscode.window.showInformationMessage(message, ...items),
+    createTerminal: (options: vscode.TerminalOptions) =>
+      vscode.window.createTerminal(options),
+    toastDedup,
+  };
 }
 
 async function handleCacheMiss<T>(method: string, params: unknown, doc: vscode.TextDocument): Promise<T | null> {
