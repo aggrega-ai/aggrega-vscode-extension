@@ -78,6 +78,25 @@ export interface JsonRpcResponse {
   error?: JsonRpcError;
 }
 
+// JsonRpcNotification is a server-push JSON-RPC 2.0 message — no
+// id field, no expected response. The daemon emits
+// aggrega/publishDiagnostics as a notification when diagnostic
+// state changes. The Daemon class routes these by method via its
+// EventEmitter using the convention `notification:<method>`.
+export interface JsonRpcNotification {
+  jsonrpc: '2.0';
+  method: string;
+  params?: unknown;
+}
+
+// PublishDiagnosticsParams is the params shape carried by the
+// aggrega/publishDiagnostics notification. An empty diagnostics
+// array signals "clear this file's DiagnosticCollection entry."
+export interface PublishDiagnosticsParams {
+  file: string;
+  diagnostics: DaemonDiagnostic[];
+}
+
 export interface JsonRpcError {
   code: number;
   message: string;

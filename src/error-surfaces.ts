@@ -14,7 +14,22 @@ import { ConvertedShape } from './diagnostics-shape';
 // LOCKFILE_GENERATE_COMMAND is the shell command the 1003 toast's
 // button runs in the integrated terminal. The user sees the command
 // execute so any output / errors are visible inline.
-const LOCKFILE_GENERATE_COMMAND = 'aggrega lockfile generate';
+//
+// aggrega pull is the canonical lockfile-generation entry point —
+// its short description reads "Resolve catalog and source
+// dependencies into the cache and write the per-Release lockfile."
+// An earlier draft of this extension referenced a non-existent
+// `aggrega lockfile generate` subcommand; this constant carries
+// the correct command name now that the daemon-side trigger ships.
+const LOCKFILE_GENERATE_COMMAND = 'aggrega pull';
+
+// LOCKFILE_GENERATE_TOOLTIP is the operator-facing clarification
+// of what the "Generate Lockfile" button actually invokes. VS Code's
+// showInformationMessage API does not support per-button tooltips,
+// so this text is incorporated into the toast's main message body
+// rather than attached to the button.
+const LOCKFILE_GENERATE_TOOLTIP =
+  'The Generate Lockfile button runs `aggrega pull` — pulls catalog dependencies into the cache and writes the per-Release lockfile.';
 
 // LOCKFILE_TOAST_BUTTON is the label of the actionable button on
 // the 1003 toast. The handler matches against this literal.
@@ -107,7 +122,7 @@ function surfaceLockfileToast(ctx: DaemonErrorContext, message: string): void {
   ctx.toastDedup.set(ERR_LOCKFILE_ABSENT, true);
   ctx.logLine(`[lockfile absent] ${message}`);
   void ctx.toastInfo(
-    `Aggrega: lockfile missing. ${message}`,
+    `Aggrega: lockfile missing. ${message}. ${LOCKFILE_GENERATE_TOOLTIP}`,
     LOCKFILE_TOAST_BUTTON,
   ).then(choice => {
     if (choice !== LOCKFILE_TOAST_BUTTON) {

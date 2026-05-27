@@ -41,3 +41,71 @@ describe('RespawnTracker', () => {
     assert.strictEqual(t.attemptCount(3), 0);
   });
 });
+
+describe('Daemon notification routing', () => {
+  // Imports the JSON-RPC notification dispatch path: messages
+  // without an id field route to listeners registered via
+  // daemon.on('notification:<method>', cb). Pins the wire-shape
+  // detection so the at-startup aggrega/publishDiagnostics flow
+  // reaches its subscriber correctly.
+  it('routes a method-keyed event for a no-id message', async () => {
+    const { Daemon } = await import('../../src/daemon');
+    const { settingsFromObject } = await import('../../src/settings');
+    const daemon = new Daemon(settingsFromObject({}));
+
+    const received: Array<unknown> = [];
+    daemon.on('notification:aggrega/publishDiagnostics', (params: unknown) => {
+      received.push(params);
+    });
+
+    // Feed a Content-Length-framed notification through the
+    // private handleStdoutChunk entry. The test inspects the
+    // EventEmitter's listener side effect.
+    const payload = JSON.stringify({
+      jsonrpc: '2.0',
+      method: 'aggrega/publishDiagnostics',
+      params: { file: '/workspace/release.lock', diagnostics: [] },
+    });
+    const message = Buffer.from(
+      `Content-Length: ${Buffer.byteLength(payload)}\r\n\r\n${payload}`,
+      'utf8',
+    );
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (daemon as any).handleStdoutChunk(message);
+
+    assert.strictEqual(received.length, 1, 'expected one notification dispatch');
+    assert.deepStrictEqual(received[0], {
+      file: '/workspace/release.lock',
+      diagnostics: [],
+    });
+  });
+
+  it('still dispatches responses (id present) via the existing pending-id path', async () => {
+    const { Daemon } = await import('../../src/daemon');
+    const { settingsFromObject } = await import('../../src/settings');
+    const daemon = new Daemon(settingsFromObject({}));
+
+    let notifFired = false;
+    daemon.on('notification:aggrega/publishDiagnostics', () => {
+      notifFired = true;
+    });
+
+    // Feed a response (id present). The id won't match any
+    // pending request — the log fires but the notification
+    // listener should NOT trigger.
+    const payload = JSON.stringify({
+      jsonrpc: '2.0',
+      id: 999,
+      method: 'aggrega/publishDiagnostics',
+      result: {},
+    });
+    const message = Buffer.from(
+      `Content-Length: ${Buffer.byteLength(payload)}\r\n\r\n${payload}`,
+      'utf8',
+    );
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (daemon as any).handleStdoutChunk(message);
+
+    assert.strictEqual(notifFired, false, 'a response (id present) must NOT route as a notification');
+  });
+});

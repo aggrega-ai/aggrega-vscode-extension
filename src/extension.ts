@@ -27,6 +27,7 @@ import {
   DaemonLocation,
   ERR_FILE_NOT_VALIDATED,
   JsonRpcError,
+  PublishDiagnosticsParams,
   ValidateParams,
   ValidateResponse,
 } from './types';
@@ -64,6 +65,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (next === DaemonState.Running || next === DaemonState.Restarting) {
       resetSessionDedup(toastDedup);
     }
+  });
+
+  // Subscribe to the daemon's aggrega/publishDiagnostics server-push
+  // notification. The daemon fires this on every diagnostic state
+  // change (currently used for lockfile drift on the lockfile file
+  // path); the payload routes to the existing DiagnosticCollection.
+  // Empty diagnostics arrays clear the file's collection entry.
+  daemon.on('notification:aggrega/publishDiagnostics', (params: PublishDiagnosticsParams) => {
+    if (!diagnosticCollection) { return; }
+    const uri = vscode.Uri.file(params.file);
+    publishDiagnostics(diagnosticCollection, uri, params.diagnostics);
   });
 
   createAggregaStatusBar(context, daemon);

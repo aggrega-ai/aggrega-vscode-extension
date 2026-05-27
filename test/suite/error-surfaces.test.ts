@@ -202,7 +202,7 @@ describe('handleDaemonError', () => {
     assert.strictEqual(created.options.name, 'Aggrega Lockfile');
     assert.strictEqual(created.options.cwd, '/workspace');
     assert.strictEqual(created.terminal.shown, true);
-    assert.deepStrictEqual(created.terminal.sentText, ['aggrega lockfile generate']);
+    assert.deepStrictEqual(created.terminal.sentText, ['aggrega pull']);
   });
 
   it('1003 toast dismissal does not open a terminal', async () => {

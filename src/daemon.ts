@@ -5,12 +5,22 @@ import { ChildProcessWithoutNullStreams, spawn } from 'child_process';
 import { EventEmitter } from 'events';
 import {
   JsonRpcError,
+  JsonRpcNotification,
   JsonRpcRequest,
   JsonRpcResponse,
   ServerEncoding,
   ServerInitMetadata,
 } from './types';
 import { Settings } from './settings';
+
+// isNotification distinguishes JSON-RPC 2.0 server-push
+// notifications (no id field) from responses (id present). The
+// daemon emits aggrega/publishDiagnostics as a notification when
+// diagnostic state changes; the dispatcher routes by method via
+// the Daemon class's EventEmitter.
+function isNotification(msg: JsonRpcResponse | JsonRpcNotification): msg is JsonRpcNotification {
+  return !('id' in msg) || (msg as { id?: unknown }).id === undefined;
+}
 
 // DaemonState is the lifecycle position of the Daemon subprocess.
 // Request dispatch consults state to decide whether to dispatch
@@ -345,8 +355,12 @@ export class Daemon extends EventEmitter {
       const body = this.readBuffer.subarray(bodyStart, bodyStart + length).toString('utf8');
       this.readBuffer = this.readBuffer.subarray(bodyStart + length);
       try {
-        const message = JSON.parse(body) as JsonRpcResponse;
-        this.handleResponse(message);
+        const parsed = JSON.parse(body) as JsonRpcResponse | JsonRpcNotification;
+        if (isNotification(parsed)) {
+          this.emit(`notification:${parsed.method}`, parsed.params);
+        } else {
+          this.handleResponse(parsed as JsonRpcResponse);
+        }
       } catch (err) {
         this.log(`failed to parse JSON-RPC body: ${(err as Error).message}`);
       }
