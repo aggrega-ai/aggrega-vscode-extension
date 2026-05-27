@@ -26,6 +26,11 @@ export function createAggregaStatusBar(
     vscode.StatusBarAlignment.Right,
     STATUS_BAR_PRIORITY,
   );
+  // Clicking the item opens the quick-pick menu wired in
+  // extension.ts. The command id is also exposed via package.json's
+  // contributes.commands so the Command Palette surfaces it for
+  // keyboard-driven operators.
+  item.command = 'aggrega.statusBar.openMenu';
   context.subscriptions.push(item);
 
   const refresh = () => {

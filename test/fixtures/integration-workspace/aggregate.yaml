@@ -1,0 +1,5 @@
+apiVersion: aggrega.ai/v1alpha1
+kind: Aggregate
+metadata:
+  name: integration-fixture
+spec: {}

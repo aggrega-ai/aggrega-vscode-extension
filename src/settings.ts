@@ -7,6 +7,9 @@ export interface Settings {
   debounceMs: number;
   respawnAttempts: number;
   respawnWindowSeconds: number;
+  restartGraceSeconds: number;
+  toastDebounceMode: 'time' | 'session';
+  toastThrottleSeconds: number;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -15,6 +18,9 @@ export const DEFAULT_SETTINGS: Settings = {
   debounceMs: 300,
   respawnAttempts: 5,
   respawnWindowSeconds: 180,
+  restartGraceSeconds: 5,
+  toastDebounceMode: 'time',
+  toastThrottleSeconds: 300,
 };
 
 // settingsFromObject builds a Settings object by overlaying input

@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cognitio S.r.l.
 
+import { execFile } from 'child_process';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { applyDocumentClose } from './close-handler';
 import { Daemon, DaemonState } from './daemon';
 import { debounce } from './debounce';
 import { publishDiagnostics, publishShapes } from './diagnostics';
@@ -15,6 +15,8 @@ import {
 } from './notifications';
 import { getSettings } from './settings-vscode';
 import { createAggregaStatusBar } from './status-bar';
+import { scheduleBinaryRestart, RestartHandle } from './binary-restart';
+import { checkDaemonVersion } from './version-check';
 import {
   lspCompletionToCompletion,
   lspDefinitionToResolve,
@@ -37,9 +39,11 @@ let daemon: Daemon | null = null;
 let outputChannel: vscode.OutputChannel | null = null;
 let diagnosticCollection: vscode.DiagnosticCollection | null = null;
 let workspaceRootForCommands: string | null = null;
-const toastDedup = new Map<number, true>();
-
-const BINARY_PATH_TOAST_BUTTON = 'Restart Now';
+const toastDebounce = new Map<number, true | number>();
+let pendingRestart: RestartHandle | null = null;
+let pendingRestartRemaining = 0;
+let statusBarItem: vscode.StatusBarItem | null = null;
+let baseStatusBarText = '';
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   outputChannel = vscode.window.createOutputChannel('Aggrega');
@@ -63,7 +67,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   daemon.on('stoppedResponding', () => notifyStoppedResponding());
   daemon.on('stateChange', (next) => {
     if (next === DaemonState.Running || next === DaemonState.Restarting) {
-      resetSessionDedup(toastDedup);
+      resetSessionDedup(toastDebounce);
     }
   });
 
@@ -78,7 +82,28 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     publishDiagnostics(diagnosticCollection, uri, params.diagnostics);
   });
 
-  createAggregaStatusBar(context, daemon);
+  statusBarItem = createAggregaStatusBar(context, daemon);
+
+  // Register commands BEFORE attempting daemon.start so the
+  // Command Palette + status bar quick-pick remain usable even when
+  // the daemon binary is missing or fails to start. The handlers
+  // gracefully no-op (or show a warning) when daemon === null.
+  registerRestartCommand(context);
+  registerStatusBarMenu(context);
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration(e => {
+      if (!e.affectsConfiguration('aggrega.server') && !e.affectsConfiguration('aggrega.notifications')) {
+        return;
+      }
+      if (!daemon) {
+        return;
+      }
+      daemon.updateSettings(getSettings());
+      if (e.affectsConfiguration('aggrega.server.binaryPath')) {
+        scheduleBinaryPathRestart();
+      }
+    }),
+  );
 
   try {
     await daemon.start(workspaceRoot);
@@ -88,22 +113,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     return;
   }
 
-  context.subscriptions.push(
-    vscode.workspace.onDidChangeConfiguration(e => {
-      if (!e.affectsConfiguration('aggrega.server') || !daemon) {
-        return;
-      }
-      daemon.updateSettings(getSettings());
-      if (e.affectsConfiguration('aggrega.server.binaryPath')) {
-        promptBinaryPathRestart();
-      }
-    }),
-  );
+  // Compatibility check: spawn the configured binary with
+  // `version --json` and compare the reported version to the
+  // declared compatibilityRange. Best-effort — the result is
+  // surfaced via the same OutputChannel the daemon's stderr
+  // streams into; a mismatch warns the operator via toast.
+  void runCompatibilityCheck();
 
   registerDocumentLifecycle(context);
   registerLanguageFeatures(context);
   registerFileWatcher(context);
-  registerRestartCommand(context);
   registerCloseHandler(context);
 }
 
@@ -153,16 +172,25 @@ function registerDocumentLifecycle(context: vscode.ExtensionContext): void {
 }
 
 function registerCloseHandler(context: vscode.ExtensionContext): void {
+  // On document close: clear the per-URI diagnostic-collection entry
+  // synchronously so squiggles disappear immediately; then
+  // fire-and-forget aggrega/invalidate with granularity: "file" to
+  // drop the daemon's per-file parse + diagnostic caches. The two
+  // operations are independent — the local clear precedes the daemon
+  // call so UX latency is bounded by VS Code's own dispatch. A
+  // missed invalidate is harmless: the daemon's cache stays slightly
+  // populated; the next aggrega/validate refreshes the entry via
+  // mtime-on-access eviction.
   context.subscriptions.push(
     vscode.workspace.onDidCloseTextDocument(doc => {
       if (doc.languageId !== 'yaml') { return; }
-      applyDocumentClose(doc.uri, doc.uri.fsPath, {
-        diagnosticCollection,
-        daemonRequest: daemon
-          ? (method, params) => daemon!.request(method, params)
-          : null,
-        logLine: line => outputChannel?.appendLine(line),
-        describeError,
+      diagnosticCollection?.delete(doc.uri);
+      if (!daemon) { return; }
+      daemon.request('aggrega/invalidate', {
+        file: doc.uri.fsPath,
+        granularity: 'file',
+      }).catch(err => {
+        outputChannel?.appendLine(`invalidate (didClose) failed: ${describeError(err)}`);
       });
     }),
   );
@@ -258,15 +286,155 @@ function registerRestartCommand(context: vscode.ExtensionContext): void {
   }));
 }
 
-function promptBinaryPathRestart(): void {
-  void vscode.window.showInformationMessage(
-    'Aggrega: binary path changed. Restart the language server for the change to take effect.',
-    BINARY_PATH_TOAST_BUTTON,
-  ).then(choice => {
-    if (choice === BINARY_PATH_TOAST_BUTTON) {
-      void vscode.commands.executeCommand('aggrega.server.restart');
-    }
+// scheduleBinaryPathRestart kicks off a deferred restart after the
+// configured grace window. Mid-grace, the status bar shows a
+// countdown; the quick-action menu surfaces Restart now and Cancel
+// restart entries so the operator can adjust the decision without
+// waiting for the timer to expire. A previously-pending restart is
+// cancelled before a new one is scheduled so rapid binaryPath edits
+// (e.g., during a typo correction) don't double-schedule.
+function scheduleBinaryPathRestart(): void {
+  if (pendingRestart) {
+    pendingRestart.cancel();
+    pendingRestart = null;
+  }
+  const graceSeconds = getSettings().restartGraceSeconds;
+  if (graceSeconds <= 0) {
+    triggerRestart();
+    return;
+  }
+  pendingRestartRemaining = graceSeconds;
+  updateStatusBarForPendingRestart();
+  outputChannel?.appendLine(`binary path changed; restarting in ${graceSeconds}s`);
+  pendingRestart = scheduleBinaryRestart({
+    graceSeconds,
+    timer: {
+      setTimeout: (handler, ms) => setTimeout(handler, ms),
+      clearTimeout: (handle) => clearTimeout(handle as NodeJS.Timeout),
+      now: () => Date.now(),
+    },
+    restartFn: triggerRestart,
+    onTick: (remaining) => {
+      pendingRestartRemaining = remaining;
+      updateStatusBarForPendingRestart();
+    },
+    onCancel: () => {
+      pendingRestart = null;
+      pendingRestartRemaining = 0;
+      restoreStatusBar();
+      outputChannel?.appendLine('binary path restart cancelled');
+    },
+    onComplete: () => {
+      pendingRestart = null;
+      pendingRestartRemaining = 0;
+      restoreStatusBar();
+    },
   });
+}
+
+function triggerRestart(): void {
+  void vscode.commands.executeCommand('aggrega.server.restart');
+}
+
+function updateStatusBarForPendingRestart(): void {
+  if (!statusBarItem) { return; }
+  if (!baseStatusBarText) {
+    baseStatusBarText = statusBarItem.text;
+  }
+  statusBarItem.text = `Aggrega: restarting in ${pendingRestartRemaining}s`;
+}
+
+function restoreStatusBar(): void {
+  if (!statusBarItem || !baseStatusBarText) { return; }
+  statusBarItem.text = baseStatusBarText;
+  baseStatusBarText = '';
+}
+
+// runCompatibilityCheck spawns the configured binary with
+// `version --json` and applies the policy from version-check.ts.
+// Best-effort: a `skipped` or `error` outcome logs to the
+// OutputChannel without surfacing a toast; only `mismatch` warns
+// the operator.
+async function runCompatibilityCheck(): Promise<void> {
+  const settings = getSettings();
+  const ext = vscode.extensions.getExtension('aggrega-ai.aggrega-vscode-extension');
+  const compatibilityRange = (ext?.packageJSON as { aggregaCompatibility?: string } | undefined)?.aggregaCompatibility;
+  const result = await checkDaemonVersion({
+    binaryPath: settings.binaryPath,
+    compatibilityRange,
+    spawn: spawnForCompat,
+  });
+  switch (result.kind) {
+    case 'match':
+      outputChannel?.appendLine(`Aggrega daemon version ${result.version} matches the declared compatibility range.`);
+      return;
+    case 'mismatch':
+      void vscode.window.showWarningMessage(
+        `Aggrega daemon version ${result.version} is outside the extension's declared compatibility range (${result.range}). Behavior may be unstable; consider upgrading the daemon or downgrading the extension.`,
+      );
+      outputChannel?.appendLine(`Aggrega daemon version ${result.version} outside compatibility range ${result.range}.`);
+      return;
+    case 'skipped':
+      outputChannel?.appendLine(`Aggrega version check skipped: ${result.reason}`);
+      return;
+    case 'error':
+      outputChannel?.appendLine(`Aggrega version check failed: ${result.err.message}`);
+      return;
+  }
+}
+
+function spawnForCompat(binaryPath: string, args: string[]): Promise<string> {
+  return new Promise((resolve, reject) => {
+    execFile(binaryPath, args, { timeout: 5000 }, (err, stdout) => {
+      if (err) {
+        reject(err);
+        return;
+      }
+      resolve(stdout);
+    });
+  });
+}
+
+// registerStatusBarMenu wires the status bar item's command to a
+// quick-pick menu. During a pending restart, the menu surfaces
+// Restart now / Cancel restart at the top of the list so the operator
+// can adjust the timer without waiting for it to expire.
+function registerStatusBarMenu(context: vscode.ExtensionContext): void {
+  context.subscriptions.push(vscode.commands.registerCommand('aggrega.statusBar.openMenu', async () => {
+    const items: vscode.QuickPickItem[] = [];
+    if (pendingRestart) {
+      items.push({ label: 'Restart now', description: 'Run the pending restart immediately' });
+      items.push({ label: 'Cancel restart', description: `Abort the pending restart (${pendingRestartRemaining}s remaining)` });
+    }
+    items.push(
+      { label: 'Restart server', description: 'Restart the Aggrega language server' },
+      { label: 'View output', description: 'Open the Aggrega output channel' },
+      { label: 'Reveal workspace root', description: workspaceRootForCommands ?? 'Workspace not yet known' },
+      { label: 'Show server log', description: 'Focus the daemon log' },
+    );
+    const choice = await vscode.window.showQuickPick(items, { placeHolder: 'Aggrega: choose an action' });
+    if (!choice) { return; }
+    switch (choice.label) {
+      case 'Restart now':
+        pendingRestart?.restartNow();
+        return;
+      case 'Cancel restart':
+        pendingRestart?.cancel();
+        return;
+      case 'Restart server':
+        void vscode.commands.executeCommand('aggrega.server.restart');
+        return;
+      case 'View output':
+      case 'Show server log':
+        outputChannel?.show();
+        return;
+      case 'Reveal workspace root':
+        if (workspaceRootForCommands) {
+          void vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(workspaceRootForCommands));
+        }
+        return;
+    }
+  }));
 }
 
 async function navigationRequest(
@@ -342,6 +510,7 @@ function buildErrorContext(uri: vscode.Uri) {
   }
   const collection = diagnosticCollection;
   const channel = outputChannel;
+  const settings = getSettings();
   return {
     uri,
     workspaceRoot: workspaceRootForCommands,
@@ -352,7 +521,10 @@ function buildErrorContext(uri: vscode.Uri) {
       vscode.window.showInformationMessage(message, ...items),
     createTerminal: (options: vscode.TerminalOptions) =>
       vscode.window.createTerminal(options),
-    toastDedup,
+    toastDebounce,
+    toastDebounceMode: settings.toastDebounceMode,
+    toastThrottleSeconds: settings.toastThrottleSeconds,
+    now: () => Date.now(),
   };
 }
 

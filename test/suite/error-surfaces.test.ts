@@ -30,7 +30,10 @@ interface ContextFixture {
   toastCalls: Array<{ message: string; items: string[] }>;
   toastResponse: string | undefined;
   terminalsCreated: Array<{ options: { name: string; cwd: string }; terminal: FakeTerminal }>;
-  toastDedup: Map<number, true>;
+  toastDebounce: Map<number, true | number>;
+  toastDebounceMode: 'time' | 'session';
+  toastThrottleSeconds: number;
+  currentTime: number;
 }
 
 function makeContext(initial?: Partial<ContextFixture>): ContextFixture & {
@@ -43,7 +46,10 @@ function makeContext(initial?: Partial<ContextFixture>): ContextFixture & {
     toastCalls: [],
     toastResponse: undefined,
     terminalsCreated: [],
-    toastDedup: new Map(),
+    toastDebounce: new Map(),
+    toastDebounceMode: 'session',
+    toastThrottleSeconds: 300,
+    currentTime: 0,
     ...initial,
   };
   const ctx = {
@@ -67,7 +73,10 @@ function makeContext(initial?: Partial<ContextFixture>): ContextFixture & {
       fixture.terminalsCreated.push({ options, terminal });
       return terminal as any;
     },
-    toastDedup: fixture.toastDedup,
+    toastDebounce: fixture.toastDebounce,
+    toastDebounceMode: fixture.toastDebounceMode,
+    toastThrottleSeconds: fixture.toastThrottleSeconds,
+    now: () => fixture.currentTime,
   };
   return Object.assign(fixture, { ctx });
 }
@@ -179,7 +188,7 @@ describe('handleDaemonError', () => {
     assert.deepStrictEqual(f.toastCalls[0].items, ['Generate Lockfile']);
     assert.ok(f.toastCalls[0].message.includes('lockfile missing'));
     assert.strictEqual(f.publishCalls.length, 0);
-    assert.strictEqual(f.toastDedup.has(ERR_LOCKFILE_ABSENT), true);
+    assert.strictEqual(f.toastDebounce.has(ERR_LOCKFILE_ABSENT), true);
   });
 
   it('1003 second call is suppressed by session dedup, still logs', () => {
@@ -226,10 +235,76 @@ describe('handleDaemonError', () => {
   });
 
   it('resetSessionDedup clears the dedup map', () => {
-    const dedup = new Map<number, true>();
+    const dedup = new Map<number, true | number>();
     dedup.set(ERR_LOCKFILE_ABSENT, true);
     dedup.set(ERR_SHUTTING_DOWN, true);
     resetSessionDedup(dedup);
     assert.strictEqual(dedup.size, 0);
+  });
+
+  it('time mode: fires first toast, suppresses within throttle, re-fires after expiry', async () => {
+    const f = makeContext({
+      toastDebounceMode: 'time',
+      toastThrottleSeconds: 60,
+      currentTime: 1_000_000,
+    });
+    // First emission fires the toast.
+    handleDaemonError({ code: ERR_LOCKFILE_ABSENT, message: 'no lockfile' }, f.ctx);
+    await new Promise(resolve => setImmediate(resolve));
+    await new Promise(resolve => setImmediate(resolve));
+    assert.strictEqual(f.toastCalls.length, 1, 'first emission should fire toast');
+
+    // Second emission immediately after Promise resolution — within
+    // the 60s window — is suppressed.
+    f.currentTime = 1_000_000 + 30 * 1000;
+    handleDaemonError({ code: ERR_LOCKFILE_ABSENT, message: 'still no lockfile' }, f.ctx);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.strictEqual(f.toastCalls.length, 1, 'within throttle should suppress');
+
+    // After the throttle expires, the toast re-fires.
+    f.currentTime = 1_000_000 + 90 * 1000;
+    handleDaemonError({ code: ERR_LOCKFILE_ABSENT, message: 'still no lockfile' }, f.ctx);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.strictEqual(f.toastCalls.length, 2, 'past throttle expiry should re-fire');
+  });
+
+  it('time mode: each error code throttled independently', async () => {
+    const f = makeContext({
+      toastDebounceMode: 'time',
+      toastThrottleSeconds: 60,
+      currentTime: 1_000_000,
+    });
+    // Fire 1003, then fire 1004 immediately — different codes, both
+    // surface. (1004 routes via the diagnostic path, not the toast
+    // path, so this assertion checks the model rather than the
+    // specific 1004 wire — by populating the debounce map for 1003
+    // and confirming a separate code isn't affected.)
+    handleDaemonError({ code: ERR_LOCKFILE_ABSENT, message: 'no lockfile' }, f.ctx);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.strictEqual(f.toastCalls.length, 1);
+    // The 1003 entry is now in the debounce map; another 1003 within
+    // 60s would suppress. A different code's emission is unaffected
+    // because the map keys by code.
+    assert.strictEqual(f.toastDebounce.has(ERR_LOCKFILE_ABSENT), true);
+    assert.strictEqual(f.toastDebounce.has(ERR_RELEASE_NOT_RESOLVED), false);
+  });
+
+  it('time mode: throttle window starts on Promise resolution, not on toast emission', async () => {
+    const f = makeContext({
+      toastDebounceMode: 'time',
+      toastThrottleSeconds: 60,
+      currentTime: 1_000_000,
+    });
+    handleDaemonError({ code: ERR_LOCKFILE_ABSENT, message: 'no lockfile' }, f.ctx);
+    // The Promise has not yet resolved at this microtask boundary.
+    // Advance the clock and resolve.
+    f.currentTime = 1_000_000 + 10 * 1000;
+    await new Promise(resolve => setImmediate(resolve));
+    await new Promise(resolve => setImmediate(resolve));
+    // The recorded timestamp should reflect the time AT resolution,
+    // not the time at emission. Within the throttle window from
+    // resolution time, a second emission suppresses.
+    const recorded = f.toastDebounce.get(ERR_LOCKFILE_ABSENT);
+    assert.strictEqual(recorded, 1_000_000 + 10 * 1000);
   });
 });

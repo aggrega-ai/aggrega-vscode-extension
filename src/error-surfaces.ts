@@ -35,6 +35,14 @@ const LOCKFILE_GENERATE_TOOLTIP =
 // the 1003 toast. The handler matches against this literal.
 const LOCKFILE_TOAST_BUTTON = 'Generate Lockfile';
 
+// ToastDebounceMode picks how repeated toasts for the same error
+// code are throttled. `session` is the previous default — one toast
+// per code per daemon session; cleared on daemon restart. `time` is
+// the current default — the throttle resets when the toast's
+// showInformationMessage Promise resolves (action click, X click, or
+// VS Code auto-dismiss) and re-fires after toastThrottleSeconds.
+export type ToastDebounceMode = 'time' | 'session';
+
 // DaemonErrorContext carries the surfaces the per-code dispatcher
 // writes into. Injecting the surfaces (rather than reaching into
 // module-level singletons or vscode runtime) keeps the dispatcher
@@ -46,12 +54,23 @@ export interface DaemonErrorContext {
   logLine: (line: string) => void;
   toastInfo: (message: string, ...items: string[]) => Thenable<string | undefined>;
   createTerminal: (options: vscode.TerminalOptions) => vscode.Terminal;
-  // toastDedup tracks which error codes already surfaced a toast in
-  // this daemon session. Session-based per-code debounce avoids
-  // toast spam on repeated errors of the same kind while the user
-  // is mid-fix. The caller (extension.ts) owns the Map and clears
-  // it on daemon start/restart via resetSessionDedup.
-  toastDedup: Map<number, true>;
+  // toastDebounce tracks per-code throttle state. In `session` mode
+  // the boolean records whether a toast already surfaced this
+  // daemon session (and stays true until resetSessionDedup runs
+  // on daemon restart). In `time` mode the number records the
+  // wall-clock timestamp the previous toast's Promise resolved at;
+  // a fresh toast fires when (now() - prev) > throttleSeconds*1000.
+  toastDebounce: Map<number, true | number>;
+  // toastDebounceMode picks between the session- and time-based
+  // throttle semantics described above.
+  toastDebounceMode: ToastDebounceMode;
+  // toastThrottleSeconds is the window for the time-based throttle.
+  // Consulted only when toastDebounceMode === 'time'.
+  toastThrottleSeconds: number;
+  // now returns the current wall-clock millisecond timestamp. A
+  // test seam: production passes () => Date.now(); tests pass a
+  // controlled clock.
+  now: () => number;
 }
 
 // handleDaemonError routes a daemon-emitted error envelope to the
@@ -106,25 +125,31 @@ function surfaceDiagnostic(ctx: DaemonErrorContext, err: JsonRpcError, message: 
 }
 
 function surfaceLockfileToast(ctx: DaemonErrorContext, message: string): void {
-  if (ctx.toastDedup.has(ERR_LOCKFILE_ABSENT)) {
-    // Already shown once this daemon session; log for traceability
-    // and skip the toast to avoid spamming the user.
-    //
-    // Known UX edge case: a user who dismisses the first toast
-    // without clicking the action button gets no further visible
-    // reminder until daemon restart. The output-channel log still
-    // records every emission, but the user has to look. Time-based
-    // re-firing or button-vs-dismissal differentiation are
-    // documented alternatives.
-    ctx.logLine(`[lockfile absent] ${message} (toast suppressed; already shown this session)`);
+  if (!shouldFireToast(ctx, ERR_LOCKFILE_ABSENT)) {
+    const reason = ctx.toastDebounceMode === 'session'
+      ? 'already shown this session'
+      : `throttled; next surface allowed after ${ctx.toastThrottleSeconds}s`;
+    ctx.logLine(`[lockfile absent] ${message} (toast suppressed; ${reason})`);
     return;
   }
-  ctx.toastDedup.set(ERR_LOCKFILE_ABSENT, true);
+  // Mark `session` mode immediately so a second emission before the
+  // Promise resolves still suppresses correctly. `time` mode records
+  // the dismissal timestamp when the Promise resolves below.
+  if (ctx.toastDebounceMode === 'session') {
+    ctx.toastDebounce.set(ERR_LOCKFILE_ABSENT, true);
+  }
   ctx.logLine(`[lockfile absent] ${message}`);
   void ctx.toastInfo(
     `Aggrega: lockfile missing. ${message}. ${LOCKFILE_GENERATE_TOOLTIP}`,
     LOCKFILE_TOAST_BUTTON,
   ).then(choice => {
+    // The throttle window starts when the toast's Promise resolves —
+    // whether the user clicked an action, clicked the X, or VS Code
+    // auto-dismissed on timeout. Same surface either way; no need to
+    // distinguish termination cause.
+    if (ctx.toastDebounceMode === 'time') {
+      ctx.toastDebounce.set(ERR_LOCKFILE_ABSENT, ctx.now());
+    }
     if (choice !== LOCKFILE_TOAST_BUTTON) {
       return;
     }
@@ -137,9 +162,32 @@ function surfaceLockfileToast(ctx: DaemonErrorContext, message: string): void {
   });
 }
 
+// shouldFireToast applies the debounce policy for the supplied
+// error code. Returns true when the caller should fire a fresh
+// toast; false when the throttle is active.
+function shouldFireToast(ctx: DaemonErrorContext, code: number): boolean {
+  const previous = ctx.toastDebounce.get(code);
+  if (previous === undefined) {
+    return true;
+  }
+  if (ctx.toastDebounceMode === 'session') {
+    // previous === true → suppress; no other value is meaningful in
+    // session mode (the helper only writes `true` there).
+    return false;
+  }
+  // time mode: previous is the wall-clock timestamp of the prior
+  // toast's resolution. previous === true would only appear if the
+  // operator flipped modes mid-session; treat as expired so the
+  // next toast fires and re-establishes the timestamp.
+  if (previous === true) {
+    return true;
+  }
+  return ctx.now() - previous > ctx.toastThrottleSeconds * 1000;
+}
+
 // resetSessionDedup clears the per-code debounce state. Called by
 // extension.ts whenever the daemon starts or restarts so the
 // operator gets a fresh chance to see each toast after a fix.
-export function resetSessionDedup(dedup: Map<number, true>): void {
+export function resetSessionDedup(dedup: Map<number, true | number>): void {
   dedup.clear();
 }

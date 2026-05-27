@@ -5,6 +5,7 @@
   "version": "0.1.0",
   "publisher": "aggrega-ai",
   "license": "Apache-2.0",
+  "aggregaCompatibility": ">=0.1.0",
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -16,12 +17,16 @@
     "onLanguage:yaml",
     "workspaceContains:**/.aggrega-config.yaml"
   ],
-  "main": "./out/extension.js",
+  "main": "./out/src/extension.js",
   "contributes": {
     "commands": [
       {
         "command": "aggrega.server.restart",
         "title": "Aggrega: Restart language server"
+      },
+      {
+        "command": "aggrega.statusBar.openMenu",
+        "title": "Aggrega: Open status bar menu"
       }
     ],
     "configuration": {
@@ -51,6 +56,24 @@
           "type": "number",
           "default": 180,
           "description": "Sliding window in seconds for counting daemon respawn attempts."
+        },
+        "aggrega.server.restartGraceSeconds": {
+          "type": "number",
+          "default": 5,
+          "minimum": 0,
+          "description": "Grace window in seconds before the extension automatically restarts the daemon after a binaryPath change. The status bar surfaces a countdown during the window; the quick-action menu offers Restart now and Cancel restart."
+        },
+        "aggrega.notifications.toastDebounceMode": {
+          "type": "string",
+          "enum": ["time", "session"],
+          "default": "time",
+          "description": "How repeated toast notifications for the same error code are debounced. `time` re-surfaces after `toastThrottleSeconds` elapses since the last toast went away (action click, X click, or auto-dismiss). `session` suppresses repeats until the daemon restarts (the previous default)."
+        },
+        "aggrega.notifications.toastThrottleSeconds": {
+          "type": "number",
+          "default": 300,
+          "minimum": 0,
+          "description": "Throttle window in seconds between toast re-surfacings of the same error code. Consulted only when `toastDebounceMode` is `time`."
         }
       }
     }
@@ -58,13 +81,18 @@
   "scripts": {
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "test": "npm run compile && mocha out/test/suite/**/*.test.js"
+    "test": "npm run compile && mocha out/test/suite/**/*.test.js",
+    "test:integration": "npm run compile && vscode-test"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.0",
     "@types/node": "^20.0.0",
+    "@types/semver": "^7.5.0",
     "@types/vscode": "^1.85.0",
+    "@vscode/test-cli": "^0.0.10",
+    "@vscode/test-electron": "^2.4.0",
     "mocha": "^10.0.0",
+    "semver": "^7.6.0",
     "typescript": "^5.3.0"
   }
 }

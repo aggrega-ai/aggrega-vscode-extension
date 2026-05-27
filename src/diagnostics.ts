@@ -17,12 +17,35 @@ export function convertDaemonDiagnostic(d: DaemonDiagnostic): vscode.Diagnostic 
 // publishDiagnostics replaces the collection's entries for uri with
 // the converted daemon diagnostics. An empty list clears that URI's
 // entry; the rest of the collection is untouched.
+//
+// Thin wrapper over publishDiagnosticsBatch — both paths share the
+// same per-entry semantics so single-file and workspace-wide
+// publishes behave identically.
 export function publishDiagnostics(
   collection: vscode.DiagnosticCollection,
   uri: vscode.Uri,
   daemonDiagnostics: DaemonDiagnostic[],
 ): void {
-  collection.set(uri, daemonDiagnostics.map(convertDaemonDiagnostic));
+  publishDiagnosticsBatch(collection, new Map([[uri, daemonDiagnostics]]));
+}
+
+// publishDiagnosticsBatch replaces the collection's entries for
+// every URI in batch with the corresponding converted daemon
+// diagnostics. Per-URI semantics match publishDiagnostics — an
+// empty diagnostics array clears that URI's entry; URIs not present
+// in the batch are untouched.
+//
+// The batch surface anticipates a future workspace-wide validate
+// trigger that emits diagnostics for many files in a single
+// daemon response. Per-file callers continue to flow through
+// publishDiagnostics; the batch path applies to both.
+export function publishDiagnosticsBatch(
+  collection: vscode.DiagnosticCollection,
+  batch: Map<vscode.Uri, DaemonDiagnostic[]>,
+): void {
+  for (const [uri, diagnostics] of batch) {
+    collection.set(uri, diagnostics.map(convertDaemonDiagnostic));
+  }
 }
 
 // publishShapes replaces the collection's entries for uri with
