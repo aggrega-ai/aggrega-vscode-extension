@@ -124,9 +124,16 @@ export const ERR_SHUTTING_DOWN = 1005;
 // ServerInitMetadata is the subset of the aggrega/initialize
 // response that the extension surfaces in the status bar. Populated
 // when the handshake completes; null until then.
+//
+// workspaceMarker names the marker tier that anchored the workspace
+// root: "config" | "directory" | "aggregate-glob" | "release-glob" |
+// "manifest-glob". Optional: daemons anchored via --workspace-root
+// omit it (no marker was consulted in that path). Extensions reading
+// it must tolerate undefined.
 export interface ServerInitMetadata {
   workspaceRoot: string;
   configSource: string;
+  workspaceMarker?: string;
 }
 
 // DaemonDiagnostic mirrors the daemon's per-file Diagnostic wire

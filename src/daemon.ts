@@ -12,6 +12,7 @@ import {
   ServerInitMetadata,
 } from './types';
 import { Settings } from './settings';
+import { extractServerInitMetadata } from './init-metadata';
 
 // isNotification distinguishes JSON-RPC 2.0 server-push
 // notifications (no id field) from responses (id present). The
@@ -39,10 +40,9 @@ const INITIALIZE_TIMEOUT_MS = 5000;
 
 // COOPERATIVE_SHUTDOWN_GRACE_MS bounds how long stop() waits for
 // the daemon to exit on its own after the aggrega/shutdown
-// notification before falling through to SIGTERM. WI-25+ daemons
+// notification before falling through to SIGTERM. Daemons
 // honor the notification and exit within their own 2-second drain
-// budget; pre-WI-25 daemons ignore it and we incur this full wait
-// before escalating. Total stop() worst case: COOPERATIVE + SIGTERM
+// budget. Total stop() worst case: COOPERATIVE + SIGTERM
 // + SIGKILL = 3 + 2 = 5 seconds.
 const COOPERATIVE_SHUTDOWN_GRACE_MS = 3000;
 
@@ -143,8 +143,7 @@ export class Daemon extends EventEmitter {
   // getServerInitMetadata returns the workspaceRoot + configSource
   // fields the daemon reported in its aggrega/initialize response,
   // or null when the handshake has not completed or the response
-  // omitted them (e.g., pre-WI-25 daemons that only carry
-  // capabilities).
+  // omitted them.
   getServerInitMetadata(): ServerInitMetadata | null { return this.serverInitMetadata; }
 
   /**
@@ -420,13 +419,10 @@ export class Daemon extends EventEmitter {
     }
 
     // Phase 1 (cooperative, optional): send aggrega/shutdown
-    // notification and wait COOPERATIVE_SHUTDOWN_GRACE_MS. On
-    // WI-25+ daemons the subprocess exits on its own and phases
-    // 2-3 are skipped. On pre-WI-25 daemons (which ignore the
-    // notification) the wait expires and we fall through to
-    // signal-based termination. Skipped on restart() and the
-    // initialize-failure path because cooperative shutdown does not
-    // help when the daemon is unhealthy.
+    // notification and wait COOPERATIVE_SHUTDOWN_GRACE_MS. The subprocess
+    // exits on its own and phases 2-3 are skipped. Skipped on restart()
+    // and the initialize-failure path because cooperative shutdown does
+    // not help when the daemon is unhealthy.
     if (cooperative) {
       try {
         const notification = JSON.stringify({
@@ -487,19 +483,6 @@ function extractServerEncoding(result: unknown): ServerEncoding | null {
   return null;
 }
 
-// extractServerInitMetadata reads workspaceRoot + configSource from
-// an aggrega/initialize result. Returns null when either field is
-// missing or malformed — pre-WI-25 daemons omit these fields, in
-// which case the extension's status bar stays hidden until a future
-// daemon upgrade.
-function extractServerInitMetadata(result: unknown): ServerInitMetadata | null {
-  if (!result || typeof result !== 'object') { return null; }
-  const workspaceRoot = (result as { workspaceRoot?: unknown }).workspaceRoot;
-  const configSource = (result as { configSource?: unknown }).configSource;
-  if (typeof workspaceRoot !== 'string' || workspaceRoot === '') { return null; }
-  if (typeof configSource !== 'string' || configSource === '') { return null; }
-  return { workspaceRoot, configSource };
-}
 
 // waitForExit resolves true when the child process exits within
 // timeoutMs, false on timeout. Used by terminateSubprocess's

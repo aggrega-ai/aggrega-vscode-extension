@@ -36,13 +36,14 @@ export function createAggregaStatusBar(
     const metadata = daemon.getServerInitMetadata();
     if (!metadata) {
       // Running but no metadata yet (handshake completed without
-      // the optional fields, e.g., pre-WI-25 daemon). Hide rather
-      // than render a partial label.
+      // the optional fields). Hide rather than render a partial label.
       item.hide();
       return;
     }
     item.text = `Aggrega: ${metadata.configSource}`;
-    item.tooltip = metadata.workspaceRoot;
+    item.tooltip = metadata.workspaceMarker
+      ? `${metadata.workspaceRoot} (anchored by ${metadata.workspaceMarker})`
+      : metadata.workspaceRoot;
     item.show();
   };
 
