@@ -53,13 +53,13 @@ export interface DaemonErrorContext {
 export function handleDaemonError(err: JsonRpcError, ctx: DaemonErrorContext): boolean {
   switch (err.code) {
     case ERR_RELEASE_NOT_RESOLVED:
-      surfaceDiagnostic(ctx, `Release not resolved: ${err.message}`);
+      surfaceDiagnostic(ctx, err, `Release not resolved: ${err.message}`);
       return true;
     case ERR_LOCKFILE_ABSENT:
       surfaceLockfileToast(ctx, err.message);
       return true;
     case ERR_ENTITY_NOT_RESOLVABLE:
-      surfaceDiagnostic(ctx, `Entity not resolvable: ${err.message}`);
+      surfaceDiagnostic(ctx, err, `Entity not resolvable: ${err.message}`);
       return true;
     case ERR_SHUTTING_DOWN:
       ctx.logLine(`[shutting down] ${err.message}`);
@@ -69,18 +69,20 @@ export function handleDaemonError(err: JsonRpcError, ctx: DaemonErrorContext): b
   }
 }
 
-function surfaceDiagnostic(ctx: DaemonErrorContext, message: string): void {
-  // Daemon does not populate the error envelope's data field with
-  // source-location info (verified at plan time). Diagnostic
-  // positioning falls back to file:1:1 — squiggle anchors at the
-  // start of the file. A future daemon-side polish populating data
-  // would let this surface attach the diagnostic at the exact
-  // offending position.
+function surfaceDiagnostic(ctx: DaemonErrorContext, err: JsonRpcError, message: string): void {
+  // Read err.data when present; the daemon's 1004 emission sites
+  // populate {file, line, column} with 1-based positions. Missing
+  // or zero values produce a file:1:1 fallback (start of file).
+  // The 1-based-to-0-based conversion mirrors diagnostics-shape.ts.
+  const daemonLine = err.data?.line ?? 0;
+  const daemonColumn = err.data?.column ?? 0;
+  const line = daemonLine > 0 ? daemonLine - 1 : 0;
+  const character = daemonColumn > 0 ? daemonColumn - 1 : 0;
   const shape: ConvertedShape = {
-    startLine: 0,
-    startChar: 0,
-    endLine: 0,
-    endChar: 0,
+    startLine: line,
+    startChar: character,
+    endLine: line,
+    endChar: character,
     severity: 'error',
     message,
     source: 'aggrega',

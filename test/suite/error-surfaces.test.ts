@@ -119,6 +119,55 @@ describe('handleDaemonError', () => {
     assert.strictEqual(f.toastCalls.length, 0);
   });
 
+  it('1004 with full data positions the diagnostic at the daemon-reported line/column (1-based → 0-based)', () => {
+    const f = makeContext();
+    const handled = handleDaemonError(
+      {
+        code: ERR_ENTITY_NOT_RESOLVABLE,
+        message: 'release.yaml load failed',
+        data: { file: '/workspace/release.yaml', line: 12, column: 7 },
+      },
+      f.ctx,
+    );
+    assert.strictEqual(handled, true);
+    assert.strictEqual(f.publishCalls.length, 1);
+    const shape = f.publishCalls[0].shapes[0];
+    // 1-based daemon → 0-based VS Code.
+    assert.strictEqual(shape.startLine, 11);
+    assert.strictEqual(shape.startChar, 6);
+    assert.strictEqual(shape.endLine, 11);
+    assert.strictEqual(shape.endChar, 6);
+  });
+
+  it('1004 with file-only data falls back to file:1:1 (start of file)', () => {
+    const f = makeContext();
+    const handled = handleDaemonError(
+      {
+        code: ERR_ENTITY_NOT_RESOLVABLE,
+        message: 'release.yaml load failed',
+        data: { file: '/workspace/release.yaml' },
+      },
+      f.ctx,
+    );
+    assert.strictEqual(handled, true);
+    const shape = f.publishCalls[0].shapes[0];
+    assert.strictEqual(shape.startLine, 0);
+    assert.strictEqual(shape.startChar, 0);
+  });
+
+  it('1004 with no data field at all falls back to file:1:1', () => {
+    const f = makeContext();
+    // Envelope from a pre-WI-29 daemon — no data field.
+    const handled = handleDaemonError(
+      { code: ERR_ENTITY_NOT_RESOLVABLE, message: 'release.yaml load failed' },
+      f.ctx,
+    );
+    assert.strictEqual(handled, true);
+    const shape = f.publishCalls[0].shapes[0];
+    assert.strictEqual(shape.startLine, 0);
+    assert.strictEqual(shape.startChar, 0);
+  });
+
   it('1003 shows a toast with Generate Lockfile button on first call', () => {
     const f = makeContext();
     const handled = handleDaemonError(

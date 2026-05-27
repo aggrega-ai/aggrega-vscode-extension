@@ -81,7 +81,18 @@ export interface JsonRpcResponse {
 export interface JsonRpcError {
   code: number;
   message: string;
-  data?: unknown;
+  data?: ErrorData;
+}
+
+// ErrorData mirrors the daemon's errors_data.go errorData struct.
+// All fields are optional — partial data is honest. Line and column
+// are 1-based per the daemon's LSP-aligned convention; the
+// extension converts to VS Code's 0-based positions at the
+// surfaceDiagnostic boundary.
+export interface ErrorData {
+  file?: string;
+  line?: number;
+  column?: number;
 }
 
 // Daemon application error codes (see internal/serve/errors.go).
