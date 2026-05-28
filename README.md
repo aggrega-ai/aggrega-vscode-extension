@@ -38,6 +38,10 @@ npm run compile
 npm test
 ```
 
+## Lifecycle
+
+The extension manages the daemon process's full lifecycle. On shutdown — when the editor closes, when the user restarts the language server, or when a configuration change requires a fresh daemon — the extension first asks the daemon to exit cooperatively. If the daemon does not respond within a short grace window, the extension falls back to OS-level termination. The semantics are identical across POSIX and Windows hosts. See `src/daemon.ts` for implementation detail.
+
 ## License
 
 Apache-2.0
