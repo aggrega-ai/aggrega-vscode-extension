@@ -14,7 +14,7 @@ import {
   promptCacheMiss,
 } from './notifications';
 import { getSettings } from './settings-vscode';
-import { createAggregaStatusBar } from './status-bar';
+import { createAggregaStatusBar, createPendingChoiceStatusBar } from './status-bar';
 import { scheduleBinaryRestart, RestartHandle } from './binary-restart';
 import { checkDaemonVersion } from './version-check';
 import {
@@ -33,7 +33,13 @@ import {
   ValidateParams,
   ValidateResponse,
 } from './types';
-import { findAggregaWorkspaceAnchor } from './workspace';
+import { AnchoredFolder, findAllAnchoredFolders } from './workspace';
+import {
+  STATE_KEY,
+  buildPickerItems,
+  classifyActivation,
+  readSavedAnchor,
+} from './anchor-picker';
 
 let daemon: Daemon | null = null;
 let outputChannel: vscode.OutputChannel | null = null;
@@ -44,24 +50,131 @@ let pendingRestart: RestartHandle | null = null;
 let pendingRestartRemaining = 0;
 let statusBarItem: vscode.StatusBarItem | null = null;
 let baseStatusBarText = '';
+let pendingChoiceItem: vscode.StatusBarItem | null = null;
+let activeAnchored: AnchoredFolder<vscode.WorkspaceFolder> | null = null;
+let currentAnchored: AnchoredFolder<vscode.WorkspaceFolder>[] = [];
+let extensionContext: vscode.ExtensionContext | null = null;
+let lateInitDone = false;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
+  extensionContext = context;
   outputChannel = vscode.window.createOutputChannel('Aggrega');
   context.subscriptions.push(outputChannel);
 
-  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-  if (!workspaceRoot) {
+  // Always register the switch-anchor command so the Command
+  // Palette surfaces it regardless of the activation outcome.
+  registerSwitchAnchorCommand(context);
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeWorkspaceFolders(() => {
+      void reactivate(context);
+    }),
+  );
+
+  await reactivate(context);
+}
+
+// reactivate evaluates the current workspaceFolders, classifies the
+// activation into one of four shapes (no-op / single / multi-saved /
+// multi-prompt), and drives the daemon + status bar accordingly. The
+// function is idempotent — onDidChangeWorkspaceFolders invokes it
+// after every folder add/remove so the daemon state always reflects
+// the current workspace.
+async function reactivate(context: vscode.ExtensionContext): Promise<void> {
+  const folders = vscode.workspace.workspaceFolders ?? [];
+  const anchored = await findAllAnchoredFolders([...folders]);
+  currentAnchored = anchored;
+
+  const savedAnchor = readSavedAnchor(context.workspaceState);
+  if (savedAnchor !== null && !anchored.some(a => a.anchorPath === savedAnchor)) {
+    // Stale saved choice — folder removed or marker deleted. Clear
+    // so the multi-prompt branch can re-fire when appropriate.
+    await context.workspaceState.update(STATE_KEY, undefined);
+  }
+
+  const decision = classifyActivation(
+    anchored,
+    readSavedAnchor(context.workspaceState),
+  );
+
+  switch (decision.kind) {
+    case 'none':
+      await tearDownPendingChoice();
+      await stopDaemon();
+      return;
+    case 'single':
+    case 'multiSaved':
+      await tearDownPendingChoice();
+      await ensureDaemonAt(context, decision.target);
+      return;
+    case 'multiPrompt':
+      await stopDaemon();
+      surfacePendingChoice(context, decision.anchored);
+      return;
+  }
+}
+
+function surfacePendingChoice(
+  context: vscode.ExtensionContext,
+  anchored: AnchoredFolder<vscode.WorkspaceFolder>[],
+): void {
+  if (!pendingChoiceItem) {
+    pendingChoiceItem = createPendingChoiceStatusBar(context);
+  } else {
+    pendingChoiceItem.show();
+  }
+  void notifyMultipleAnchors(anchored.length);
+}
+
+async function tearDownPendingChoice(): Promise<void> {
+  if (pendingChoiceItem) {
+    pendingChoiceItem.hide();
+    pendingChoiceItem.dispose();
+    pendingChoiceItem = null;
+  }
+}
+
+let pendingToastShown = false;
+async function notifyMultipleAnchors(count: number): Promise<void> {
+  if (pendingToastShown) { return; }
+  pendingToastShown = true;
+  const action = 'Choose folder…';
+  const choice = await vscode.window.showInformationMessage(
+    `Aggrega: ${count} anchored folders found. Choose one to start the daemon.`,
+    action,
+  );
+  pendingToastShown = false;
+  if (choice === action) {
+    void vscode.commands.executeCommand('aggrega.workspace.switchAnchor');
+  }
+}
+
+// ensureDaemonAt starts (or restarts at a new root) the daemon to
+// match the given anchored folder. If the daemon is already running
+// at this anchor, this is a no-op. If running at a different anchor,
+// the daemon is cooperatively stopped and restarted at the new root.
+async function ensureDaemonAt(
+  context: vscode.ExtensionContext,
+  target: AnchoredFolder<vscode.WorkspaceFolder>,
+): Promise<void> {
+  const targetRoot = target.folder.uri.fsPath;
+
+  if (daemon && activeAnchored?.folder.uri.fsPath === targetRoot) {
     return;
   }
-  workspaceRootForCommands = workspaceRoot;
 
-  const anchor = await findAggregaWorkspaceAnchor(workspaceRoot);
-  if (!anchor) {
-    return;
+  if (daemon) {
+    await stopDaemon();
   }
 
-  diagnosticCollection = vscode.languages.createDiagnosticCollection('aggrega');
-  context.subscriptions.push(diagnosticCollection);
+  await context.workspaceState.update(STATE_KEY, target.anchorPath);
+  workspaceRootForCommands = targetRoot;
+  activeAnchored = target;
+
+  diagnosticCollection ??= (() => {
+    const dc = vscode.languages.createDiagnosticCollection('aggrega');
+    context.subscriptions.push(dc);
+    return dc;
+  })();
 
   daemon = new Daemon(getSettings(), msg => outputChannel?.appendLine(msg));
   daemon.on('stoppedResponding', () => notifyStoppedResponding());
@@ -70,60 +183,90 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       resetSessionDedup(toastDebounce);
     }
   });
-
-  // Subscribe to the daemon's aggrega/publishDiagnostics server-push
-  // notification. The daemon fires this on every diagnostic state
-  // change (currently used for lockfile drift on the lockfile file
-  // path); the payload routes to the existing DiagnosticCollection.
-  // Empty diagnostics arrays clear the file's collection entry.
   daemon.on('notification:aggrega/publishDiagnostics', (params: PublishDiagnosticsParams) => {
     if (!diagnosticCollection) { return; }
     const uri = vscode.Uri.file(params.file);
     publishDiagnostics(diagnosticCollection, uri, params.diagnostics);
   });
 
-  statusBarItem = createAggregaStatusBar(context, daemon);
+  const anchorContext = currentAnchored.length >= 2
+    ? { active: target, anchored: currentAnchored }
+    : undefined;
+  statusBarItem = createAggregaStatusBar(context, daemon, anchorContext);
 
-  // Register commands BEFORE attempting daemon.start so the
-  // Command Palette + status bar quick-pick remain usable even when
-  // the daemon binary is missing or fails to start. The handlers
-  // gracefully no-op (or show a warning) when daemon === null.
-  registerRestartCommand(context);
-  registerStatusBarMenu(context);
-  context.subscriptions.push(
-    vscode.workspace.onDidChangeConfiguration(e => {
-      if (!e.affectsConfiguration('aggrega.server') && !e.affectsConfiguration('aggrega.notifications')) {
-        return;
-      }
-      if (!daemon) {
-        return;
-      }
-      daemon.updateSettings(getSettings());
-      if (e.affectsConfiguration('aggrega.server.binaryPath')) {
-        scheduleBinaryPathRestart();
-      }
-    }),
-  );
+  if (!lateInitDone) {
+    registerRestartCommand(context);
+    registerStatusBarMenu(context);
+    context.subscriptions.push(
+      vscode.workspace.onDidChangeConfiguration(e => {
+        if (!e.affectsConfiguration('aggrega.server') && !e.affectsConfiguration('aggrega.notifications')) {
+          return;
+        }
+        if (!daemon) {
+          return;
+        }
+        daemon.updateSettings(getSettings());
+        if (e.affectsConfiguration('aggrega.server.binaryPath')) {
+          scheduleBinaryPathRestart();
+        }
+      }),
+    );
+    registerDocumentLifecycle(context);
+    registerLanguageFeatures(context);
+    registerFileWatcher(context);
+    registerCloseHandler(context);
+    lateInitDone = true;
+  }
 
   try {
-    await daemon.start(workspaceRoot);
+    await daemon.start(targetRoot);
   } catch (err) {
     notifyDaemonStartupFailed((err as Error).message);
     daemon = null;
+    activeAnchored = null;
     return;
   }
 
-  // Compatibility check: spawn the configured binary with
-  // `version --json` and compare the reported version to the
-  // declared compatibilityRange. Best-effort — the result is
-  // surfaced via the same OutputChannel the daemon's stderr
-  // streams into; a mismatch warns the operator via toast.
   void runCompatibilityCheck();
+}
 
-  registerDocumentLifecycle(context);
-  registerLanguageFeatures(context);
-  registerFileWatcher(context);
-  registerCloseHandler(context);
+async function stopDaemon(): Promise<void> {
+  if (daemon) {
+    await daemon.stop();
+    daemon = null;
+  }
+  activeAnchored = null;
+  if (statusBarItem) {
+    statusBarItem.hide();
+  }
+}
+
+function registerSwitchAnchorCommand(context: vscode.ExtensionContext): void {
+  context.subscriptions.push(vscode.commands.registerCommand('aggrega.workspace.switchAnchor', async () => {
+    const anchored = currentAnchored;
+    if (anchored.length === 0) {
+      void vscode.window.showInformationMessage('Aggrega: no anchored folders in this workspace.');
+      return;
+    }
+    if (anchored.length === 1) {
+      void vscode.window.showInformationMessage('Aggrega: only one anchored folder; nothing to switch to.');
+      return;
+    }
+    const items = buildPickerItems(anchored).map(i => ({
+      label: i.label,
+      description: i.description,
+      detail: i.detail,
+      anchored: i.anchored,
+    }));
+    const choice = await vscode.window.showQuickPick(items, {
+      placeHolder: 'Aggrega: choose which folder the daemon attaches to',
+      matchOnDescription: true,
+      matchOnDetail: true,
+    });
+    if (!choice) { return; }
+    if (!extensionContext) { return; }
+    await ensureDaemonAt(extensionContext, choice.anchored);
+  }));
 }
 
 export async function deactivate(): Promise<void> {

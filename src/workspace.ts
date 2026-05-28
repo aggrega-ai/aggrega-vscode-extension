@@ -10,6 +10,19 @@ const GLOB_PREFIXES = ['aggregate', 'release', 'manifest'] as const;
 const LOCKFILE_SUFFIX = '.lock.yaml';
 const YAML_SUFFIX = '.yaml';
 
+// FolderLike is a structural subset of vscode.WorkspaceFolder. Used so
+// helpers in this module remain testable without importing vscode.
+export interface FolderLike {
+  uri: { fsPath: string };
+}
+
+// AnchoredFolder pairs a workspace folder with the marker path that
+// caused findAggregaWorkspaceAnchor to identify it as Aggrega-anchored.
+export interface AnchoredFolder<F extends FolderLike = FolderLike> {
+  folder: F;
+  anchorPath: string;
+}
+
 // findAggregaWorkspaceAnchor walks parent directories from start
 // looking for any of the five workspace anchor markers the daemon
 // recognizes:
@@ -43,6 +56,23 @@ export async function findAggregaWorkspaceAnchor(start: string): Promise<string 
     }
     current = parent;
   }
+}
+
+// findAllAnchoredFolders runs findAggregaWorkspaceAnchor against
+// each entry in folders, keeping only the folders where a marker was
+// found. The result preserves the input order. Folders without an
+// anchor are silently dropped.
+export async function findAllAnchoredFolders<F extends FolderLike>(
+  folders: readonly F[],
+): Promise<AnchoredFolder<F>[]> {
+  const out: AnchoredFolder<F>[] = [];
+  for (const folder of folders) {
+    const anchorPath = await findAggregaWorkspaceAnchor(folder.uri.fsPath);
+    if (anchorPath !== null) {
+      out.push({ folder, anchorPath });
+    }
+  }
+  return out;
 }
 
 async function checkMarkersInDir(dir: string): Promise<string | null> {

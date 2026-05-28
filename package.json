@@ -27,6 +27,10 @@
       {
         "command": "aggrega.statusBar.openMenu",
         "title": "Aggrega: Open status bar menu"
+      },
+      {
+        "command": "aggrega.workspace.switchAnchor",
+        "title": "Aggrega: Switch anchored folder…"
       }
     ],
     "configuration": {
