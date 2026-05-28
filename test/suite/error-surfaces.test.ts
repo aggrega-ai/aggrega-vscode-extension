@@ -30,6 +30,8 @@ interface ContextFixture {
   toastCalls: Array<{ message: string; items: string[] }>;
   toastResponse: string | undefined;
   terminalsCreated: Array<{ options: { name: string; cwd: string }; terminal: FakeTerminal }>;
+  commandsExecuted: string[];
+  hasCandidateReleases: boolean;
   toastDebounce: Map<number, true | number>;
   toastDebounceMode: 'time' | 'session';
   toastThrottleSeconds: number;
@@ -46,6 +48,8 @@ function makeContext(initial?: Partial<ContextFixture>): ContextFixture & {
     toastCalls: [],
     toastResponse: undefined,
     terminalsCreated: [],
+    commandsExecuted: [],
+    hasCandidateReleases: false,
     toastDebounce: new Map(),
     toastDebounceMode: 'session',
     toastThrottleSeconds: 300,
@@ -73,6 +77,11 @@ function makeContext(initial?: Partial<ContextFixture>): ContextFixture & {
       fixture.terminalsCreated.push({ options, terminal });
       return terminal as any;
     },
+    executeCommand: (command: string) => {
+      fixture.commandsExecuted.push(command);
+      return Promise.resolve(undefined);
+    },
+    scanCandidateReleases: () => Promise.resolve(fixture.hasCandidateReleases),
     toastDebounce: fixture.toastDebounce,
     toastDebounceMode: fixture.toastDebounceMode,
     toastThrottleSeconds: fixture.toastThrottleSeconds,
@@ -96,23 +105,207 @@ describe('handleDaemonError', () => {
     assert.strictEqual(handled, false);
   });
 
-  it('1002 publishes an Error diagnostic at uri 1:1', () => {
-    const f = makeContext();
+  it('1002 logs the cascade trace to OutputChannel and fires a toast', async () => {
+    const f = makeContext({ hasCandidateReleases: false });
     const handled = handleDaemonError(
-      { code: ERR_RELEASE_NOT_RESOLVED, message: 'release.yaml missing' },
+      {
+        code: ERR_RELEASE_NOT_RESOLVED,
+        message: 'release not resolved; no authoring_release configured',
+        data: {
+          cascade_attempt: 'Aggrega: release-not-resolved cascade trace\n  step 1: not configured\n  step 2: zero Release files',
+        },
+      },
       f.ctx,
     );
     assert.strictEqual(handled, true);
-    assert.strictEqual(f.publishCalls.length, 1);
-    assert.strictEqual(f.publishCalls[0].uri, f.uri);
-    assert.strictEqual(f.publishCalls[0].shapes.length, 1);
-    const shape = f.publishCalls[0].shapes[0];
-    assert.strictEqual(shape.severity, 'error');
-    assert.strictEqual(shape.startLine, 0);
-    assert.strictEqual(shape.startChar, 0);
-    assert.ok(shape.message.startsWith('Release not resolved: '));
-    assert.ok(shape.message.includes('release.yaml missing'));
-    assert.strictEqual(f.toastCalls.length, 0);
+    // Drain microtasks so the toast promise + dispatch settles.
+    await new Promise(resolve => setImmediate(resolve));
+    await new Promise(resolve => setImmediate(resolve));
+
+    // OutputChannel auto-log fires every receipt — short summary
+    // plus each line of the cascade_attempt trace.
+    assert.ok(
+      f.logLines.some(l => l.includes('[release not resolved]') && l.includes('no authoring_release configured')),
+      `expected summary log line; got ${JSON.stringify(f.logLines)}`,
+    );
+    assert.ok(
+      f.logLines.some(l => l.includes('step 1: not configured')),
+      `expected cascade trace line; got ${JSON.stringify(f.logLines)}`,
+    );
+    assert.ok(
+      f.logLines.some(l => l.includes('step 2: zero Release files')),
+      `expected cascade trace line; got ${JSON.stringify(f.logLines)}`,
+    );
+    // No Problems-panel diagnostic — 1002 is now a toast surface.
+    assert.strictEqual(f.publishCalls.length, 0);
+    // One toast with one button (no candidate Releases).
+    assert.strictEqual(f.toastCalls.length, 1);
+    assert.deepStrictEqual(f.toastCalls[0].items, ['Set authoring_release in config…']);
+    assert.ok(f.toastCalls[0].message.includes('release not resolved'));
+  });
+
+  it('1002 toast offers both buttons when candidate Releases exist', async () => {
+    const f = makeContext({ hasCandidateReleases: true });
+    handleDaemonError(
+      {
+        code: ERR_RELEASE_NOT_RESOLVED,
+        message: 'release not resolved; 3 candidates with no marker',
+        data: { cascade_attempt: 'trace line\n' },
+      },
+      f.ctx,
+    );
+    await new Promise(resolve => setImmediate(resolve));
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.strictEqual(f.toastCalls.length, 1);
+    assert.deepStrictEqual(f.toastCalls[0].items, [
+      'Set authoring_release in config…',
+      'Use marker file…',
+    ]);
+  });
+
+  it('1002 toast click on "Set authoring_release in config…" dispatches the matching command', async () => {
+    const f = makeContext({
+      hasCandidateReleases: false,
+      toastResponse: 'Set authoring_release in config…',
+    });
+    handleDaemonError(
+      { code: ERR_RELEASE_NOT_RESOLVED, message: 'release not resolved' },
+      f.ctx,
+    );
+    await new Promise(resolve => setImmediate(resolve));
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.deepStrictEqual(f.commandsExecuted, ['aggrega.workspace.openAuthoringReleaseConfig']);
+  });
+
+  it('1002 toast click on "Use marker file…" dispatches the matching command', async () => {
+    const f = makeContext({
+      hasCandidateReleases: true,
+      toastResponse: 'Use marker file…',
+    });
+    handleDaemonError(
+      { code: ERR_RELEASE_NOT_RESOLVED, message: 'release not resolved' },
+      f.ctx,
+    );
+    await new Promise(resolve => setImmediate(resolve));
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.deepStrictEqual(f.commandsExecuted, ['aggrega.workspace.createActiveReleaseMarker']);
+  });
+
+  it('1002 toast dismissal does not dispatch any command', async () => {
+    const f = makeContext({
+      hasCandidateReleases: true,
+      toastResponse: undefined,
+    });
+    handleDaemonError(
+      { code: ERR_RELEASE_NOT_RESOLVED, message: 'release not resolved' },
+      f.ctx,
+    );
+    await new Promise(resolve => setImmediate(resolve));
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.deepStrictEqual(f.commandsExecuted, []);
+  });
+
+  it('1002 second emission is suppressed by debounce; still auto-logs', async () => {
+    const f = makeContext({ hasCandidateReleases: false });
+    handleDaemonError(
+      { code: ERR_RELEASE_NOT_RESOLVED, message: 'first' },
+      f.ctx,
+    );
+    handleDaemonError(
+      { code: ERR_RELEASE_NOT_RESOLVED, message: 'second' },
+      f.ctx,
+    );
+    await new Promise(resolve => setImmediate(resolve));
+    await new Promise(resolve => setImmediate(resolve));
+
+    // Toast fires once (session-mode debounce).
+    assert.strictEqual(f.toastCalls.length, 1);
+    // OutputChannel auto-log fires both times (unconditional).
+    assert.ok(
+      f.logLines.filter(l => l.includes('[release not resolved]')).length >= 2,
+      `expected at least 2 log lines, got: ${JSON.stringify(f.logLines)}`,
+    );
+  });
+
+  it('1002 time-mode debounce: second emission during in-flight toast is suppressed (overlap window)', async () => {
+    // Pins the seed-at-emission fix. Without seeding the time-mode
+    // debounce synchronously on the first emission, a second
+    // emission arriving BEFORE the first toast's Promise resolves
+    // would find debounce[1002] === undefined, pass shouldFireToast,
+    // and fire a second toast on top of the first. The seed sets
+    // debounce[1002] = now() at emission so the in-flight window
+    // is protected; the seed is updated to the dismissal timestamp
+    // when the Promise resolves.
+    const f = makeContext({
+      hasCandidateReleases: false,
+      toastDebounceMode: 'time',
+      toastThrottleSeconds: 60,
+      currentTime: 1_000_000,
+    });
+
+    // First emission — kicks off the async toast chain. We
+    // INTENTIONALLY do NOT drain microtasks before the second
+    // emission, simulating two daemon emissions arriving in
+    // rapid succession (before the user has dismissed anything).
+    handleDaemonError(
+      { code: ERR_RELEASE_NOT_RESOLVED, message: 'first' },
+      f.ctx,
+    );
+    handleDaemonError(
+      { code: ERR_RELEASE_NOT_RESOLVED, message: 'second' },
+      f.ctx,
+    );
+
+    // Now drain microtasks; both toast chains complete (or the
+    // second is suppressed before reaching toastInfo).
+    await new Promise(resolve => setImmediate(resolve));
+    await new Promise(resolve => setImmediate(resolve));
+
+    // Only ONE toast must have surfaced — the second emission
+    // hit the seeded debounce and was suppressed.
+    assert.strictEqual(f.toastCalls.length, 1,
+      'overlapping emission must not fire a second toast; got toast count ' + f.toastCalls.length);
+  });
+
+  it('1002 time-mode debounce: throttle starts when toast resolves; re-fires after window expires', async () => {
+    const f = makeContext({
+      hasCandidateReleases: false,
+      toastDebounceMode: 'time',
+      toastThrottleSeconds: 60,
+      currentTime: 1_000_000,
+    });
+
+    // First emission fires the toast.
+    handleDaemonError(
+      { code: ERR_RELEASE_NOT_RESOLVED, message: 'first' },
+      f.ctx,
+    );
+    await new Promise(resolve => setImmediate(resolve));
+    await new Promise(resolve => setImmediate(resolve));
+    assert.strictEqual(f.toastCalls.length, 1, 'first emission should fire toast');
+
+    // Second emission within the throttle window — suppressed.
+    f.currentTime = 1_000_000 + 30 * 1000;
+    handleDaemonError(
+      { code: ERR_RELEASE_NOT_RESOLVED, message: 'second' },
+      f.ctx,
+    );
+    await new Promise(resolve => setImmediate(resolve));
+    assert.strictEqual(f.toastCalls.length, 1, 'within throttle should suppress');
+
+    // Past expiry — toast re-fires.
+    f.currentTime = 1_000_000 + 90 * 1000;
+    handleDaemonError(
+      { code: ERR_RELEASE_NOT_RESOLVED, message: 'third' },
+      f.ctx,
+    );
+    await new Promise(resolve => setImmediate(resolve));
+    await new Promise(resolve => setImmediate(resolve));
+    assert.strictEqual(f.toastCalls.length, 2, 'past throttle expiry should re-fire');
   });
 
   it('1004 publishes an Error diagnostic with the unresolvable-entity message', () => {
@@ -166,7 +359,8 @@ describe('handleDaemonError', () => {
 
   it('1004 with no data field at all falls back to file:1:1', () => {
     const f = makeContext();
-    // Envelope from a pre-WI-29 daemon — no data field.
+    // Envelope shape from a daemon predating the structured data
+    // field — backward-compat path. No data field at all.
     const handled = handleDaemonError(
       { code: ERR_ENTITY_NOT_RESOLVABLE, message: 'release.yaml load failed' },
       f.ctx,

@@ -33,7 +33,8 @@ import {
   ValidateParams,
   ValidateResponse,
 } from './types';
-import { AnchoredFolder, findAllAnchoredFolders } from './workspace';
+import { AnchoredFolder, findAllAnchoredFolders, findCandidateReleases } from './workspace';
+import { openAuthoringReleaseConfig, createActiveReleaseMarker } from './release-actions';
 import {
   STATE_KEY,
   buildPickerItems,
@@ -64,6 +65,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Always register the switch-anchor command so the Command
   // Palette surfaces it regardless of the activation outcome.
   registerSwitchAnchorCommand(context);
+  registerReleaseActionCommands(context);
   context.subscriptions.push(
     vscode.workspace.onDidChangeWorkspaceFolders(() => {
       void reactivate(context);
@@ -267,6 +269,34 @@ function registerSwitchAnchorCommand(context: vscode.ExtensionContext): void {
     if (!extensionContext) { return; }
     await ensureDaemonAt(extensionContext, choice.anchored);
   }));
+}
+
+// registerReleaseActionCommands wires the two action commands the
+// release-not-resolved (1002) toast dispatches to. Registered at
+// activation so the Command Palette surfaces them regardless of
+// daemon state — invoking either command without an anchored
+// workspace surfaces an informational toast rather than crashing.
+function registerReleaseActionCommands(context: vscode.ExtensionContext): void {
+  context.subscriptions.push(
+    vscode.commands.registerCommand('aggrega.workspace.openAuthoringReleaseConfig', async () => {
+      if (!workspaceRootForCommands) {
+        void vscode.window.showInformationMessage(
+          'Aggrega: no anchored workspace; open a folder containing .aggrega-config.yaml or a Release file first.',
+        );
+        return;
+      }
+      await openAuthoringReleaseConfig(workspaceRootForCommands);
+    }),
+    vscode.commands.registerCommand('aggrega.workspace.createActiveReleaseMarker', async () => {
+      if (!workspaceRootForCommands) {
+        void vscode.window.showInformationMessage(
+          'Aggrega: no anchored workspace; open a folder containing a Release file first.',
+        );
+        return;
+      }
+      await createActiveReleaseMarker(workspaceRootForCommands);
+    }),
+  );
 }
 
 export async function deactivate(): Promise<void> {
@@ -654,9 +684,10 @@ function buildErrorContext(uri: vscode.Uri) {
   const collection = diagnosticCollection;
   const channel = outputChannel;
   const settings = getSettings();
+  const root = workspaceRootForCommands;
   return {
     uri,
-    workspaceRoot: workspaceRootForCommands,
+    workspaceRoot: root,
     publishShape: (u: vscode.Uri, shapes: Parameters<typeof publishShapes>[2]) =>
       publishShapes(collection, u, shapes),
     logLine: (line: string) => channel.appendLine(line),
@@ -664,6 +695,22 @@ function buildErrorContext(uri: vscode.Uri) {
       vscode.window.showInformationMessage(message, ...items),
     createTerminal: (options: vscode.TerminalOptions) =>
       vscode.window.createTerminal(options),
+    executeCommand: (command: string) =>
+      vscode.commands.executeCommand(command),
+    scanCandidateReleases: async (): Promise<boolean> => {
+      // No anchored workspace root → no candidate Releases by
+      // definition. Guard explicitly: findCandidateReleases is
+      // typed string-only, so passing the potentially-undefined
+      // captured root through directly would be unsound. In
+      // practice the 1002 path requires a running daemon which
+      // requires an anchor, so this branch is unreachable today;
+      // the guard is correctness defense rather than a live case.
+      if (!root) {
+        return false;
+      }
+      const candidates = await findCandidateReleases(root);
+      return candidates.length > 0;
+    },
     toastDebounce,
     toastDebounceMode: settings.toastDebounceMode,
     toastThrottleSeconds: settings.toastThrottleSeconds,

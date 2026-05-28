@@ -112,6 +112,12 @@ export interface ErrorData {
   file?: string;
   line?: number;
   column?: number;
+  // cascade_attempt carries the multi-line cascade trace the daemon
+  // populates on release-not-resolved emissions. Mirrors the
+  // daemon's errors_data.go field of the same name. Consumed by
+  // error-surfaces' release-not-resolved handler for the
+  // OutputChannel auto-log. Other emission sites leave this empty.
+  cascade_attempt?: string;
 }
 
 // Daemon application error codes (see internal/serve/errors.go).
