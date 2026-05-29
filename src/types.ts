@@ -118,6 +118,13 @@ export interface ErrorData {
   // error-surfaces' release-not-resolved handler for the
   // OutputChannel auto-log. Other emission sites leave this empty.
   cascade_attempt?: string;
+  // end_line and end_column carry the 1-based end position of the
+  // source token, mirroring the daemon's errors_data.go fields. When
+  // present alongside line and column, surfaceDiagnostic renders a
+  // range spanning the whole token; absent, it falls back to a
+  // point-style range at the start position.
+  end_line?: number;
+  end_column?: number;
 }
 
 // Daemon application error codes (see internal/serve/errors.go).
@@ -151,6 +158,12 @@ export interface DaemonDiagnostic {
   column: number;
   severity: string;
   message: string;
+  // end_line and end_column carry the 1-based end position of the
+  // token the diagnostic spans, mirroring the daemon's Diagnostic wire
+  // struct. When present, shapeForDaemonDiagnostic produces a range
+  // spanning the token; absent, it falls back to a point-style range.
+  end_line?: number;
+  end_column?: number;
 }
 
 // ValidateResponse is the body the daemon returns for

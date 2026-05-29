@@ -341,6 +341,24 @@ describe('handleDaemonError', () => {
     assert.strictEqual(shape.endChar, 6);
   });
 
+  it('1004 with end_line/end_column spans a wide range', () => {
+    const f = makeContext();
+    const handled = handleDaemonError(
+      {
+        code: ERR_ENTITY_NOT_RESOLVABLE,
+        message: 'aggregate.yaml extends unresolved',
+        data: { file: '/workspace/aggregate.yaml', line: 7, column: 16, end_line: 7, end_column: 40 },
+      },
+      f.ctx,
+    );
+    assert.strictEqual(handled, true);
+    const shape = f.publishCalls[0].shapes[0];
+    assert.strictEqual(shape.startLine, 6);
+    assert.strictEqual(shape.startChar, 15);
+    assert.strictEqual(shape.endLine, 6);
+    assert.strictEqual(shape.endChar, 39);
+  });
+
   it('1004 with file-only data falls back to file:1:1 (start of file)', () => {
     const f = makeContext();
     const handled = handleDaemonError(

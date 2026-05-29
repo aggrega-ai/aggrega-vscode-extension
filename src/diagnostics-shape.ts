@@ -24,16 +24,23 @@ export interface ConvertedShape {
 
 // shapeForDaemonDiagnostic produces the pure conversion shape. The
 // daemon's line/column are 1-based; VS Code positions are 0-based.
-// The range is point-style — start equals end. Non-positive inputs
-// are clamped at 0 to defend against malformed daemon output.
+// When the daemon supplies end_line/end_column the range spans the
+// whole token; absent (or non-positive), the range is point-style —
+// start equals end. Non-positive inputs are clamped at 0 to defend
+// against malformed daemon output.
 export function shapeForDaemonDiagnostic(d: DaemonDiagnostic): ConvertedShape {
   const line = Math.max(0, d.line - 1);
   const character = Math.max(0, d.column - 1);
+  const hasEnd =
+    typeof d.end_line === 'number' &&
+    d.end_line > 0 &&
+    typeof d.end_column === 'number' &&
+    d.end_column > 0;
   return {
     startLine: line,
     startChar: character,
-    endLine: line,
-    endChar: character,
+    endLine: hasEnd ? Math.max(0, d.end_line! - 1) : line,
+    endChar: hasEnd ? Math.max(0, d.end_column! - 1) : character,
     severity: severityTokenFromString(d.severity),
     message: d.message,
     source: 'aggrega',

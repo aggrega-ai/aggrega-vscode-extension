@@ -19,6 +19,32 @@ describe('shapeForDaemonDiagnostic', () => {
     assert.strictEqual(shape.startChar, shape.endChar);
   });
 
+  it('spans a wide range when end_line/end_column are present', () => {
+    const shape = shapeForDaemonDiagnostic({
+      line: 8,
+      column: 9,
+      end_line: 8,
+      end_column: 18,
+      severity: 'error',
+      message: 'selector violation',
+    });
+    assert.strictEqual(shape.startLine, 7);
+    assert.strictEqual(shape.startChar, 8);
+    assert.strictEqual(shape.endLine, 7);
+    assert.strictEqual(shape.endChar, 17);
+    assert.notDeepStrictEqual(
+      [shape.startLine, shape.startChar],
+      [shape.endLine, shape.endChar],
+      'expected a non-empty range',
+    );
+  });
+
+  it('falls back to point-style when only the start is present', () => {
+    const shape = shapeForDaemonDiagnostic({ line: 5, column: 12, severity: 'error', message: 'x' });
+    assert.strictEqual(shape.endLine, shape.startLine);
+    assert.strictEqual(shape.endChar, shape.startChar);
+  });
+
   it('clamps line and column at 0 for non-positive inputs', () => {
     const shape = shapeForDaemonDiagnostic({ line: 0, column: 0, severity: 'error', message: '' });
     assert.strictEqual(shape.startLine, 0);

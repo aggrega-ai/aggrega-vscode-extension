@@ -2,6 +2,9 @@
 // Copyright 2026 Cognitio S.r.l.
 
 import * as assert from 'node:assert';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { Daemon, DaemonState } from '../../src/daemon';
 import { settingsFromObject } from '../../src/settings';
 import { ensureAggregaBinary, fixtureWorkspaceRoot } from '../helpers/build-aggrega';
@@ -134,6 +137,10 @@ describe('Daemon cooperative shutdown under load', function () {
 
   let binaryPath: string;
   let workspaceRoot: string;
+  // Temp workspaces scaffolded by scaffoldTier4Workspace; removed in
+  // afterEach so the large generated Aggregates do not accumulate in
+  // the OS temp directory across runs.
+  const scaffoldedRoots: string[] = [];
 
   before(function () {
     try {
@@ -144,6 +151,13 @@ describe('Daemon cooperative shutdown under load', function () {
       this.skip();
     }
     workspaceRoot = fixtureWorkspaceRoot();
+  });
+
+  afterEach(function () {
+    while (scaffoldedRoots.length > 0) {
+      const root = scaffoldedRoots.pop()!;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 
   // generateLargeAggregate returns aggregate-shaped YAML with the
@@ -278,6 +292,156 @@ describe('Daemon cooperative shutdown under load', function () {
     assert.ok(
       elapsed < 2500,
       `drain-bound took ${elapsed}ms; expected < 2500ms (drainTimeout + 500ms grace)`,
+    );
+  });
+
+  // scaffoldTier4Workspace writes a minimal Release closure into a temp
+  // directory: a config pointing at a local catalog, a single Release +
+  // Manifest, the named catalog Component, and a large mapping-style
+  // Aggregate with componentCount components of that type. The daemon's
+  // disambiguation cascade selects the lone Release at startup, so an
+  // aggrega/validate against aggregate.yaml exercises the Tier-4
+  // pipeline (resolve + topology + IR + analyze) rather than Tier-1
+  // parse-only. Returns the workspace root and the aggregate path/content.
+  function scaffoldTier4Workspace(componentCount: number): {
+    root: string;
+    aggregateFile: string;
+    aggregateContent: string;
+  } {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aggrega-tier4-'));
+    scaffoldedRoots.push(root);
+    fs.writeFileSync(
+      path.join(root, '.aggrega-config.yaml'),
+      'workspace:\n  catalog_dirs:\n    - ./catalog\n',
+    );
+    fs.writeFileSync(
+      path.join(root, 'release.yaml'),
+      [
+        'apiVersion: aggrega.ai/v1alpha1',
+        'kind: Release',
+        'metadata:',
+        '  name: under-load-tier4-release',
+        '  environment: test',
+        '  version: "1.0.0"',
+        'spec:',
+        '  aggregate: aggregate',
+        '  manifest: manifest',
+        '',
+      ].join('\n'),
+    );
+    fs.writeFileSync(
+      path.join(root, 'manifest.yaml'),
+      [
+        'apiVersion: aggrega.ai/v1alpha1',
+        'kind: Manifest',
+        'metadata:',
+        '  name: under-load-tier4-manifest',
+        '  version: "1.0.0"',
+        'spec: {}',
+        '',
+      ].join('\n'),
+    );
+    const catalogDir = path.join(root, 'catalog', 'components');
+    fs.mkdirSync(catalogDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(catalogDir, 'web.yaml'),
+      [
+        'apiVersion: aggrega.ai/v1alpha1',
+        'kind: Component',
+        'metadata:',
+        '  name: example/web',
+        '  version: "1.0.0"',
+        '  labels:',
+        '    component.aggrega.ai/type: "server"',
+        'spec:',
+        '  schema:',
+        '    infra:',
+        '      port: { type: integer, default: 8080 }',
+        '',
+      ].join('\n'),
+    );
+    const lines: string[] = [
+      'apiVersion: aggrega.ai/v1alpha1',
+      'kind: Aggregate',
+      'metadata:',
+      '  name: under-load-tier4',
+      '  version: "1.0.0"',
+      'spec:',
+      '  components:',
+    ];
+    for (let i = 0; i < componentCount; i++) {
+      lines.push(`    c${i}:`);
+      lines.push('      type: example/web');
+    }
+    const aggregateContent = lines.join('\n') + '\n';
+    const aggregateFile = path.join(root, 'aggregate.yaml');
+    fs.writeFileSync(aggregateFile, aggregateContent);
+    return { root, aggregateFile, aggregateContent };
+  }
+
+  // measureTier4Runtime starts a daemon, runs one Tier-4 validate to
+  // completion, and returns the wall-clock time. Used to decide whether
+  // the fixture is heavy enough on this machine to exercise mid-pipeline
+  // cancellation (the run must exceed the drain budget, else cancellation
+  // is untestable here and the cancellation assertion would be vacuous).
+  async function measureTier4Runtime(
+    root: string,
+    aggregateFile: string,
+    aggregateContent: string,
+  ): Promise<number> {
+    const daemon = new Daemon(
+      settingsFromObject({ binaryPath, respawnAttempts: 3, respawnWindowSeconds: 60 }),
+    );
+    await daemon.start(root);
+    const start = Date.now();
+    await daemon
+      .request('aggrega/validate', { file: aggregateFile, content: aggregateContent })
+      .catch((err: unknown) => err);
+    const elapsed = Date.now() - start;
+    await daemon.stop();
+    return elapsed;
+  }
+
+  it('tier-4 shutdown: a long in-flight Tier-4 validate is cancelled at the drain boundary', async function () {
+    const ws = scaffoldTier4Workspace(260000);
+
+    // Calibrate: only the case where one uncancelled Tier-4 run exceeds
+    // the drain budget can prove cancellation cut it short. On hardware
+    // fast enough to finish under the budget, the property is untestable
+    // — skip rather than assert vacuously.
+    const baseline = await measureTier4Runtime(ws.root, ws.aggregateFile, ws.aggregateContent);
+    if (baseline <= 2500) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `Skipping tier-4 shutdown case: single Tier-4 run took ${baseline}ms (<=2500ms); fixture too fast on this machine to exercise cancellation`,
+      );
+      this.skip();
+      return;
+    }
+
+    const daemon = new Daemon(
+      settingsFromObject({ binaryPath, respawnAttempts: 3, respawnWindowSeconds: 60 }),
+    );
+    await daemon.start(ws.root);
+    assert.strictEqual(daemon.getState(), DaemonState.Running);
+
+    // Fire one Tier-4 validate that would take `baseline` ms (> 2500ms),
+    // then immediately request shutdown. Without mid-pipeline
+    // cancellation the daemon would wait for the handler to finish
+    // (baseline ms); with it, exit is bounded at drainTimeout + grace.
+    const pending = daemon
+      .request('aggrega/validate', { file: ws.aggregateFile, content: ws.aggregateContent })
+      .catch((err: unknown) => err);
+
+    const start = Date.now();
+    await daemon.stop();
+    const elapsed = Date.now() - start;
+    await pending;
+
+    assert.strictEqual(daemon.getState(), DaemonState.Stopped);
+    assert.ok(
+      elapsed < 2500,
+      `tier-4 shutdown took ${elapsed}ms; expected < 2500ms despite a ${baseline}ms uncancelled run`,
     );
   });
 });

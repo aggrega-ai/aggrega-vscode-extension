@@ -137,18 +137,24 @@ export function handleDaemonError(err: JsonRpcError, ctx: DaemonErrorContext): b
 
 function surfaceDiagnostic(ctx: DaemonErrorContext, err: JsonRpcError, message: string): void {
   // Read err.data when present; the daemon's 1004 emission sites
-  // populate {file, line, column} with 1-based positions. Missing
-  // or zero values produce a file:1:1 fallback (start of file).
-  // The 1-based-to-0-based conversion mirrors diagnostics-shape.ts.
+  // populate {file, line, column} with 1-based positions, and
+  // optionally {end_line, end_column} for a token-spanning range.
+  // Missing or zero start values produce a file:1:1 fallback (start
+  // of file); missing or zero end values fall back to a point-style
+  // range. The 1-based-to-0-based conversion mirrors
+  // diagnostics-shape.ts.
   const daemonLine = err.data?.line ?? 0;
   const daemonColumn = err.data?.column ?? 0;
   const line = daemonLine > 0 ? daemonLine - 1 : 0;
   const character = daemonColumn > 0 ? daemonColumn - 1 : 0;
+  const daemonEndLine = err.data?.end_line ?? 0;
+  const daemonEndColumn = err.data?.end_column ?? 0;
+  const hasEnd = daemonEndLine > 0 && daemonEndColumn > 0;
   const shape: ConvertedShape = {
     startLine: line,
     startChar: character,
-    endLine: line,
-    endChar: character,
+    endLine: hasEnd ? daemonEndLine - 1 : line,
+    endChar: hasEnd ? daemonEndColumn - 1 : character,
     severity: 'error',
     message,
     source: 'aggrega',
