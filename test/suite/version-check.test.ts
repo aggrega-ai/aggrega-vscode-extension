@@ -27,6 +27,30 @@ describe('checkDaemonVersion', () => {
     }
   });
 
+  it('accepts a v-less version string', async () => {
+    const result = await checkDaemonVersion({
+      binaryPath: 'aggrega',
+      compatibilityRange: '>=0.1.0',
+      spawn: fakeSpawn({ version: '0.1.2', commit: 'abc12345', goVersion: 'go1.26', platform: 'linux/amd64' }),
+    });
+    assert.strictEqual(result.kind, 'match');
+    if (result.kind === 'match') {
+      assert.strictEqual(result.version, '0.1.2');
+    }
+  });
+
+  it('accepts a dev build-metadata form, comparing its base version', async () => {
+    const result = await checkDaemonVersion({
+      binaryPath: 'aggrega',
+      compatibilityRange: '>=0.1.0',
+      spawn: fakeSpawn({ version: '0.1.2-dev+abc123f', commit: 'abc123f', goVersion: 'go1.26', platform: 'linux/amd64' }),
+    });
+    assert.strictEqual(result.kind, 'match');
+    if (result.kind === 'match') {
+      assert.strictEqual(result.version, '0.1.2-dev+abc123f');
+    }
+  });
+
   it('skips check when version is (devel)', async () => {
     const result = await checkDaemonVersion({
       binaryPath: 'aggrega',
