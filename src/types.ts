@@ -173,3 +173,12 @@ export interface DaemonDiagnostic {
 export interface ValidateResponse {
   diagnostics: DaemonDiagnostic[];
 }
+
+// ReleaseCandidatesResponse is the aggrega/releaseCandidates result: the
+// absolute paths of the workspace's Release-kind documents, determined by the
+// daemon by content (`kind: Release`). The extension delegates Release
+// detection to the daemon rather than scanning by filename, so the IDE's
+// candidate set matches what the daemon resolves.
+export interface ReleaseCandidatesResponse {
+  releases: string[];
+}

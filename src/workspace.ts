@@ -89,35 +89,6 @@ export async function findAllAnchoredFolders<F extends FolderLike>(
   return out;
 }
 
-// findCandidateReleases scans the workspace root for files whose
-// basename matches the same glob shapes findAggregaWorkspaceAnchor
-// uses to identify Release-like anchors: aggregate*.yaml,
-// release*.yaml, manifest*.yaml. Lockfile-suffixed matches are
-// excluded. The scan is shallow (no recursion into subdirectories)
-// because the cascade's single-Release heuristic operates on the
-// workspace root only.
-//
-// Returns absolute paths sorted lexicographically for deterministic
-// quick-pick ordering. Returns an empty slice when the workspace
-// root has no Release-like files — the caller decides whether to
-// omit the "Use marker file" button.
-export async function findCandidateReleases(workspaceRoot: string): Promise<string[]> {
-  const entries = (await readdirSafe(workspaceRoot)).sort();
-  const out: string[] = [];
-  for (const name of entries) {
-    if (!name.endsWith(YAML_SUFFIX) || name.endsWith(LOCKFILE_SUFFIX)) {
-      continue;
-    }
-    for (const prefix of GLOB_PREFIXES) {
-      if (name.startsWith(prefix)) {
-        out.push(path.join(workspaceRoot, name));
-        break;
-      }
-    }
-  }
-  return out;
-}
-
 // heuristicMarkerInDir reports the highest-priority heuristic marker present in
 // dir (.aggrega/ then aggregate*.yaml / release*.yaml / manifest*.yaml,
 // lockfiles excluded), or null. The `workspace:`-config tier is handled by the

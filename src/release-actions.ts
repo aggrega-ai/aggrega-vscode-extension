@@ -5,7 +5,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as vscode from 'vscode';
 
-import { CONFIG_FILENAME, findCandidateReleases } from './workspace';
+import { CONFIG_FILENAME } from './workspace';
 
 // MARKER_DIR_BASENAME + MARKER_FILE_BASENAME together name the
 // .aggrega/active-release marker file the cascade's step-3 path
@@ -81,29 +81,19 @@ export async function openAuthoringReleaseConfig(workspaceRoot: string): Promise
   }
 }
 
-// createActiveReleaseMarker scans the workspace root for candidate
-// Release files, opens a quick-pick for the user to choose one, and
-// writes the chosen workspace-relative path into
-// .aggrega/active-release. After writing, invokes
+// createActiveReleaseMarker opens a quick-pick over the supplied Release
+// candidates for the user to choose one, and writes the chosen
+// workspace-relative path into .aggrega/active-release. After writing, invokes
 // aggrega.server.restart so the daemon re-runs the cascade.
 //
-// On zero candidates the user sees an informational message and
-// the function returns without writing. Filesystem write failures
-// (read-only mount, permission denied, .aggrega/ existing as a
-// file rather than directory) surface as error toasts. The function
-// is idempotent: re-invoking it after a successful write overwrites
-// the marker with the new selection.
-export async function createActiveReleaseMarker(workspaceRoot: string): Promise<void> {
-  let candidates: string[];
-  try {
-    candidates = await findCandidateReleases(workspaceRoot);
-  } catch (err) {
-    const reason = err instanceof Error ? err.message : String(err);
-    void vscode.window.showErrorMessage(
-      `Aggrega: could not scan workspace for Release candidates: ${reason}`,
-    );
-    return;
-  }
+// candidates is the daemon's content-kind Release set (absolute paths), fetched
+// by the caller — this function does no Release detection of its own. On zero
+// candidates the user sees an informational message and the function returns
+// without writing. Filesystem write failures (read-only mount, permission
+// denied, .aggrega/ existing as a file rather than directory) surface as error
+// toasts. The function is idempotent: re-invoking it after a successful write
+// overwrites the marker with the new selection.
+export async function createActiveReleaseMarker(workspaceRoot: string, candidates: string[]): Promise<void> {
   if (candidates.length === 0) {
     void vscode.window.showInformationMessage(
       'Aggrega: no Release candidates found in this workspace.',

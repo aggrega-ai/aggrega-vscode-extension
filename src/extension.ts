@@ -30,10 +30,11 @@ import {
   ERR_FILE_NOT_VALIDATED,
   JsonRpcError,
   PublishDiagnosticsParams,
+  ReleaseCandidatesResponse,
   ValidateParams,
   ValidateResponse,
 } from './types';
-import { AnchoredFolder, findAllAnchoredFolders, findCandidateReleases } from './workspace';
+import { AnchoredFolder, findAllAnchoredFolders } from './workspace';
 import { openAuthoringReleaseConfig, createActiveReleaseMarker } from './release-actions';
 import {
   STATE_KEY,
@@ -294,7 +295,16 @@ function registerReleaseActionCommands(context: vscode.ExtensionContext): void {
         );
         return;
       }
-      await createActiveReleaseMarker(workspaceRootForCommands);
+      let candidates: string[];
+      try {
+        candidates = await requestReleaseCandidates();
+      } catch {
+        void vscode.window.showErrorMessage(
+          'Aggrega: cannot list Release candidates — the language server is not running. Start it and try again.',
+        );
+        return;
+      }
+      await createActiveReleaseMarker(workspaceRootForCommands, candidates);
     }),
   );
 }
@@ -698,24 +708,37 @@ function buildErrorContext(uri: vscode.Uri) {
     executeCommand: (command: string) =>
       vscode.commands.executeCommand(command),
     scanCandidateReleases: async (): Promise<boolean> => {
-      // No anchored workspace root → no candidate Releases by
-      // definition. Guard explicitly: findCandidateReleases is
-      // typed string-only, so passing the potentially-undefined
-      // captured root through directly would be unsound. In
-      // practice the 1002 path requires a running daemon which
-      // requires an anchor, so this branch is unreachable today;
-      // the guard is correctness defense rather than a live case.
-      if (!root) {
+      // Whether the workspace has any Release the daemon would offer. The 1002
+      // path that calls this already presupposes a running daemon (Release
+      // resolution failed, which requires the daemon to have run), so a
+      // not-running daemon means no candidates to surface — return false rather
+      // than scanning by filename, which would diverge from the daemon.
+      try {
+        const candidates = await requestReleaseCandidates();
+        return candidates.length > 0;
+      } catch {
         return false;
       }
-      const candidates = await findCandidateReleases(root);
-      return candidates.length > 0;
     },
     toastDebounce,
     toastDebounceMode: settings.toastDebounceMode,
     toastThrottleSeconds: settings.toastThrottleSeconds,
     now: () => Date.now(),
   };
+}
+
+// requestReleaseCandidates asks the daemon for the workspace's Release set —
+// the content-kind (`kind: Release`) walk. The extension performs no Release
+// detection of its own; this is the single source. Throws when the daemon is
+// not running so callers surface a clear message rather than silently falling
+// back to a filename heuristic (which would reintroduce the very divergence
+// between the editor's candidates and the daemon's resolution this removes).
+async function requestReleaseCandidates(): Promise<string[]> {
+  if (!daemon || daemon.getState() !== DaemonState.Running) {
+    throw new Error('the Aggrega daemon is not running');
+  }
+  const resp = await daemon.request<ReleaseCandidatesResponse>('aggrega/releaseCandidates', {});
+  return resp.releases;
 }
 
 async function handleCacheMiss<T>(method: string, params: unknown, doc: vscode.TextDocument): Promise<T | null> {
