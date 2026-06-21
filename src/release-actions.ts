@@ -5,12 +5,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as vscode from 'vscode';
 
-import { findCandidateReleases } from './workspace';
-
-// CONFIG_FILE_BASENAME is the conventional name of the workspace
-// configuration file the daemon's cascade looks at for the
-// build.authoring_release pointer.
-const CONFIG_FILE_BASENAME = '.aggrega-config.yaml';
+import { CONFIG_FILENAME, findCandidateReleases } from './workspace';
 
 // MARKER_DIR_BASENAME + MARKER_FILE_BASENAME together name the
 // .aggrega/active-release marker file the cascade's step-3 path
@@ -37,7 +32,7 @@ const CONFIG_TEMPLATE = `build:
 // the helper writes the config there. Filesystem write failures
 // surface as error toasts rather than crashing.
 export async function openAuthoringReleaseConfig(workspaceRoot: string): Promise<void> {
-  const configPath = path.join(workspaceRoot, CONFIG_FILE_BASENAME);
+  const configPath = path.join(workspaceRoot, CONFIG_FILENAME);
   let created = false;
   try {
     await fs.access(configPath);
@@ -49,7 +44,7 @@ export async function openAuthoringReleaseConfig(workspaceRoot: string): Promise
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
       void vscode.window.showErrorMessage(
-        `Aggrega: could not create ${CONFIG_FILE_BASENAME}: ${reason}`,
+        `Aggrega: could not create ${CONFIG_FILENAME}: ${reason}`,
       );
       return;
     }
@@ -61,7 +56,7 @@ export async function openAuthoringReleaseConfig(workspaceRoot: string): Promise
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
     void vscode.window.showErrorMessage(
-      `Aggrega: could not open ${CONFIG_FILE_BASENAME}: ${reason}`,
+      `Aggrega: could not open ${CONFIG_FILENAME}: ${reason}`,
     );
     return;
   }

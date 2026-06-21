@@ -4,7 +4,10 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
-const CONFIG_FILENAME = '.aggrega-config.yaml';
+// CONFIG_FILENAME is the single canonical basename of the workspace
+// configuration file, shared across the extension (discovery here,
+// scaffolding in release-actions) so the name has one definition.
+export const CONFIG_FILENAME = '.aggrega-config.yaml';
 const AGGREGA_DIR = '.aggrega';
 const GLOB_PREFIXES = ['aggregate', 'release', 'manifest'] as const;
 const LOCKFILE_SUFFIX = '.lock.yaml';
@@ -24,35 +27,46 @@ export interface AnchoredFolder<F extends FolderLike = FolderLike> {
 }
 
 // findAggregaWorkspaceAnchor walks parent directories from start
-// looking for any of the five workspace anchor markers the daemon
+// looking for any of the workspace anchor markers the daemon
 // recognizes:
 //
-//   1. .aggrega-config.yaml         (file)
+//   1. .aggrega-config.yaml carrying a top-level `workspace:` block
 //   2. .aggrega/                    (directory)
 //   3. aggregate*.yaml              (glob)
 //   4. release*.yaml                (glob)
 //   5. manifest*.yaml               (glob)
 //
-// Lockfile-suffixed matches (e.g., release.lock.yaml) are excluded
-// from the glob tier so a lockfile alone does not anchor a workspace.
-// Returns the absolute path of the first match (any tier) found in
-// the walk, or null when the filesystem root is reached without a
-// match.
+// A `.aggrega-config.yaml` WITHOUT a `workspace:` block does not
+// anchor — a bare settings/global config must not mark every parent
+// directory as a workspace root. Lockfile-suffixed matches (e.g.,
+// release.lock.yaml) are excluded from the glob tier so a lockfile
+// alone does not anchor a workspace. Returns the absolute path of the
+// first match (any tier) found in the walk, or null when the
+// filesystem root is reached without a match.
 //
 // The walk is lexical (filepath.Dir-equivalent); symlinks are not
-// dereferenced. Matches the daemon's discoverWorkspaceRoot semantics
-// 1:1 so client and server agree on which workspace folders are
-// Aggrega workspaces.
+// dereferenced. Mirrors the Go workspaceconfig.Resolve discovery
+// semantics so the extension and daemon agree on which folders are
+// Aggrega workspaces; the cross-language parity test pins the match.
 export async function findAggregaWorkspaceAnchor(start: string): Promise<string | null> {
   let current = path.resolve(start);
+  // Precedence mirrors the Go discoverRoot: the nearest `.aggrega-config.yaml`
+  // carrying a `workspace:` block wins outright; otherwise the nearest
+  // heuristic marker (.aggrega/ or a glob) anchors. So a `workspace:` config
+  // higher up beats a nearer heuristic — discovery climbs past heuristics to
+  // honor an explicit workspace root.
+  let fallback: string | null = null;
   while (true) {
-    const hit = await checkMarkersInDir(current);
-    if (hit !== null) {
-      return hit;
+    const configPath = path.join(current, CONFIG_FILENAME);
+    if (await hasWorkspaceBlock(configPath)) {
+      return configPath;
+    }
+    if (fallback === null) {
+      fallback = await heuristicMarkerInDir(current);
     }
     const parent = path.dirname(current);
     if (parent === current) {
-      return null;
+      return fallback;
     }
     current = parent;
   }
@@ -104,11 +118,11 @@ export async function findCandidateReleases(workspaceRoot: string): Promise<stri
   return out;
 }
 
-async function checkMarkersInDir(dir: string): Promise<string | null> {
-  const configPath = path.join(dir, CONFIG_FILENAME);
-  if (await isFile(configPath)) {
-    return configPath;
-  }
+// heuristicMarkerInDir reports the highest-priority heuristic marker present in
+// dir (.aggrega/ then aggregate*.yaml / release*.yaml / manifest*.yaml,
+// lockfiles excluded), or null. The `workspace:`-config tier is handled by the
+// caller, which gives it cross-directory precedence over these heuristics.
+async function heuristicMarkerInDir(dir: string): Promise<string | null> {
   const aggregaDir = path.join(dir, AGGREGA_DIR);
   if (await isDirectory(aggregaDir)) {
     return aggregaDir;
@@ -141,13 +155,25 @@ async function readdirSafe(dir: string): Promise<string[]> {
   }
 }
 
-async function isFile(p: string): Promise<boolean> {
+// hasWorkspaceBlock reports whether the file at p exists and declares a
+// top-level `workspace:` key — the marker that anchors a workspace root. A
+// file without it (a bare settings/global config) does not anchor. This is the
+// client-side, pre-daemon counterpart to the Go side's raw-document
+// `workspace:` probe; both treat presence of the key — including the empty
+// `workspace: {}` form — as the marker. The cross-language parity test asserts
+// the two agree on the shared fixtures. The probe is intentionally shallow (a
+// top-level, unindented `workspace:` key) rather than a full YAML parse: the
+// extension does no YAML parsing, and discovery runs before any daemon exists.
+async function hasWorkspaceBlock(p: string): Promise<boolean> {
+  let content: string;
   try {
-    const st = await fs.stat(p);
-    return st.isFile();
+    content = await fs.readFile(p, 'utf8');
   } catch {
     return false;
   }
+  // A top-level mapping key has no leading indentation. Match `workspace:`
+  // (optionally `workspace: {}` / trailing content) at the start of a line.
+  return /^workspace[ \t]*:/m.test(content);
 }
 
 async function isDirectory(p: string): Promise<boolean> {

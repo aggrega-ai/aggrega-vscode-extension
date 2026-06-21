@@ -70,7 +70,7 @@ describe('findAllAnchoredFolders', () => {
     await fs.mkdir(a);
     await fs.mkdir(b);
     await fs.mkdir(c);
-    await fs.writeFile(path.join(a, '.aggrega-config.yaml'), '');
+    await fs.writeFile(path.join(a, '.aggrega-config.yaml'), 'workspace: {}\n');
     await fs.writeFile(path.join(c, 'aggregate.yaml'), '');
     // b is intentionally unanchored
 

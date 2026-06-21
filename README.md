@@ -38,6 +38,14 @@ npm run compile
 npm test
 ```
 
+The cross-language workspace-discovery parity test reads its shared cases from
+the `aggrega-cli` repository, which must be checked out as a sibling directory
+beside this one (`../aggrega-cli`). `aggrega-cli` owns the compiler and the
+`aggrega` daemon this extension drives, and the parity test proves the
+extension's workspace discovery matches the daemon's. When `aggrega-cli` is not
+present (a standalone clone of just this repo), the parity test skips with a
+notice and the rest of the suite runs normally.
+
 ## Lifecycle
 
 The extension manages the daemon process's full lifecycle. On shutdown — when the editor closes, when the user restarts the language server, or when a configuration change requires a fresh daemon — the extension first asks the daemon to exit cooperatively. If the daemon does not respond within a short grace window, the extension falls back to OS-level termination. The semantics are identical across POSIX and Windows hosts. See `src/daemon.ts` for implementation detail.

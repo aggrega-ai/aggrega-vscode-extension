@@ -18,11 +18,17 @@ describe('findAggregaWorkspaceAnchor', () => {
     await fs.rm(tmpRoot, { recursive: true, force: true });
   });
 
-  it('finds .aggrega-config.yaml at the workspace root', async () => {
+  it('finds .aggrega-config.yaml carrying a workspace: block at the root', async () => {
     const cfgPath = path.join(tmpRoot, '.aggrega-config.yaml');
-    await fs.writeFile(cfgPath, '');
+    await fs.writeFile(cfgPath, 'workspace: {}\n');
     const found = await findAggregaWorkspaceAnchor(tmpRoot);
     assert.strictEqual(found, cfgPath);
+  });
+
+  it('a bare .aggrega-config.yaml (no workspace: block) does not anchor', async () => {
+    await fs.writeFile(path.join(tmpRoot, '.aggrega-config.yaml'), 'default_registry: r.io\n');
+    const found = await findAggregaWorkspaceAnchor(tmpRoot);
+    assert.strictEqual(found, null);
   });
 
   it('finds .aggrega/ directory at the workspace root', async () => {
@@ -67,9 +73,9 @@ describe('findAggregaWorkspaceAnchor', () => {
     assert.strictEqual(found, null);
   });
 
-  it('priority tiebreak: .aggrega-config.yaml wins over aggregate.yaml in same dir', async () => {
+  it('priority tiebreak: workspace: config wins over aggregate.yaml in same dir', async () => {
     const cfgPath = path.join(tmpRoot, '.aggrega-config.yaml');
-    await fs.writeFile(cfgPath, '');
+    await fs.writeFile(cfgPath, 'workspace: {}\n');
     await fs.writeFile(path.join(tmpRoot, 'aggregate.yaml'), '');
     const found = await findAggregaWorkspaceAnchor(tmpRoot);
     assert.strictEqual(found, cfgPath);
@@ -77,21 +83,24 @@ describe('findAggregaWorkspaceAnchor', () => {
 
   it('walks upward to find an anchor in a parent directory', async () => {
     const cfgPath = path.join(tmpRoot, '.aggrega-config.yaml');
-    await fs.writeFile(cfgPath, '');
+    await fs.writeFile(cfgPath, 'workspace: {}\n');
     const child = path.join(tmpRoot, 'a', 'b', 'c');
     await fs.mkdir(child, { recursive: true });
     const found = await findAggregaWorkspaceAnchor(child);
     assert.strictEqual(found, cfgPath);
   });
 
-  it('deepest match wins: child aggregate.yaml beats parent .aggrega-config.yaml', async () => {
+  it('a workspace: config ancestor wins over a nearer heuristic marker', async () => {
+    // New precedence (matches the Go discoverRoot): an explicit workspace:
+    // config higher up beats a nearer heuristic. The child's aggregate.yaml no
+    // longer hijacks the root away from the parent's workspace: config.
     const child = path.join(tmpRoot, 'child');
     await fs.mkdir(child);
-    await fs.writeFile(path.join(tmpRoot, '.aggrega-config.yaml'), '');
-    const childAgg = path.join(child, 'aggregate.yaml');
-    await fs.writeFile(childAgg, '');
+    const cfgPath = path.join(tmpRoot, '.aggrega-config.yaml');
+    await fs.writeFile(cfgPath, 'workspace: {}\n');
+    await fs.writeFile(path.join(child, 'aggregate.yaml'), '');
     const found = await findAggregaWorkspaceAnchor(child);
-    assert.strictEqual(found, childAgg);
+    assert.strictEqual(found, cfgPath);
   });
 
   it('returns null when no marker exists in the parent chain', async () => {
