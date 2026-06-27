@@ -178,6 +178,7 @@ export class Daemon extends EventEmitter {
       d.log(`[aggrega serve stderr] ${chunk.toString('utf8').trimEnd()}`);
     });
     proc.on('exit', (code, signal) => d.handleExit(code, signal));
+    proc.on('error', err => d.handleSpawnError(err));
     d.setState(DaemonState.Running);
     return d;
   }
@@ -261,6 +262,7 @@ export class Daemon extends EventEmitter {
       this.log(`[aggrega serve stderr] ${chunk.toString('utf8').trimEnd()}`);
     });
     this.proc.on('exit', (code, signal) => this.handleExit(code, signal));
+    this.proc.on('error', err => this.handleSpawnError(err));
 
     try {
       await this.initializeHandshake();
@@ -378,6 +380,24 @@ export class Daemon extends EventEmitter {
       return;
     }
     p.resolve(msg.result);
+  }
+
+  // handleSpawnError handles the subprocess 'error' event. The event fires
+  // asynchronously when the subprocess cannot be spawned or has fatally
+  // failed — most commonly ENOENT when binaryPath does not resolve to an
+  // executable. Node does not throw this synchronously from spawn(), so the
+  // try/catch around spawn() never sees it; without a listener the event is
+  // re-thrown as an uncaught exception that crashes the host process. This
+  // handler is the listener: it rejects every in-flight and queued request
+  // with the concrete spawn error so an awaiting initialize handshake fails
+  // fast with a clear cause rather than hanging to its timeout, and it does
+  // not respawn (a missing or unexecutable binary would respawn-loop). State
+  // settles through the awaiting spawnAndInitialize's failure path; a stray
+  // error after the daemon is already stopping is a no-op beyond clearing
+  // pending work.
+  private handleSpawnError(err: Error): void {
+    this.log(`subprocess error: ${err.message}`);
+    this.rejectPending(err);
   }
 
   private handleExit(code: number | null, signal: NodeJS.Signals | null): void {

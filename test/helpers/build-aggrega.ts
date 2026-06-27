@@ -38,7 +38,7 @@ export function ensureAggregaBinary(): string {
     throw new Error(`aggrega-cli source tree not found at ${cliRoot}`);
   }
 
-  if (fs.existsSync(binPath) && isUpToDate(binPath, cliRoot)) {
+  if (isUsableBinary(binPath) && isUpToDate(binPath, cliRoot)) {
     return binPath;
   }
 
@@ -49,10 +49,39 @@ export function ensureAggregaBinary(): string {
     env: { ...process.env, CGO_ENABLED: '0' },
   });
   if (result.status !== 0) {
+    // A failed build can leave a truncated or zero-byte file at binPath that
+    // would pass a bare existence check on the next run; remove it so the
+    // cache never serves a non-runnable binary.
+    try {
+      fs.rmSync(binPath, { force: true });
+    } catch {
+      // Best-effort cleanup; the thrown error below is the operative signal.
+    }
     const stderr = result.stderr?.toString('utf8') ?? '';
     throw new Error(`go build failed (status=${result.status}): ${stderr}`);
   }
   return binPath;
+}
+
+// isUsableBinary reports whether binPath is a cached binary worth reusing: a
+// regular, non-empty, owner-executable file. A bare existence check is not
+// enough — an interrupted or failed build can leave a zero-byte or
+// non-executable file at the path, which an existence check accepts but the
+// daemon cannot spawn (the spawn fails asynchronously and surfaces downstream
+// as an initialize timeout). Verifying mode and size here forces a rebuild
+// instead of caching a broken binary.
+function isUsableBinary(binPath: string): boolean {
+  let st: fs.Stats;
+  try {
+    st = fs.statSync(binPath);
+  } catch {
+    return false;
+  }
+  if (!st.isFile() || st.size === 0) {
+    return false;
+  }
+  // 0o100 is the owner-execute bit; a successfully built binary carries it.
+  return (st.mode & 0o100) !== 0;
 }
 
 function isUpToDate(binPath: string, sourceRoot: string): boolean {

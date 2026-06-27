@@ -109,3 +109,31 @@ describe('Daemon notification routing', () => {
     assert.strictEqual(notifFired, false, 'a response (id present) must NOT route as a notification');
   });
 });
+
+describe('Daemon spawn-error handling', function () {
+  // terminateSubprocess walks its SIGTERM grace window when the proc handle
+  // exists but the OS process never started, so allow well over that budget.
+  this.timeout(15_000);
+
+  it('surfaces a missing-binary spawn failure as a caught rejection, not an uncaught crash', async () => {
+    const { Daemon, DaemonState } = await import('../../src/daemon');
+    const { settingsFromObject } = await import('../../src/settings');
+
+    // A binaryPath that cannot resolve to an executable. spawn() does not
+    // throw synchronously for this — the child emits an async 'error' (ENOENT).
+    // Without the daemon's 'error' listener that event would re-throw as an
+    // uncaught exception and crash the runner; with it, start() must reject
+    // and the daemon must settle back to Stopped. This test completing at all
+    // (no process crash) is itself the assertion that the event is handled.
+    const daemon = new Daemon(
+      settingsFromObject({
+        binaryPath: '/nonexistent/aggrega-binary-that-does-not-exist',
+        respawnAttempts: 3,
+        respawnWindowSeconds: 60,
+      }),
+    );
+
+    await assert.rejects(() => daemon.start('/tmp'));
+    assert.strictEqual(daemon.getState(), DaemonState.Stopped);
+  });
+});

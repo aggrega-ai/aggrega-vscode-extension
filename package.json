@@ -93,7 +93,9 @@
   "scripts": {
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "test": "npm run compile && mocha out/test/suite/**/*.test.js",
+    "build-fixtures": "mkdir -p out/test-fixtures && cd ../aggrega-cli && CGO_ENABLED=0 go build -o ../aggrega-vscode-extension/out/test-fixtures/aggrega ./cmd/aggrega",
+    "pretest": "npm run compile && npm run build-fixtures",
+    "test": "mocha out/test/suite/**/*.test.js",
     "test:integration": "npm run compile && vscode-test"
   },
   "devDependencies": {
