@@ -403,9 +403,20 @@ describe('Daemon cooperative shutdown under load', function () {
   }
 
   it('tier-4 shutdown: a long in-flight Tier-4 validate is cancelled at the drain boundary', async function () {
-    // SET ASIDE 2026-06-28 pending operator ruling: the daemon does not currently cancel a heavy in-flight Tier-4 validate at the drain boundary (resolver/parse phases take no ctx); re-frame or product-fix follows that ruling.
+    // SET ASIDE pending operator ruling: keyboard measurement showed the heavy
+    // cost of a large Tier-4 validate lives in a single straight-line resolve
+    // block (parameter interpolation + contract validation + boundary wiring
+    // over the whole document), NOT in the per-node phase loops. The request
+    // context now aborts at the resolve-entry and topology phase boundaries, so
+    // a drain-cancelled validate returns context.Canceled — but only AFTER that
+    // resolve block completes (~3.8s at 40000 components on this machine). The
+    // bound the phase-boundary threading delivers is therefore not "stop() <
+    // 2500ms with a heavy validate in flight": at any fixture size large enough
+    // for resolve to exceed the drain budget, cancellation cannot interrupt it
+    // mid-block. Breaking up that resolve block is a heavier change than the
+    // scoped phase-boundary threading. Re-frame or product-fix follows the ruling.
     this.skip();
-    const ws = scaffoldTier4Workspace(260000);
+    const ws = scaffoldTier4Workspace(40000);
 
     // Calibrate: only the case where one uncancelled Tier-4 run exceeds
     // the drain budget can prove cancellation cut it short. On hardware
