@@ -35,8 +35,10 @@ export enum DaemonState {
 }
 
 // INITIALIZE_TIMEOUT_MS bounds the wait for aggrega/initialize. A
-// daemon that misses the window is treated as deadlocked.
-const INITIALIZE_TIMEOUT_MS = 5000;
+// daemon that misses the window is treated as deadlocked. The budget is
+// generous because a legitimately slow first response (a large workspace,
+// a cold cache) is not a deadlock and must not be mistaken for one.
+const INITIALIZE_TIMEOUT_MS = 30000;
 
 // COOPERATIVE_SHUTDOWN_GRACE_MS bounds how long stop() waits for
 // the daemon to exit on its own after the aggrega/shutdown
@@ -269,6 +271,14 @@ export class Daemon extends EventEmitter {
     } catch (err) {
       this.log(`initialize failed: ${(err as Error).message}; falling back to UTF-16`);
       this.serverEncoding = 'utf-16';
+      // Move to Stopping before killing the child so its 'exit' event is
+      // absorbed by handleExit's deliberate-teardown guard rather than
+      // treated as an unexpected exit. Without this the SIGTERM/SIGKILL
+      // below would fire handleExit while state was still Starting/Stopped,
+      // which respawns immediately — each respawn re-pays startup and can
+      // storm. The attempt is recorded once here so the caller-driven retry
+      // still honors the RespawnTracker backoff.
+      this.setState(DaemonState.Stopping);
       await this.terminateSubprocess();
       this.respawnTracker.recordAttempt();
       this.setState(DaemonState.Stopped);

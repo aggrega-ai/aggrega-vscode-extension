@@ -110,6 +110,62 @@ describe('Daemon notification routing', () => {
   });
 });
 
+describe('Daemon deliberate-termination respawn guard', function () {
+  this.timeout(15_000);
+
+  // A daemon whose subprocess is torn down deliberately (as the
+  // initialize-failure path does after killing the child) must NOT treat
+  // the resulting 'exit' event as an unexpected crash and respawn. The
+  // failure path moves the daemon to Stopping before it kills the child so
+  // handleExit's deliberate-teardown guard absorbs the exit; without that,
+  // the SIGTERM-driven exit falls through to an immediate respawn, and each
+  // respawn re-pays startup and can storm.
+  it('does not respawn when the subprocess exits during a deliberate (Stopping) teardown', async () => {
+    const { Daemon, DaemonState } = await import('../../src/daemon');
+    const { settingsFromObject } = await import('../../src/settings');
+    const { spawn } = await import('child_process');
+
+    // A keepalive stub child standing in for the subprocess the
+    // initialize-failure path terminates. __forTesting attaches it and
+    // wires its exit handler to handleExit exactly as production does.
+    const stub = spawn(process.execPath, ['-e', 'setInterval(() => {}, 60000);'], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    const daemon = Daemon.__forTesting(
+      settingsFromObject({
+        binaryPath: process.execPath,
+        respawnAttempts: 3,
+        respawnWindowSeconds: 60,
+      }),
+      stub,
+    );
+
+    // handleExit emits unexpectedExit and respawns ONLY on its
+    // respawn-eligible branch; a deliberate (Stopping) teardown must skip
+    // that branch entirely, so the absence of this event is the proof that
+    // no respawn was attempted.
+    let unexpectedExitFired = false;
+    daemon.on('unexpectedExit', () => { unexpectedExitFired = true; });
+
+    // The initialize-failure path marks the teardown deliberate (Stopping)
+    // before it kills the child; reproduce that here, then kill the child
+    // and let its exit reach handleExit. Without the Stopping guard the
+    // SIGKILL-driven exit would fall through to an immediate respawn.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (daemon as any).setState(DaemonState.Stopping);
+    const exited = new Promise<void>(resolve => stub.once('exit', () => resolve()));
+    stub.kill('SIGKILL');
+    await exited;
+    await new Promise(resolve => setTimeout(resolve, 50));
+
+    assert.strictEqual(
+      unexpectedExitFired,
+      false,
+      'a deliberate (Stopping) teardown must not emit unexpectedExit or respawn',
+    );
+  });
+});
+
 describe('Daemon spawn-error handling', function () {
   // terminateSubprocess walks its SIGTERM grace window when the proc handle
   // exists but the OS process never started, so allow well over that budget.
