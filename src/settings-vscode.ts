@@ -14,6 +14,7 @@ export function getSettings(): Settings {
   return {
     binaryPath: serverCfg.get<string>('binaryPath', DEFAULT_SETTINGS.binaryPath),
     autoRevalidate: serverCfg.get<boolean>('autoRevalidate', DEFAULT_SETTINGS.autoRevalidate),
+    renderDiagnostics: serverCfg.get<boolean>('renderDiagnostics', DEFAULT_SETTINGS.renderDiagnostics),
     debounceMs: serverCfg.get<number>('debounceMs', DEFAULT_SETTINGS.debounceMs),
     respawnAttempts: serverCfg.get<number>('respawnAttempts', DEFAULT_SETTINGS.respawnAttempts),
     respawnWindowSeconds: serverCfg.get<number>('respawnWindowSeconds', DEFAULT_SETTINGS.respawnWindowSeconds),

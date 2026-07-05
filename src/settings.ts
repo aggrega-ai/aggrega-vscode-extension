@@ -4,6 +4,7 @@
 export interface Settings {
   binaryPath: string;
   autoRevalidate: boolean;
+  renderDiagnostics: boolean;
   debounceMs: number;
   respawnAttempts: number;
   respawnWindowSeconds: number;
@@ -15,6 +16,7 @@ export interface Settings {
 export const DEFAULT_SETTINGS: Settings = {
   binaryPath: 'aggrega',
   autoRevalidate: false,
+  renderDiagnostics: false,
   debounceMs: 300,
   respawnAttempts: 5,
   respawnWindowSeconds: 180,

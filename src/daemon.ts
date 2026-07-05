@@ -14,6 +14,18 @@ import {
 import { Settings } from './settings';
 import { extractServerInitMetadata } from './init-metadata';
 
+// buildServeArgs assembles the argv for `aggrega serve` from the
+// effective settings. The --render-diagnostics flag is appended only when
+// renderDiagnostics is true; left off, the daemon applies its config-file
+// default (render skipped on IR-graph inspection).
+export function buildServeArgs(settings: Settings): string[] {
+  const args = ['serve'];
+  if (settings.renderDiagnostics) {
+    args.push('--render-diagnostics');
+  }
+  return args;
+}
+
 // isNotification distinguishes JSON-RPC 2.0 server-push
 // notifications (no id field) from responses (id present). The
 // daemon emits aggrega/publishDiagnostics as a notification when
@@ -251,7 +263,7 @@ export class Daemon extends EventEmitter {
   private async spawnAndInitialize(): Promise<void> {
     this.setState(DaemonState.Starting);
     try {
-      this.proc = spawn(this.settings.binaryPath, ['serve'], {
+      this.proc = spawn(this.settings.binaryPath, buildServeArgs(this.settings), {
         cwd: this.workspaceRoot ?? undefined,
         stdio: ['pipe', 'pipe', 'pipe'],
       });

@@ -3,11 +3,13 @@
 
 import * as assert from 'node:assert';
 import { DEFAULT_SETTINGS, settingsFromObject } from '../../src/settings';
+import { buildServeArgs } from '../../src/daemon';
 
 describe('settings', () => {
   it('exposes the documented defaults', () => {
     assert.strictEqual(DEFAULT_SETTINGS.binaryPath, 'aggrega');
     assert.strictEqual(DEFAULT_SETTINGS.autoRevalidate, false);
+    assert.strictEqual(DEFAULT_SETTINGS.renderDiagnostics, false);
     assert.strictEqual(DEFAULT_SETTINGS.debounceMs, 300);
     assert.strictEqual(DEFAULT_SETTINGS.respawnAttempts, 5);
     assert.strictEqual(DEFAULT_SETTINGS.respawnWindowSeconds, 180);
@@ -40,5 +42,22 @@ describe('settings', () => {
     const s = settingsFromObject({});
     s.debounceMs = 999;
     assert.strictEqual(DEFAULT_SETTINGS.debounceMs, 300);
+  });
+
+  describe('buildServeArgs', () => {
+    it('omits --render-diagnostics by default (dial off)', () => {
+      const args = buildServeArgs(settingsFromObject({}));
+      assert.deepStrictEqual(args, ['serve']);
+    });
+
+    it('omits --render-diagnostics when renderDiagnostics is false', () => {
+      const args = buildServeArgs(settingsFromObject({ renderDiagnostics: false }));
+      assert.deepStrictEqual(args, ['serve']);
+    });
+
+    it('appends --render-diagnostics only when renderDiagnostics is true', () => {
+      const args = buildServeArgs(settingsFromObject({ renderDiagnostics: true }));
+      assert.deepStrictEqual(args, ['serve', '--render-diagnostics']);
+    });
   });
 });

@@ -54,6 +54,11 @@
           "default": false,
           "description": "When true, silently revalidates a file on cache-miss and retries the request. When false, surfaces a notification with a Revalidate action."
         },
+        "aggrega.server.renderDiagnostics": {
+          "type": "boolean",
+          "default": false,
+          "description": "When true, the daemon runs the render pass on IR-graph inspection so render-time warnings are produced. Off by default: skipping render is faster and the graph shown is identical either way — only render-stage advisory warnings are dropped. When true, the extension passes --render-diagnostics to aggrega serve."
+        },
         "aggrega.server.debounceMs": {
           "type": "number",
           "default": 300,
