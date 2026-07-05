@@ -5,6 +5,8 @@ import * as assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { EventEmitter } from 'node:events';
+import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { Daemon, DaemonState } from '../../src/daemon';
 import { settingsFromObject } from '../../src/settings';
 import { ensureAggregaBinary, fixtureWorkspaceRoot } from '../helpers/build-aggrega';
@@ -91,16 +93,17 @@ describe('Daemon cooperative shutdown', function () {
       await daemon.stop();
       const elapsed = Date.now() - start;
 
-      // The cooperative wait (3s) must expire before SIGTERM fires.
-      // Total elapsed: 3s cooperative + sub-second SIGTERM grace
-      // (the stub responds to SIGTERM by exiting immediately on
-      // POSIX). Bound: 2.8s ≤ elapsed ≤ 6s.
+      // The stub ignores both aggrega/shutdown notifications, so both
+      // cooperative graces (drain ~3s, then abort ~2.5s) must expire
+      // before SIGTERM fires; the stub then exits immediately on SIGTERM
+      // (POSIX). Total elapsed ≈ 3 + 2.5 + sub-second SIGTERM grace.
+      // Bound: 5s ≤ elapsed < 8s.
       assert.ok(
-        elapsed >= 2800,
-        `falls-through path exited too quickly (${elapsed}ms); cooperative wait should have expired`,
+        elapsed >= 5000,
+        `falls-through path exited too quickly (${elapsed}ms); both cooperative graces should have expired`,
       );
       assert.ok(
-        elapsed < 6000,
+        elapsed < 8000,
         `falls-through path exceeded grace window (${elapsed}ms); SIGTERM/SIGKILL escalation should have fired`,
       );
     } finally {
@@ -111,27 +114,26 @@ describe('Daemon cooperative shutdown', function () {
   });
 });
 
-// Under-load shutdown coverage. The two cases exercise different
-// code paths inside the daemon's drain logic. The client side cannot
-// observe the daemon's wire-level shutdown error envelopes — Daemon
-// .stop() pre-rejects all pending requests with a generic Error
-// before awaiting the drain — so the test distinguishes the cases by
-// elapsed-time windows:
+// Under-load shutdown coverage. Both cases exercise the daemon's
+// drain-then-abort path under load. The client side cannot observe the
+// daemon's wire-level shutdown error envelopes — Daemon.stop()
+// pre-rejects all pending requests with a generic Error before awaiting
+// the drain — so the cases assert the extension-client property: stop()
+// under load drains in-flight work and returns bounded, without
+// deadlock.
 //
-//   - Fast load (drain-cleanly): every handler completes inside the
-//     drain budget; stop() returns at handler-completion time, well
-//     under the drain timer.
-//   - Slow load (drain-bound): combined handler runtime exceeds the
-//     drain budget; the drain timer fires; stop() returns at
-//     roughly drainTimeout + small grace.
+// Under drain-then-abort the FIRST aggrega/shutdown lets in-flight work
+// finish and the daemon exits as soon as its pool drains — there is no
+// fixed drain-timer floor on the first signal. So:
 //
-// The daemon's defaultDrainTimeout is 2 seconds (see
-// aggrega-cli/internal/serve/server.go). The 500ms safety margin
-// accounts for subprocess teardown, IPC latency, and mocha's timer
-// resolution. Wire-level 1005 (errShuttingDown) verification lives
-// in the Go-side shutdown_test.go; this suite tests the
-// extension-client property: stop() under load returns within the
-// expected bound without deadlock.
+//   - Fast load (drain-cleanly): handlers finish quickly; stop() returns
+//     well within the drain grace, no escalation.
+//   - Heavy load (drain-bound): more in-flight work still drains to
+//     completion; stop() returns bounded by the cooperative force ladder
+//     (drain grace, then abort grace, then SIGTERM/SIGKILL).
+//
+// Wire-level 1005 (errShuttingDown) verification lives in the Go-side
+// shutdown_test.go.
 describe('Daemon cooperative shutdown under load', function () {
   this.timeout(120_000);
 
@@ -229,18 +231,14 @@ describe('Daemon cooperative shutdown under load', function () {
     await Promise.all(requests);
     assert.strictEqual(daemon.getState(), DaemonState.Stopped);
 
-    // Drain-cleanly: fast handlers complete inside the drain budget.
-    // Empirically the daemon still waits the full drainTimeout (the
-    // timer is a FLOOR under load per server.go's
-    // max(handler_runtime, drainTimeout) semantic), so elapsed lands
-    // near 2000ms. The assertion bound at 2500ms gives 500ms safety
-    // margin and proves the cooperative path completed without
-    // SIGTERM escalation. The value of this case relative to the
-    // drain-bound case below: coverage of the path where every
-    // handler finishes naturally, none get aborted by the timer.
+    // Drain-cleanly: fast handlers finish quickly. Under drain-then-abort
+    // the first shutdown carries no drain-timer floor, so the daemon exits
+    // as soon as the pool drains — well within the drain grace and with no
+    // SIGTERM escalation. The 3000ms bound is the drain grace; a clean
+    // drain returns comfortably under it.
     assert.ok(
-      elapsed < 2500,
-      `drain-cleanly took ${elapsed}ms; expected < 2500ms (drainTimeout + 500ms grace)`,
+      elapsed < 3000,
+      `drain-cleanly took ${elapsed}ms; expected < 3000ms (within the drain grace, no escalation)`,
     );
   });
 
@@ -276,22 +274,20 @@ describe('Daemon cooperative shutdown under load', function () {
     await Promise.all(requests);
     assert.strictEqual(daemon.getState(), DaemonState.Stopped);
 
-    // Drain-bound: combined handler runtime exceeds the 2s drain
-    // budget; the drain timer fires while handlers are still running;
-    // the daemon waits for the current handler to finish then exits.
-    // Upper bound (2500ms) proves the drain was bounded — a broken
-    // drain would let the daemon hang for the full handler queue
-    // (5 × ~500ms = 2.5s+ without the floor). Lower bound (1700ms)
-    // proves the daemon did NOT exit early; together with the upper
-    // bound this asserts the cooperative path under heavy load
-    // completes within the documented window.
+    // Drain-bound: heavier in-flight work still drains to completion
+    // under the first shutdown. stop() returns bounded by the cooperative
+    // force ladder — drain grace (~3s), then abort grace (~2.5s), then
+    // SIGTERM/SIGKILL — never hanging on the full handler queue. Upper
+    // bound (8000ms) is that worst-case ladder plus margin; the small
+    // lower bound proves real drain work occurred rather than an instant
+    // exit.
     assert.ok(
-      elapsed >= 1700,
-      `drain-bound completed too quickly (${elapsed}ms); expected >= 1700ms — generated load may not exceed drain budget`,
+      elapsed >= 200,
+      `drain-bound completed implausibly fast (${elapsed}ms); expected the heavy load to take real drain time`,
     );
     assert.ok(
-      elapsed < 2500,
-      `drain-bound took ${elapsed}ms; expected < 2500ms (drainTimeout + 500ms grace)`,
+      elapsed < 8000,
+      `drain-bound took ${elapsed}ms; expected < 8000ms (bounded by the cooperative force ladder, no deadlock)`,
     );
   });
 
@@ -402,31 +398,25 @@ describe('Daemon cooperative shutdown under load', function () {
     return elapsed;
   }
 
-  it('tier-4 shutdown: a long in-flight Tier-4 validate is cancelled at the drain boundary', async function () {
-    // SET ASIDE pending operator ruling: keyboard measurement showed the heavy
-    // cost of a large Tier-4 validate lives in a single straight-line resolve
-    // block (parameter interpolation + contract validation + boundary wiring
-    // over the whole document), NOT in the per-node phase loops. The request
-    // context now aborts at the resolve-entry and topology phase boundaries, so
-    // a drain-cancelled validate returns context.Canceled — but only AFTER that
-    // resolve block completes (~3.8s at 40000 components on this machine). The
-    // bound the phase-boundary threading delivers is therefore not "stop() <
-    // 2500ms with a heavy validate in flight": at any fixture size large enough
-    // for resolve to exceed the drain budget, cancellation cannot interrupt it
-    // mid-block. Breaking up that resolve block is a heavier change than the
-    // scoped phase-boundary threading. Re-frame or product-fix follows the ruling.
-    this.skip();
+  it('tier-4 shutdown: a long in-flight Tier-4 validate drains to completion, not cut short', async function () {
+    // Under drain-then-abort the FIRST aggrega/shutdown drains: an
+    // in-flight Tier-4 validate runs to completion rather than being cut
+    // short. The heavy cost of a large Tier-4 validate lives in a single
+    // straight-line resolve block, so it is not interruptible mid-block;
+    // the correct behavior is precisely that the drain lets it finish.
+    // This is the inverse of the previously-expected cut-short bound.
     const ws = scaffoldTier4Workspace(40000);
 
-    // Calibrate: only the case where one uncancelled Tier-4 run exceeds
-    // the drain budget can prove cancellation cut it short. On hardware
-    // fast enough to finish under the budget, the property is untestable
-    // — skip rather than assert vacuously.
+    // Calibrate: the drain-to-completion property is only observable when
+    // one uncancelled Tier-4 run takes meaningfully longer than the old
+    // cut-short budget. On hardware fast enough to finish near-instantly,
+    // "drained, not cut short" is indistinguishable — skip rather than
+    // assert vacuously.
     const baseline = await measureTier4Runtime(ws.root, ws.aggregateFile, ws.aggregateContent);
     if (baseline <= 2500) {
       // eslint-disable-next-line no-console
       console.warn(
-        `Skipping tier-4 shutdown case: single Tier-4 run took ${baseline}ms (<=2500ms); fixture too fast on this machine to exercise cancellation`,
+        `Skipping tier-4 shutdown case: single Tier-4 run took ${baseline}ms (<=2500ms); fixture too fast on this machine to distinguish drain-to-completion`,
       );
       this.skip();
       return;
@@ -438,10 +428,12 @@ describe('Daemon cooperative shutdown under load', function () {
     await daemon.start(ws.root);
     assert.strictEqual(daemon.getState(), DaemonState.Running);
 
-    // Fire one Tier-4 validate that would take `baseline` ms (> 2500ms),
-    // then immediately request shutdown. Without mid-pipeline
-    // cancellation the daemon would wait for the handler to finish
-    // (baseline ms); with it, exit is bounded at drainTimeout + grace.
+    // Fire one Tier-4 validate (~baseline ms, > 2500ms), then request
+    // shutdown. The first shutdown drains, so the daemon lets the validate
+    // finish and exits when it does — stop() lands near baseline, NOT cut
+    // short to the old sub-budget bound. The abort (second shutdown) and
+    // SIGTERM/SIGKILL force still cap the worst case, so stop() never
+    // hangs beyond the cooperative ladder.
     const pending = daemon
       .request('aggrega/validate', { file: ws.aggregateFile, content: ws.aggregateContent })
       .catch((err: unknown) => err);
@@ -452,9 +444,126 @@ describe('Daemon cooperative shutdown under load', function () {
     await pending;
 
     assert.strictEqual(daemon.getState(), DaemonState.Stopped);
+    // Drained, not cut short: the in-flight validate ran past the old
+    // cut-short budget rather than being aborted under it.
     assert.ok(
-      elapsed < 2500,
-      `tier-4 shutdown took ${elapsed}ms; expected < 2500ms despite a ${baseline}ms uncancelled run`,
+      elapsed > 2500,
+      `tier-4 shutdown took ${elapsed}ms; expected > 2500ms — the first shutdown must drain the in-flight validate to completion, not cut it short`,
     );
+    // Bounded by the cooperative force ladder plus a margin.
+    assert.ok(
+      elapsed < baseline + 8000,
+      `tier-4 shutdown took ${elapsed}ms; expected < ${baseline + 8000}ms — bounded by the cooperative force ladder`,
+    );
+  });
+});
+
+// FakeChild is a minimal ChildProcess stand-in for driving
+// terminateSubprocess without spawning a real process. It records stdin
+// writes and kill signals and can emit 'exit' after a chosen number of
+// aggrega/shutdown notifications, standing in for a daemon that honors
+// (or ignores) the drain-then-abort sequence.
+class FakeChild extends EventEmitter {
+  writes: string[] = [];
+  signals: NodeJS.Signals[] = [];
+  exitCode: number | null = null;
+  signalCode: NodeJS.Signals | null = null;
+  readonly stdout = new EventEmitter();
+  readonly stderr = new EventEmitter();
+  private shutdownCount = 0;
+
+  constructor(private readonly exitAfterShutdowns: number | null) {
+    super();
+  }
+
+  readonly stdin = {
+    write: (buf: Buffer): boolean => {
+      const s = buf.toString('utf8');
+      this.writes.push(s);
+      if (s.includes('aggrega/shutdown')) {
+        this.shutdownCount++;
+        if (this.exitAfterShutdowns !== null && this.shutdownCount >= this.exitAfterShutdowns) {
+          setImmediate(() => {
+            if (this.exitCode === null && this.signalCode === null) {
+              this.exitCode = 0;
+              this.emit('exit', 0, null);
+            }
+          });
+        }
+      }
+      return true;
+    },
+  };
+
+  kill(signal: NodeJS.Signals): boolean {
+    this.signals.push(signal);
+    return true;
+  }
+
+  shutdownWrites(): number {
+    return this.writes.filter(w => w.includes('aggrega/shutdown')).length;
+  }
+}
+
+// Drain-then-abort escalation ordering. These cases drive the extension's
+// terminateSubprocess ladder against a fake subprocess so the exact
+// sequence of stdin writes and force signals is observable — coverage the
+// real-daemon timing tests above cannot provide.
+describe('Daemon drain-then-abort escalation ordering', function () {
+  this.timeout(30_000);
+
+  function makeDaemon(fake: FakeChild): Daemon {
+    return Daemon.__forTesting(
+      settingsFromObject({
+        binaryPath: process.execPath,
+        respawnAttempts: 3,
+        respawnWindowSeconds: 60,
+      }),
+      fake as unknown as ChildProcessWithoutNullStreams,
+    );
+  }
+
+  it('sends aggrega/shutdown#1 then #2, and does not force-signal a daemon that honors the abort', async function () {
+    // The fake exits after the SECOND shutdown, standing in for a daemon
+    // that drains through the first signal and exits on the abort. The
+    // ladder must send exactly two shutdowns and never escalate to a
+    // force signal.
+    const fake = new FakeChild(/*exitAfterShutdowns=*/ 2);
+    const daemon = makeDaemon(fake);
+    assert.strictEqual(daemon.getState(), DaemonState.Running);
+
+    await daemon.stop();
+
+    assert.strictEqual(daemon.getState(), DaemonState.Stopped);
+    assert.strictEqual(
+      fake.shutdownWrites(),
+      2,
+      'expected exactly two aggrega/shutdown notifications (drain then abort)',
+    );
+    assert.deepStrictEqual(
+      fake.signals,
+      [],
+      'expected no SIGTERM/SIGKILL — the daemon exited on the abort',
+    );
+  });
+
+  it('escalates to SIGTERM only after both shutdowns when the daemon ignores them', async function () {
+    // The fake never exits on its own. The ladder must write both
+    // shutdowns before any force signal, then escalate SIGTERM → SIGKILL.
+    const fake = new FakeChild(/*exitAfterShutdowns=*/ null);
+    const daemon = makeDaemon(fake);
+    assert.strictEqual(daemon.getState(), DaemonState.Running);
+
+    await daemon.stop();
+
+    assert.strictEqual(daemon.getState(), DaemonState.Stopped);
+    assert.strictEqual(
+      fake.shutdownWrites(),
+      2,
+      'expected both aggrega/shutdown notifications to be written before force escalation',
+    );
+    assert.ok(fake.signals.length > 0, 'expected a force signal after the cooperative graces expired');
+    assert.strictEqual(fake.signals[0], 'SIGTERM', 'first force signal must be SIGTERM (after both shutdowns)');
+    assert.ok(fake.signals.includes('SIGKILL'), 'expected SIGKILL escalation after SIGTERM grace');
   });
 });

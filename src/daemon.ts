@@ -52,15 +52,22 @@ export enum DaemonState {
 // a cold cache) is not a deadlock and must not be mistaken for one.
 const INITIALIZE_TIMEOUT_MS = 30000;
 
-// COOPERATIVE_SHUTDOWN_GRACE_MS bounds how long stop() waits for
-// the daemon to exit on its own after the aggrega/shutdown
-// notification before falling through to SIGTERM. Daemons
-// honor the notification and exit within their own 2-second drain
-// budget. Total stop() worst case: COOPERATIVE + SIGTERM
-// + SIGKILL = 3 + 2 = 5 seconds.
-const COOPERATIVE_SHUTDOWN_GRACE_MS = 3000;
+// SHUTDOWN_DRAIN_GRACE_MS bounds how long stop() waits after the FIRST
+// aggrega/shutdown (drain) before escalating. The first shutdown stops
+// the daemon accepting new work and lets in-flight work finish; the
+// daemon then exits on its own. A daemon with no in-flight work exits
+// almost immediately.
+const SHUTDOWN_DRAIN_GRACE_MS = 3000;
 
-// SIGTERM_GRACE_MS bounds the wait between SIGTERM and SIGKILL.
+// SHUTDOWN_ABORT_GRACE_MS bounds the wait after the SECOND aggrega/shutdown
+// (abort) before escalating to SIGTERM. The abort cancels in-flight work,
+// which returns at its next phase boundary within the daemon's own drain
+// budget; this grace covers that budget plus a margin.
+const SHUTDOWN_ABORT_GRACE_MS = 2500;
+
+// SIGTERM_GRACE_MS bounds the wait between SIGTERM and SIGKILL. Total
+// stop() worst case: DRAIN + ABORT + SIGTERM + SIGKILL ≈ 3 + 2.5 + 2 =
+// 7.5 seconds, reached only when the daemon ignores both shutdowns.
 const SIGTERM_GRACE_MS = 2000;
 
 // STARTUP_QUEUE_LIMIT caps the requests queued while the subprocess
@@ -460,32 +467,30 @@ export class Daemon extends EventEmitter {
       return;
     }
 
-    // Phase 1 (cooperative, optional): send aggrega/shutdown
-    // notification and wait COOPERATIVE_SHUTDOWN_GRACE_MS. The subprocess
-    // exits on its own and phases 2-3 are skipped. Skipped on restart()
-    // and the initialize-failure path because cooperative shutdown does
-    // not help when the daemon is unhealthy.
+    // Cooperative escalation is graceful-then-force: DRAIN, then ABORT,
+    // then SIGTERM, then SIGKILL. It is skipped entirely on restart() and
+    // the initialize-failure path, where cooperative shutdown does not
+    // help an unhealthy daemon.
     if (cooperative) {
-      try {
-        const notification = JSON.stringify({
-          jsonrpc: '2.0',
-          method: 'aggrega/shutdown',
-        });
-        const payload = Buffer.from(notification, 'utf8');
-        const header = Buffer.from(`Content-Length: ${payload.byteLength}\r\n\r\n`, 'ascii');
-        proc.stdin.write(Buffer.concat([header, payload]));
-      } catch {
-        // Subprocess stdin already closed or otherwise unwritable;
-        // fall through to phase 2.
+      // Phase 1: DRAIN. Send the first aggrega/shutdown and wait
+      // SHUTDOWN_DRAIN_GRACE_MS. The daemon stops accepting new work, lets
+      // in-flight work finish, then exits on its own — later phases are
+      // skipped when it does.
+      if (this.writeShutdown(proc) && (await waitForExit(proc, SHUTDOWN_DRAIN_GRACE_MS))) {
+        this.proc = null;
+        return;
       }
-      const exitedCooperatively = await waitForExit(proc, COOPERATIVE_SHUTDOWN_GRACE_MS);
-      if (exitedCooperatively) {
+
+      // Phase 2: ABORT. The drain did not complete in time; send a second
+      // aggrega/shutdown, which cancels in-flight work, and wait
+      // SHUTDOWN_ABORT_GRACE_MS for the daemon to exit.
+      if (this.writeShutdown(proc) && (await waitForExit(proc, SHUTDOWN_ABORT_GRACE_MS))) {
         this.proc = null;
         return;
       }
     }
 
-    // Phase 2: SIGTERM with SIGTERM_GRACE_MS budget.
+    // Phase 3: SIGTERM with SIGTERM_GRACE_MS budget. Phase 4: SIGKILL.
     await new Promise<void>(resolve => {
       let resolved = false;
       const done = () => { if (!resolved) { resolved = true; resolve(); } };
@@ -496,13 +501,30 @@ export class Daemon extends EventEmitter {
       // grace window before SIGKILL escalates.
       setTimeout(() => {
         if (proc.exitCode === null && proc.signalCode === null) {
-          // Phase 3: SIGKILL.
+          // Phase 4: SIGKILL.
           proc.kill('SIGKILL');
         }
         setTimeout(done, 100);
       }, SIGTERM_GRACE_MS);
     });
     this.proc = null;
+  }
+
+  // writeShutdown emits one aggrega/shutdown notification on the
+  // subprocess's stdin. Returns false when stdin is already closed or
+  // otherwise unwritable, so the caller can fall through to the next
+  // escalation phase. Two of these in sequence drive the daemon's
+  // drain-then-abort shutdown: the first drains, the second aborts.
+  private writeShutdown(proc: ChildProcessWithoutNullStreams): boolean {
+    try {
+      const notification = JSON.stringify({ jsonrpc: '2.0', method: 'aggrega/shutdown' });
+      const payload = Buffer.from(notification, 'utf8');
+      const header = Buffer.from(`Content-Length: ${payload.byteLength}\r\n\r\n`, 'ascii');
+      proc.stdin.write(Buffer.concat([header, payload]));
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   private setState(next: DaemonState): void {
