@@ -2,7 +2,7 @@
 // Copyright 2026 Cognitio S.r.l.
 
 import * as assert from 'node:assert';
-import { shapeForDaemonDiagnostic, severityTokenFromString } from '../../src/diagnostics-shape';
+import { shapeForDaemonDiagnostic, severityTokenFromString, SeverityToken } from '../../src/diagnostics-shape';
 
 describe('shapeForDaemonDiagnostic', () => {
   it('maps 1-based daemon line/column to 0-based VS Code position', () => {
@@ -79,5 +79,37 @@ describe('severityTokenFromString', () => {
   it('defaults unknown severities to error', () => {
     assert.strictEqual(severityTokenFromString('gibberish'), 'error');
     assert.strictEqual(severityTokenFromString(''), 'error');
+  });
+});
+
+// Accessibility regression guard. State is conveyed by a semantic severity
+// token (which VS Code renders as an icon plus a text label in the Problems
+// panel, independent of color) and by the message text — never by color alone.
+// These assertions fail if a future change drops the severity classification or
+// routes an unmapped severity to no token, which would leave a diagnostic
+// distinguishable only by color.
+describe('diagnostic accessibility invariants', () => {
+  const validTokens: SeverityToken[] = ['error', 'warning', 'information'];
+
+  it('every converted diagnostic carries a non-empty semantic severity token', () => {
+    const inputs = ['error', 'warning', 'info', 'information', 'gibberish', ''];
+    for (const severity of inputs) {
+      const shape = shapeForDaemonDiagnostic({ line: 1, column: 1, severity, message: 'x' });
+      assert.ok(
+        validTokens.includes(shape.severity),
+        `severity ${JSON.stringify(severity)} produced non-semantic token ${JSON.stringify(shape.severity)}`,
+      );
+    }
+  });
+
+  it('carries the message text so state is never color-alone', () => {
+    const shape = shapeForDaemonDiagnostic({
+      line: 3,
+      column: 4,
+      severity: 'warning',
+      message: 'deprecated component',
+    });
+    assert.strictEqual(shape.severity, 'warning');
+    assert.strictEqual(shape.message, 'deprecated component');
   });
 });
