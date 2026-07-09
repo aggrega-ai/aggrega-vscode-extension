@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- Multi-marker workspace discovery: the extension recognizes the workspace root and Release candidates the way the daemon does (workspace marker, precedence, CWD fallback), and picks the anchored folder when a window has multiple roots. The status-bar tooltip shows the active workspace marker.
+- Release-candidate detection and root discovery are delegated to the daemon rather than a client-side basename glob, with a cross-language parity test guarding the two implementations against drift.
+- Per-code diagnostic surfaces with structured error data for precise positioning: diagnostic squiggles span the reported source tokens when the daemon returns end positions, instead of marking a single point.
+- Per-file invalidation granularity for `aggrega/invalidate`, wired to editor `didClose`.
+- Lockfile awareness at edit time, integrating `aggrega pull --verify` so the editor surfaces the same lockfile verdict a build gives.
+- A quick-action menu, automatic daemon restart, a daemon version check, and time-based toast debouncing.
+- A `server.renderDiagnostics` setting forwarded to the daemon.
+- A VS Code integration test suite that builds `aggrega` on demand from the sibling checkout and exercises the extension against a real daemon, including cooperative-shutdown-under-load coverage.
+
+### Changed
+
+- Daemon shutdown escalates cooperatively — drain, then abort, then force-kill — so in-flight requests settle before the subprocess is terminated.
+
+### Fixed
+
+- The daemon `initialize` handshake tolerates a slow first response: the timeout is raised and the client no longer respawns repeatedly (respawn storms) after an initialize failure.
+- Subprocess spawn errors are handled rather than surfacing as unhandled failures; test fixture provisioning is deterministic.
+- The daemon version check tolerates `v`-less and dev build-metadata version forms.
+- Diagnostics no longer rely on color alone to convey severity.
+
 ## [0.1.0] — initial scaffold
 
 - Subprocess lifecycle for `aggrega serve` with bounded crash recovery.
