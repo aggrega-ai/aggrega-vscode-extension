@@ -31,4 +31,29 @@ describe('Aggrega-contributed commands', () => {
       'expected aggrega.statusBar.openMenu to be in the command registry',
     );
   });
+
+  it('registers every operation command', async () => {
+    const commands = await vscode.commands.getCommands(true);
+    for (const id of ['validate', 'build', 'lint', 'pull', 'push', 'import', 'cache']) {
+      assert.ok(
+        commands.includes(`aggrega.op.${id}`),
+        `expected aggrega.op.${id} to be in the command registry`,
+      );
+    }
+  });
+
+  it('registers aggrega.graph.show', async () => {
+    const commands = await vscode.commands.getCommands(true);
+    assert.ok(
+      commands.includes('aggrega.graph.show'),
+      'expected aggrega.graph.show to be in the command registry',
+    );
+  });
+
+  it('registers the catalog and plugins commands', async () => {
+    const commands = await vscode.commands.getCommands(true);
+    for (const id of ['aggrega.catalog.searchPublished', 'aggrega.plugins.refresh']) {
+      assert.ok(commands.includes(id), `expected ${id} to be in the command registry`);
+    }
+  });
 });

@@ -1,0 +1,138 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+/* Copyright 2026 Cognitio S.r.l. */
+
+html, body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background: var(--vscode-editor-background);
+  color: var(--vscode-editor-foreground);
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+}
+
+#canvas {
+  width: 100vw;
+  height: 100vh;
+  display: block;
+  cursor: grab;
+}
+
+#canvas.panning {
+  cursor: grabbing;
+}
+
+.status {
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  padding: 4px 10px;
+  border-radius: 4px;
+  background: var(--vscode-editorWidget-background);
+  border: 1px solid var(--vscode-editorWidget-border);
+  color: var(--vscode-editorWidget-foreground);
+  z-index: 10;
+  pointer-events: none;
+  max-width: 80vw;
+}
+
+.status.error {
+  background: var(--vscode-inputValidation-errorBackground);
+  border-color: var(--vscode-inputValidation-errorBorder);
+  color: var(--vscode-editor-foreground);
+}
+
+.status.hidden {
+  display: none;
+}
+
+/* Boundary and subsystem containers.
+   Structural elements carry the brand pair — petrol (#0E7070, the brand's
+   structure/link colour) on boundaries, lime (#A3E635, the brand primary) on
+   subsystems. The two are also distinguished by border STYLE (solid vs dashed)
+   so the grouping never depends on colour alone — petrol and lime differ mainly
+   in lightness, which reads for colour-vision deficiencies, but the shape
+   redundancy guarantees it. */
+.container-boundary {
+  fill: var(--vscode-editorWidget-background);
+  fill-opacity: 0.35;
+  stroke: #0e7070;
+  stroke-width: 1.5;
+}
+
+.container-subsystem {
+  fill: var(--vscode-editorWidget-background);
+  fill-opacity: 0.25;
+  stroke: #a3e635;
+  stroke-width: 1.25;
+  stroke-dasharray: 4 3;
+}
+
+.container-title {
+  fill: var(--vscode-descriptionForeground);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/* Leaf nodes (components). The body is a neutral, theme-driven fill so the
+   node label keeps constant high contrast; node TYPE is conveyed by a colour
+   accent bar (see .node-accent) drawn from the Okabe-Ito colour-blind-safe
+   palette rather than by tinting the whole node — which would put a moving
+   target under the text. */
+.node-rect {
+  fill: var(--vscode-button-background);
+  stroke: var(--vscode-contrastBorder, var(--vscode-panel-border));
+  stroke-width: 1;
+  rx: 5;
+  cursor: pointer;
+}
+
+/* Type accent bar — its fill is set per node from the Okabe-Ito palette. */
+.node-accent {
+  pointer-events: none;
+}
+
+.node-rect:hover {
+  stroke: var(--vscode-focusBorder);
+  stroke-width: 2;
+}
+
+.node-label {
+  fill: var(--vscode-button-foreground);
+  font-size: 12px;
+  pointer-events: none;
+  text-anchor: middle;
+  dominant-baseline: middle;
+}
+
+.node-sub {
+  fill: var(--vscode-button-foreground);
+  font-size: 9px;
+  opacity: 0.8;
+  pointer-events: none;
+  text-anchor: middle;
+}
+
+/* Edges. */
+.edge {
+  fill: none;
+  stroke: var(--vscode-editor-foreground);
+  stroke-opacity: 0.55;
+  stroke-width: 1.5;
+}
+
+/* Edge provenance uses two Okabe-Ito colours that stay distinct under the
+   common colour-vision deficiencies — vermillion for Release-authored edges,
+   reddish-purple for Feature-originated — and Release edges are additionally
+   dashed so provenance never rests on colour alone. */
+.edge-release {
+  stroke: #d55e00;
+  stroke-dasharray: 6 3;
+  stroke-opacity: 0.95;
+}
+
+.edge-feature {
+  stroke: #cc79a7;
+  stroke-opacity: 0.9;
+}

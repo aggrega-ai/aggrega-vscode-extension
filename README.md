@@ -15,6 +15,9 @@ Language support for Aggrega YAML — validation, navigation, hover, and complet
 - **Find References / Implementations** — list every reference to or implementation of an entity.
 - **Hover** — kind-aware summaries for catalog and release entities.
 - **Completion** — context-aware suggestions for entity kinds, API versions, schema keywords, primitives, label values, providers, paths, and intra-document component keys.
+- **Aggrega activity-bar view** — an **Operations** panel with one-click compiler operations (validate, build, lint, pull, push, import, cache) whose output streams to the Aggrega output channel, and a **Plugins** panel listing the embedded and configured Wasm plugins.
+- **Topology graph** — renders a chosen Release's compiled IR as an interactive graph: boundary and subsystem containers, provenance-styled edges, pan and zoom, and click-a-node to open its source file. Layout is computed in the view; the compiler ships topology, never coordinates.
+- **Published-catalog search** — search the configured registries for catalog entities and copy a reference to paste into an Aggregate.
 
 ## Settings
 
@@ -29,6 +32,10 @@ Language support for Aggrega YAML — validation, navigation, hover, and complet
 ## Commands
 
 - **Aggrega: Restart language server** — terminates the current daemon and spawns a fresh one. Resets the respawn-attempt counter.
+- **Aggrega: Validate active file / Build / Lint / Pull / Push / Import… / Cache…** — run the corresponding compiler operation. Validate uses the language server; the rest run the `aggrega` binary and stream output to the Aggrega output channel.
+- **Aggrega: Show topology graph** — open the topology graph for a chosen Release.
+- **Aggrega: Search published catalog** — search the configured registries and copy a matched reference.
+- **Aggrega: Refresh plugins** — reload the Plugins panel.
 
 ## Build
 

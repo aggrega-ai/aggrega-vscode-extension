@@ -19,7 +19,107 @@
   ],
   "main": "./out/src/extension.js",
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "aggrega",
+          "title": "Aggrega",
+          "icon": "media/aggrega.svg"
+        }
+      ]
+    },
+    "views": {
+      "aggrega": [
+        {
+          "id": "aggrega.operations",
+          "name": "Operations"
+        },
+        {
+          "id": "aggrega.plugins",
+          "name": "Plugins"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "aggrega.graph.show",
+          "when": "view == aggrega.operations",
+          "group": "navigation"
+        },
+        {
+          "command": "aggrega.catalog.searchPublished",
+          "when": "view == aggrega.operations",
+          "group": "navigation"
+        },
+        {
+          "command": "aggrega.plugins.refresh",
+          "when": "view == aggrega.plugins",
+          "group": "navigation"
+        }
+      ]
+    },
     "commands": [
+      {
+        "command": "aggrega.graph.show",
+        "title": "Show topology graph",
+        "category": "Aggrega",
+        "icon": "$(type-hierarchy)"
+      },
+      {
+        "command": "aggrega.catalog.searchPublished",
+        "title": "Search published catalog",
+        "category": "Aggrega",
+        "icon": "$(cloud)"
+      },
+      {
+        "command": "aggrega.plugins.refresh",
+        "title": "Refresh plugins",
+        "category": "Aggrega",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "aggrega.op.validate",
+        "title": "Validate active file",
+        "category": "Aggrega",
+        "icon": "$(check)"
+      },
+      {
+        "command": "aggrega.op.build",
+        "title": "Build",
+        "category": "Aggrega",
+        "icon": "$(package)"
+      },
+      {
+        "command": "aggrega.op.lint",
+        "title": "Lint",
+        "category": "Aggrega",
+        "icon": "$(search)"
+      },
+      {
+        "command": "aggrega.op.pull",
+        "title": "Pull",
+        "category": "Aggrega",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "aggrega.op.push",
+        "title": "Push",
+        "category": "Aggrega",
+        "icon": "$(cloud-upload)"
+      },
+      {
+        "command": "aggrega.op.import",
+        "title": "Import…",
+        "category": "Aggrega",
+        "icon": "$(arrow-into)"
+      },
+      {
+        "command": "aggrega.op.cache",
+        "title": "Cache…",
+        "category": "Aggrega",
+        "icon": "$(database)"
+      },
       {
         "command": "aggrega.server.restart",
         "title": "Aggrega: Restart language server"
@@ -82,7 +182,10 @@
         },
         "aggrega.notifications.toastDebounceMode": {
           "type": "string",
-          "enum": ["time", "session"],
+          "enum": [
+            "time",
+            "session"
+          ],
           "default": "time",
           "description": "How repeated toast notifications for the same error code are debounced. `time` re-surfaces after `toastThrottleSeconds` elapses since the last toast went away (action click, X click, or auto-dismiss). `session` suppresses repeats until the daemon restarts (the previous default)."
         },
@@ -113,5 +216,8 @@
     "mocha": "^10.0.0",
     "semver": "^7.6.0",
     "typescript": "^5.3.0"
+  },
+  "dependencies": {
+    "elkjs": "^0.12.0"
   }
 }

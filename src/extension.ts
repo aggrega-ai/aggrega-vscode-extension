@@ -36,6 +36,9 @@ import {
 } from './types';
 import { AnchoredFolder, findAllAnchoredFolders } from './workspace';
 import { openAuthoringReleaseConfig, createActiveReleaseMarker } from './release-actions';
+import { activateOperations } from './operations';
+import { activateGraphView } from './graph-view';
+import { activateCatalogViews } from './catalog-views';
 import {
   STATE_KEY,
   buildPickerItems,
@@ -67,6 +70,41 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Palette surfaces it regardless of the activation outcome.
   registerSwitchAnchorCommand(context);
   registerReleaseActionCommands(context);
+
+  // The operation surface (activity-bar Operations view + commands) is
+  // available regardless of daemon state: CLI-backed operations scope to the
+  // anchored root once it is known, and validate reports when no file or
+  // daemon is available. The getters read live state so the surface tracks the
+  // root the daemon later attaches to.
+  activateOperations(context, {
+    getWorkspaceRoot: () => workspaceRootForCommands,
+    getBinaryPath: () => getSettings().binaryPath,
+    output: outputChannel,
+    validateActiveDocument,
+  });
+
+  // The topology-graph view renders the compiled IR of a chosen Release. It is
+  // daemon-backed (irGraph + releaseCandidates); the getters read live state.
+  activateGraphView(context, {
+    getWorkspaceRoot: () => workspaceRootForCommands,
+    listReleases: requestReleaseCandidates,
+    requestIrGraph: async (release: string) => {
+      if (!daemon || daemon.getState() !== DaemonState.Running) {
+        throw new Error('the Aggrega language server is not running');
+      }
+      const result = await daemon.request<{ graph: unknown }>('aggrega/irGraph', { release });
+      return result.graph;
+    },
+    output: outputChannel,
+  });
+
+  // The plugins tree and published-catalog search are CLI-backed (plugin list
+  // --json, search -o json), independent of daemon state.
+  activateCatalogViews(context, {
+    getWorkspaceRoot: () => workspaceRootForCommands,
+    getBinaryPath: () => getSettings().binaryPath,
+    output: outputChannel,
+  });
   context.subscriptions.push(
     vscode.workspace.onDidChangeWorkspaceFolders(() => {
       void reactivate(context);
@@ -313,6 +351,36 @@ export async function deactivate(): Promise<void> {
   if (daemon) {
     await daemon.stop();
     daemon = null;
+  }
+}
+
+// validateActiveDocument runs the serve-backed validate on the active YAML
+// document on demand (the Operations view's Validate action), publishing its
+// diagnostics through the same collection the proactive lifecycle validate
+// uses. Validate is a language-server operation, not a CLI subprocess, so it
+// stays on the daemon path rather than spawning the binary.
+async function validateActiveDocument(): Promise<void> {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor || editor.document.languageId !== 'yaml') {
+    void vscode.window.showInformationMessage('Aggrega: open a YAML file to validate.');
+    return;
+  }
+  if (!daemon || daemon.getState() !== DaemonState.Running) {
+    void vscode.window.showWarningMessage('Aggrega: the language server is not running.');
+    return;
+  }
+  const doc = editor.document;
+  try {
+    const response = await daemon.request<ValidateResponse>('aggrega/validate', {
+      file: doc.uri.fsPath,
+      content: doc.getText(),
+    });
+    if (diagnosticCollection) {
+      publishDiagnostics(diagnosticCollection, doc.uri, response.diagnostics ?? []);
+    }
+    outputChannel?.appendLine(`validated ${doc.uri.fsPath}`);
+  } catch (err) {
+    outputChannel?.appendLine(`validate failed: ${describeError(err)}`);
   }
 }
 
