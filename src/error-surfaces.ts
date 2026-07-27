@@ -29,7 +29,7 @@ const LOCKFILE_GENERATE_COMMAND = 'aggrega pull';
 // so this text is incorporated into the toast's main message body
 // rather than attached to the button.
 const LOCKFILE_GENERATE_TOOLTIP =
-  'The Generate Lockfile button runs `aggrega pull` — pulls catalog dependencies into the cache and writes the per-Release lockfile.';
+  'The Generate Lockfile button runs `aggrega pull --release <release>` — pulls catalog dependencies into the cache and writes the per-Release lockfile.';
 
 // LOCKFILE_TOAST_BUTTON is the label of the actionable button on
 // the 1003 toast. The handler matches against this literal.
@@ -66,6 +66,12 @@ export interface DaemonErrorContext {
   // emission. Production scans the filesystem; tests return a
   // fixed boolean.
   scanCandidateReleases: () => Thenable<boolean>;
+  // resolveRelease returns the Release the lockfile-generation command should
+  // target — `aggrega pull` requires a --release argument, so the bare command
+  // fails. Production wires the shared release resolver (sole candidate, or a
+  // quick-pick); tests return a fixed value. Undefined means do not proceed
+  // (no daemon, no Release, or the user dismissed the pick).
+  resolveRelease: () => Thenable<string | undefined>;
   // toastDebounce tracks per-code throttle state. In `session` mode
   // the boolean records whether a toast already surfaced this
   // daemon session (and stays true until resetSessionDedup runs
@@ -199,13 +205,26 @@ function surfaceLockfileToast(ctx: DaemonErrorContext, message: string): void {
     if (choice !== LOCKFILE_TOAST_BUTTON) {
       return;
     }
-    const terminal = ctx.createTerminal({
-      name: 'Aggrega Lockfile',
-      cwd: ctx.workspaceRoot,
-    });
-    terminal.show();
-    terminal.sendText(LOCKFILE_GENERATE_COMMAND, true);
+    void generateLockfile(ctx);
   });
+}
+
+// generateLockfile resolves the target Release and runs `aggrega pull
+// --release <path>` in a terminal. The bare command cannot succeed — the CLI
+// marks --release required, so the Release must be supplied; only the workspace
+// root is otherwise in scope here. The path is double-quoted so a root-relative
+// path with spaces survives the shell.
+async function generateLockfile(ctx: DaemonErrorContext): Promise<void> {
+  const release = await ctx.resolveRelease();
+  if (!release) {
+    return;
+  }
+  const terminal = ctx.createTerminal({
+    name: 'Aggrega Lockfile',
+    cwd: ctx.workspaceRoot,
+  });
+  terminal.show();
+  terminal.sendText(`${LOCKFILE_GENERATE_COMMAND} --release "${release}"`, true);
 }
 
 // shouldFireToast applies the debounce policy for the supplied

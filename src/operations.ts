@@ -3,6 +3,7 @@
 
 import { spawn } from 'child_process';
 import * as vscode from 'vscode';
+import { resolveRelease } from './release-pick';
 
 // OperationDeps supplies the live extension state the operation surface reads
 // without importing extension.ts (which would form an import cycle): the
@@ -16,6 +17,10 @@ export interface OperationDeps {
   getBinaryPath(): string;
   output: vscode.OutputChannel;
   validateActiveDocument(): Promise<void>;
+  // listReleases returns the workspace's Release candidates (daemon-backed).
+  // build and pull require a --release argument, so the operation resolves one
+  // before invoking the CLI.
+  listReleases(): Promise<string[]>;
 }
 
 // OperationId enumerates the compiler operations the surface exposes. Each
@@ -74,12 +79,30 @@ export function activateOperations(context: vscode.ExtensionContext, deps: Opera
   };
 
   reg('validate', () => { void deps.validateActiveDocument(); });
-  reg('build', () => runCli(deps, ['build']));
+  reg('build', () => { void runReleaseScoped(deps, 'build'); });
   reg('lint', () => runCli(deps, ['lint']));
-  reg('pull', () => runCli(deps, ['pull']));
+  reg('pull', () => { void runReleaseScoped(deps, 'pull'); });
   reg('push', () => runCli(deps, ['push']));
   reg('import', () => { void runImport(deps); });
   reg('cache', () => { void runCache(deps); });
+}
+
+// runReleaseScoped runs a command that requires a --release argument (build,
+// pull). It resolves the Release first — the sole candidate when there is one,
+// a quick-pick otherwise — then invokes `aggrega <verb> --release <path>`.
+// Running the bare verb would fail: the CLI marks --release required.
+async function runReleaseScoped(deps: OperationDeps, verb: 'build' | 'pull'): Promise<void> {
+  if (!deps.getWorkspaceRoot()) {
+    void vscode.window.showInformationMessage(
+      'Aggrega: no anchored workspace. Open a folder containing a Release file first.',
+    );
+    return;
+  }
+  const release = await resolveRelease(deps.listReleases, {
+    placeHolder: `Aggrega: choose a Release to ${verb}`,
+  });
+  if (!release) { return; }
+  runCli(deps, [verb, '--release', release]);
 }
 
 // runCli spawns `aggrega <args>` in the anchored workspace root and streams its

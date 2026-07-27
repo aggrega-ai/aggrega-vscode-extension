@@ -32,6 +32,7 @@ interface ContextFixture {
   terminalsCreated: Array<{ options: { name: string; cwd: string }; terminal: FakeTerminal }>;
   commandsExecuted: string[];
   hasCandidateReleases: boolean;
+  lockfileRelease: string | undefined;
   toastDebounce: Map<number, true | number>;
   toastDebounceMode: 'time' | 'session';
   toastThrottleSeconds: number;
@@ -50,6 +51,7 @@ function makeContext(initial?: Partial<ContextFixture>): ContextFixture & {
     terminalsCreated: [],
     commandsExecuted: [],
     hasCandidateReleases: false,
+    lockfileRelease: 'release.yaml',
     toastDebounce: new Map(),
     toastDebounceMode: 'session',
     toastThrottleSeconds: 300,
@@ -82,6 +84,7 @@ function makeContext(initial?: Partial<ContextFixture>): ContextFixture & {
       return Promise.resolve(undefined);
     },
     scanCandidateReleases: () => Promise.resolve(fixture.hasCandidateReleases),
+    resolveRelease: () => Promise.resolve(fixture.lockfileRelease),
     toastDebounce: fixture.toastDebounce,
     toastDebounceMode: fixture.toastDebounceMode,
     toastThrottleSeconds: fixture.toastThrottleSeconds,
@@ -412,10 +415,11 @@ describe('handleDaemonError', () => {
     assert.ok(suppressedLog, 'expected a log entry naming the suppression');
   });
 
-  it('1003 toast click opens terminal and sends the lockfile-generate command', async () => {
-    const f = makeContext({ toastResponse: 'Generate Lockfile' });
+  it('1003 toast click opens terminal and sends the lockfile-generate command with the resolved Release', async () => {
+    const f = makeContext({ toastResponse: 'Generate Lockfile', lockfileRelease: 'envs/prod.yaml' });
     handleDaemonError({ code: ERR_LOCKFILE_ABSENT, message: 'no lockfile' }, f.ctx);
-    // Promise.resolve schedules microtasks; drain.
+    // Promise.resolve (toast) then resolveRelease schedule microtasks; drain.
+    await new Promise(resolve => setImmediate(resolve));
     await new Promise(resolve => setImmediate(resolve));
     await new Promise(resolve => setImmediate(resolve));
     assert.strictEqual(f.terminalsCreated.length, 1);
@@ -423,7 +427,17 @@ describe('handleDaemonError', () => {
     assert.strictEqual(created.options.name, 'Aggrega Lockfile');
     assert.strictEqual(created.options.cwd, '/workspace');
     assert.strictEqual(created.terminal.shown, true);
-    assert.deepStrictEqual(created.terminal.sentText, ['aggrega pull']);
+    // aggrega pull requires --release; the bare command would exit 1.
+    assert.deepStrictEqual(created.terminal.sentText, ['aggrega pull --release "envs/prod.yaml"']);
+  });
+
+  it('1003 toast click with no resolvable Release opens no terminal', async () => {
+    const f = makeContext({ toastResponse: 'Generate Lockfile', lockfileRelease: undefined });
+    handleDaemonError({ code: ERR_LOCKFILE_ABSENT, message: 'no lockfile' }, f.ctx);
+    await new Promise(resolve => setImmediate(resolve));
+    await new Promise(resolve => setImmediate(resolve));
+    await new Promise(resolve => setImmediate(resolve));
+    assert.strictEqual(f.terminalsCreated.length, 0);
   });
 
   it('1003 toast dismissal does not open a terminal', async () => {

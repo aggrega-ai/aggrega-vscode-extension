@@ -39,6 +39,7 @@ import { openAuthoringReleaseConfig, createActiveReleaseMarker } from './release
 import { activateOperations } from './operations';
 import { activateGraphView } from './graph-view';
 import { activateCatalogViews } from './catalog-views';
+import { resolveRelease } from './release-pick';
 import {
   STATE_KEY,
   buildPickerItems,
@@ -81,6 +82,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     getBinaryPath: () => getSettings().binaryPath,
     output: outputChannel,
     validateActiveDocument,
+    listReleases: requestReleaseCandidates,
   });
 
   // The topology-graph view renders the compiled IR of a chosen Release. It is
@@ -788,6 +790,9 @@ function buildErrorContext(uri: vscode.Uri) {
         return false;
       }
     },
+    resolveRelease: () => resolveRelease(requestReleaseCandidates, {
+      placeHolder: 'Aggrega: choose the Release to pull',
+    }),
     toastDebounce,
     toastDebounceMode: settings.toastDebounceMode,
     toastThrottleSeconds: settings.toastThrottleSeconds,

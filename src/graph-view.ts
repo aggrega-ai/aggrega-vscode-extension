@@ -3,6 +3,7 @@
 
 import * as path from 'path';
 import * as vscode from 'vscode';
+import { resolveRelease } from './release-pick';
 
 // GraphDeps supplies the live state the graph view needs without importing
 // extension.ts (which would form an import cycle): the anchored workspace root
@@ -33,7 +34,9 @@ export function activateGraphView(context: vscode.ExtensionContext, deps: GraphD
         return;
       }
 
-      const release = await pickRelease(deps);
+      const release = await resolveRelease(deps.listReleases, {
+        placeHolder: 'Aggrega: choose a Release to graph',
+      });
       if (!release) { return; }
 
       if (!panel) {
@@ -69,29 +72,6 @@ export function activateGraphView(context: vscode.ExtensionContext, deps: GraphD
       await renderGraph(panel, deps, release);
     }),
   );
-}
-
-// pickRelease resolves which Release to graph: the sole candidate when there is
-// exactly one, otherwise a quick-pick. Returns undefined when there are no
-// candidates or the user dismisses the pick.
-async function pickRelease(deps: GraphDeps): Promise<string | undefined> {
-  let releases: string[];
-  try {
-    releases = await deps.listReleases();
-  } catch {
-    void vscode.window.showErrorMessage(
-      'Aggrega: cannot list Releases — the language server is not running. Start it and try again.',
-    );
-    return undefined;
-  }
-  if (releases.length === 0) {
-    void vscode.window.showInformationMessage('Aggrega: no Release found in this workspace.');
-    return undefined;
-  }
-  if (releases.length === 1) {
-    return releases[0];
-  }
-  return vscode.window.showQuickPick(releases, { placeHolder: 'Aggrega: choose a Release to graph' });
 }
 
 // renderGraph requests the IR graph and posts it to the webview, surfacing any
