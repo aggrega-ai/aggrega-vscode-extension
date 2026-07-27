@@ -40,6 +40,7 @@ import { activateOperations } from './operations';
 import { activateGraphView } from './graph-view';
 import { activateCatalogViews } from './catalog-views';
 import { resolveRelease } from './release-pick';
+import { activateReleaseStatus, ReleaseStatus } from './release-status';
 import {
   STATE_KEY,
   buildPickerItems,
@@ -61,6 +62,7 @@ let activeAnchored: AnchoredFolder<vscode.WorkspaceFolder> | null = null;
 let currentAnchored: AnchoredFolder<vscode.WorkspaceFolder>[] = [];
 let extensionContext: vscode.ExtensionContext | null = null;
 let lateInitDone = false;
+let releaseStatus: ReleaseStatus | null = null;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   extensionContext = context;
@@ -106,6 +108,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     getWorkspaceRoot: () => workspaceRootForCommands,
     getBinaryPath: () => getSettings().binaryPath,
     output: outputChannel,
+  });
+
+  // The active-Release status-bar indicator reads the marker the switch flow
+  // writes; refresh() is driven from daemon (re)start below.
+  releaseStatus = activateReleaseStatus(context, {
+    getWorkspaceRoot: () => workspaceRootForCommands,
   });
   context.subscriptions.push(
     vscode.workspace.onDidChangeWorkspaceFolders(() => {
@@ -271,6 +279,7 @@ async function ensureDaemonAt(
   }
 
   void runCompatibilityCheck();
+  releaseStatus?.refresh();
 }
 
 async function stopDaemon(): Promise<void> {
@@ -282,6 +291,7 @@ async function stopDaemon(): Promise<void> {
   if (statusBarItem) {
     statusBarItem.hide();
   }
+  releaseStatus?.hide();
 }
 
 function registerSwitchAnchorCommand(context: vscode.ExtensionContext): void {
