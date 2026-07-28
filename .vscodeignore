@@ -3,6 +3,8 @@
 src/**
 test/**
 out/test/**
+out/test-fixtures/**
+**/*.vsix
 **/*.map
 **/*.ts
 **/tsconfig.json
