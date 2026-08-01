@@ -15,7 +15,7 @@ export interface CatalogDeps {
 
 // --- CLI JSON shapes (mirror the aggrega serializers) -------------------
 
-// PluginEntry mirrors one entry of `aggrega plugin list --json`.
+// PluginEntry mirrors one entry of `aggrega plugin list -o json`.
 interface PluginEntry {
   uri: string;
   type?: string;
@@ -57,7 +57,7 @@ type PluginNode =
   | { kind: 'entry'; entry: PluginEntry }
   | { kind: 'message'; label: string };
 
-// PluginsTreeProvider renders `aggrega plugin list --json` as a two-group tree
+// PluginsTreeProvider renders `aggrega plugin list -o json` as a two-group tree
 // (embedded / configured) in the Aggrega activity-bar container. Each expansion
 // of the root re-runs the CLI, so a refresh is a change event.
 class PluginsTreeProvider implements vscode.TreeDataProvider<PluginNode> {
@@ -100,7 +100,7 @@ class PluginsTreeProvider implements vscode.TreeDataProvider<PluginNode> {
     }
     let doc: PluginListDoc;
     try {
-      doc = await runCliJson<PluginListDoc>(this.deps, ['plugin', 'list', '--json']);
+      doc = await runCliJson<PluginListDoc>(this.deps, ['plugin', 'list', '-o', 'json']);
     } catch (err) {
       this.deps.output.appendLine(`plugin list failed: ${describe(err)}`);
       return [{ kind: 'message', label: 'plugin list failed — see the Aggrega output channel.' }];

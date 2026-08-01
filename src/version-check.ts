@@ -14,7 +14,7 @@ export type VersionCheckResult =
   | { kind: 'error'; err: Error };
 
 // DaemonVersionPayload mirrors the wire shape emitted by
-// `aggrega version --json`. camelCase per the Go ecosystem's
+// `aggrega version -o json`. camelCase per the Go ecosystem's
 // json.Marshal default convention; the same shape is pinned on the
 // daemon side by cmd/aggrega/version_test.go.
 export interface DaemonVersionPayload {
@@ -41,7 +41,7 @@ export interface VersionCheckDeps {
   spawn: SpawnFn;
 }
 
-// checkDaemonVersion spawns the daemon binary with `version --json`,
+// checkDaemonVersion spawns the daemon binary with `version -o json`,
 // parses the response, and compares against the declared
 // compatibility range. The four-state result lets the caller decide
 // how loudly to surface each outcome:
@@ -63,7 +63,7 @@ export async function checkDaemonVersion(deps: VersionCheckDeps): Promise<Versio
   }
   let stdout: string;
   try {
-    stdout = await deps.spawn(deps.binaryPath, ['version', '--json']);
+    stdout = await deps.spawn(deps.binaryPath, ['version', '-o', 'json']);
   } catch (err) {
     return { kind: 'error', err: err instanceof Error ? err : new Error(String(err)) };
   }

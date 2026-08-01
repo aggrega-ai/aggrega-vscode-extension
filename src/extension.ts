@@ -103,7 +103,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   });
 
   // The plugins tree and published-catalog search are CLI-backed (plugin list
-  // --json, search -o json), independent of daemon state.
+  // -o json, search -o json), independent of daemon state.
   activateCatalogViews(context, {
     getWorkspaceRoot: () => workspaceRootForCommands,
     getBinaryPath: () => getSettings().binaryPath,
@@ -614,7 +614,7 @@ function restoreStatusBar(): void {
 }
 
 // runCompatibilityCheck spawns the configured binary with
-// `version --json` and applies the policy from version-check.ts.
+// `version -o json` and applies the policy from version-check.ts.
 // Best-effort: a `skipped` or `error` outcome logs to the
 // OutputChannel without surfacing a toast; only `mismatch` warns
 // the operator.
