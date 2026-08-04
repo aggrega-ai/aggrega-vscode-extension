@@ -12,7 +12,8 @@ import {
 import { ConvertedShape } from './diagnostics-shape';
 
 // LOCKFILE_GENERATE_COMMAND is the shell command the 1003 toast's
-// button runs in the integrated terminal. The user sees the command
+// button runs in the integrated terminal, with the required --release
+// argument appended by generateLockfile. The user sees the command
 // execute so any output / errors are visible inline.
 //
 // aggrega pull is the canonical lockfile-generation entry point —
@@ -66,11 +67,14 @@ export interface DaemonErrorContext {
   // emission. Production scans the filesystem; tests return a
   // fixed boolean.
   scanCandidateReleases: () => Thenable<boolean>;
-  // resolveRelease returns the Release the lockfile-generation command should
-  // target — `aggrega pull` requires a --release argument, so the bare command
-  // fails. Production wires the shared release resolver (sole candidate, or a
-  // quick-pick); tests return a fixed value. Undefined means do not proceed
-  // (no daemon, no Release, or the user dismissed the pick).
+  // resolveRelease is the FALLBACK for "which Release should the
+  // lockfile-generation command target". The lockfile-absent envelope normally
+  // names the Release itself, and that answer wins — see generateLockfile. This
+  // resolver runs only when the envelope carries no Release, which is what a
+  // daemon predating the structured field sends. Production wires the shared
+  // release resolver (sole candidate, or a quick-pick); tests return a fixed
+  // value. Undefined means do not proceed (no daemon, no Release, or the user
+  // dismissed the pick).
   resolveRelease: () => Thenable<string | undefined>;
   // toastDebounce tracks per-code throttle state. In `session` mode
   // the boolean records whether a toast already surfaced this
@@ -128,7 +132,7 @@ export function handleDaemonError(err: JsonRpcError, ctx: DaemonErrorContext): b
       surfaceReleaseNotResolvedToast(ctx, err);
       return true;
     case ERR_LOCKFILE_ABSENT:
-      surfaceLockfileToast(ctx, err.message);
+      surfaceLockfileToast(ctx, err.message, err.data?.release);
       return true;
     case ERR_ENTITY_NOT_RESOLVABLE:
       surfaceDiagnostic(ctx, err, `Entity not resolvable: ${err.message}`);
@@ -168,7 +172,15 @@ function surfaceDiagnostic(ctx: DaemonErrorContext, err: JsonRpcError, message: 
   ctx.publishShape(ctx.uri, [shape]);
 }
 
-function surfaceLockfileToast(ctx: DaemonErrorContext, message: string): void {
+// surfaceLockfileToast fires the lockfile-absent toast. release is the Release
+// the envelope named, carried through to the action handler so the button acts on
+// the Release the diagnostic is about rather than on a separately-resolved one.
+// Undefined when the envelope omitted it.
+function surfaceLockfileToast(
+  ctx: DaemonErrorContext,
+  message: string,
+  release: string | undefined,
+): void {
   if (!shouldFireToast(ctx, ERR_LOCKFILE_ABSENT)) {
     const reason = ctx.toastDebounceMode === 'session'
       ? 'already shown this session'
@@ -205,18 +217,37 @@ function surfaceLockfileToast(ctx: DaemonErrorContext, message: string): void {
     if (choice !== LOCKFILE_TOAST_BUTTON) {
       return;
     }
-    void generateLockfile(ctx);
+    void generateLockfile(ctx, release);
   });
 }
 
-// generateLockfile resolves the target Release and runs `aggrega pull
-// --release <path>` in a terminal. The bare command cannot succeed — the CLI
-// marks --release required, so the Release must be supplied; only the workspace
-// root is otherwise in scope here. The path is double-quoted so a root-relative
-// path with spaces survives the shell.
-async function generateLockfile(ctx: DaemonErrorContext): Promise<void> {
-  const release = await ctx.resolveRelease();
-  if (!release) {
+// generateLockfile runs `aggrega pull --release <path>` in a terminal. The bare
+// command cannot succeed — the CLI marks --release required — so the Release must
+// be supplied.
+//
+// Which Release has exactly one authoritative answer: the one the daemon named in
+// the error envelope, which is the Release the failing request asked about. That
+// value is used verbatim, never rewritten. The interactive resolver is consulted
+// only when the envelope carries no Release, which a daemon predating the
+// structured field does; it is a degraded path for a missing answer, not a second
+// way of computing the same one, so do not collapse the two.
+//
+// Preferring the envelope also removes a way to be silently wrong: a workspace may
+// hold several Releases, and re-resolving could act on a different one than the
+// diagnostic came from — pulling successfully while the diagnostic that raised the
+// toast persists.
+//
+// The path is double-quoted so a value with spaces survives the shell. The
+// terminal runs in the workspace root, so a workspace-relative value resolves
+// there and an absolute one is already complete.
+async function generateLockfile(
+  ctx: DaemonErrorContext,
+  release: string | undefined,
+): Promise<void> {
+  // Truthiness rather than ?? on purpose: an empty Release is never a usable
+  // target, so it falls through to the resolver instead of emitting --release "".
+  const target = release || (await ctx.resolveRelease());
+  if (!target) {
     return;
   }
   const terminal = ctx.createTerminal({
@@ -224,7 +255,7 @@ async function generateLockfile(ctx: DaemonErrorContext): Promise<void> {
     cwd: ctx.workspaceRoot,
   });
   terminal.show();
-  terminal.sendText(`${LOCKFILE_GENERATE_COMMAND} --release "${release}"`, true);
+  terminal.sendText(`${LOCKFILE_GENERATE_COMMAND} --release "${target}"`, true);
 }
 
 // shouldFireToast applies the debounce policy for the supplied

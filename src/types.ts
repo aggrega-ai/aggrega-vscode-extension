@@ -125,6 +125,13 @@ export interface ErrorData {
   // point-style range at the start position.
   end_line?: number;
   end_column?: number;
+  // release names the Release the error refers to, spelled the way the
+  // request named it — the same value the `--release` flag takes. The
+  // daemon populates it on the lockfile-absent emission so a client can
+  // compose the remediating command without parsing it back out of
+  // message. Consumed by error-surfaces' lockfile-absent handler.
+  // Optional: an emission path that has no Release in hand omits it.
+  release?: string;
 }
 
 // Daemon application error codes (see internal/serve/errors.go).

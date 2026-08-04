@@ -33,6 +33,11 @@ interface ContextFixture {
   commandsExecuted: string[];
   hasCandidateReleases: boolean;
   lockfileRelease: string | undefined;
+  // resolveReleaseCalls counts consultations of the interactive resolver. The
+  // lockfile-absent handler must not consult it when the error envelope already
+  // names the Release, so the count is the assertion that the envelope wins
+  // rather than merely agreeing.
+  resolveReleaseCalls: number;
   toastDebounce: Map<number, true | number>;
   toastDebounceMode: 'time' | 'session';
   toastThrottleSeconds: number;
@@ -52,6 +57,7 @@ function makeContext(initial?: Partial<ContextFixture>): ContextFixture & {
     commandsExecuted: [],
     hasCandidateReleases: false,
     lockfileRelease: 'release.yaml',
+    resolveReleaseCalls: 0,
     toastDebounce: new Map(),
     toastDebounceMode: 'session',
     toastThrottleSeconds: 300,
@@ -84,7 +90,10 @@ function makeContext(initial?: Partial<ContextFixture>): ContextFixture & {
       return Promise.resolve(undefined);
     },
     scanCandidateReleases: () => Promise.resolve(fixture.hasCandidateReleases),
-    resolveRelease: () => Promise.resolve(fixture.lockfileRelease),
+    resolveRelease: () => {
+      fixture.resolveReleaseCalls += 1;
+      return Promise.resolve(fixture.lockfileRelease);
+    },
     toastDebounce: fixture.toastDebounce,
     toastDebounceMode: fixture.toastDebounceMode,
     toastThrottleSeconds: fixture.toastThrottleSeconds,
@@ -415,10 +424,20 @@ describe('handleDaemonError', () => {
     assert.ok(suppressedLog, 'expected a log entry naming the suppression');
   });
 
-  it('1003 toast click opens terminal and sends the lockfile-generate command with the resolved Release', async () => {
-    const f = makeContext({ toastResponse: 'Generate Lockfile', lockfileRelease: 'envs/prod.yaml' });
-    handleDaemonError({ code: ERR_LOCKFILE_ABSENT, message: 'no lockfile' }, f.ctx);
-    // Promise.resolve (toast) then resolveRelease schedule microtasks; drain.
+  it('1003 toast click targets the Release the envelope names, without consulting the resolver', async () => {
+    // The resolver is deliberately primed with a DIFFERENT Release: a workspace
+    // may hold several, and acting on any but the one the diagnostic came from
+    // pulls successfully while the diagnostic persists.
+    const f = makeContext({ toastResponse: 'Generate Lockfile', lockfileRelease: 'envs/staging.yaml' });
+    handleDaemonError(
+      {
+        code: ERR_LOCKFILE_ABSENT,
+        message: 'no lockfile',
+        data: { file: '/workspace/envs/prod.lock', release: 'envs/prod.yaml' },
+      },
+      f.ctx,
+    );
+    // Promise.resolve (toast) then the action handler schedule microtasks; drain.
     await new Promise(resolve => setImmediate(resolve));
     await new Promise(resolve => setImmediate(resolve));
     await new Promise(resolve => setImmediate(resolve));
@@ -429,6 +448,39 @@ describe('handleDaemonError', () => {
     assert.strictEqual(created.terminal.shown, true);
     // aggrega pull requires --release; the bare command would exit 1.
     assert.deepStrictEqual(created.terminal.sentText, ['aggrega pull --release "envs/prod.yaml"']);
+    assert.strictEqual(f.resolveReleaseCalls, 0, 'the envelope named the Release; nothing to resolve');
+  });
+
+  it('1003 toast click falls back to the resolver when the envelope names no Release', async () => {
+    const f = makeContext({ toastResponse: 'Generate Lockfile', lockfileRelease: 'envs/prod.yaml' });
+    handleDaemonError({ code: ERR_LOCKFILE_ABSENT, message: 'no lockfile' }, f.ctx);
+    await new Promise(resolve => setImmediate(resolve));
+    await new Promise(resolve => setImmediate(resolve));
+    await new Promise(resolve => setImmediate(resolve));
+    assert.strictEqual(f.terminalsCreated.length, 1);
+    const created = f.terminalsCreated[0];
+    assert.strictEqual(created.options.cwd, '/workspace');
+    assert.deepStrictEqual(created.terminal.sentText, ['aggrega pull --release "envs/prod.yaml"']);
+    assert.strictEqual(f.resolveReleaseCalls, 1);
+  });
+
+  it('1003 toast click falls back to the resolver when the envelope carries an empty Release', async () => {
+    // An empty path is never a usable target — emitting --release "" would send a
+    // command that cannot succeed.
+    const f = makeContext({ toastResponse: 'Generate Lockfile', lockfileRelease: 'envs/prod.yaml' });
+    handleDaemonError(
+      { code: ERR_LOCKFILE_ABSENT, message: 'no lockfile', data: { release: '' } },
+      f.ctx,
+    );
+    await new Promise(resolve => setImmediate(resolve));
+    await new Promise(resolve => setImmediate(resolve));
+    await new Promise(resolve => setImmediate(resolve));
+    assert.strictEqual(f.terminalsCreated.length, 1);
+    assert.deepStrictEqual(
+      f.terminalsCreated[0].terminal.sentText,
+      ['aggrega pull --release "envs/prod.yaml"'],
+    );
+    assert.strictEqual(f.resolveReleaseCalls, 1);
   });
 
   it('1003 toast click with no resolvable Release opens no terminal', async () => {
