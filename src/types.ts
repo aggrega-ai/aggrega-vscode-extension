@@ -108,7 +108,15 @@ export interface JsonRpcError {
 // are 1-based per the daemon's LSP-aligned convention; the
 // extension converts to VS Code's 0-based positions at the
 // surfaceDiagnostic boundary.
+//
+// Each path-valued field names one artifact and only that artifact, so
+// reading one is enough to know what it points at — no branching on the
+// error code. file is the source document line and column locate;
+// lockfile is a lockfile; release is a Release.
 export interface ErrorData {
+  // file names the source document the position fields locate — the
+  // document being validated, or the Release whose load failed. It
+  // never carries a lockfile path; that has its own field.
   file?: string;
   line?: number;
   column?: number;
@@ -132,6 +140,11 @@ export interface ErrorData {
   // message. Consumed by error-surfaces' lockfile-absent handler.
   // Optional: an emission path that has no Release in hand omits it.
   release?: string;
+  // lockfile names the lockfile a lockfile-scoped failure is about —
+  // the path the daemon looked for and did not find, or could not
+  // stat. Mirrors the daemon's errors_data.go field of the same name.
+  // Optional: an emission path that is not about a lockfile omits it.
+  lockfile?: string;
 }
 
 // Daemon application error codes (see internal/serve/errors.go).

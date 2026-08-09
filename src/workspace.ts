@@ -72,6 +72,26 @@ export async function findAggregaWorkspaceAnchor(start: string): Promise<string 
   }
 }
 
+// toWorkspaceRelative converts a Release path into the form the daemon's
+// JSON-RPC surface accepts: a path relative to the workspace root, naming a
+// document inside it.
+//
+// The daemon reports Release candidates as absolute paths and takes
+// workspace-relative ones in its request parameters, so a value read from the
+// first and sent to the second is converted here rather than at each call site.
+// The daemon refuses the absolute form outright, which is why the conversion
+// has one home: a surface that forgets it does not degrade, it fails.
+//
+// A path already in relative form is returned unchanged. Separators follow the
+// host convention on both sides — the extension and the daemon it spawns run on
+// the same machine — so no separator rewriting is done.
+export function toWorkspaceRelative(workspaceRoot: string, releasePath: string): string {
+  if (!path.isAbsolute(releasePath)) {
+    return releasePath;
+  }
+  return path.relative(workspaceRoot, releasePath);
+}
+
 // findAllAnchoredFolders runs findAggregaWorkspaceAnchor against
 // each entry in folders, keeping only the folders where a marker was
 // found. The result preserves the input order. Folders without an

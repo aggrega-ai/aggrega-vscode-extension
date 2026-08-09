@@ -4,6 +4,7 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { resolveRelease } from './release-pick';
+import { toWorkspaceRelative } from './workspace';
 
 // GraphDeps supplies the live state the graph view needs without importing
 // extension.ts (which would form an import cycle): the anchored workspace root
@@ -34,10 +35,15 @@ export function activateGraphView(context: vscode.ExtensionContext, deps: GraphD
         return;
       }
 
-      const release = await resolveRelease(deps.listReleases, {
+      const picked = await resolveRelease(deps.listReleases, {
         placeHolder: 'Aggrega: choose a Release to graph',
       });
-      if (!release) { return; }
+      if (!picked) { return; }
+      // The Release enumeration reports absolute paths and the irGraph request
+      // takes a workspace-relative one. Convert here, at the point the value
+      // enters this surface, so every later use — the request, the panel title,
+      // the log lines — carries the one form the daemon accepts.
+      const release = toWorkspaceRelative(root, picked);
 
       if (!panel) {
         panel = vscode.window.createWebviewPanel(

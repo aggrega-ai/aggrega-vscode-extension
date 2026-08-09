@@ -433,7 +433,10 @@ describe('handleDaemonError', () => {
       {
         code: ERR_LOCKFILE_ABSENT,
         message: 'no lockfile',
-        data: { file: '/workspace/envs/prod.lock', release: 'envs/prod.yaml' },
+        // The lockfile travels in its own key. It is not `file`, which names
+        // the source document a diagnostic anchors at — a lockfile-absent
+        // envelope anchors at nothing, so `file` is absent here.
+        data: { lockfile: '/workspace/envs/prod.lock', release: 'envs/prod.yaml' },
       },
       f.ctx,
     );

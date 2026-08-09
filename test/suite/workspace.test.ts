@@ -5,7 +5,7 @@ import * as assert from 'node:assert';
 import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
-import { findAggregaWorkspaceAnchor } from '../../src/workspace';
+import { findAggregaWorkspaceAnchor, toWorkspaceRelative } from '../../src/workspace';
 
 describe('findAggregaWorkspaceAnchor', () => {
   let tmpRoot: string;
@@ -108,5 +108,46 @@ describe('findAggregaWorkspaceAnchor', () => {
     await fs.mkdir(child, { recursive: true });
     const found = await findAggregaWorkspaceAnchor(child);
     assert.strictEqual(found, null);
+  });
+});
+
+describe('toWorkspaceRelative', () => {
+  // The daemon reports Release candidates as absolute paths and takes
+  // workspace-relative ones in its request parameters. It refuses the absolute
+  // form rather than resolving it, so the conversion is what keeps a value read
+  // from one surface usable on the other. These cases pin it.
+  const root = path.join(path.sep + 'ws', 'project');
+
+  it('converts an absolute Release path under the root to the relative form', () => {
+    const abs = path.join(root, 'envs', 'prod.yaml');
+    assert.strictEqual(toWorkspaceRelative(root, abs), path.join('envs', 'prod.yaml'));
+  });
+
+  it('converts an absolute Release path at the root itself', () => {
+    const abs = path.join(root, 'release.yaml');
+    assert.strictEqual(toWorkspaceRelative(root, abs), 'release.yaml');
+  });
+
+  it('leaves an already-relative path untouched', () => {
+    // Idempotence matters because the conversion sits on a path a caller may
+    // have converted already; a second pass must not re-anchor it.
+    const rel = path.join('envs', 'prod.yaml');
+    assert.strictEqual(toWorkspaceRelative(root, rel), rel);
+    assert.strictEqual(toWorkspaceRelative(root, toWorkspaceRelative(root, rel)), rel);
+  });
+
+  it('produces no escaping path for any candidate the daemon enumerates', () => {
+    // The daemon enumerates Release candidates by walking from the workspace
+    // root, so every candidate lies under it and the relative form never
+    // starts with a parent segment — which is exactly what the daemon now
+    // refuses. This is the property that makes normalisation sufficient.
+    for (const depth of [['release.yaml'], ['envs', 'prod.yaml'], ['a', 'b', 'c', 'r.yaml']]) {
+      const rel = toWorkspaceRelative(root, path.join(root, ...depth));
+      assert.ok(
+        !rel.startsWith('..'),
+        `candidate ${depth.join('/')} produced an escaping relative path: ${rel}`,
+      );
+      assert.strictEqual(rel, path.join(...depth));
+    }
   });
 });
