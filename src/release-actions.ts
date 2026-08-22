@@ -8,8 +8,8 @@ import * as vscode from 'vscode';
 import { CONFIG_FILENAME } from './workspace';
 
 // MARKER_DIR_BASENAME + MARKER_FILE_BASENAME together name the
-// .aggrega/active-release marker file the cascade's step-3 path
-// consults.
+// .aggrega/active-release marker file the daemon consults when it
+// picks the active Release.
 const MARKER_DIR_BASENAME = '.aggrega';
 const MARKER_FILE_BASENAME = 'active-release';
 
