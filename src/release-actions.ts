@@ -14,23 +14,10 @@ const MARKER_DIR_BASENAME = '.aggrega';
 const MARKER_FILE_BASENAME = 'active-release';
 
 // activeReleaseMarkerPath is the workspace-root-relative-to-absolute path of the
-// active-release marker. Single source for the marker location, shared by the
-// writer (createActiveReleaseMarker) and the reader (readActiveReleaseMarker).
+// active-release marker. Single source for the marker location, so the directory
+// and file basenames are composed in exactly one place.
 export function activeReleaseMarkerPath(workspaceRoot: string): string {
   return path.join(workspaceRoot, MARKER_DIR_BASENAME, MARKER_FILE_BASENAME);
-}
-
-// readActiveReleaseMarker returns the workspace-relative Release path recorded in
-// the active-release marker, or undefined when no marker is present (the daemon
-// then auto-resolves). Trims the trailing newline the writer appends.
-export async function readActiveReleaseMarker(workspaceRoot: string): Promise<string | undefined> {
-  try {
-    const raw = await fs.readFile(activeReleaseMarkerPath(workspaceRoot), 'utf8');
-    const value = raw.trim();
-    return value.length > 0 ? value : undefined;
-  } catch {
-    return undefined;
-  }
 }
 
 // CONFIG_TEMPLATE is what openAuthoringReleaseConfig writes when no

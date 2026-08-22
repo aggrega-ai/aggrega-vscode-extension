@@ -26,6 +26,7 @@ import {
   locationToLspLocation,
 } from './translator';
 import {
+  ActiveReleaseResponse,
   DaemonLocation,
   ERR_FILE_NOT_VALIDATED,
   JsonRpcError,
@@ -110,10 +111,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     output: outputChannel,
   });
 
-  // The active-Release status-bar indicator reads the marker the switch flow
-  // writes; refresh() is driven from daemon (re)start below.
+  // The active-Release status-bar indicator renders the daemon's own answer,
+  // so it shows the Release the compiler will act on; refresh() is driven from
+  // daemon (re)start below.
   releaseStatus = activateReleaseStatus(context, {
     getWorkspaceRoot: () => workspaceRootForCommands,
+    requestActiveRelease,
+    createStatusBarItem: () =>
+      vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 99),
+    // The marker is watched but never read: an edit to it means the daemon's
+    // answer may be about to change, so the indicator re-asks the daemon.
+    watchActiveReleaseMarker: (onChange) => {
+      const watcher = vscode.workspace.createFileSystemWatcher('**/.aggrega/active-release');
+      watcher.onDidChange(onChange);
+      watcher.onDidCreate(onChange);
+      watcher.onDidDelete(onChange);
+      return watcher;
+    },
   });
   context.subscriptions.push(
     vscode.workspace.onDidChangeWorkspaceFolders(() => {
@@ -822,6 +836,22 @@ async function requestReleaseCandidates(): Promise<string[]> {
   }
   const resp = await daemon.request<ReleaseCandidatesResponse>('aggrega/releaseCandidates', {});
   return resp.releases;
+}
+
+// requestActiveRelease asks the daemon which Release it resolved for the
+// workspace — the answer the daemon itself acts on. The extension derives no
+// answer of its own: an input to the daemon's resolution (the marker file, say)
+// names a different Release whenever a higher-precedence input won, so reading
+// one here would display a Release the compiler is not using. Resolves to the
+// empty string when the workspace has no active Release, and throws when the
+// daemon is not running so the indicator shows the answer as unknown rather
+// than falling back to a local guess.
+async function requestActiveRelease(): Promise<string> {
+  if (!daemon || daemon.getState() !== DaemonState.Running) {
+    throw new Error('the Aggrega daemon is not running');
+  }
+  const resp = await daemon.request<ActiveReleaseResponse>('aggrega/activeRelease', {});
+  return resp.release;
 }
 
 async function handleCacheMiss<T>(method: string, params: unknown, doc: vscode.TextDocument): Promise<T | null> {

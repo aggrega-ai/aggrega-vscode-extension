@@ -202,3 +202,15 @@ export interface ValidateResponse {
 export interface ReleaseCandidatesResponse {
   releases: string[];
 }
+
+// ActiveReleaseResponse is the aggrega/activeRelease result: the absolute path
+// of the Release the daemon resolved for the workspace.
+//
+// The field is always present, and the empty string means the workspace has no
+// active Release — a state the daemon reports as a successful answer rather
+// than an error, so an indicator refreshing on daemon restarts and marker
+// edits does not raise a remediation prompt on every refresh in a workspace
+// that legitimately holds none.
+export interface ActiveReleaseResponse {
+  release: string;
+}
