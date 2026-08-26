@@ -26,13 +26,71 @@ export interface CliJsonResult<T> {
   stderr: string;
 }
 
+// UNPARSED_OUTPUT_EXCERPT_LIMIT caps how much of an unparsable stdout travels
+// into a reader-facing message. A structured run may carry megabytes, and a
+// notification is one line; the full text still reaches the output channel
+// through the caller.
+const UNPARSED_OUTPUT_EXCERPT_LIMIT = 240;
+
+// messageForUnparsedOutput picks the most useful text to report when a
+// structured run produced something that is not JSON.
+//
+// The order is the product's own channels, most actionable first. stderr wins,
+// because that is where a command writes the sentence naming what to do. Where
+// stderr is silent the sentence is on stdout instead: a command asked for JSON
+// can still answer a configuration question in prose and exit zero, and showing
+// that prose is strictly better than reporting a parse failure the reader can
+// do nothing with. Where both are silent there is nothing to quote, so the
+// command line itself is named.
+//
+// Nothing here interprets the text. It is excerpted for length and passed
+// through; no branch reads its content and no behaviour turns on what it says,
+// so the product remains the only thing that decides what a state means.
+export function messageForUnparsedOutput(args: string[], stdout: string, stderr: string): string {
+  const fromStderr = stderr.trim();
+  if (fromStderr) {
+    return fromStderr;
+  }
+  const fromStdout = stdout.trim();
+  if (fromStdout) {
+    return excerpt(fromStdout);
+  }
+  return `\`aggrega ${args.join(' ')}\` produced no output.`;
+}
+
+// excerpt reduces a captured stream to one displayable line: the first
+// non-empty line, truncated to the cap. A trailing marker is appended whenever
+// anything was dropped, so a reader is never shown a silently shortened
+// sentence and read it as the whole answer.
+function excerpt(text: string): string {
+  const lines = text.split('\n');
+  const firstIndex = lines.findIndex((l) => l.trim().length > 0);
+  if (firstIndex < 0) {
+    return text.trim();
+  }
+  const first = lines[firstIndex].trim();
+  const hasLaterLines = lines.slice(firstIndex + 1).some((l) => l.trim().length > 0);
+  if (first.length > UNPARSED_OUTPUT_EXCERPT_LIMIT) {
+    return `${first.slice(0, UNPARSED_OUTPUT_EXCERPT_LIMIT)}…`;
+  }
+  return hasLaterLines ? `${first} …` : first;
+}
+
 // runCliJson runs the binary with the given args in the anchored workspace root
 // and parses stdout as JSON. It captures (rather than streams) because these
 // surfaces consume the structured result.
 //
-// A non-zero exit rejects with the command's own stderr text, so the compiler's
-// message is what reaches the caller rather than a re-worded wrapper. A
-// zero exit resolves with the parsed document and the raw stderr alongside it.
+// It is the single home for the structured-run contract, so every `-o json`
+// surface reports a failure by the same rule. Two shapes of failure reach the
+// rejection, and in both the message is the product's own text rather than a
+// re-worded wrapper:
+//
+//   - a non-zero exit, where stderr carries the reason and the remediation;
+//   - a zero exit whose stdout is not JSON, which happens when a command
+//     answers a configuration question in prose instead of data.
+//
+// A zero exit with parsable stdout resolves with the parsed document and the
+// raw stderr alongside it.
 export function runCliJson<T>(deps: CliJsonDeps, args: string[]): Promise<CliJsonResult<T>> {
   const root = deps.getWorkspaceRoot();
   const bin = deps.getBinaryPath();
@@ -44,8 +102,8 @@ export function runCliJson<T>(deps: CliJsonDeps, args: string[]): Promise<CliJso
       }
       try {
         resolve({ doc: JSON.parse(stdout) as T, stderr: stderr ?? '' });
-      } catch (parseErr) {
-        reject(new Error(`could not parse ${args.join(' ')} output: ${(parseErr as Error).message}`));
+      } catch {
+        reject(new Error(messageForUnparsedOutput(args, stdout ?? '', stderr ?? '')));
       }
     });
   });

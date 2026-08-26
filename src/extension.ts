@@ -14,7 +14,12 @@ import {
   publishShapes,
 } from './diagnostics';
 import { DIAGNOSTIC_SOURCE_FALLBACK } from './diagnostics-shape';
-import { handleDaemonError, resetSessionDedup } from './error-surfaces';
+import {
+  describeError,
+  handleDaemonError,
+  isJsonRpcError,
+  resetSessionDedup,
+} from './error-surfaces';
 import {
   notifyDaemonStartupFailed,
   notifyStoppedResponding,
@@ -46,7 +51,6 @@ import {
   ActiveReleaseResponse,
   DaemonLocation,
   ERR_FILE_NOT_VALIDATED,
-  JsonRpcError,
   PublishDiagnosticsParams,
   ReleaseCandidatesResponse,
   ValidateParams,
@@ -999,18 +1003,4 @@ async function handleCacheMiss<T>(method: string, params: unknown, doc: vscode.T
     outputChannel?.appendLine(`cache-miss retry failed: ${describeError(err)}`);
     return null;
   }
-}
-
-function isJsonRpcError(v: unknown): v is JsonRpcError {
-  return !!v && typeof v === 'object' && typeof (v as JsonRpcError).code === 'number';
-}
-
-function describeError(err: unknown): string {
-  if (isJsonRpcError(err)) {
-    return `code=${err.code} ${err.message}`;
-  }
-  if (err instanceof Error) {
-    return err.message;
-  }
-  return String(err);
 }

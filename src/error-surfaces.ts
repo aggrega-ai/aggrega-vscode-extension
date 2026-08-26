@@ -371,3 +371,32 @@ function surfaceReleaseNotResolvedToast(ctx: DaemonErrorContext, err: JsonRpcErr
     ctx.logLine(`[release not resolved] (toast pipeline error: ${reason})`);
   });
 }
+
+// isJsonRpcError narrows a thrown value to the daemon's error shape. A numeric
+// code is the discriminator: the language-server transport always carries one,
+// and nothing else the extension throws does.
+export function isJsonRpcError(v: unknown): v is JsonRpcError {
+  return !!v && typeof v === 'object' && typeof (v as JsonRpcError).code === 'number';
+}
+
+// describeError renders any thrown value as one line for a reader.
+//
+// It is the single home for that conversion across the extension, so a failure
+// reaching the reader through the language server and one reaching it through a
+// CLI subprocess are worded by the same rule. The daemon branch is the only
+// special case, and it is additive: a value carrying no numeric code — every
+// CLI failure — falls through to the plain reading, so a caller that will never
+// see a transport error loses nothing by going through here.
+//
+// The message is the thrown value's own text, never a re-wording of it: where
+// the failure came from the compiler, that text is the compiler's, and the
+// remediation it already names is what the reader needs.
+export function describeError(err: unknown): string {
+  if (isJsonRpcError(err)) {
+    return `code=${err.code} ${err.message}`;
+  }
+  if (err instanceof Error) {
+    return err.message;
+  }
+  return String(err);
+}
