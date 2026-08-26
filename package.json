@@ -140,6 +140,10 @@
         "title": "Aggrega: Restart language server"
       },
       {
+        "command": "aggrega.server.toggleBuildOnInspect",
+        "title": "Aggrega: Toggle the build's analysis while inspecting"
+      },
+      {
         "command": "aggrega.statusBar.openMenu",
         "title": "Aggrega: Open status bar menu"
       },
@@ -169,10 +173,10 @@
           "default": false,
           "description": "When true, silently revalidates a file on cache-miss and retries the request. When false, surfaces a notification with a Revalidate action."
         },
-        "aggrega.server.renderDiagnostics": {
+        "aggrega.server.buildOnInspect": {
           "type": "boolean",
           "default": false,
-          "description": "When true, the daemon runs the render pass on IR-graph inspection so render-time warnings are produced. Off by default: skipping render is faster and the graph shown is identical either way — only render-stage advisory warnings are dropped. When true, the extension passes --render-diagnostics to aggrega serve."
+          "description": "When true, the daemon runs the build's analysis while inspecting an IR graph, so the findings aggrega build reports also appear as editor problems. Inspecting a graph costs more when that analysis runs than when it does not. Nothing is written to disk: no rendered artifacts, no output directory, no lockfile. Off by default, matching aggrega inspect, which raises no such finding either. When true, the extension passes --build-on-inspect to aggrega serve."
         },
         "aggrega.server.debounceMs": {
           "type": "number",

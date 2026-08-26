@@ -15,13 +15,14 @@ import { Settings } from './settings';
 import { extractServerInitMetadata } from './init-metadata';
 
 // buildServeArgs assembles the argv for `aggrega serve` from the
-// effective settings. The --render-diagnostics flag is appended only when
-// renderDiagnostics is true; left off, the daemon applies its config-file
-// default (render skipped on IR-graph inspection).
+// effective settings. The --build-on-inspect flag is appended only when
+// buildOnInspect is true; left off, the daemon applies its own default
+// (the build's analysis is not run while inspecting a graph), which is
+// also what the serve.build_on_inspect config key sets.
 export function buildServeArgs(settings: Settings): string[] {
   const args = ['serve'];
-  if (settings.renderDiagnostics) {
-    args.push('--render-diagnostics');
+  if (settings.buildOnInspect) {
+    args.push('--build-on-inspect');
   }
   return args;
 }

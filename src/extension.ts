@@ -6,7 +6,14 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { Daemon, DaemonState } from './daemon';
 import { debounce } from './debounce';
-import { publishDiagnostics, publishShapes } from './diagnostics';
+import {
+  SourcedCollections,
+  clearUriInEverySource,
+  createSourcedCollections,
+  publishDiagnostics,
+  publishShapes,
+} from './diagnostics';
+import { DIAGNOSTIC_SOURCE_FALLBACK } from './diagnostics-shape';
 import { handleDaemonError, resetSessionDedup } from './error-surfaces';
 import {
   notifyDaemonStartupFailed,
@@ -14,6 +21,16 @@ import {
   promptCacheMiss,
 } from './notifications';
 import { getSettings } from './settings-vscode';
+import {
+  BUILD_ON_INSPECT_KEY,
+  BUILD_ON_INSPECT_MENU_LABEL,
+  ConfigScope,
+  DEFAULT_SETTINGS,
+  SERVER_CONFIG_SECTION,
+  buildOnInspectConfirmation,
+  buildOnInspectMenuDescription,
+  scopeForSettingWrite,
+} from './settings';
 import { createAggregaStatusBar, createPendingChoiceStatusBar } from './status-bar';
 import { scheduleBinaryRestart, RestartHandle } from './binary-restart';
 import { checkDaemonVersion } from './version-check';
@@ -58,7 +75,9 @@ import {
 
 let daemon: Daemon | null = null;
 let outputChannel: vscode.OutputChannel | null = null;
-let diagnosticCollection: vscode.DiagnosticCollection | null = null;
+// diagnosticCollections holds one collection per compiler layer, so each layer
+// publishes and clears its own findings independently. Created on first anchor.
+let diagnosticCollections: SourcedCollections | null = null;
 let workspaceRootForCommands: string | null = null;
 const toastDebounce = new Map<number, true | number>();
 let pendingRestart: RestartHandle | null = null;
@@ -275,11 +294,9 @@ async function ensureDaemonAt(
   workspaceRootForCommands = targetRoot;
   activeAnchored = target;
 
-  diagnosticCollection ??= (() => {
-    const dc = vscode.languages.createDiagnosticCollection('aggrega');
-    context.subscriptions.push(dc);
-    return dc;
-  })();
+  diagnosticCollections ??= createSourcedCollections(
+    disposable => context.subscriptions.push(disposable),
+  );
 
   daemon = new Daemon(getSettings(), msg => outputChannel?.appendLine(msg));
   daemon.on('stoppedResponding', () => notifyStoppedResponding());
@@ -293,9 +310,9 @@ async function ensureDaemonAt(
     // the topology graph — the server has recompiled, so an open graph is
     // showing a topology that may no longer be the current one.
     refreshGraphView();
-    if (!diagnosticCollection) { return; }
+    if (!diagnosticCollections) { return; }
     const uri = vscode.Uri.file(params.file);
-    publishDiagnostics(diagnosticCollection, uri, params.diagnostics);
+    publishDiagnostics(diagnosticCollections, uri, params.diagnostics);
   });
 
   const anchorContext = currentAnchored.length >= 2
@@ -305,6 +322,7 @@ async function ensureDaemonAt(
 
   if (!lateInitDone) {
     registerRestartCommand(context);
+    registerBuildOnInspectToggle(context);
     registerStatusBarMenu(context);
     context.subscriptions.push(
       vscode.workspace.onDidChangeConfiguration(e => {
@@ -441,8 +459,8 @@ async function validateActiveDocument(): Promise<void> {
       file: doc.uri.fsPath,
       content: doc.getText(),
     });
-    if (diagnosticCollection) {
-      publishDiagnostics(diagnosticCollection, doc.uri, response.diagnostics ?? []);
+    if (diagnosticCollections) {
+      publishDiagnostics(diagnosticCollections, doc.uri, response.diagnostics ?? []);
     }
     outputChannel?.appendLine(`validated ${doc.uri.fsPath}`);
   } catch (err) {
@@ -457,8 +475,8 @@ function registerDocumentLifecycle(context: vscode.ExtensionContext): void {
     const params: ValidateParams = { file: doc.uri.fsPath, content: doc.getText() };
     daemon.request<ValidateResponse>('aggrega/validate', params).then(
       response => {
-        if (diagnosticCollection) {
-          publishDiagnostics(diagnosticCollection, doc.uri, response.diagnostics ?? []);
+        if (diagnosticCollections) {
+          publishDiagnostics(diagnosticCollections, doc.uri, response.diagnostics ?? []);
         }
       },
       err => {
@@ -501,7 +519,9 @@ function registerCloseHandler(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.workspace.onDidCloseTextDocument(doc => {
       if (doc.languageId !== 'yaml') { return; }
-      diagnosticCollection?.delete(doc.uri);
+      if (diagnosticCollections) {
+        clearUriInEverySource(diagnosticCollections, doc.uri);
+      }
       if (!daemon) { return; }
       daemon.request('aggrega/invalidate', {
         file: doc.uri.fsPath,
@@ -586,6 +606,16 @@ function registerFileWatcher(context: vscode.ExtensionContext): void {
   watcher.onDidCreate(invalidate);
   watcher.onDidDelete(invalidate);
   context.subscriptions.push(watcher);
+}
+
+// registerBuildOnInspectToggle exposes the toggle in the command palette. The
+// status-bar quick-action menu offers the same action; both run the one
+// implementation, so the two surfaces cannot diverge.
+function registerBuildOnInspectToggle(context: vscode.ExtensionContext): void {
+  context.subscriptions.push(vscode.commands.registerCommand(
+    'aggrega.server.toggleBuildOnInspect',
+    () => toggleBuildOnInspect(),
+  ));
 }
 
 function registerRestartCommand(context: vscode.ExtensionContext): void {
@@ -725,6 +755,10 @@ function registerStatusBarMenu(context: vscode.ExtensionContext): void {
     }
     items.push(
       { label: 'Restart server', description: 'Restart the Aggrega language server' },
+      {
+        label: BUILD_ON_INSPECT_MENU_LABEL,
+        description: buildOnInspectMenuDescription(getSettings().buildOnInspect),
+      },
       { label: 'View output', description: 'Open the Aggrega output channel' },
       { label: 'Reveal workspace root', description: workspaceRootForCommands ?? 'Workspace not yet known' },
       { label: 'Show server log', description: 'Focus the daemon log' },
@@ -741,6 +775,9 @@ function registerStatusBarMenu(context: vscode.ExtensionContext): void {
       case 'Restart server':
         void vscode.commands.executeCommand('aggrega.server.restart');
         return;
+      case BUILD_ON_INSPECT_MENU_LABEL:
+        await toggleBuildOnInspect();
+        return;
       case 'View output':
       case 'Show server log':
         outputChannel?.show();
@@ -752,6 +789,54 @@ function registerStatusBarMenu(context: vscode.ExtensionContext): void {
         return;
     }
   }));
+}
+
+// toggleBuildOnInspect flips the buildOnInspect setting in place: it reads the
+// effective value, writes the opposite, and says what happened. The setting is
+// the only home for the choice — nothing here keeps a copy — so this toggle and
+// the settings UI cannot disagree about the state.
+//
+// The write targets whichever configuration layer already holds an explicit
+// value, innermost first, so flipping changes the value the editor is actually
+// applying instead of an outer layer a nearer one keeps overriding.
+// scopeForSettingWrite owns that rule and is tested without the editor.
+async function toggleBuildOnInspect(): Promise<void> {
+  const cfg = vscode.workspace.getConfiguration(SERVER_CONFIG_SECTION);
+  const current = cfg.get<boolean>(BUILD_ON_INSPECT_KEY, DEFAULT_SETTINGS.buildOnInspect);
+  const next = !current;
+  const scope = scopeForSettingWrite(
+    cfg.inspect<boolean>(BUILD_ON_INSPECT_KEY),
+    (vscode.workspace.workspaceFolders?.length ?? 0) > 0,
+  );
+  try {
+    await cfg.update(BUILD_ON_INSPECT_KEY, next, configurationTargetFor(scope));
+  } catch (err) {
+    void vscode.window.showErrorMessage(
+      `Aggrega: the setting could not be changed. ${describeError(err)}`,
+    );
+    return;
+  }
+  const choice = await vscode.window.showInformationMessage(
+    buildOnInspectConfirmation(next),
+    'Restart server',
+  );
+  if (choice === 'Restart server') {
+    void vscode.commands.executeCommand('aggrega.server.restart');
+  }
+}
+
+// configurationTargetFor maps the layer the pure rule chose onto the editor's
+// own enum. Kept apart from the rule so the decision stays testable and only
+// this translation needs the editor.
+function configurationTargetFor(scope: ConfigScope): vscode.ConfigurationTarget {
+  switch (scope) {
+    case 'workspaceFolder':
+      return vscode.ConfigurationTarget.WorkspaceFolder;
+    case 'workspace':
+      return vscode.ConfigurationTarget.Workspace;
+    case 'global':
+      return vscode.ConfigurationTarget.Global;
+  }
 }
 
 async function navigationRequest(
@@ -822,10 +907,13 @@ async function tryRequest<T>(method: string, params: unknown, doc: vscode.TextDo
 }
 
 function buildErrorContext(uri: vscode.Uri) {
-  if (!diagnosticCollection || !outputChannel || !workspaceRootForCommands) {
+  if (!diagnosticCollections || !outputChannel || !workspaceRootForCommands) {
     return null;
   }
-  const collection = diagnosticCollection;
+  // The error surfaces report on the authored documents, so their shapes belong
+  // to the document-validation layer's collection — the same one that layer's
+  // own diagnostics land in.
+  const collection = diagnosticCollections.for(DIAGNOSTIC_SOURCE_FALLBACK);
   const channel = outputChannel;
   const settings = getSettings();
   const root = workspaceRootForCommands;

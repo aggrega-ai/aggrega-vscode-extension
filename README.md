@@ -29,10 +29,12 @@ Language support for Aggrega YAML — validation, navigation, hover, and complet
 | `aggrega.server.debounceMs` | `300` | Debounce window for proactive validate-on-change. |
 | `aggrega.server.respawnAttempts` | `5` | Max daemon respawn attempts before the stopped-responding notification. |
 | `aggrega.server.respawnWindowSeconds` | `180` | Sliding window for counting respawn attempts. |
+| `aggrega.server.buildOnInspect` | `false` | Run the build's analysis while inspecting a graph, so the findings `aggrega build` reports also appear as editor problems. Inspecting costs more when it runs; nothing is written to disk. |
 
 ## Commands
 
 - **Aggrega: Restart language server** — terminates the current daemon and spawns a fresh one. Resets the respawn-attempt counter.
+- **Aggrega: Toggle the build's analysis while inspecting** — flips the `aggrega.server.buildOnInspect` setting in place, so the settings UI always agrees with it, and offers the restart that applies it — the language server reads the setting when it starts. Also reachable from the status-bar quick-action menu, which shows whether the setting is currently on. Findings arrive tagged with the layer that raised them, so the build's analysis groups apart from validation in the Problems panel and clears independently of it.
 - **Aggrega: Validate active file / Build / Lint / Pull / Push / Import… / Cache…** — run the corresponding compiler operation. Validate uses the language server. Lint checks publishing conventions and places each finding in the Problems panel, tagged with the rule that produced it, so clicking one opens the entity it concerns; a finding the linter located to a file but not to a line sits at the top of that file rather than at a guessed position, and the full human report goes to the Aggrega output channel as well. Build, pull, push, import and cache run the `aggrega` binary and stream their output to that channel.
 - **Aggrega: Show topology graph** — open the topology graph for a chosen Release.
 - **Aggrega: Search published catalog** — search the configured registries and copy a matched reference.

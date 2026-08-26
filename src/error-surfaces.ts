@@ -9,7 +9,7 @@ import {
   ERR_SHUTTING_DOWN,
   JsonRpcError,
 } from './types';
-import { ConvertedShape } from './diagnostics-shape';
+import { ConvertedShape, DIAGNOSTIC_SOURCE_FALLBACK } from './diagnostics-shape';
 
 // LOCKFILE_GENERATE_COMMAND is the shell command the 1003 toast's
 // button runs in the integrated terminal, with the required --release
@@ -167,7 +167,10 @@ function surfaceDiagnostic(ctx: DaemonErrorContext, err: JsonRpcError, message: 
     endChar: hasEnd ? daemonEndColumn - 1 : character,
     severity: 'error',
     message,
-    source: 'aggrega',
+    // These surfaces report on the authored documents, so they belong to the
+    // document-validation layer. Named through the shared constant rather than
+    // spelled out again, so the layer has one name across every producer.
+    source: DIAGNOSTIC_SOURCE_FALLBACK,
   };
   ctx.publishShape(ctx.uri, [shape]);
 }

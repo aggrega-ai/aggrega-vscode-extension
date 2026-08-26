@@ -2,7 +2,14 @@
 // Copyright 2026 Cognitio S.r.l.
 
 import * as assert from 'node:assert';
-import { shapeForDaemonDiagnostic, severityTokenFromString, SeverityToken } from '../../src/diagnostics-shape';
+import {
+  DIAGNOSTIC_SOURCE_FALLBACK,
+  SeverityToken,
+  groupDiagnosticsBySource,
+  severityTokenFromString,
+  shapeForDaemonDiagnostic,
+  sourceForDaemonDiagnostic,
+} from '../../src/diagnostics-shape';
 
 describe('shapeForDaemonDiagnostic', () => {
   it('maps 1-based daemon line/column to 0-based VS Code position', () => {
@@ -56,9 +63,96 @@ describe('shapeForDaemonDiagnostic', () => {
     assert.strictEqual(shape.message, 'multi\nline message');
   });
 
-  it('sets source to aggrega', () => {
+  it('carries the layer the daemon named, not a source of its own', () => {
+    const shape = shapeForDaemonDiagnostic({
+      line: 1,
+      column: 1,
+      severity: 'error',
+      message: '',
+      source: 'aggrega-build',
+    });
+    assert.strictEqual(shape.source, 'aggrega-build');
+  });
+
+  it('falls back to the document-validation layer when the wire names none', () => {
     const shape = shapeForDaemonDiagnostic({ line: 1, column: 1, severity: 'error', message: '' });
-    assert.strictEqual(shape.source, 'aggrega');
+    assert.strictEqual(shape.source, DIAGNOSTIC_SOURCE_FALLBACK);
+  });
+});
+
+describe('sourceForDaemonDiagnostic', () => {
+  const base = { line: 1, column: 1, severity: 'error', message: 'x' };
+
+  it('returns the wire value verbatim, whatever it is', () => {
+    // Deliberately a layer name this build does not know: the extension groups
+    // by the daemon's answer, so a layer named later needs no client change.
+    assert.strictEqual(sourceForDaemonDiagnostic({ ...base, source: 'aggrega' }), 'aggrega');
+    assert.strictEqual(sourceForDaemonDiagnostic({ ...base, source: 'aggrega-build' }), 'aggrega-build');
+    assert.strictEqual(sourceForDaemonDiagnostic({ ...base, source: 'a-layer-added-later' }), 'a-layer-added-later');
+  });
+
+  it('applies the fallback for an absent and for an empty source', () => {
+    assert.strictEqual(sourceForDaemonDiagnostic(base), DIAGNOSTIC_SOURCE_FALLBACK);
+    assert.strictEqual(sourceForDaemonDiagnostic({ ...base, source: '' }), DIAGNOSTIC_SOURCE_FALLBACK);
+  });
+});
+
+describe('groupDiagnosticsBySource', () => {
+  const at = (line: number, source?: string) => ({
+    line,
+    column: 1,
+    severity: 'warning',
+    message: `finding ${line}`,
+    ...(source === undefined ? {} : { source }),
+  });
+
+  it('splits two layers into two groups', () => {
+    const grouped = groupDiagnosticsBySource([
+      at(1, 'aggrega'),
+      at(2, 'aggrega-build'),
+      at(3, 'aggrega'),
+    ]);
+    assert.deepStrictEqual([...grouped.keys()], ['aggrega', 'aggrega-build']);
+    assert.deepStrictEqual(grouped.get('aggrega')!.map(d => d.line), [1, 3]);
+    assert.deepStrictEqual(grouped.get('aggrega-build')!.map(d => d.line), [2]);
+  });
+
+  it('files a source-less diagnostic under the fallback alongside its layer', () => {
+    const grouped = groupDiagnosticsBySource([at(1), at(2, 'aggrega-build')]);
+    assert.deepStrictEqual(
+      [...grouped.keys()],
+      [DIAGNOSTIC_SOURCE_FALLBACK, 'aggrega-build'],
+    );
+    assert.deepStrictEqual(
+      grouped.get(DIAGNOSTIC_SOURCE_FALLBACK)!.map(d => d.line),
+      [1],
+    );
+  });
+
+  it('groups in first-appearance order and keeps each group in wire order', () => {
+    const grouped = groupDiagnosticsBySource([
+      at(10, 'aggrega-build'),
+      at(11, 'aggrega'),
+      at(12, 'aggrega-build'),
+    ]);
+    assert.deepStrictEqual([...grouped.keys()], ['aggrega-build', 'aggrega']);
+    assert.deepStrictEqual(grouped.get('aggrega-build')!.map(d => d.line), [10, 12]);
+  });
+
+  it('produces no groups for an empty list, so every layer is clearable', () => {
+    // A publish carrying nothing must mention no layer: the caller clears the
+    // URI in every layer it knows, which is what makes a finding that stopped
+    // firing disappear instead of lingering.
+    assert.strictEqual(groupDiagnosticsBySource([]).size, 0);
+  });
+
+  it('is a partition — every input lands in exactly one group', () => {
+    const input = [at(1), at(2, 'aggrega'), at(3, 'aggrega-build'), at(4, ''), at(5, 'other')];
+    const grouped = groupDiagnosticsBySource(input);
+    const total = [...grouped.values()].reduce((n, g) => n + g.length, 0);
+    assert.strictEqual(total, input.length);
+    const lines = [...grouped.values()].flat().map(d => d.line).sort((a, b) => a - b);
+    assert.deepStrictEqual(lines, [1, 2, 3, 4, 5]);
   });
 });
 

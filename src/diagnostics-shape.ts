@@ -19,7 +19,10 @@ export interface ConvertedShape {
   endChar: number;
   severity: SeverityToken;
   message: string;
-  source: 'aggrega';
+  // source is the layer the daemon named, carried through unchanged. It is a
+  // free string rather than a fixed set because the compiler decides which
+  // layers exist; the extension only groups by the answer.
+  source: string;
 }
 
 // shapeForDaemonDiagnostic produces the pure conversion shape. The
@@ -43,8 +46,51 @@ export function shapeForDaemonDiagnostic(d: DaemonDiagnostic): ConvertedShape {
     endChar: hasEnd ? zeroBasedFromOneBased(d.end_column!) : character,
     severity: severityTokenFromString(d.severity),
     message: d.message,
-    source: 'aggrega',
+    source: sourceForDaemonDiagnostic(d),
   };
+}
+
+// DIAGNOSTIC_SOURCE_FALLBACK is the source a diagnostic is filed under when the
+// daemon supplied none.
+//
+// The case it covers: a daemon whose diagnostics predate the per-layer source
+// field, so nothing on the wire says which layer raised the finding. Filing it
+// under the document-validation layer keeps it visible in the group an editor
+// already shows, which is where every diagnostic used to appear; filing it
+// under an empty name would hide it in an unnamed group instead.
+export const DIAGNOSTIC_SOURCE_FALLBACK = 'aggrega';
+
+// sourceForDaemonDiagnostic reads the layer name off one daemon diagnostic,
+// substituting the fallback when the field is absent or empty. Every surface
+// that needs a diagnostic's source — the shape conversion and the per-source
+// grouping — reads it through here, so the fallback is decided in one place.
+export function sourceForDaemonDiagnostic(d: DaemonDiagnostic): string {
+  return typeof d.source === 'string' && d.source.length > 0
+    ? d.source
+    : DIAGNOSTIC_SOURCE_FALLBACK;
+}
+
+// groupDiagnosticsBySource partitions one file's daemon diagnostics by the layer
+// that raised them, so each layer can be published into its own collection and
+// therefore cleared independently.
+//
+// Group order is first-appearance order in the daemon's list, and each group
+// preserves the daemon's relative order within it, so the same wire payload
+// always produces the same grouping.
+export function groupDiagnosticsBySource(
+  diagnostics: DaemonDiagnostic[],
+): Map<string, DaemonDiagnostic[]> {
+  const bySource = new Map<string, DaemonDiagnostic[]>();
+  for (const d of diagnostics) {
+    const source = sourceForDaemonDiagnostic(d);
+    const group = bySource.get(source);
+    if (group) {
+      group.push(d);
+    } else {
+      bySource.set(source, [d]);
+    }
+  }
+  return bySource;
 }
 
 // zeroBasedFromOneBased converts one 1-based compiler line or column into the

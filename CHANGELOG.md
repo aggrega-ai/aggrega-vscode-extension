@@ -14,7 +14,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Per-file invalidation granularity for `aggrega/invalidate`, wired to editor `didClose`.
 - Lockfile awareness at edit time, integrating `aggrega pull --verify` so the editor surfaces the same lockfile verdict a build gives.
 - A quick-action menu, automatic daemon restart, a daemon version check, and time-based toast debouncing.
-- A `server.renderDiagnostics` setting forwarded to the daemon.
+- A `server.buildOnInspect` setting, forwarded to the daemon as `--build-on-inspect`, with a command and a quick-action-menu entry that toggle it without opening settings JSON.
+- Problems-panel grouping by the compiler layer that raised each finding, read from the daemon's own report rather than assigned by the extension.
 - A VS Code integration test suite that builds `aggrega` on demand from the sibling checkout and exercises the extension against a real daemon, including cooperative-shutdown-under-load coverage.
 
 ### Changed

@@ -178,6 +178,16 @@ export interface DaemonDiagnostic {
   column: number;
   severity: string;
   message: string;
+  // source names the compiler layer that raised the diagnostic — the
+  // layer that validates the authored documents, or the layer that runs
+  // the build's analysis while inspecting a graph. The extension groups
+  // the Problems panel by whatever value arrives rather than assigning a
+  // source of its own, so a layer named later needs no client change.
+  //
+  // Optional because the extension mirrors a wire it does not control:
+  // sourceForDaemonDiagnostic supplies the fallback and documents which
+  // case that covers.
+  source?: string;
   // end_line and end_column carry the 1-based end position of the
   // token the diagnostic spans, mirroring the daemon's Diagnostic wire
   // struct. When present, shapeForDaemonDiagnostic produces a range
