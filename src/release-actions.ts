@@ -5,20 +5,12 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as vscode from 'vscode';
 
-import { CONFIG_FILENAME } from './workspace';
-
-// MARKER_DIR_BASENAME + MARKER_FILE_BASENAME together name the
-// .aggrega/active-release marker file the daemon consults when it
-// picks the active Release.
-const MARKER_DIR_BASENAME = '.aggrega';
-const MARKER_FILE_BASENAME = 'active-release';
-
-// activeReleaseMarkerPath is the workspace-root-relative-to-absolute path of the
-// active-release marker. Single source for the marker location, so the directory
-// and file basenames are composed in exactly one place.
-export function activeReleaseMarkerPath(workspaceRoot: string): string {
-  return path.join(workspaceRoot, MARKER_DIR_BASENAME, MARKER_FILE_BASENAME);
-}
+import {
+  ACTIVE_RELEASE_MARKER_BASENAME,
+  AGGREGA_DIR,
+  CONFIG_FILENAME,
+  activeReleaseMarkerPath,
+} from './workspace';
 
 // CONFIG_TEMPLATE is what openAuthoringReleaseConfig writes when no
 // .aggrega-config.yaml exists at the workspace root. The cursor is
@@ -90,8 +82,8 @@ export async function openAuthoringReleaseConfig(workspaceRoot: string): Promise
 
 // createActiveReleaseMarker opens a quick-pick over the supplied Release
 // candidates for the user to choose one, and writes the chosen
-// workspace-relative path into .aggrega/active-release. After writing, invokes
-// aggrega.server.restart so the daemon re-runs the cascade.
+// workspace-relative path into the workspace's active-release marker. After
+// writing, invokes aggrega.server.restart so the daemon re-runs the cascade.
 //
 // candidates is the daemon's content-kind Release set (absolute paths), fetched
 // by the caller — this function does no Release detection of its own. On zero
@@ -123,14 +115,14 @@ export async function createActiveReleaseMarker(workspaceRoot: string, candidate
     return;
   }
 
-  const markerDir = path.join(workspaceRoot, MARKER_DIR_BASENAME);
+  const markerDir = path.join(workspaceRoot, AGGREGA_DIR);
   const markerPath = activeReleaseMarkerPath(workspaceRoot);
   try {
     await fs.mkdir(markerDir, { recursive: true });
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
     void vscode.window.showErrorMessage(
-      `Aggrega: could not create ${MARKER_DIR_BASENAME}/: ${reason}`,
+      `Aggrega: could not create ${AGGREGA_DIR}/: ${reason}`,
     );
     return;
   }
@@ -140,7 +132,7 @@ export async function createActiveReleaseMarker(workspaceRoot: string, candidate
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
     void vscode.window.showErrorMessage(
-      `Aggrega: could not write ${MARKER_DIR_BASENAME}/${MARKER_FILE_BASENAME}: ${reason}`,
+      `Aggrega: could not write ${AGGREGA_DIR}/${ACTIVE_RELEASE_MARKER_BASENAME}: ${reason}`,
     );
     return;
   }

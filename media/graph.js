@@ -5,7 +5,9 @@
 // IRGraph from the extension, lays it out with elkjs (nested boundary →
 // subsystem → node containers, since the IR ships no coordinates), draws it as
 // SVG, and posts a source-open request back when a node is clicked. Depends
-// only on the global `ELK` exposed by elk.bundled.js — no network access.
+// only on the global `ELK` exposed by elk.bundled.js and the global
+// `AggregaGraphModel` exposed by graph-model.js, which holds the IR-to-layout
+// transform and the hover text — no network access.
 
 (function () {
   'use strict';
@@ -13,6 +15,7 @@
   const vscode = acquireVsCodeApi();
   const SVGNS = 'http://www.w3.org/2000/svg';
   const elk = new ELK();
+  const model = AggregaGraphModel;
 
   const statusEl = document.getElementById('status');
   const canvas = document.getElementById('canvas');
@@ -43,112 +46,10 @@
     statusEl.classList.add('hidden');
   }
 
-  // --- transform: IRGraph -> elk graph ------------------------------------
-
-  const NODE_H = 46;
-  const CHAR_W = 7.5;
-  const MIN_NODE_W = 90;
-  const CONTAINER_PAD_TOP = 26;
-
-  function nodeWidth(label) {
-    return Math.max(MIN_NODE_W, Math.round(label.length * CHAR_W) + 24);
-  }
-
-  // toElk builds the nested elk graph and a side table of node metadata the
-  // renderer reads back after layout (source file, tooltip, color key).
-  function toElk(graph) {
-    const spec = (graph && graph.spec) || {};
-    const nodes = spec.nodes || {};
-    const edges = spec.edges || [];
-
-    // Group node ids by boundary, then subsystem, preserving encounter order
-    // (the IR nodes object is already author-ordered).
-    const boundaries = new Map(); // boundaryKey -> Map(subsystemKey -> [nodeId])
-    const meta = new Map(); // nodeId -> { component, version, labels, sourceFile }
-
-    for (const id of Object.keys(nodes)) {
-      const n = nodes[id] || {};
-      const bKey = n.boundary_path || '(default)';
-      const sKey = n.subsystem_path || '(default)';
-      if (!boundaries.has(bKey)) { boundaries.set(bKey, new Map()); }
-      const subs = boundaries.get(bKey);
-      if (!subs.has(sKey)) { subs.set(sKey, []); }
-      subs.get(sKey).push(id);
-      meta.set(id, {
-        component: n.component || id,
-        version: n.resolved_version || '',
-        labels: n.labels || {},
-        sourceFile: n.source_file || '',
-      });
-    }
-
-    const children = [];
-    for (const [bKey, subs] of boundaries) {
-      const bChildren = [];
-      for (const [sKey, ids] of subs) {
-        const sChildren = ids.map((id) => {
-          const label = id;
-          return {
-            id,
-            width: nodeWidth(label),
-            height: NODE_H,
-          };
-        });
-        bChildren.push({
-          id: `s::${bKey}::${sKey}`,
-          _title: sKey,
-          _kind: 'subsystem',
-          layoutOptions: containerOpts(),
-          children: sChildren,
-        });
-      }
-      children.push({
-        id: `b::${bKey}`,
-        _title: bKey,
-        _kind: 'boundary',
-        layoutOptions: containerOpts(),
-        children: bChildren,
-      });
-    }
-
-    const elkEdges = edges.map((e, i) => ({
-      id: `e${i}`,
-      sources: [e.source],
-      targets: [e.target],
-      _origin: e.origin_release ? 'release' : (e.origin_feature ? 'feature' : 'aggregate'),
-      _socket: e.socket || '',
-      _alias: e.alias || '',
-    }));
-
-    const root = {
-      id: 'root',
-      layoutOptions: {
-        'elk.algorithm': 'layered',
-        'elk.direction': 'RIGHT',
-        'elk.hierarchyHandling': 'INCLUDE_CHILDREN',
-        'elk.layered.spacing.nodeNodeBetweenLayers': '48',
-        'elk.spacing.nodeNode': '28',
-        'elk.padding': '[top=20,left=20,bottom=20,right=20]',
-      },
-      children,
-      edges: elkEdges,
-    };
-
-    return { root, meta };
-  }
-
-  function containerOpts() {
-    return {
-      'elk.padding': `[top=${CONTAINER_PAD_TOP},left=14,bottom=14,right=14]`,
-      'elk.spacing.nodeNode': '22',
-    };
-  }
-
   // --- render -------------------------------------------------------------
 
   async function renderGraph(graph) {
-    accentAssignments.clear();
-    const { root, meta } = toElk(graph);
+    const { root, meta } = model.toElkGraph(graph);
     const laid = await elk.layout(root);
     hideStatus();
 
@@ -208,7 +109,7 @@
     g.appendChild(rect);
 
     // Type accent bar down the leading edge, colour-blind-safe palette.
-    const accent = accentColor(m);
+    const accent = m && m.accent;
     if (accent) {
       const bar = document.createElementNS(SVGNS, 'rect');
       bar.setAttribute('x', x);
@@ -238,7 +139,7 @@
     }
 
     const tip = document.createElementNS(SVGNS, 'title');
-    tip.textContent = tooltip(node.id, m);
+    tip.textContent = model.nodeTooltip(node.id, m);
     g.appendChild(tip);
 
     if (m && m.sourceFile) {
@@ -262,49 +163,11 @@
         else if (e._origin === 'feature') { cls += ' edge-feature'; }
         poly.setAttribute('class', cls);
         const tip = document.createElementNS(SVGNS, 'title');
-        tip.textContent = edgeTooltip(e);
+        tip.textContent = model.edgeTooltip(e);
         poly.appendChild(tip);
         viewport.appendChild(poly);
       }
     }
-  }
-
-  function tooltip(id, m) {
-    if (!m) { return id; }
-    const lines = [id];
-    if (m.component) { lines.push(`component: ${m.component}`); }
-    if (m.version) { lines.push(`version: ${m.version}`); }
-    const labelKeys = Object.keys(m.labels || {});
-    for (const k of labelKeys) { lines.push(`${k}: ${m.labels[k]}`); }
-    if (m.sourceFile) { lines.push(`↪ ${m.sourceFile}`); }
-    return lines.join('\n');
-  }
-
-  function edgeTooltip(e) {
-    const parts = [`${e.sources[0]} → ${e.targets[0]}`, `origin: ${e._origin}`];
-    if (e._socket) { parts.push(`socket: ${e._socket}`); }
-    if (e._alias) { parts.push(`alias: ${e._alias}`); }
-    return parts.join('\n');
-  }
-
-  // ACCENT_PALETTE is the colour-blind-safe categorical palette (Okabe-Ito,
-  // minus black and minus the two hues reserved for edge provenance) used for
-  // node-type accents. Colours are assigned to distinct type values in
-  // first-encounter order and cycle if the palette is exhausted, so the same
-  // type always draws the same accent within a render.
-  const ACCENT_PALETTE = ['#e69f00', '#56b4e9', '#009e73', '#f0e442', '#0072b2'];
-  const accentAssignments = new Map();
-
-  // accentColor returns a stable accent colour for a node's type label, or null
-  // when the node carries no type label (the neutral node body stands alone).
-  function accentColor(m) {
-    if (!m || !m.labels) { return null; }
-    const key = m.labels['component.aggrega.ai/type'];
-    if (!key) { return null; }
-    if (!accentAssignments.has(key)) {
-      accentAssignments.set(key, ACCENT_PALETTE[accentAssignments.size % ACCENT_PALETTE.length]);
-    }
-    return accentAssignments.get(key);
   }
 
   // --- pan / zoom ---------------------------------------------------------

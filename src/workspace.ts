@@ -8,10 +8,36 @@ import * as path from 'path';
 // configuration file, shared across the extension (discovery here,
 // scaffolding in release-actions) so the name has one definition.
 export const CONFIG_FILENAME = '.aggrega-config.yaml';
-const AGGREGA_DIR = '.aggrega';
+
+// AGGREGA_DIR and ACTIVE_RELEASE_MARKER_BASENAME name the workspace's
+// .aggrega/ directory and the active-release marker inside it. Both have their
+// one definition here — the directory is a workspace anchor this module already
+// detects, and the marker is written from one surface and watched from another.
+// Both derive from these names rather than spelling them again: a marker that
+// moves has to move in one place, or the writer and the watcher part company
+// silently.
+export const AGGREGA_DIR = '.aggrega';
+export const ACTIVE_RELEASE_MARKER_BASENAME = 'active-release';
 const GLOB_PREFIXES = ['aggregate', 'release', 'manifest'] as const;
 const LOCKFILE_SUFFIX = '.lock.yaml';
 const YAML_SUFFIX = '.yaml';
+
+// activeReleaseMarkerPath is the absolute path of the workspace's
+// active-release marker.
+export function activeReleaseMarkerPath(workspaceRoot: string): string {
+  return path.join(workspaceRoot, AGGREGA_DIR, ACTIVE_RELEASE_MARKER_BASENAME);
+}
+
+// ACTIVE_RELEASE_MARKER_GLOB matches the active-release marker anywhere in the
+// open workspace, for a file watcher that wants to know when it changes.
+//
+// Separators are literal forward slashes rather than path.join's: the editor's
+// glob patterns use forward slashes on every platform, so joining with the host
+// separator would produce a pattern that matches nothing on Windows — and a
+// watcher whose pattern matches nothing reports no error and logs nothing, so
+// the only symptom is an indicator that quietly stops refreshing.
+export const ACTIVE_RELEASE_MARKER_GLOB =
+  `**/${AGGREGA_DIR}/${ACTIVE_RELEASE_MARKER_BASENAME}`;
 
 // FolderLike is a structural subset of vscode.WorkspaceFolder. Used so
 // helpers in this module remain testable without importing vscode.

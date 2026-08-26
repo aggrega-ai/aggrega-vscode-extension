@@ -5,7 +5,14 @@ import * as assert from 'node:assert';
 import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
-import { findAggregaWorkspaceAnchor, toWorkspaceRelative } from '../../src/workspace';
+import {
+  ACTIVE_RELEASE_MARKER_BASENAME,
+  ACTIVE_RELEASE_MARKER_GLOB,
+  AGGREGA_DIR,
+  activeReleaseMarkerPath,
+  findAggregaWorkspaceAnchor,
+  toWorkspaceRelative,
+} from '../../src/workspace';
 
 describe('findAggregaWorkspaceAnchor', () => {
   let tmpRoot: string;
@@ -149,5 +156,35 @@ describe('toWorkspaceRelative', () => {
       );
       assert.strictEqual(rel, path.join(...depth));
     }
+  });
+});
+
+describe('active-release marker location', () => {
+  const root = path.join(path.sep + 'w', 'proj');
+
+  it('composes the marker path from the directory and file basenames', () => {
+    assert.strictEqual(
+      activeReleaseMarkerPath(root),
+      path.join(root, AGGREGA_DIR, ACTIVE_RELEASE_MARKER_BASENAME),
+    );
+  });
+
+  it('watches exactly the path it writes', () => {
+    // This is the property the single definition exists for: the glob a
+    // watcher is built from and the path the marker is written to name the same
+    // location. A watcher whose pattern matches nothing reports no error and
+    // logs nothing, so a mismatch between the two has no symptom beyond an
+    // indicator that quietly stops refreshing — which is why renaming or moving
+    // the marker must break this assertion rather than the feature.
+    const written = path.relative(root, activeReleaseMarkerPath(root)).split(path.sep).join('/');
+    assert.strictEqual(ACTIVE_RELEASE_MARKER_GLOB, `**/${written}`);
+  });
+
+  it('uses forward slashes in the glob on every platform', () => {
+    // The editor's glob patterns are forward-slash separated regardless of the
+    // host, so a pattern joined with the host separator would match nothing on
+    // Windows.
+    assert.ok(!ACTIVE_RELEASE_MARKER_GLOB.includes('\\'));
+    assert.ok(ACTIVE_RELEASE_MARKER_GLOB.startsWith('**/'));
   });
 });

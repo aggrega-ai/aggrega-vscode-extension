@@ -19,11 +19,22 @@ export interface GraphDeps {
   output: vscode.OutputChannel;
 }
 
+// GraphView is the handle the extension holds to re-render the open panel on
+// events the panel cannot see for itself — the language server reporting that
+// it has recompiled.
+export interface GraphView {
+  refresh(): void;
+}
+
 // activateGraphView registers the topology-graph command. A single panel is
 // reused across invocations so re-running the command refreshes the existing
 // view rather than stacking panels.
-export function activateGraphView(context: vscode.ExtensionContext, deps: GraphDeps): void {
+export function activateGraphView(context: vscode.ExtensionContext, deps: GraphDeps): GraphView {
   let panel: vscode.WebviewPanel | null = null;
+  // The Release the open panel is showing. Held so a refresh re-renders the
+  // same one without asking the user again, and cleared with the panel so a
+  // refresh after a close does nothing.
+  let shownRelease: string | null = null;
 
   context.subscriptions.push(
     vscode.commands.registerCommand('aggrega.graph.show', async () => {
@@ -59,7 +70,7 @@ export function activateGraphView(context: vscode.ExtensionContext, deps: GraphD
             ],
           },
         );
-        panel.onDidDispose(() => { panel = null; }, null, context.subscriptions);
+        panel.onDidDispose(() => { panel = null; shownRelease = null; }, null, context.subscriptions);
         panel.webview.onDidReceiveMessage(
           (msg: { type: string; sourceFile?: string }) => {
             if (msg.type === 'openSource' && msg.sourceFile) {
@@ -75,15 +86,37 @@ export function activateGraphView(context: vscode.ExtensionContext, deps: GraphD
       }
 
       panel.title = `Aggrega Graph — ${release}`;
+      shownRelease = release;
       await renderGraph(panel, deps, release);
     }),
   );
+
+  return {
+    // refresh re-renders the Release the panel is already showing. It does
+    // nothing when no panel is open or none has been chosen yet: the graph is
+    // a view the user opens deliberately, so nothing here opens one on its own
+    // or asks the language server for a graph nobody is looking at.
+    refresh: (): void => {
+      if (!panel || !shownRelease) { return; }
+      // Quiet: the panel keeps showing the graph it has until the new one
+      // replaces it, rather than flashing a layout notice on every recompile.
+      void renderGraph(panel, deps, shownRelease, { quiet: true });
+    },
+  };
 }
 
 // renderGraph requests the IR graph and posts it to the webview, surfacing any
-// request failure both in the panel and the output channel.
-async function renderGraph(panel: vscode.WebviewPanel, deps: GraphDeps, release: string): Promise<void> {
-  void panel.webview.postMessage({ type: 'loading', release });
+// request failure both in the panel and the output channel. A quiet render
+// skips the "laying out" notice, for a re-render the user did not ask for.
+async function renderGraph(
+  panel: vscode.WebviewPanel,
+  deps: GraphDeps,
+  release: string,
+  opts: { quiet?: boolean } = {},
+): Promise<void> {
+  if (!opts.quiet) {
+    void panel.webview.postMessage({ type: 'loading', release });
+  }
   try {
     const graph = await deps.requestIrGraph(release);
     void panel.webview.postMessage({ type: 'render', release, graph });
@@ -107,12 +140,15 @@ async function openSource(workspaceRoot: string, sourceFile: string): Promise<vo
 }
 
 // graphHtml builds the webview document: a strict CSP allowing only the
-// nonce'd inline bootstrap plus the two local scripts (elk bundle + the graph
-// renderer), served through webview-scoped URIs.
+// nonce'd inline bootstrap plus the three local scripts (elk bundle + the
+// layout model + the graph renderer), served through webview-scoped URIs.
 function graphHtml(webview: vscode.Webview, extensionUri: vscode.Uri): string {
   const nonce = makeNonce();
   const elkUri = webview.asWebviewUri(
     vscode.Uri.joinPath(extensionUri, 'node_modules', 'elkjs', 'lib', 'elk.bundled.js'),
+  );
+  const modelUri = webview.asWebviewUri(
+    vscode.Uri.joinPath(extensionUri, 'media', 'graph-model.js'),
   );
   const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'graph.js'));
   const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'graph.css'));
@@ -136,6 +172,7 @@ function graphHtml(webview: vscode.Webview, extensionUri: vscode.Uri): string {
   <div id="status" class="status">Select a Release to render its topology.</div>
   <svg id="canvas" xmlns="http://www.w3.org/2000/svg"></svg>
   <script nonce="${nonce}" src="${elkUri}"></script>
+  <script nonce="${nonce}" src="${modelUri}"></script>
   <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>
 </html>`;

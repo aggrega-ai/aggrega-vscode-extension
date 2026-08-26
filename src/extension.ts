@@ -35,10 +35,14 @@ import {
   ValidateParams,
   ValidateResponse,
 } from './types';
-import { AnchoredFolder, findAllAnchoredFolders } from './workspace';
+import {
+  ACTIVE_RELEASE_MARKER_GLOB,
+  AnchoredFolder,
+  findAllAnchoredFolders,
+} from './workspace';
 import { openAuthoringReleaseConfig, createActiveReleaseMarker } from './release-actions';
 import { activateOperations } from './operations';
-import { activateGraphView } from './graph-view';
+import { activateGraphView, GraphView } from './graph-view';
 import { activateCatalogViews } from './catalog-views';
 import { resolveRelease } from './release-pick';
 import { activateReleaseStatus, ReleaseStatus } from './release-status';
@@ -64,6 +68,18 @@ let currentAnchored: AnchoredFolder<vscode.WorkspaceFolder>[] = [];
 let extensionContext: vscode.ExtensionContext | null = null;
 let lateInitDone = false;
 let releaseStatus: ReleaseStatus | null = null;
+let graphView: GraphView | null = null;
+
+// refreshGraphView re-renders an open topology graph after the language server
+// reports new diagnostics. The server reports per file, so a build that touches
+// several produces a burst; the same window the editor already uses to collapse
+// a burst of edits into one validation collapses this into one re-render, and
+// reads the setting on each call so a change to it takes effect without a
+// restart. When no graph is open the callback finds nothing to do.
+const refreshGraphView = debounce(
+  () => graphView?.refresh(),
+  () => getSettings().debounceMs,
+);
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   extensionContext = context;
@@ -90,7 +106,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   // The topology-graph view renders the compiled IR of a chosen Release. It is
   // daemon-backed (irGraph + releaseCandidates); the getters read live state.
-  activateGraphView(context, {
+  graphView = activateGraphView(context, {
     getWorkspaceRoot: () => workspaceRootForCommands,
     listReleases: requestReleaseCandidates,
     requestIrGraph: async (release: string) => {
@@ -122,7 +138,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // The marker is watched but never read: an edit to it means the daemon's
     // answer may be about to change, so the indicator re-asks the daemon.
     watchActiveReleaseMarker: (onChange) => {
-      const watcher = vscode.workspace.createFileSystemWatcher('**/.aggrega/active-release');
+      const watcher = vscode.workspace.createFileSystemWatcher(ACTIVE_RELEASE_MARKER_GLOB);
       watcher.onDidChange(onChange);
       watcher.onDidCreate(onChange);
       watcher.onDidDelete(onChange);
@@ -249,6 +265,10 @@ async function ensureDaemonAt(
     }
   });
   daemon.on('notification:aggrega/publishDiagnostics', (params: PublishDiagnosticsParams) => {
+    // The same notification drives two surfaces: the editor's diagnostics, and
+    // the topology graph — the server has recompiled, so an open graph is
+    // showing a topology that may no longer be the current one.
+    refreshGraphView();
     if (!diagnosticCollection) { return; }
     const uri = vscode.Uri.file(params.file);
     publishDiagnostics(diagnosticCollection, uri, params.diagnostics);
