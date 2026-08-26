@@ -4,6 +4,7 @@
 import * as vscode from 'vscode';
 import { DaemonDiagnostic } from './types';
 import { ConvertedShape, SeverityToken, shapeForDaemonDiagnostic } from './diagnostics-shape';
+import { LintFindingShape } from './lint-run';
 
 // convertDaemonDiagnostic maps the daemon's per-file diagnostic
 // wire shape to a vscode.Diagnostic. Delegates the position/severity
@@ -61,7 +62,42 @@ export function publishShapes(
   collection.set(uri, shapes.map(diagnosticFromShape));
 }
 
-function diagnosticFromShape(shape: ConvertedShape): vscode.Diagnostic {
+// replaceLintFindings makes byFile the whole content of the lint collection:
+// every entry the previous run published is dropped first, so a finding the
+// author has since fixed disappears instead of accumulating across runs.
+//
+// The collection passed here is the conventions linter's own, never the
+// language server's. The two are kept apart because each replaces its own
+// entries wholesale: sharing one would make a validation publish drop a file's
+// lint findings, and a lint run erase every validation result.
+//
+// Keys are the absolute paths the linter reported, used directly as file URIs —
+// they are not resolved against the workspace root.
+export function replaceLintFindings(
+  collection: vscode.DiagnosticCollection,
+  byFile: Map<string, LintFindingShape[]>,
+): void {
+  collection.clear();
+  for (const [file, shapes] of byFile) {
+    collection.set(vscode.Uri.file(file), shapes.map(diagnosticFromLintShape));
+  }
+}
+
+// diagnosticFromLintShape constructs the editor diagnostic for one finding.
+// The rule id becomes the diagnostic's code and the linter its source, so the
+// Problems panel names which rule fired and groups conventions findings apart
+// from validation results. The message is the linter's own text, unchanged.
+function diagnosticFromLintShape(shape: LintFindingShape): vscode.Diagnostic {
+  const diag = diagnosticFromShape(shape);
+  diag.code = shape.ruleId;
+  return diag;
+}
+
+// diagnosticFromShape builds the editor diagnostic every publish path goes
+// through, so the position and severity translation happens in one place
+// whichever surface produced the shape. ConvertedShape and LintFindingShape
+// are structurally compatible in the fields read here.
+function diagnosticFromShape(shape: ConvertedShape | LintFindingShape): vscode.Diagnostic {
   const range = new vscode.Range(
     new vscode.Position(shape.startLine, shape.startChar),
     new vscode.Position(shape.endLine, shape.endChar),

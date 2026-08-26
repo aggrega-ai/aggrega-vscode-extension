@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cognitio S.r.l.
 
-import { execFile } from 'child_process';
 import * as vscode from 'vscode';
+import { runCliJson } from './cli-json';
 
 // CatalogDeps supplies the live state the plugins tree and the published-catalog
 // search need: the anchored workspace root (the CLI runs there), the configured
@@ -100,7 +100,7 @@ class PluginsTreeProvider implements vscode.TreeDataProvider<PluginNode> {
     }
     let doc: PluginListDoc;
     try {
-      doc = await runCliJson<PluginListDoc>(this.deps, ['plugin', 'list', '-o', 'json']);
+      doc = (await runCliJson<PluginListDoc>(this.deps, ['plugin', 'list', '-o', 'json'])).doc;
     } catch (err) {
       this.deps.output.appendLine(`plugin list failed: ${describe(err)}`);
       return [{ kind: 'message', label: 'plugin list failed — see the Aggrega output channel.' }];
@@ -132,7 +132,7 @@ async function searchPublished(deps: CatalogDeps): Promise<void> {
 
   let doc: SearchDoc;
   try {
-    doc = await runCliJson<SearchDoc>(deps, ['search', query, '-o', 'json']);
+    doc = (await runCliJson<SearchDoc>(deps, ['search', query, '-o', 'json'])).doc;
   } catch (err) {
     deps.output.appendLine(`search failed: ${describe(err)}`);
     void vscode.window.showErrorMessage('Aggrega: search failed — see the Aggrega output channel.');
@@ -158,29 +158,6 @@ async function searchPublished(deps: CatalogDeps): Promise<void> {
   if (!pick) { return; }
   await vscode.env.clipboard.writeText(pick.uri);
   void vscode.window.showInformationMessage(`Aggrega: copied ${pick.uri}`);
-}
-
-// --- shared CLI capture -------------------------------------------------
-
-// runCliJson runs the binary with the given args in the anchored workspace root
-// and parses stdout as JSON. It captures (rather than streams) because these
-// surfaces consume the structured result; failures carry stderr to the caller.
-function runCliJson<T>(deps: CatalogDeps, args: string[]): Promise<T> {
-  const root = deps.getWorkspaceRoot();
-  const bin = deps.getBinaryPath();
-  return new Promise<T>((resolve, reject) => {
-    execFile(bin, args, { cwd: root ?? undefined, maxBuffer: 16 * 1024 * 1024 }, (err, stdout, stderr) => {
-      if (err) {
-        reject(new Error(stderr?.trim() || err.message));
-        return;
-      }
-      try {
-        resolve(JSON.parse(stdout) as T);
-      } catch (parseErr) {
-        reject(new Error(`could not parse ${args.join(' ')} output: ${(parseErr as Error).message}`));
-      }
-    });
-  });
 }
 
 // activateCatalogViews registers the plugins tree, its refresh command, and the

@@ -29,8 +29,8 @@ export interface ConvertedShape {
 // start equals end. Non-positive inputs are clamped at 0 to defend
 // against malformed daemon output.
 export function shapeForDaemonDiagnostic(d: DaemonDiagnostic): ConvertedShape {
-  const line = Math.max(0, d.line - 1);
-  const character = Math.max(0, d.column - 1);
+  const line = zeroBasedFromOneBased(d.line);
+  const character = zeroBasedFromOneBased(d.column);
   const hasEnd =
     typeof d.end_line === 'number' &&
     d.end_line > 0 &&
@@ -39,21 +39,33 @@ export function shapeForDaemonDiagnostic(d: DaemonDiagnostic): ConvertedShape {
   return {
     startLine: line,
     startChar: character,
-    endLine: hasEnd ? Math.max(0, d.end_line! - 1) : line,
-    endChar: hasEnd ? Math.max(0, d.end_column! - 1) : character,
+    endLine: hasEnd ? zeroBasedFromOneBased(d.end_line!) : line,
+    endChar: hasEnd ? zeroBasedFromOneBased(d.end_column!) : character,
     severity: severityTokenFromString(d.severity),
     message: d.message,
     source: 'aggrega',
   };
 }
 
-// severityTokenFromString normalizes the daemon's severity field.
-// Unknown values default to 'error' so unmapped severities surface
-// visibly rather than disappearing into the Information tier.
+// zeroBasedFromOneBased converts one 1-based compiler line or column into the
+// 0-based position VS Code takes, clamping at 0 to defend against malformed
+// output. Every surface that consumes a compiler position converts through
+// here, so the two conventions meet in exactly one place.
+export function zeroBasedFromOneBased(n: number): number {
+  return Math.max(0, n - 1);
+}
+
+// severityTokenFromString normalizes a severity field arriving from the
+// compiler. Both spellings the compiler uses for the middle tier are
+// accepted: the language server writes "warning", and the conventions
+// linter's structured output writes "warn". Unknown values default to
+// 'error' so unmapped severities surface visibly rather than disappearing
+// into the Information tier.
 export function severityTokenFromString(s: string): SeverityToken {
   switch (s) {
     case 'error':
       return 'error';
+    case 'warn':
     case 'warning':
       return 'warning';
     case 'info':

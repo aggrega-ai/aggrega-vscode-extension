@@ -21,6 +21,11 @@ export interface OperationDeps {
   // build and pull require a --release argument, so the operation resolves one
   // before invoking the CLI.
   listReleases(): Promise<string[]>;
+  // runLint runs the conventions linter and publishes its findings as
+  // navigable diagnostics. It is supplied rather than spawned here because the
+  // findings land in the linter's own diagnostic collection, which the
+  // extension owns; this surface only invokes it.
+  runLint(): Promise<void>;
 }
 
 // OperationId enumerates the compiler operations the surface exposes. Each
@@ -42,7 +47,7 @@ interface OperationDef {
 const OPERATIONS: OperationDef[] = [
   { id: 'validate', label: 'Validate active file', detail: 'Validate the active YAML file via the language server', icon: 'check' },
   { id: 'build', label: 'Build', detail: 'Compile the workspace to rendered artifacts', icon: 'package' },
-  { id: 'lint', label: 'Lint', detail: 'Lint the workspace catalog and aggregate', icon: 'search' },
+  { id: 'lint', label: 'Lint', detail: 'Check publishing conventions across the catalog; findings land in the Problems panel', icon: 'search' },
   { id: 'pull', label: 'Pull', detail: 'Pull remote dependencies into the workspace', icon: 'cloud-download' },
   { id: 'push', label: 'Push', detail: 'Publish artifacts to a configured registry', icon: 'cloud-upload' },
   { id: 'import', label: 'Import…', detail: 'Import a foreign source into Aggrega', icon: 'arrow-into' },
@@ -80,7 +85,7 @@ export function activateOperations(context: vscode.ExtensionContext, deps: Opera
 
   reg('validate', () => { void deps.validateActiveDocument(); });
   reg('build', () => { void runReleaseScoped(deps, 'build'); });
-  reg('lint', () => runCli(deps, ['lint']));
+  reg('lint', () => { void deps.runLint(); });
   reg('pull', () => { void runReleaseScoped(deps, 'pull'); });
   reg('push', () => runCli(deps, ['push']));
   reg('import', () => { void runImport(deps); });

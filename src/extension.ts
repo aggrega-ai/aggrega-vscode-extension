@@ -42,6 +42,7 @@ import {
 } from './workspace';
 import { openAuthoringReleaseConfig, createActiveReleaseMarker } from './release-actions';
 import { activateOperations } from './operations';
+import { activateLint, LintRunner } from './lint';
 import { activateGraphView, GraphView } from './graph-view';
 import { activateCatalogViews } from './catalog-views';
 import { resolveRelease } from './release-pick';
@@ -69,6 +70,7 @@ let extensionContext: vscode.ExtensionContext | null = null;
 let lateInitDone = false;
 let releaseStatus: ReleaseStatus | null = null;
 let graphView: GraphView | null = null;
+let lintRunner: LintRunner | null = null;
 
 // refreshGraphView re-renders an open topology graph after the language server
 // reports new diagnostics. The server reports per file, so a build that touches
@@ -91,6 +93,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   registerSwitchAnchorCommand(context);
   registerReleaseActionCommands(context);
 
+  // The conventions linter owns its own diagnostic collection, separate from
+  // the language server's, so a validate never drops a lint finding and a lint
+  // run never erases a validation result. Created before the operation surface
+  // because the lint operation invokes it.
+  lintRunner = activateLint(context, {
+    getWorkspaceRoot: () => workspaceRootForCommands,
+    getBinaryPath: () => getSettings().binaryPath,
+    output: outputChannel,
+  });
+
   // The operation surface (activity-bar Operations view + commands) is
   // available regardless of daemon state: CLI-backed operations scope to the
   // anchored root once it is known, and validate reports when no file or
@@ -102,6 +114,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     output: outputChannel,
     validateActiveDocument,
     listReleases: requestReleaseCandidates,
+    runLint: () => lintRunner?.run() ?? Promise.resolve(),
   });
 
   // The topology-graph view renders the compiled IR of a chosen Release. It is

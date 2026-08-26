@@ -15,7 +15,7 @@ Language support for Aggrega YAML — validation, navigation, hover, and complet
 - **Find References / Implementations** — list every reference to or implementation of an entity.
 - **Hover** — kind-aware summaries for catalog and release entities.
 - **Completion** — context-aware suggestions for entity kinds, API versions, schema keywords, primitives, label values, providers, paths, and intra-document component keys.
-- **Aggrega activity-bar view** — an **Operations** panel with one-click compiler operations (validate, build, lint, pull, push, import, cache) whose output streams to the Aggrega output channel, and a **Plugins** panel listing the embedded and configured Wasm plugins.
+- **Aggrega activity-bar view** — an **Operations** panel with one-click compiler operations (validate, build, lint, pull, push, import, cache), and a **Plugins** panel listing the embedded and configured Wasm plugins. Validate and lint report into the Problems panel; build, pull, push, import and cache stream their output to the Aggrega output channel.
 - **Topology graph** — renders a chosen Release's compiled IR as an interactive graph: boundary and subsystem containers, provenance-styled edges, pan and zoom, and click-a-node to open its source file. Nodes are laid out in deployment-wave order, so a boundary that declares a `syncWave:` appears ahead of the boundaries that wait on it. Hovering a node names its component and resolved version, its labels, its declared wave, and the catalog entity's own metadata — license, repository, home, keywords and maintainers — showing only the fields the entity actually declares. An open graph re-renders itself when the language server republishes diagnostics, so it follows edits without being reopened. Layout is computed in the view; the compiler ships topology, never coordinates.
 - **Published-catalog search** — search the configured registries for catalog entities and copy a reference to paste into an Aggregate.
 
@@ -32,7 +32,7 @@ Language support for Aggrega YAML — validation, navigation, hover, and complet
 ## Commands
 
 - **Aggrega: Restart language server** — terminates the current daemon and spawns a fresh one. Resets the respawn-attempt counter.
-- **Aggrega: Validate active file / Build / Lint / Pull / Push / Import… / Cache…** — run the corresponding compiler operation. Validate uses the language server; the rest run the `aggrega` binary and stream output to the Aggrega output channel.
+- **Aggrega: Validate active file / Build / Lint / Pull / Push / Import… / Cache…** — run the corresponding compiler operation. Validate uses the language server. Lint checks publishing conventions and places each finding in the Problems panel, tagged with the rule that produced it, so clicking one opens the entity it concerns; a finding the linter located to a file but not to a line sits at the top of that file rather than at a guessed position, and the full human report goes to the Aggrega output channel as well. Build, pull, push, import and cache run the `aggrega` binary and stream their output to that channel.
 - **Aggrega: Show topology graph** — open the topology graph for a chosen Release.
 - **Aggrega: Search published catalog** — search the configured registries and copy a matched reference.
 - **Aggrega: Refresh plugins** — reload the Plugins panel.
