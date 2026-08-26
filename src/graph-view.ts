@@ -3,8 +3,9 @@
 
 import * as path from 'path';
 import * as vscode from 'vscode';
+import { makeGraphMessageHandler } from './graph-messages';
 import { resolveRelease } from './release-pick';
-import { toWorkspaceRelative } from './workspace';
+import { NO_ANCHORED_WORKSPACE_MESSAGE, toWorkspaceRelative } from './workspace';
 
 // GraphDeps supplies the live state the graph view needs without importing
 // extension.ts (which would form an import cycle): the anchored workspace root
@@ -40,9 +41,7 @@ export function activateGraphView(context: vscode.ExtensionContext, deps: GraphD
     vscode.commands.registerCommand('aggrega.graph.show', async () => {
       const root = deps.getWorkspaceRoot();
       if (!root) {
-        void vscode.window.showInformationMessage(
-          'Aggrega: no anchored workspace. Open a folder containing a Release file first.',
-        );
+        void vscode.window.showInformationMessage(NO_ANCHORED_WORKSPACE_MESSAGE);
         return;
       }
 
@@ -71,12 +70,18 @@ export function activateGraphView(context: vscode.ExtensionContext, deps: GraphD
           },
         );
         panel.onDidDispose(() => { panel = null; shownRelease = null; }, null, context.subscriptions);
+        // The handler is registered once, with the panel, and the panel
+        // outlives the anchor — so it reads the root through the getter on each
+        // message rather than closing over the one bound above, which belongs
+        // to this single invocation. Every other read in this file goes through
+        // the getter for the same reason.
         panel.webview.onDidReceiveMessage(
-          (msg: { type: string; sourceFile?: string }) => {
-            if (msg.type === 'openSource' && msg.sourceFile) {
-              void openSource(root, msg.sourceFile);
-            }
-          },
+          makeGraphMessageHandler(deps.getWorkspaceRoot, {
+            openSource: (workspaceRoot, sourceFile) => { void openSource(workspaceRoot, sourceFile); },
+            reportNoWorkspace: () => {
+              void vscode.window.showInformationMessage(NO_ANCHORED_WORKSPACE_MESSAGE);
+            },
+          }),
           null,
           context.subscriptions,
         );

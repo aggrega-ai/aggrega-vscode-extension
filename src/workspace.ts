@@ -9,6 +9,30 @@ import * as path from 'path';
 // scaffolding in release-actions) so the name has one definition.
 export const CONFIG_FILENAME = '.aggrega-config.yaml';
 
+// NO_ANCHORED_WORKSPACE_MESSAGE is the one message every surface shows when
+// nothing is anchored. One state, one wording: a reader who meets this
+// condition through two different commands must not be told two different
+// things about it, and a wording duplicated per call site drifts the moment
+// either copy is reworded.
+//
+// It names the config file through CONFIG_FILENAME rather than spelling it
+// again, so the filename the message teaches cannot part company with the one
+// discovery actually looks for. A Release file is named as the other common
+// anchor; findAggregaWorkspaceAnchor below is the full set, and reciting it here
+// would trade a readable sentence for an inventory that goes stale whenever the
+// set moves.
+export const NO_ANCHORED_WORKSPACE_MESSAGE =
+  `Aggrega: no anchored workspace. Open a folder containing ${CONFIG_FILENAME} or a Release file first.`;
+
+// NO_ANCHORED_WORKSPACE_TREE_LABEL is the same state rendered as a tree row.
+//
+// A row is not a notification, so it carries neither the product prefix nor the
+// remediation clause: a tree reports what is there, while a notification
+// addresses the reader. The two forms live together because they describe one
+// state — a view that grows a row for this condition should find the wording
+// already written rather than invent another.
+export const NO_ANCHORED_WORKSPACE_TREE_LABEL = 'No anchored workspace.';
+
 // AGGREGA_DIR and ACTIVE_RELEASE_MARKER_BASENAME name the workspace's
 // .aggrega/ directory and the active-release marker inside it. Both have their
 // one definition here — the directory is a workspace anchor this module already

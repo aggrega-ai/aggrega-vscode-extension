@@ -3,6 +3,7 @@
 
 import * as vscode from 'vscode';
 import { runCliJson } from './cli-json';
+import { NO_ANCHORED_WORKSPACE_MESSAGE, NO_ANCHORED_WORKSPACE_TREE_LABEL } from './workspace';
 
 // CatalogDeps supplies the live state the plugins tree and the published-catalog
 // search need: the anchored workspace root (the CLI runs there), the configured
@@ -96,7 +97,7 @@ class PluginsTreeProvider implements vscode.TreeDataProvider<PluginNode> {
     }
     const root = this.deps.getWorkspaceRoot();
     if (!root) {
-      return [{ kind: 'message', label: 'No anchored workspace.' }];
+      return [{ kind: 'message', label: NO_ANCHORED_WORKSPACE_TREE_LABEL }];
     }
     let doc: PluginListDoc;
     try {
@@ -120,7 +121,7 @@ class PluginsTreeProvider implements vscode.TreeDataProvider<PluginNode> {
 async function searchPublished(deps: CatalogDeps): Promise<void> {
   const root = deps.getWorkspaceRoot();
   if (!root) {
-    void vscode.window.showInformationMessage('Aggrega: no anchored workspace. Open a folder first.');
+    void vscode.window.showInformationMessage(NO_ANCHORED_WORKSPACE_MESSAGE);
     return;
   }
   const query = await vscode.window.showInputBox({

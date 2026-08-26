@@ -4,6 +4,7 @@
 import { spawn } from 'child_process';
 import * as vscode from 'vscode';
 import { resolveRelease } from './release-pick';
+import { NO_ANCHORED_WORKSPACE_MESSAGE } from './workspace';
 
 // OperationDeps supplies the live extension state the operation surface reads
 // without importing extension.ts (which would form an import cycle): the
@@ -98,9 +99,7 @@ export function activateOperations(context: vscode.ExtensionContext, deps: Opera
 // Running the bare verb would fail: the CLI marks --release required.
 async function runReleaseScoped(deps: OperationDeps, verb: 'build' | 'pull'): Promise<void> {
   if (!deps.getWorkspaceRoot()) {
-    void vscode.window.showInformationMessage(
-      'Aggrega: no anchored workspace. Open a folder containing a Release file first.',
-    );
+    void vscode.window.showInformationMessage(NO_ANCHORED_WORKSPACE_MESSAGE);
     return;
   }
   const release = await resolveRelease(deps.listReleases, {
@@ -119,9 +118,7 @@ async function runReleaseScoped(deps: OperationDeps, verb: 'build' | 'pull'): Pr
 function runCli(deps: OperationDeps, args: string[]): void {
   const root = deps.getWorkspaceRoot();
   if (!root) {
-    void vscode.window.showInformationMessage(
-      'Aggrega: no anchored workspace. Open a folder containing .aggrega-config.yaml or a Release file first.',
-    );
+    void vscode.window.showInformationMessage(NO_ANCHORED_WORKSPACE_MESSAGE);
     return;
   }
   const bin = deps.getBinaryPath();

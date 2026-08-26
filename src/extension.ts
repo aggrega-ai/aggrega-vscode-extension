@@ -38,6 +38,7 @@ import {
 import {
   ACTIVE_RELEASE_MARKER_GLOB,
   AnchoredFolder,
+  NO_ANCHORED_WORKSPACE_MESSAGE,
   findAllAnchoredFolders,
 } from './workspace';
 import { openAuthoringReleaseConfig, createActiveReleaseMarker } from './release-actions';
@@ -45,6 +46,7 @@ import { activateOperations } from './operations';
 import { activateLint, LintRunner } from './lint';
 import { activateGraphView, GraphView } from './graph-view';
 import { activateCatalogViews } from './catalog-views';
+import { activateRegistriesView } from './registries-view';
 import { resolveRelease } from './release-pick';
 import { activateReleaseStatus, ReleaseStatus } from './release-status';
 import {
@@ -135,6 +137,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // The plugins tree and published-catalog search are CLI-backed (plugin list
   // -o json, search -o json), independent of daemon state.
   activateCatalogViews(context, {
+    getWorkspaceRoot: () => workspaceRootForCommands,
+    getBinaryPath: () => getSettings().binaryPath,
+    output: outputChannel,
+  });
+
+  // The registries tree is CLI-backed (registry list -o json), independent of
+  // daemon state. The command reads the resolved configuration and contacts no
+  // registry, so a refresh costs nothing over the network.
+  activateRegistriesView(context, {
     getWorkspaceRoot: () => workspaceRootForCommands,
     getBinaryPath: () => getSettings().binaryPath,
     output: outputChannel,
@@ -378,18 +389,14 @@ function registerReleaseActionCommands(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.commands.registerCommand('aggrega.workspace.openAuthoringReleaseConfig', async () => {
       if (!workspaceRootForCommands) {
-        void vscode.window.showInformationMessage(
-          'Aggrega: no anchored workspace; open a folder containing .aggrega-config.yaml or a Release file first.',
-        );
+        void vscode.window.showInformationMessage(NO_ANCHORED_WORKSPACE_MESSAGE);
         return;
       }
       await openAuthoringReleaseConfig(workspaceRootForCommands);
     }),
     vscode.commands.registerCommand('aggrega.workspace.createActiveReleaseMarker', async () => {
       if (!workspaceRootForCommands) {
-        void vscode.window.showInformationMessage(
-          'Aggrega: no anchored workspace; open a folder containing a Release file first.',
-        );
+        void vscode.window.showInformationMessage(NO_ANCHORED_WORKSPACE_MESSAGE);
         return;
       }
       let candidates: string[];

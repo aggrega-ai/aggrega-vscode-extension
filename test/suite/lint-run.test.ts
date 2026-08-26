@@ -6,9 +6,9 @@ import {
   LintDocument,
   LintFindingShape,
   LintRunDeps,
-  NO_WORKSPACE_MESSAGE,
   runLint,
 } from '../../src/lint-run';
+import { NO_ANCHORED_WORKSPACE_MESSAGE } from '../../src/workspace';
 
 // FakeSink records what each run published, so a test reads back exactly the
 // findings an author would have seen in the Problems panel — including the
@@ -232,7 +232,7 @@ describe('runLint', () => {
 
     assert.strictEqual(h.invocations, 0, 'no anchor means no invocation');
     assert.strictEqual(h.sink.replaceCalls, 0);
-    assert.deepStrictEqual(h.notices, [{ message: NO_WORKSPACE_MESSAGE, tier: 'info' }]);
+    assert.deepStrictEqual(h.notices, [{ message: NO_ANCHORED_WORKSPACE_MESSAGE, tier: 'info' }]);
   });
 
   it('names a finding that located no file in the log rather than losing it', async () => {

@@ -15,7 +15,8 @@ Language support for Aggrega YAML — validation, navigation, hover, and complet
 - **Find References / Implementations** — list every reference to or implementation of an entity.
 - **Hover** — kind-aware summaries for catalog and release entities.
 - **Completion** — context-aware suggestions for entity kinds, API versions, schema keywords, primitives, label values, providers, paths, and intra-document component keys.
-- **Aggrega activity-bar view** — an **Operations** panel with one-click compiler operations (validate, build, lint, pull, push, import, cache), and a **Plugins** panel listing the embedded and configured Wasm plugins. Validate and lint report into the Problems panel; build, pull, push, import and cache stream their output to the Aggrega output channel.
+- **Aggrega activity-bar view** — an **Operations** panel with one-click compiler operations (validate, build, lint, pull, push, import, cache), a **Plugins** panel listing the embedded and configured Wasm plugins, and a **Registries** panel listing every registry the effective configuration declares. Validate and lint report into the Problems panel; build, pull, push, import and cache stream their output to the Aggrega output channel.
+- **Registries panel detail** — each row names the registry's host, its alias where one is configured, which registry is the default, whether signatures are required for artifacts pulled from it, and whether a credential for that host is present. Reading the list contacts no registry: the credential state reports presence only, so it says a credential exists rather than that the registry would accept it.
 - **Topology graph** — renders a chosen Release's compiled IR as an interactive graph: boundary and subsystem containers, provenance-styled edges, pan and zoom, and click-a-node to open its source file. Nodes are laid out in deployment-wave order, so a boundary that declares a `syncWave:` appears ahead of the boundaries that wait on it. Hovering a node names its component and resolved version, its labels, its declared wave, and the catalog entity's own metadata — license, repository, home, keywords and maintainers — showing only the fields the entity actually declares. An open graph re-renders itself when the language server republishes diagnostics, so it follows edits without being reopened. Layout is computed in the view; the compiler ships topology, never coordinates.
 - **Published-catalog search** — search the configured registries for catalog entities and copy a reference to paste into an Aggregate.
 
@@ -36,6 +37,7 @@ Language support for Aggrega YAML — validation, navigation, hover, and complet
 - **Aggrega: Show topology graph** — open the topology graph for a chosen Release.
 - **Aggrega: Search published catalog** — search the configured registries and copy a matched reference.
 - **Aggrega: Refresh plugins** — reload the Plugins panel.
+- **Aggrega: Refresh registries** — re-read the configured registries. This contacts no registry, so it is cheap to repeat.
 
 ## Build
 

@@ -2,6 +2,7 @@
 // Copyright 2026 Cognitio S.r.l.
 
 import { SeverityToken, severityTokenFromString, zeroBasedFromOneBased } from './diagnostics-shape';
+import { NO_ANCHORED_WORKSPACE_MESSAGE } from './workspace';
 
 // LINT_DIAGNOSTIC_SOURCE names the conventions linter as the origin of every
 // finding it publishes. It is deliberately distinct from the language server's
@@ -191,12 +192,6 @@ export interface LintRunDeps {
   notify(message: string, tier: 'info' | 'error'): void;
 }
 
-// NO_WORKSPACE_MESSAGE is shown when nothing is anchored, so the reader learns
-// the linter was never invoked rather than reading an empty result as a clean
-// catalog. Worded to match the other operations' no-anchor message.
-export const NO_WORKSPACE_MESSAGE =
-  'Aggrega: no anchored workspace. Open a folder containing .aggrega-config.yaml or a Release file first.';
-
 // runLint invokes the conventions linter and publishes its findings as
 // navigable diagnostics.
 //
@@ -213,7 +208,10 @@ export const NO_WORKSPACE_MESSAGE =
 // yet acted on; the failure is surfaced instead.
 export async function runLint(deps: LintRunDeps): Promise<void> {
   if (!deps.getWorkspaceRoot()) {
-    deps.notify(NO_WORKSPACE_MESSAGE, 'info');
+    // The shared no-anchor message, so the reader learns the linter was never
+    // invoked rather than reading an empty result as a clean catalog — and
+    // learns it in the same words every other surface uses.
+    deps.notify(NO_ANCHORED_WORKSPACE_MESSAGE, 'info');
     return;
   }
 

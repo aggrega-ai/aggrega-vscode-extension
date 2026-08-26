@@ -37,6 +37,10 @@
         {
           "id": "aggrega.plugins",
           "name": "Plugins"
+        },
+        {
+          "id": "aggrega.registries",
+          "name": "Registries"
         }
       ]
     },
@@ -55,6 +59,11 @@
         {
           "command": "aggrega.plugins.refresh",
           "when": "view == aggrega.plugins",
+          "group": "navigation"
+        },
+        {
+          "command": "aggrega.registries.refresh",
+          "when": "view == aggrega.registries",
           "group": "navigation"
         }
       ]
@@ -75,6 +84,12 @@
       {
         "command": "aggrega.plugins.refresh",
         "title": "Refresh plugins",
+        "category": "Aggrega",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "aggrega.registries.refresh",
+        "title": "Refresh registries",
         "category": "Aggrega",
         "icon": "$(refresh)"
       },
