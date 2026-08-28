@@ -41,6 +41,10 @@
         {
           "id": "aggrega.registries",
           "name": "Registries"
+        },
+        {
+          "id": "aggrega.workspaceCatalog",
+          "name": "Workspace catalog"
         }
       ]
     },
@@ -64,6 +68,11 @@
         {
           "command": "aggrega.registries.refresh",
           "when": "view == aggrega.registries",
+          "group": "navigation"
+        },
+        {
+          "command": "aggrega.workspaceCatalog.refresh",
+          "when": "view == aggrega.workspaceCatalog",
           "group": "navigation"
         }
       ]
@@ -90,6 +99,12 @@
       {
         "command": "aggrega.registries.refresh",
         "title": "Refresh registries",
+        "category": "Aggrega",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "aggrega.workspaceCatalog.refresh",
+        "title": "Refresh workspace catalog",
         "category": "Aggrega",
         "icon": "$(refresh)"
       },

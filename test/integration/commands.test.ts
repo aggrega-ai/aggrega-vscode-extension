@@ -52,7 +52,11 @@ describe('Aggrega-contributed commands', () => {
 
   it('registers the catalog and plugins commands', async () => {
     const commands = await vscode.commands.getCommands(true);
-    for (const id of ['aggrega.catalog.searchPublished', 'aggrega.plugins.refresh']) {
+    for (const id of [
+      'aggrega.catalog.searchPublished',
+      'aggrega.plugins.refresh',
+      'aggrega.workspaceCatalog.refresh',
+    ]) {
       assert.ok(commands.includes(id), `expected ${id} to be in the command registry`);
     }
   });

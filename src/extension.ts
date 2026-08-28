@@ -68,6 +68,8 @@ import { activateLint, LintRunner } from './lint';
 import { activateGraphView, GraphView } from './graph-view';
 import { activateCatalogViews } from './catalog-views';
 import { activateRegistriesView } from './registries-view';
+import { activateWorkspaceCatalogView } from './workspace-catalog-view';
+import { CatalogIndexDoc } from './workspace-catalog-run';
 import { resolveRelease } from './release-pick';
 import { activateReleaseStatus, ReleaseStatus } from './release-status';
 import {
@@ -171,6 +173,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   activateRegistriesView(context, {
     getWorkspaceRoot: () => workspaceRootForCommands,
     getBinaryPath: () => getSettings().binaryPath,
+    output: outputChannel,
+  });
+
+  // The workspace-catalog tree lists the entities in the open workspace,
+  // grouped by kind. It is language-server-backed (catalogIndex), so it reports
+  // the workspace the compiler reads rather than a set the extension walked for
+  // itself; the getters read live state so the tree tracks the root the server
+  // later attaches to.
+  activateWorkspaceCatalogView(context, {
+    getWorkspaceRoot: () => workspaceRootForCommands,
+    isLanguageServerRunning: () => daemon?.getState() === DaemonState.Running,
+    requestCatalogIndex,
     output: outputChannel,
   });
 
@@ -984,6 +998,21 @@ async function requestActiveRelease(): Promise<string> {
   }
   const resp = await daemon.request<ActiveReleaseResponse>('aggrega/activeRelease', {});
   return resp.release;
+}
+
+// requestCatalogIndex asks the language server for the open workspace's entity
+// index — kind, name, apiVersion, description, labels and source file for every
+// Aggrega document under the workspace root. The extension performs no
+// workspace walk of its own; this is the single source, for the same reason
+// Release detection is: a second walk would report a set the compiler is not
+// using whenever the two disagreed, and nothing would report the disagreement.
+// Throws when the server is not running, so a caller surfaces that state rather
+// than showing an empty workspace.
+async function requestCatalogIndex(): Promise<CatalogIndexDoc> {
+  if (!daemon || daemon.getState() !== DaemonState.Running) {
+    throw new Error('the Aggrega language server is not running');
+  }
+  return await daemon.request<CatalogIndexDoc>('aggrega/catalogIndex', {});
 }
 
 async function handleCacheMiss<T>(method: string, params: unknown, doc: vscode.TextDocument): Promise<T | null> {
