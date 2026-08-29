@@ -114,6 +114,142 @@ html, body {
   text-anchor: middle;
 }
 
+/* The selected node. Selection is carried by a focus-coloured outline drawn
+   outside the node's own border, so it reads against every accent colour and
+   never competes with the type accent bar for the same edge of the shape. */
+.node-selected .node-rect {
+  stroke: var(--vscode-focusBorder);
+  stroke-width: 2.5;
+}
+
+/* The attachments panel: what the compiler resolved onto the selected node. It
+   overlays the canvas rather than resizing it, so selecting a node never
+   re-runs the layout underneath the reader. */
+.panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 340px;
+  max-width: 50vw;
+  display: flex;
+  flex-direction: column;
+  background: var(--vscode-editorWidget-background);
+  border-left: 1px solid var(--vscode-editorWidget-border);
+  color: var(--vscode-editorWidget-foreground);
+  z-index: 20;
+  overflow: hidden;
+}
+
+.panel.hidden {
+  display: none;
+}
+
+.panel-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--vscode-editorWidget-border);
+}
+
+.panel-title {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.panel-close {
+  background: transparent;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 2px 6px;
+}
+
+.panel-close:hover {
+  background: var(--vscode-toolbar-hoverBackground);
+}
+
+.panel-body {
+  overflow-y: auto;
+  padding: 8px 10px 16px;
+}
+
+.panel-empty {
+  color: var(--vscode-descriptionForeground);
+  margin: 4px 0;
+}
+
+.attachment {
+  border-top: 1px solid var(--vscode-editorWidget-border);
+  padding-top: 8px;
+  margin-top: 8px;
+}
+
+.attachment:first-child {
+  border-top: none;
+  margin-top: 0;
+  padding-top: 0;
+}
+
+.attachment-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.attachment-name {
+  font-weight: 600;
+}
+
+/* The attachment-level sensitivity marking the compiler set. It is a statement
+   about the attachment, not about any one field: the per-field notes below say
+   which values are withheld and why. */
+.attachment-sensitive {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: var(--vscode-inputValidation-warningBackground);
+  border: 1px solid var(--vscode-inputValidation-warningBorder);
+  color: var(--vscode-editor-foreground);
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 1px 10px;
+  margin: 6px 0 0;
+  font-size: 12px;
+}
+
+.facts dt {
+  color: var(--vscode-descriptionForeground);
+  white-space: nowrap;
+}
+
+.facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.facts.config {
+  font-family: var(--vscode-editor-font-family);
+  margin-top: 6px;
+}
+
+/* A value the IR marks sensitive is never printed. The field's path still
+   shows, so the reader can see the field exists and where it is authored. */
+.withheld {
+  color: var(--vscode-descriptionForeground);
+  font-style: italic;
+}
+
 /* Edges. */
 .edge {
   fill: none;

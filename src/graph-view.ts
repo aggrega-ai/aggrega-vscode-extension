@@ -145,8 +145,9 @@ async function openSource(workspaceRoot: string, sourceFile: string): Promise<vo
 }
 
 // graphHtml builds the webview document: a strict CSP allowing only the
-// nonce'd inline bootstrap plus the three local scripts (elk bundle + the
-// layout model + the graph renderer), served through webview-scoped URIs.
+// nonce'd inline bootstrap plus the four local scripts (elk bundle + the
+// layout model + the attachment projection + the graph renderer), served
+// through webview-scoped URIs.
 function graphHtml(webview: vscode.Webview, extensionUri: vscode.Uri): string {
   const nonce = makeNonce();
   const elkUri = webview.asWebviewUri(
@@ -154,6 +155,9 @@ function graphHtml(webview: vscode.Webview, extensionUri: vscode.Uri): string {
   );
   const modelUri = webview.asWebviewUri(
     vscode.Uri.joinPath(extensionUri, 'media', 'graph-model.js'),
+  );
+  const attachmentsUri = webview.asWebviewUri(
+    vscode.Uri.joinPath(extensionUri, 'media', 'attachments-model.js'),
   );
   const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'graph.js'));
   const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'graph.css'));
@@ -176,8 +180,16 @@ function graphHtml(webview: vscode.Webview, extensionUri: vscode.Uri): string {
 <body>
   <div id="status" class="status">Select a Release to render its topology.</div>
   <svg id="canvas" xmlns="http://www.w3.org/2000/svg"></svg>
+  <aside id="panel" class="panel hidden">
+    <header class="panel-head">
+      <span id="panel-title" class="panel-title"></span>
+      <button id="panel-close" class="panel-close" title="Close">✕</button>
+    </header>
+    <div id="panel-body" class="panel-body"></div>
+  </aside>
   <script nonce="${nonce}" src="${elkUri}"></script>
   <script nonce="${nonce}" src="${modelUri}"></script>
+  <script nonce="${nonce}" src="${attachmentsUri}"></script>
   <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>
 </html>`;
