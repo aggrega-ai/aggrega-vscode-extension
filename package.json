@@ -221,7 +221,7 @@
             "session"
           ],
           "default": "time",
-          "description": "How repeated toast notifications for the same error code are debounced. `time` re-surfaces after `toastThrottleSeconds` elapses since the last toast went away (action click, X click, or auto-dismiss). `session` suppresses repeats until the daemon restarts (the previous default)."
+          "description": "How repeated toast notifications for the same error code are debounced. `time` re-surfaces after `toastThrottleSeconds` elapses since the last toast went away (action click, X click, or auto-dismiss). `session` suppresses repeats until the daemon restarts."
         },
         "aggrega.notifications.toastThrottleSeconds": {
           "type": "number",
