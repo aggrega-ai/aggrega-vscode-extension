@@ -2,15 +2,24 @@
 // Copyright 2026 Cognitio S.r.l.
 
 import * as vscode from 'vscode';
-import { BUILD_ON_INSPECT_KEY, DEFAULT_SETTINGS, SERVER_CONFIG_SECTION, Settings } from './settings';
+import {
+  BUILD_ON_INSPECT_KEY,
+  DEFAULT_SETTINGS,
+  GRAPH_CONFIG_SECTION,
+  SERVER_CONFIG_SECTION,
+  SHOW_SENSITIVE_VALUES_KEY,
+  Settings,
+  showsSensitiveValues,
+} from './settings';
 
-// getSettings reads the aggrega.server.* configuration from VS Code.
+// getSettings reads the aggrega.* configuration from VS Code.
 // Defaults match DEFAULT_SETTINGS when a key is unset. Lives in its
 // own file so pure-Node tests can consume the Settings shape without
 // pulling the vscode module.
 export function getSettings(): Settings {
   const serverCfg = vscode.workspace.getConfiguration(SERVER_CONFIG_SECTION);
   const notificationsCfg = vscode.workspace.getConfiguration('aggrega.notifications');
+  const graphCfg = vscode.workspace.getConfiguration(GRAPH_CONFIG_SECTION);
   return {
     binaryPath: serverCfg.get<string>('binaryPath', DEFAULT_SETTINGS.binaryPath),
     autoRevalidate: serverCfg.get<boolean>('autoRevalidate', DEFAULT_SETTINGS.autoRevalidate),
@@ -21,5 +30,9 @@ export function getSettings(): Settings {
     restartGraceSeconds: serverCfg.get<number>('restartGraceSeconds', DEFAULT_SETTINGS.restartGraceSeconds),
     toastDebounceMode: notificationsCfg.get<'time' | 'session'>('toastDebounceMode', DEFAULT_SETTINGS.toastDebounceMode),
     toastThrottleSeconds: notificationsCfg.get<number>('toastThrottleSeconds', DEFAULT_SETTINGS.toastThrottleSeconds),
+    // Read without a fallback and decided by the predicate rather than by the
+    // configuration reader: a value in a shape the reader cannot type-check
+    // reaches this as it stands, and only the boolean true shows the values.
+    showSensitiveValues: showsSensitiveValues(graphCfg.get(SHOW_SENSITIVE_VALUES_KEY)),
   };
 }

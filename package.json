@@ -214,6 +214,11 @@
           "minimum": 0,
           "description": "Grace window in seconds before the extension automatically restarts the daemon after a binaryPath change. The status bar surfaces a countdown during the window; the quick-action menu offers Restart now and Cancel restart."
         },
+        "aggrega.graph.showSensitiveValues": {
+          "type": "boolean",
+          "default": false,
+          "description": "When true, the topology graph shows every value an attachment authors, including the ones a Feature declares sensitive: a credential an Aggregate authors by value is displayed in the clear, and is readable by anyone who can see the editor window or a screen recording of it. When false, those values are removed before the graph is drawn and the panel names each withheld field and says why it is withheld. Values no sensitivity declaration covers are shown either way."
+        },
         "aggrega.notifications.toastDebounceMode": {
           "type": "string",
           "enum": [

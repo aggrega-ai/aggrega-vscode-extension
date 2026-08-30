@@ -11,6 +11,7 @@ export interface Settings {
   restartGraceSeconds: number;
   toastDebounceMode: 'time' | 'session';
   toastThrottleSeconds: number;
+  showSensitiveValues: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -23,6 +24,7 @@ export const DEFAULT_SETTINGS: Settings = {
   restartGraceSeconds: 5,
   toastDebounceMode: 'time',
   toastThrottleSeconds: 300,
+  showSensitiveValues: false,
 };
 
 // settingsFromObject builds a Settings object by overlaying input
@@ -43,6 +45,27 @@ export const SERVER_CONFIG_SECTION = 'aggrega.server';
 // rather than each spelling the key out: a mismatch between them would leave
 // the toggle flipping a setting nothing reads, with no error anywhere.
 export const BUILD_ON_INSPECT_KEY = 'buildOnInspect';
+
+// GRAPH_CONFIG_SECTION is the configuration section the topology graph's own
+// settings are read from.
+export const GRAPH_CONFIG_SECTION = 'aggrega.graph';
+
+// SHOW_SENSITIVE_VALUES_KEY is the setting name within GRAPH_CONFIG_SECTION.
+export const SHOW_SENSITIVE_VALUES_KEY = 'showSensitiveValues';
+
+// showsSensitiveValues decides, from whatever the editor reports the setting to
+// be, whether the graph shows values a Feature declares sensitive.
+//
+// Only the boolean true shows them. Every other answer withholds — the setting
+// unset, the setting absent, and above all a value in a shape this cannot read,
+// which is what a hand-edited settings file can produce. The asymmetry is the
+// point: reading an answer this cannot understand as permission would disclose
+// credentials on the strength of a typo, while the opposite mistake shows a
+// reader "withheld" where they expected a value and is corrected by fixing the
+// setting.
+export function showsSensitiveValues(configured: unknown): boolean {
+  return configured === true;
+}
 
 // ConfigScope names the configuration layer a setting write lands in, in the
 // vocabulary the editor's own settings surface uses.

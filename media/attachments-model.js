@@ -2,8 +2,9 @@
 // Copyright 2026 Cognitio S.r.l.
 //
 // The document-free half of the attachments panel: the transform from the
-// compiler's IR into the rows the panel draws for one selected node. It reads
-// no document, touches no DOM and holds no state between projections, so the
+// compiler's IR into the rows the panel draws for one selected node, and the
+// redaction that runs before the IR is handed to the view at all. It reads no
+// document, touches no DOM and holds no state between projections, so the
 // projection — and above all the withholding of sensitive material — can be
 // exercised on its own. media/graph.js draws whatever this produces.
 //
@@ -11,6 +12,13 @@
 // from a name, nothing is resolved, and a field the compiler did not send is
 // left out rather than defaulted. An attachment's configuration is shown as its
 // author wrote it, or it is withheld — never guessed at and never summarised.
+//
+// This file is loaded twice, on the two sides of the view boundary, and that is
+// the point of it. The side holding the compiled graph calls redactGraph before
+// handing the payload over, so a value the rule withholds is removed while it is
+// still on that side; the view then projects what arrives. Both sides run these
+// same functions, so the question "is this value withheld" has one answer and
+// one implementation, and the two cannot drift into disagreeing.
 
 (function (root) {
   'use strict';
@@ -29,6 +37,24 @@
   const WITHHELD_ATTACHMENT = 'attachment';
   const WITHHELD_UNREADABLE = 'unreadable';
 
+  // WITHHELD_MARKER_KEY is the sole key of the object redactGraph leaves where a
+  // value used to be. It carries the reason the value was withheld, so the panel
+  // can still say why a field is absent once the value itself is gone.
+  //
+  // A removed value needs SOME representation, because dropping the key would
+  // drop the field's path with it and the reader would no longer learn that the
+  // field exists at all. The representation may not be one an author could have
+  // written, which rules out every plain scalar: `null` is the trap worth naming,
+  // because scalarText reads it as the readable text "null" and the panel would
+  // then draw that word where the authored value used to be — a confident wrong
+  // answer in place of a correct refusal. A single-key object is a shape this
+  // file recognises before it reads any value out of it.
+  //
+  // An author who writes this exact shape into their own configuration has their
+  // value withheld and told it was withheld. That is over-withholding, which
+  // cannot leak.
+  const WITHHELD_MARKER_KEY = 'aggrega_withheld';
+
   // The pillars of an attachment that carry authored configuration, in the
   // order the IR writes them. These are the names the declared-sensitive leaf
   // paths are prefixed with, so they are also what the paths are matched on.
@@ -36,6 +62,30 @@
 
   function isPlainObject(v) {
     return typeof v === 'object' && v !== null && !Array.isArray(v);
+  }
+
+  // withheldMarker builds the object that stands in for a value redactGraph
+  // removed.
+  function withheldMarker(reason) {
+    const marker = {};
+    marker[WITHHELD_MARKER_KEY] = reason;
+    return marker;
+  }
+
+  // markerReason reads the reason out of a withheld marker, or reports the empty
+  // string for anything that is not one.
+  //
+  // A marker carrying a reason this file does not recognise is still a marker: a
+  // value was removed, and the only question left is which sentence to show. It
+  // falls back to the attachment-wide reason, which is the one that claims least
+  // about the individual leaf.
+  function markerReason(v) {
+    if (!isPlainObject(v)) { return ''; }
+    const keys = Object.keys(v);
+    if (keys.length !== 1 || keys[0] !== WITHHELD_MARKER_KEY) { return ''; }
+    const reason = v[WITHHELD_MARKER_KEY];
+    if (reason === WITHHELD_DECLARED || reason === WITHHELD_UNREADABLE) { return reason; }
+    return WITHHELD_ATTACHMENT;
   }
 
   // WITHHOLDING IS ASYMMETRIC, DELIBERATELY: a value is shown only when the IR
@@ -107,44 +157,113 @@
     return { text: '', known: false };
   }
 
+  // installer returns the function that writes a replacement value back where
+  // the walked value sits. redactGraph uses it to put a marker where a value was;
+  // the projection ignores it. It is produced by the walk itself so that the
+  // side that removes a value and the side that reads it derive their leaf paths
+  // from one traversal rather than from two that agree today.
+  function installer(container, key) {
+    return function (replacement) { container[key] = replacement; };
+  }
+
+  function noInstall() {}
+
   // walk decomposes an authored value into dotted leaf paths, which is the form
   // the IR writes its declared-sensitive leaf paths in. An empty object or list
   // is itself a leaf: it holds no value to show, and dropping it would lose a
   // key its author wrote.
-  function walk(path, value, out) {
+  //
+  // A value already replaced by a withheld marker is a leaf carrying that
+  // marker's reason and no text. It is recognised before the object branch,
+  // because a marker IS an object and descending into one would report its
+  // internals as authored keys.
+  function walk(path, value, out, install) {
+    const marked = markerReason(value);
+    if (marked) {
+      out.push({ path: path, text: '', known: false, withheld: marked, install: install });
+      return;
+    }
     if (isPlainObject(value)) {
       const keys = Object.keys(value);
-      if (keys.length === 0) { out.push({ path: path, text: '{}', known: true }); return; }
+      if (keys.length === 0) {
+        out.push({ path: path, text: '{}', known: true, withheld: '', install: install });
+        return;
+      }
       for (let i = 0; i < keys.length; i++) {
-        walk(path + '.' + keys[i], value[keys[i]], out);
+        walk(path + '.' + keys[i], value[keys[i]], out, installer(value, keys[i]));
       }
       return;
     }
     if (Array.isArray(value)) {
-      if (value.length === 0) { out.push({ path: path, text: '[]', known: true }); return; }
+      if (value.length === 0) {
+        out.push({ path: path, text: '[]', known: true, withheld: '', install: install });
+        return;
+      }
       for (let i = 0; i < value.length; i++) {
-        walk(path + '.' + i, value[i], out);
+        walk(path + '.' + i, value[i], out, installer(value, i));
       }
       return;
     }
     const scalar = scalarText(value);
-    out.push({ path: path, text: scalar.text, known: scalar.known });
+    out.push({
+      path: path, text: scalar.text, known: scalar.known, withheld: '', install: install,
+    });
   }
 
   // flattenPillar decomposes one authored pillar into leaves under its own
   // name. A pillar the compiler did not send contributes nothing; a pillar in
   // no shape recognised here contributes one unreadable leaf rather than
   // vanishing, so a key its author wrote is never silently absent.
-  function flattenPillar(pillar, payload, out) {
+  function flattenPillar(pillar, payload, out, install) {
     if (payload === undefined || payload === null) { return; }
+    const marked = markerReason(payload);
+    if (marked) {
+      out.push({ path: pillar, text: '', known: false, withheld: marked, install: install });
+      return;
+    }
     if (isPlainObject(payload)) {
       const keys = Object.keys(payload);
       for (let i = 0; i < keys.length; i++) {
-        walk(pillar + '.' + keys[i], payload[keys[i]], out);
+        walk(pillar + '.' + keys[i], payload[keys[i]], out, installer(payload, keys[i]));
       }
       return;
     }
-    out.push({ path: pillar, text: '', known: false });
+    out.push({ path: pillar, text: '', known: false, withheld: '', install: install });
+  }
+
+  // leavesOf decomposes an attachment's authored pillars into leaves, in the
+  // order the IR writes the pillars. Both the projection and the redaction read
+  // an attachment through this one function.
+  function leavesOf(entry, install) {
+    const leaves = [];
+    for (let i = 0; i < PILLARS.length; i++) {
+      flattenPillar(PILLARS[i], entry[PILLARS[i]], leaves, install(PILLARS[i]));
+    }
+    return leaves;
+  }
+
+  // declaredLeaves reports the declared-sensitive leaf paths to match against.
+  // An attachment withheld wholly has nothing to match: every leaf goes anyway,
+  // and reading the list would only invite treating the ones it omits as shown.
+  function declaredLeaves(entry, wholly) {
+    return !wholly && Array.isArray(entry.sensitive_authored_leaves)
+      ? entry.sensitive_authored_leaves
+      : [];
+  }
+
+  // withheldReasonFor is the single decision "is this leaf withheld, and why".
+  // The side that strips a value before it crosses and the side that draws what
+  // arrives both ask it, so the set of values removed is by construction the set
+  // the panel reports as withheld — not two sets that happen to coincide.
+  //
+  // A leaf already carrying a marker keeps that marker's reason: the value is
+  // gone, and the reason recorded when it was removed is the truthful one.
+  function withheldReasonFor(leaf, wholly, declared) {
+    if (leaf.withheld) { return leaf.withheld; }
+    if (wholly) { return WITHHELD_ATTACHMENT; }
+    if (coveredByDeclaration(leaf.path, declared)) { return WITHHELD_DECLARED; }
+    if (!leaf.known) { return WITHHELD_UNREADABLE; }
+    return '';
   }
 
   // pairs renders a string-keyed map as ordered key/value pairs, preserving the
@@ -168,24 +287,21 @@
   function projectAttachment(name, entry) {
     const wholly = withholdsWholly(entry);
     const safe = isPlainObject(entry) ? entry : {};
-    const declared = !wholly && Array.isArray(safe.sensitive_authored_leaves)
-      ? safe.sensitive_authored_leaves
-      : [];
+    const declared = declaredLeaves(safe, wholly);
 
-    const leaves = [];
-    for (let i = 0; i < PILLARS.length; i++) {
-      flattenPillar(PILLARS[i], safe[PILLARS[i]], leaves);
-    }
+    // This projection runs on data the boundary has already redacted, and the
+    // withholding below therefore has nothing left to withhold. It is kept
+    // DELIBERATELY, and it is not a duplicate of the redaction: it is the same
+    // single-sourced decision running on the far side of the boundary, so the
+    // panel still refuses a value that reached it by any route the redaction did
+    // not cover — an unredacted payload, a future sender, a reader who turned
+    // the redaction off. Do not remove it as redundant.
+    const leaves = leavesOf(safe, function () { return noInstall; });
 
     const fields = leaves.map(function (leaf) {
-      if (wholly) {
-        return { path: leaf.path, value: null, withheld: WITHHELD_ATTACHMENT };
-      }
-      if (coveredByDeclaration(leaf.path, declared)) {
-        return { path: leaf.path, value: null, withheld: WITHHELD_DECLARED };
-      }
-      if (!leaf.known) {
-        return { path: leaf.path, value: null, withheld: WITHHELD_UNREADABLE };
+      const reason = withheldReasonFor(leaf, wholly, declared);
+      if (reason) {
+        return { path: leaf.path, value: null, withheld: reason };
       }
       return { path: leaf.path, value: leaf.text, withheld: '' };
     });
@@ -226,6 +342,115 @@
     };
   }
 
+  // --- redaction at the boundary -------------------------------------------
+  //
+  // redactGraph is what the side holding the compiled graph calls before handing
+  // the payload to the view. It removes the values the rule above withholds and
+  // KEEPS the markings that say why, so the panel can still name the reason a
+  // field is absent. Stripping the markings too would leave the panel able to
+  // report only that something is missing.
+  //
+  // Its reach is the attachment table and nothing else, because that is where a
+  // sensitivity marking can appear at all: the marking lives on an attachment
+  // entry, and the attachment table is the only place the compiler puts one. A
+  // payload the graph carries that no marking covers is left exactly as it
+  // arrived — this removes what is marked, and nothing else.
+
+  // cloneValue copies the structures walk descends into, so redaction rewrites a
+  // copy and the graph it was handed is left as it was. A value walk treats as a
+  // leaf is returned as it stands: a scalar cannot be mutated through, and
+  // anything else is replaced by a marker rather than kept.
+  function cloneValue(value) {
+    if (isPlainObject(value)) {
+      const copy = {};
+      const keys = Object.keys(value);
+      for (let i = 0; i < keys.length; i++) {
+        copy[keys[i]] = cloneValue(value[keys[i]]);
+      }
+      return copy;
+    }
+    if (Array.isArray(value)) {
+      const copy = [];
+      for (let i = 0; i < value.length; i++) {
+        copy.push(cloneValue(value[i]));
+      }
+      return copy;
+    }
+    return value;
+  }
+
+  // redactAttachment returns the entry with every withheld value replaced by a
+  // marker and every other key — the markings above all — carried through as it
+  // stands.
+  //
+  // An entry that is not an attachment at all yields an empty one. Such an entry
+  // is withheld wholly, so the panel already draws nothing from it, and carrying
+  // its content across the boundary would move material the view has no way to
+  // show and no reason to hold.
+  function redactAttachment(entry) {
+    if (!isPlainObject(entry)) { return {}; }
+
+    const out = {};
+    const keys = Object.keys(entry);
+    for (let i = 0; i < keys.length; i++) {
+      out[keys[i]] = entry[keys[i]];
+    }
+
+    const wholly = withholdsWholly(entry);
+    const declared = declaredLeaves(entry, wholly);
+
+    for (let i = 0; i < PILLARS.length; i++) {
+      const pillar = PILLARS[i];
+      if (entry[pillar] === undefined || entry[pillar] === null) { continue; }
+      out[pillar] = cloneValue(entry[pillar]);
+    }
+
+    const leaves = leavesOf(out, function (pillar) { return installer(out, pillar); });
+    for (let i = 0; i < leaves.length; i++) {
+      const reason = withheldReasonFor(leaves[i], wholly, declared);
+      if (reason) { leaves[i].install(withheldMarker(reason)); }
+    }
+    return out;
+  }
+
+  // redactGraph returns the graph with the attachment table redacted. A payload
+  // carrying no attachment table has nothing to redact and is returned as it
+  // stands.
+  function redactGraph(graph) {
+    if (!isPlainObject(graph) || !isPlainObject(graph.spec)) { return graph; }
+    const mapping = graph.spec.feature_values_mapping;
+    if (!isPlainObject(mapping)) { return graph; }
+
+    const redacted = {};
+    const nodeIds = Object.keys(mapping);
+    for (let i = 0; i < nodeIds.length; i++) {
+      const bucket = mapping[nodeIds[i]];
+      const out = {};
+      if (isPlainObject(bucket)) {
+        const names = Object.keys(bucket);
+        for (let j = 0; j < names.length; j++) {
+          out[names[j]] = redactAttachment(bucket[names[j]]);
+        }
+      }
+      redacted[nodeIds[i]] = out;
+    }
+
+    const spec = {};
+    const specKeys = Object.keys(graph.spec);
+    for (let i = 0; i < specKeys.length; i++) {
+      spec[specKeys[i]] = graph.spec[specKeys[i]];
+    }
+    spec.feature_values_mapping = redacted;
+
+    const out = {};
+    const graphKeys = Object.keys(graph);
+    for (let i = 0; i < graphKeys.length; i++) {
+      out[graphKeys[i]] = graph[graphKeys[i]];
+    }
+    out.spec = spec;
+    return out;
+  }
+
   // withheldNote is the sentence the panel shows in place of a value. Each
   // reason says only what the IR supports: that a declaration covers the leaf,
   // that the attachment as a whole carries declared-sensitive material, or that
@@ -246,9 +471,11 @@
   root.AggregaAttachments = {
     attachmentsFor: attachmentsFor,
     projectAttachment: projectAttachment,
+    redactGraph: redactGraph,
     withheldNote: withheldNote,
     WITHHELD_DECLARED: WITHHELD_DECLARED,
     WITHHELD_ATTACHMENT: WITHHELD_ATTACHMENT,
     WITHHELD_UNREADABLE: WITHHELD_UNREADABLE,
+    WITHHELD_MARKER_KEY: WITHHELD_MARKER_KEY,
   };
 })(typeof globalThis !== 'undefined' ? globalThis : this);

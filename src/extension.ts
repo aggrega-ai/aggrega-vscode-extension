@@ -156,6 +156,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const result = await daemon.request<{ graph: unknown }>('aggrega/irGraph', { release });
       return result.graph;
     },
+    showsSensitiveValues: () => getSettings().showSensitiveValues,
     output: outputChannel,
   });
 

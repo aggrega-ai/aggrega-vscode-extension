@@ -3,6 +3,7 @@
 
 import * as path from 'path';
 import * as vscode from 'vscode';
+import { GraphRedactor, createGraphRedactor } from './graph-payload';
 import { makeGraphMessageHandler } from './graph-messages';
 import { resolveRelease } from './release-pick';
 import { NO_ANCHORED_WORKSPACE_MESSAGE, toWorkspaceRelative } from './workspace';
@@ -17,6 +18,10 @@ export interface GraphDeps {
   // requestIrGraph returns the serialized IRGraph object (the daemon's
   // irGraph result `graph` field) for the given workspace-relative Release.
   requestIrGraph(release: string): Promise<unknown>;
+  // showsSensitiveValues reports whether the reader has asked to see the values
+  // a Feature declares sensitive. Read on each render rather than captured, so
+  // changing the setting takes effect on the next render of an open panel.
+  showsSensitiveValues(): boolean;
   output: vscode.OutputChannel;
 }
 
@@ -32,6 +37,9 @@ export interface GraphView {
 // view rather than stacking panels.
 export function activateGraphView(context: vscode.ExtensionContext, deps: GraphDeps): GraphView {
   let panel: vscode.WebviewPanel | null = null;
+  // Built once per activation, against this installation's own files, and used
+  // on every render.
+  const redact = createGraphRedactor(context.extensionUri.fsPath);
   // The Release the open panel is showing. Held so a refresh re-renders the
   // same one without asking the user again, and cleared with the panel so a
   // refresh after a close does nothing.
@@ -92,7 +100,7 @@ export function activateGraphView(context: vscode.ExtensionContext, deps: GraphD
 
       panel.title = `Aggrega Graph — ${release}`;
       shownRelease = release;
-      await renderGraph(panel, deps, release);
+      await renderGraph(panel, deps, redact, release);
     }),
   );
 
@@ -105,7 +113,7 @@ export function activateGraphView(context: vscode.ExtensionContext, deps: GraphD
       if (!panel || !shownRelease) { return; }
       // Quiet: the panel keeps showing the graph it has until the new one
       // replaces it, rather than flashing a layout notice on every recompile.
-      void renderGraph(panel, deps, shownRelease, { quiet: true });
+      void renderGraph(panel, deps, redact, shownRelease, { quiet: true });
     },
   };
 }
@@ -113,9 +121,18 @@ export function activateGraphView(context: vscode.ExtensionContext, deps: GraphD
 // renderGraph requests the IR graph and posts it to the webview, surfacing any
 // request failure both in the panel and the output channel. A quiet render
 // skips the "laying out" notice, for a re-render the user did not ask for.
+//
+// The graph is redacted HERE, before it is posted, and this is the whole reason
+// the redaction sits at this line rather than at the places the panel draws.
+// Withholding at each drawing site has to be re-established every time a drawing
+// site is added, and nothing fails when it is forgotten: the value is present,
+// so new code that renders it works perfectly and discloses a credential.
+// Withholding as the payload crosses is one guarantee that holds however the far
+// side is later written.
 async function renderGraph(
   panel: vscode.WebviewPanel,
   deps: GraphDeps,
+  redact: GraphRedactor,
   release: string,
   opts: { quiet?: boolean } = {},
 ): Promise<void> {
@@ -123,9 +140,13 @@ async function renderGraph(
     void panel.webview.postMessage({ type: 'loading', release });
   }
   try {
-    const graph = await deps.requestIrGraph(release);
+    const graph = redact(await deps.requestIrGraph(release), deps.showsSensitiveValues());
     void panel.webview.postMessage({ type: 'render', release, graph });
   } catch (err) {
+    // A redaction that cannot be performed lands here with the request
+    // failures, and is reported the same way. Nothing is posted, which is the
+    // safe direction: with no way to tell a value that may be shown from one
+    // that may not, showing none of them is the only honest answer.
     const message = err instanceof Error ? err.message : String(err);
     deps.output.appendLine(`irGraph failed for ${release}: ${message}`);
     void panel.webview.postMessage({ type: 'error', release, message });
