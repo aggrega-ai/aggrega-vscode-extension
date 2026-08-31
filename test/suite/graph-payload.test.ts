@@ -149,13 +149,40 @@ describe('the payload handed to the topology view', () => {
 
     // The stand-in actually used is in no shape a value can be read out of.
     const graph = irGraph({ api: { credentials: credentialEntry() } });
+    let seen = false;
     for (const f of project(redact(graph, false), 'api')[0].fields) {
       if (f.path === 'values.literalPassword') {
+        seen = true;
         assert.strictEqual(f.value, null, 'the withheld leaf carried a drawable value');
-        assert.strictEqual(f.withheld, model.WITHHELD_ATTACHMENT);
+        assert.strictEqual(f.withheld, model.WITHHELD_DECLARED);
         assert.ok(model.withheldNote(f.withheld).length > 0);
       }
     }
+    // Without this the loop above would pass over a projection that carried the
+    // leaf under some other path, or carried no leaves at all.
+    assert.ok(seen, 'the projection carried no values.literalPassword field to assert on');
+  });
+
+  it('lets the public locator on a roll-up-marked attachment cross and be shown', () => {
+    // The entry carries `sensitive: true` — the attachment does handle a
+    // credential — beside a locator no declaration covers. The terminal surface
+    // shows that locator; so does this one, and the value has to CROSS the
+    // boundary for the panel to have anything to draw.
+    const graph = irGraph({ api: { credentials: credentialEntry() } });
+    const posted = redact(graph, false);
+
+    assert.ok(!appearsAnywhere(posted, SECRET), 'the credential crossed the boundary');
+    assert.ok(
+      appearsAnywhere(posted, PUBLIC_LOCATOR),
+      'the locator was stripped: the panel can report only that it is missing',
+    );
+
+    const attachment = project(posted, 'api')[0];
+    assert.strictEqual(attachment.sensitive, true, 'the roll-up stopped being reported');
+    const byPath = new Map(attachment.fields.map((f) => [f.path, f]));
+    assert.strictEqual(byPath.get('values.secretName')!.value, PUBLIC_LOCATOR);
+    assert.strictEqual(byPath.get('values.secretName')!.withheld, '');
+    assert.strictEqual(byPath.get('values.literalPassword')!.withheld, model.WITHHELD_DECLARED);
   });
 
   it('withholds by the declaration when the attachment as a whole is not marked', () => {

@@ -186,7 +186,14 @@ describe('AggregaAttachments — projecting what is attached', () => {
 });
 
 describe('AggregaAttachments — withholding sensitive material', () => {
-  it('withholds every value on an attachment the IR marks sensitive', () => {
+  it('withholds only the marked leaves of an attachment the IR marks sensitive', () => {
+    // The attachment-wide marking says this attachment handles material an
+    // author declared sensitive; it names no datum. The per-leaf marking names
+    // the datum. Withholding on the first hides `values.key` — the data key
+    // inside a Kubernetes Secret, which is public and which the author needs in
+    // order to read the file they are editing. The terminal surface showing the
+    // same attachment hides only what a declaration covers, and this shows the
+    // same values it shows.
     const graph = irGraph({
       cache: {
         password: {
@@ -207,13 +214,39 @@ describe('AggregaAttachments — withholding sensitive material', () => {
     // escaped by any other route would still be caught here.
     assert.ok(!appearsAnywhere(projected, SECRET), 'the credential reached the projection');
 
+    // The roll-up is still REPORTED on the attachment — it is a true fact about
+    // the attachment, and dropping it would lose it.
     assert.strictEqual(a.sensitive, true);
-    for (const f of a.fields) {
-      assert.strictEqual(f.value, null, `${f.path} carried a value`);
-      assert.strictEqual(f.withheld, model.WITHHELD_ATTACHMENT);
-    }
+
+    const byPath = fieldsByPath(a);
+    assert.strictEqual(byPath.get('values.origin')!.value, null);
+    assert.strictEqual(byPath.get('values.origin')!.withheld, model.WITHHELD_DECLARED);
+    // The locator no declaration covers, on a roll-up-marked attachment. This
+    // is the assertion the whole-attachment gate used to make impossible.
+    assert.strictEqual(byPath.get('values.key')!.value, 'REDIS_PASSWORD');
+    assert.strictEqual(byPath.get('values.key')!.withheld, '');
     // The reader still learns the fields exist and where they are authored.
     assert.deepStrictEqual(a.fields.map((f) => f.path), ['values.key', 'values.origin']);
+  });
+
+  it('shows every value of a roll-up-marked attachment whose marking names no leaf', () => {
+    // The roll-up spans the values, infra and provides declarations AND the
+    // slot the attachment fills, so it is set for an attachment publishing only
+    // public locators — a referenced Secret's name and key are both public, yet
+    // the slot they fill unquestionably handles secret material. An absent
+    // per-leaf list is the compiler's positive finding that no authored leaf is
+    // covered, and it is not permission withdrawn.
+    const a = model.projectAttachment('referenced', {
+      type: 'core/referenced-secret',
+      binding: 'password',
+      values: { name: 'db-credentials', key: 'password' },
+      sensitive: true,
+    });
+    assert.strictEqual(a.sensitive, true);
+    assert.deepStrictEqual(a.fields, [
+      { path: 'values.name', value: 'db-credentials', withheld: '' },
+      { path: 'values.key', value: 'password', withheld: '' },
+    ]);
   });
 
   it('withholds a declared-sensitive leaf while showing its readable siblings', () => {
@@ -315,15 +348,16 @@ describe('AggregaAttachments — withholding sensitive material', () => {
   it('reports the attachment marking without spreading it onto individual leaves', () => {
     // The two markings answer different questions: the per-attachment one says
     // the attachment handles sensitive material, the per-leaf one names a leaf
-    // an author declared. A readable leaf on a sensitive attachment is never
-    // reported as itself declared sensitive.
+    // an author declared. Spreading the first onto the leaves would assert
+    // about `values.key` something the IR never said, so the leaf is shown and
+    // the attachment still carries its own marking.
     const a = model.projectAttachment('password', {
       values: { key: 'REDIS_PASSWORD' },
       sensitive: true,
     });
     assert.strictEqual(a.sensitive, true);
-    assert.strictEqual(a.fields[0].withheld, model.WITHHELD_ATTACHMENT);
-    assert.notStrictEqual(a.fields[0].withheld, model.WITHHELD_DECLARED);
+    assert.strictEqual(a.fields[0].withheld, '');
+    assert.strictEqual(a.fields[0].value, 'REDIS_PASSWORD');
   });
 
   it('reports an unmarked attachment as not sensitive and shows its values', () => {
@@ -343,5 +377,28 @@ describe('AggregaAttachments — withholding sensitive material', () => {
       assert.ok(model.withheldNote(reason).length > 0, `${reason} has no note`);
     }
     assert.strictEqual(model.withheldNote(''), '');
+  });
+
+  it('says what was withheld and why, without naming which declaration did it', () => {
+    // Each sentence states one of a fixed set of reasons. None of them names a
+    // declaration: a note that did would be a second, weaker copy of the
+    // contract, and it would go stale the moment the declaration moved.
+    assert.strictEqual(
+      model.withheldNote(model.WITHHELD_DECLARED),
+      'withheld — declared sensitive',
+    );
+    // The attachment-wide reason survives only as the fail-safe, so its
+    // sentence names the fail-safe rather than claiming the attachment handles
+    // sensitive material — which is a claim about the attachment that this
+    // reason no longer carries, and which would be false of a payload withheld
+    // merely because its marking could not be parsed.
+    assert.strictEqual(
+      model.withheldNote(model.WITHHELD_ATTACHMENT),
+      "withheld — this attachment's sensitivity marking is unreadable",
+    );
+    assert.strictEqual(
+      model.withheldNote(model.WITHHELD_UNREADABLE),
+      'withheld — value not in a readable shape',
+    );
   });
 });

@@ -29,9 +29,9 @@
   //
   // DECLARED   — the attached Feature declares this leaf, or one above it,
   //              to carry sensitive material.
-  // ATTACHMENT — the attachment as a whole handles declared-sensitive
-  //              material, or carries a sensitivity marking in a shape this
-  //              projection does not recognise.
+  // ATTACHMENT — the attachment's sensitivity marking arrived in a shape this
+  //              projection cannot read, so no leaf on it can be judged and
+  //              every one of them is withheld.
   // UNREADABLE — the value is in no shape this projection can render as text.
   const WITHHELD_DECLARED = 'declared';
   const WITHHELD_ATTACHMENT = 'attachment';
@@ -78,7 +78,9 @@
   // A marker carrying a reason this file does not recognise is still a marker: a
   // value was removed, and the only question left is which sentence to show. It
   // falls back to the attachment-wide reason, which is the one that claims least
-  // about the individual leaf.
+  // about the individual leaf — it says the marking could not be read rather
+  // than asserting anything about what the author declared at this path, which
+  // is the only honest thing to say about a reason nothing here understands.
   function markerReason(v) {
     if (!isPlainObject(v)) { return ''; }
     const keys = Object.keys(v);
@@ -88,17 +90,33 @@
     return WITHHELD_ATTACHMENT;
   }
 
-  // WITHHOLDING IS ASYMMETRIC, DELIBERATELY: a value is shown only when the IR
-  // positively reports that nothing about it was declared sensitive. Every
-  // other case withholds — a marking that is set, a marking in a shape this
-  // code does not recognise, an entry that is not an attachment at all.
+  // WITHHOLDING IS PER LEAF, AND THE FAIL-SAFE IS PER ATTACHMENT.
   //
-  // The asymmetry is what the IR itself asks for. An absent per-leaf marking
-  // states that no authored leaf matched a declaration; it never states that
-  // the attachment carries nothing sensitive. Reading an absent marking as
-  // permission to display a value in the clear reads it backwards, so this
-  // projection never treats absence as permission — it treats only an
-  // understood, unset marking as permission, and withholds on anything else.
+  // A leaf is withheld when one of the IR's declared-sensitive leaf paths
+  // covers it. The attachment-wide marking is a different statement about a
+  // different subject: it says the attachment handles material an author
+  // declared sensitive somewhere — in its values, its infra, its provides, or
+  // the slot it fills — and it names no datum at all. So it is reported on the
+  // attachment and never spread down onto individual leaves. Spreading it hides
+  // a referenceable credential's own name and key, which are public locators
+  // its author left undeclared and needs in order to read the file being
+  // edited; the terminal surface showing the same attachment hides neither, and
+  // the same author reads both about the same file.
+  //
+  // THE FAIL-SAFE IS WHAT KEEPS THAT SAFE, AND IT IS PER ATTACHMENT BECAUSE
+  // THAT IS THE UNIT IT CAN JUDGE. This projection may act on the per-leaf
+  // marking only where it can read it. An entry that is not an attachment, an
+  // attachment-wide marking in an unrecognised shape, and a declared-leaf list
+  // this code cannot match against all leave every leaf unjudgeable — failing
+  // to match a path is indistinguishable from the path not being declared — so
+  // each of them withholds the whole attachment. Over-withholding costs a
+  // reader one value they must find another way; under-withholding prints a
+  // secret.
+  //
+  // An ABSENT declared-leaf list is not one of those cases: it is the
+  // compiler's own positive finding that no authored leaf on this attachment is
+  // covered by a declaration, which is the same answer the terminal surface
+  // reaches from the same declarations.
 
   // recognisedFlag reports whether the attachment-wide sensitivity marking is
   // in the shape this projection understands. A boolean is understood; so is an
@@ -121,11 +139,18 @@
 
   // withholdsWholly reports whether every value on this attachment must be
   // withheld, whatever its individual leaves say.
+  //
+  // Every case here is a shape this projection cannot read, and that is the
+  // whole of it. The attachment-wide sensitivity marking is deliberately NOT
+  // consulted: it is a fact about the attachment rather than about any one of
+  // its values, so withholding on it hides the public locators an author needs
+  // — see the asymmetry above. It is still read for its SHAPE, because a
+  // marking this code cannot parse is a payload it cannot judge.
   function withholdsWholly(entry) {
     if (!isPlainObject(entry)) { return true; }
     if (!recognisedFlag(entry.sensitive)) { return true; }
     if (!recognisedLeafList(entry.sensitive_authored_leaves)) { return true; }
-    return entry.sensitive === true;
+    return false;
   }
 
   // coveredByDeclaration reports whether a leaf path is covered by one of the
@@ -453,14 +478,17 @@
 
   // withheldNote is the sentence the panel shows in place of a value. Each
   // reason says only what the IR supports: that a declaration covers the leaf,
-  // that the attachment as a whole carries declared-sensitive material, or that
-  // the value arrived in a shape this view cannot render.
+  // that the attachment's own sensitivity marking could not be read, or that
+  // the value arrived in a shape this view cannot render. None of them names
+  // WHICH declaration withheld a value — the reason is one of this fixed set,
+  // so the note tells a reader what to do without becoming a second, weaker
+  // copy of the declaration itself.
   function withheldNote(reason) {
     if (reason === WITHHELD_DECLARED) {
       return 'withheld — declared sensitive';
     }
     if (reason === WITHHELD_ATTACHMENT) {
-      return 'withheld — this attachment handles sensitive material';
+      return 'withheld — this attachment\'s sensitivity marking is unreadable';
     }
     if (reason === WITHHELD_UNREADABLE) {
       return 'withheld — value not in a readable shape';
