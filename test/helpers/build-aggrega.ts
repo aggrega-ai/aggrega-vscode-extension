@@ -126,3 +126,11 @@ function latestGoSourceMtime(root: string): number {
 export function fixtureWorkspaceRoot(): string {
   return path.resolve(extensionRoot(), 'test', 'fixtures', 'empty-workspace');
 }
+
+// brokenManifestWorkspaceRoot returns the absolute path of the workspace
+// whose Release points at a Manifest that is not there. It is the fixture for
+// the one failure whose fault is attributable to a single authored key, so it
+// is what proves the error envelope carries that key's span end to end.
+export function brokenManifestWorkspaceRoot(): string {
+  return path.resolve(extensionRoot(), 'test', 'fixtures', 'broken-manifest-reference');
+}

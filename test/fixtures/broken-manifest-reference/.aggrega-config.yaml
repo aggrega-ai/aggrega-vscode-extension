@@ -1,0 +1,12 @@
+# This workspace exists to make one request fail in one specific way: its
+# Release points at a Manifest that is not there, which is the fault whose
+# position the error envelope carries.
+#
+# The `workspace:` block is what makes this directory anchor the daemon, and
+# it is load-bearing rather than decorative. Anchoring walks up from the
+# daemon's working directory and the nearest config carrying that key wins
+# outright, so a fixture without one is anchored by whichever config sits
+# above it in the checkout — and every assertion here would then be measured
+# against a different workspace's documents. The block is empty because no
+# setting is under test; its presence is the whole point.
+workspace: {}

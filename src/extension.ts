@@ -157,6 +157,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return result.graph;
     },
     showsSensitiveValues: () => getSettings().showSensitiveValues,
+    reportDaemonError,
     output: outputChannel,
   });
 
@@ -923,6 +924,40 @@ async function tryRequest<T>(method: string, params: unknown, doc: vscode.TextDo
     outputChannel?.appendLine(`${method} failed: ${describeError(err)}`);
     return null;
   }
+}
+
+// reportDaemonError routes a thrown value to the per-code error surfaces when
+// it is a daemon error envelope, and reports whether it did. It is the entry
+// point for a surface that has no document of its own to hang a failure on —
+// the topology graph, whose subject is a Release rather than the file in the
+// active editor.
+//
+// Which document a diagnostic lands on is read off the envelope's own
+// artifact fields and never off its code. Each of those fields names one
+// artifact and only that artifact, so the first one present IS the document
+// the failure is about; branching on the code to decide would re-derive, from
+// a second source, something the payload already states. fallbackPath covers
+// an envelope that names no artifact at all, and the caller supplies its own
+// subject for it.
+//
+// A relative value resolves against the anchored root, matching the form the
+// daemon accepts and returns.
+function reportDaemonError(err: unknown, fallbackPath: string): boolean {
+  if (!isJsonRpcError(err) || !workspaceRootForCommands) {
+    return false;
+  }
+  // Truthiness rather than ?? on purpose: an empty path names no document, so
+  // it must fall through to the next candidate instead of resolving to the
+  // workspace root itself.
+  const named = err.data?.file || err.data?.lockfile || fallbackPath;
+  if (!named) {
+    return false;
+  }
+  const absolute = path.isAbsolute(named)
+    ? named
+    : path.join(workspaceRootForCommands, named);
+  const ctx = buildErrorContext(vscode.Uri.file(absolute));
+  return ctx !== null && handleDaemonError(err, ctx);
 }
 
 function buildErrorContext(uri: vscode.Uri) {

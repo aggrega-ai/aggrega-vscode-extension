@@ -1,0 +1,7 @@
+apiVersion: aggrega.ai/v1alpha1
+kind: Aggregate
+metadata:
+  name: broken-manifest-reference-aggregate
+  version: "1.0.0"
+spec:
+  components: {}

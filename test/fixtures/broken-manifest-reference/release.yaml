@@ -1,0 +1,9 @@
+apiVersion: aggrega.ai/v1alpha1
+kind: Release
+metadata:
+  name: broken-manifest-reference-release
+  environment: test
+  version: "1.0.0"
+spec:
+  aggregate: ./aggregate.yaml
+  manifest: ./absent-manifest.yaml

@@ -22,6 +22,18 @@ export interface GraphDeps {
   // a Feature declares sensitive. Read on each render rather than captured, so
   // changing the setting takes effect on the next render of an open panel.
   showsSensitiveValues(): boolean;
+  // reportDaemonError routes a failed request's error envelope to the per-code
+  // surfaces the extension already has for it — a diagnostic on the document
+  // the envelope names, or the toast that offers the remediating command — and
+  // reports whether it recognised the envelope.
+  //
+  // A refusal reaching this view is about an authored document, and the
+  // envelope carries which one plus, where the fault is attributable to a
+  // single key, that key's span. Without this the payload would reach the
+  // reader as one line of log text and the position it carries would be
+  // discarded. fallbackPath is the document to attach a diagnostic to when the
+  // envelope names no artifact of its own.
+  reportDaemonError(err: unknown, fallbackPath: string): boolean;
   output: vscode.OutputChannel;
 }
 
@@ -147,6 +159,16 @@ async function renderGraph(
     // failures, and is reported the same way. Nothing is posted, which is the
     // safe direction: with no way to tell a value that may be shown from one
     // that may not, showing none of them is the only honest answer.
+    //
+    // The envelope is routed BEFORE the two lines below rather than instead of
+    // them. A daemon refusal is about an authored document and carries which
+    // one, so routing it puts the fault on that document where the reader can
+    // act on it — and where the fault is attributable to a single key, on that
+    // key rather than at the head of the file. The log line and the panel
+    // notice still fire either way: a reader looking at the panel has to be
+    // told the graph is not there, and a value that is not a daemon envelope
+    // at all has nowhere else to surface.
+    deps.reportDaemonError(err, release);
     const message = err instanceof Error ? err.message : String(err);
     deps.output.appendLine(`irGraph failed for ${release}: ${message}`);
     void panel.webview.postMessage({ type: 'error', release, message });

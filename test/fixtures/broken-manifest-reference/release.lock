@@ -1,0 +1,4 @@
+# Present so the graph request gets past the lockfile-absent gate and reaches
+# closure resolution, which is the failure this workspace exists to provoke.
+# Its contents are deliberately not a resolved lockfile: nothing here is
+# pinned, because the Release does not resolve far enough for a pin to matter.
