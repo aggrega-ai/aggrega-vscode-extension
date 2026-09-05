@@ -4,7 +4,7 @@
 import { spawn } from 'child_process';
 import * as vscode from 'vscode';
 import { resolveRelease } from './release-pick';
-import { BuildPreviewResponse } from './types';
+import { BuildPreviewResponse, BuildResponse } from './types';
 import { NO_ANCHORED_WORKSPACE_MESSAGE, toWorkspaceRelative } from './workspace';
 
 // OperationDeps supplies the live extension state the operation surface reads
@@ -28,6 +28,14 @@ export interface OperationDeps {
   // findings land in the linter's own diagnostic collection, which the
   // extension owns; this surface only invokes it.
   runLint(): Promise<void>;
+  // build compiles a Release and writes the artifacts it renders. It is
+  // supplied rather than spawned here for the same reason previewBuild is: it
+  // is language-server-backed, so the findings that carry a document position
+  // travel on the server's diagnostic channel and land in the Problems panel,
+  // which a subprocess streaming its output to a channel cannot do. The release
+  // is workspace-relative, which is the form the server's request parameters
+  // take.
+  build(release: string): Promise<BuildResponse>;
   // previewBuild renders a Release the way a build does and reports what a
   // build would emit, without emitting any of it. It is supplied rather than
   // spawned here because it is language-server-backed: the findings that carry
@@ -68,7 +76,7 @@ interface OperationDef {
 // the Operations view; it is fixed so the tree is stable across sessions.
 const OPERATIONS: OperationDef[] = [
   { id: 'validate', label: 'Validate active file', detail: 'Validate the active YAML file via the language server', icon: 'check' },
-  { id: 'build', label: 'Build', detail: 'Compile the workspace to rendered artifacts', icon: 'package' },
+  { id: 'build', label: 'Build', detail: 'Compile a Release and write its rendered artifacts; findings land in the Problems panel', icon: 'package' },
   { id: 'preview', label: 'Preview build', detail: 'Render what a build would emit without writing it; findings land in the Problems panel', icon: 'eye' },
   { id: 'lint', label: 'Lint', detail: 'Check publishing conventions across the catalog; findings land in the Problems panel', icon: 'search' },
   { id: 'pull', label: 'Pull', detail: 'Pull remote dependencies into the workspace', icon: 'cloud-download' },
@@ -107,7 +115,7 @@ export function activateOperations(context: vscode.ExtensionContext, deps: Opera
   };
 
   reg('validate', () => { void deps.validateActiveDocument(); });
-  reg('build', () => { void runReleaseScoped(deps, 'build'); });
+  reg('build', () => { void runBuild(deps); });
   reg('preview', () => { void runPreview(deps); });
   reg('lint', () => { void deps.runLint(); });
   reg('pull', () => { void runReleaseScoped(deps, 'pull'); });
@@ -116,11 +124,15 @@ export function activateOperations(context: vscode.ExtensionContext, deps: Opera
   reg('cache', () => { void runCache(deps); });
 }
 
-// runReleaseScoped runs a command that requires a --release argument (build,
-// pull). It resolves the Release first — the sole candidate when there is one,
-// a quick-pick otherwise — then invokes `aggrega <verb> --release <path>`.
+// runReleaseScoped runs a CLI-backed command that requires a --release
+// argument. It resolves the Release first — the sole candidate when there is
+// one, a quick-pick otherwise — then invokes `aggrega <verb> --release <path>`.
 // Running the bare verb would fail: the CLI marks --release required.
-async function runReleaseScoped(deps: OperationDeps, verb: 'build' | 'pull'): Promise<void> {
+//
+// The verb is typed as the set this surface actually routes through it rather
+// than as a string, so a verb that has moved to the language server cannot be
+// passed here by a caller that has not noticed.
+async function runReleaseScoped(deps: OperationDeps, verb: 'pull'): Promise<void> {
   if (!deps.getWorkspaceRoot()) {
     void vscode.window.showInformationMessage(NO_ANCHORED_WORKSPACE_MESSAGE);
     return;
@@ -132,15 +144,84 @@ async function runReleaseScoped(deps: OperationDeps, verb: 'build' | 'pull'): Pr
   runCli(deps, [verb, '--release', release]);
 }
 
+// runBuild compiles a Release and writes the artifacts it renders.
+//
+// It is language-server-backed, like the preview beside it and for the same
+// reason: the findings the render raises carry a document position, and the
+// language server publishes them on its diagnostic channel, so they reach the
+// Problems panel where a reader can navigate to each one. A subprocess streaming
+// its output to this channel discards that position, which would leave one of
+// the two operations able to put a finding in front of a reader and the other
+// not.
+//
+// What lands where is the same split the preview uses: the positioned findings
+// arrive on the server's own channel and are published by the extension's
+// diagnostic path, so nothing here handles them; the advisories that carry no
+// position ride back on the answer and are written to this channel, which is the
+// only surface that can show them.
+async function runBuild(deps: OperationDeps): Promise<void> {
+  const root = deps.getWorkspaceRoot();
+  if (!root) {
+    void vscode.window.showInformationMessage(NO_ANCHORED_WORKSPACE_MESSAGE);
+    return;
+  }
+  const picked = await resolveRelease(deps.listReleases, {
+    placeHolder: 'Aggrega: choose a Release to build',
+  });
+  if (!picked) { return; }
+  // The Release enumeration reports absolute paths and the request takes a
+  // workspace-relative one. Convert here, at the point the value enters this
+  // surface, so the request and the log lines carry the one form the server
+  // accepts.
+  const release = toWorkspaceRelative(root, picked);
+
+  const out = deps.output;
+  out.show(true);
+  out.appendLine(`\nBuild of ${release}.`);
+
+  let result: BuildResponse;
+  try {
+    result = await deps.build(release);
+  } catch (err) {
+    // The envelope is routed BEFORE the log line rather than instead of it. A
+    // refusal is about an authored document and carries which one, so routing it
+    // puts the fault on that document where the reader can act on it. The log
+    // line still fires either way: a reader watching this channel has to be told
+    // the build did not complete, and a value that is not an envelope at all has
+    // nowhere else to surface.
+    deps.reportDaemonError(err, release);
+    // The message is the compiler's own text, unchanged. Where it named a
+    // remediation, that remediation is what the reader needs.
+    const message = err instanceof Error ? err.message : String(err);
+    out.appendLine(`The build did not complete: ${message}`);
+    return;
+  }
+
+  for (const notice of result.notices ?? []) {
+    out.appendLine(notice.class ? `  ${notice.class}: ${notice.text}` : `  ${notice.text}`);
+  }
+  for (const file of result.files) {
+    out.appendLine(`  ${file}`);
+  }
+  // The closing line is the command line's own summary of a completed build,
+  // in the same words: the two surfaces perform one operation, so a reader who
+  // has seen one report should not have to work out that the other is the same.
+  out.appendLine(
+    `Build completed: ${result.files.length} files written to ${result.outputDirectory}/`,
+  );
+}
+
 // runPreview renders a Release the way a build does and reports what a build
 // would emit, without emitting any of it.
 //
-// It is language-server-backed where the Build operation beside it is a
-// subprocess, and the difference is what the operation is for: the findings the
-// render raises carry a document position, and the language server publishes
-// them on its diagnostic channel, so they reach the Problems panel where a
-// reader can navigate to each one. A subprocess streaming its output to this
-// channel discards that position.
+// It is language-server-backed, like the Build operation beside it and for the
+// same reason: the findings the render raises carry a document position, and the
+// language server publishes them on its diagnostic channel, so they reach the
+// Problems panel where a reader can navigate to each one. A subprocess streaming
+// its output to this channel discards that position.
+//
+// What separates it from Build is only what happens to the render: this one
+// reports the artifacts and writes none of them.
 //
 // What lands where: the positioned findings arrive on the server's own channel
 // and are published by the extension's diagnostic path, so nothing here handles

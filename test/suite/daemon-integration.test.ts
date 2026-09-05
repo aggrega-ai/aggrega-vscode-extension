@@ -2,6 +2,8 @@
 // Copyright 2026 Cognitio S.r.l.
 
 import * as assert from 'node:assert';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { Daemon, DaemonState } from '../../src/daemon';
 import { settingsFromObject } from '../../src/settings';
 import { ensureAggregaBinary, fixtureWorkspaceRoot } from '../helpers/build-aggrega';
@@ -118,6 +120,54 @@ describe('Daemon integration (real aggrega serve)', function () {
       assert.ok(
         (envelope.message ?? '').includes('aggrega pull'),
         `the refusal does not name the command that generates a lockfile: ${envelope.message}`,
+      );
+    } finally {
+      await daemon.stop();
+    }
+  });
+
+  it('build is reachable through the client and refuses a workspace with no lockfile', async function () {
+    // The reach half of the Build operation, asserted the same way the preview
+    // beside it is: the fixture holds no Release, so the answer is the refusal a
+    // workspace with no lockfile earns, and what it proves is that the request
+    // left this client, was routed by the server, and came back as that server's
+    // own envelope.
+    //
+    // The discriminating half is the method-not-found check. That code is also
+    // an error, so asserting only that the call rejects would pass just as well
+    // with the method absent — which is exactly the state this operation was in
+    // while it ran as a subprocess.
+    //
+    // It also pins the refusal being reached BEFORE anything is written: a
+    // workspace with no lockfile is refused by the same gate sequence the
+    // command line runs, so the editor's Build cannot produce an output tree
+    // from a Release the command line would not build.
+    const daemon = buildDaemon();
+    try {
+      await daemon.start(workspaceRoot);
+      let rejected: unknown;
+      try {
+        await daemon.request('aggrega/build', { release: 'release.yaml' });
+        assert.fail('the build answered a workspace with no Release instead of refusing');
+      } catch (err) {
+        rejected = err;
+      }
+      const envelope = rejected as { code?: number; message?: string };
+      assert.notStrictEqual(
+        envelope.code, -32601,
+        'the server does not route aggrega/build; the editor has no build to offer',
+      );
+      assert.strictEqual(
+        envelope.code, 1003,
+        `expected the lockfile-absent code, got ${envelope.code}: ${envelope.message}`,
+      );
+      assert.ok(
+        (envelope.message ?? '').includes('aggrega pull'),
+        `the refusal does not name the command that generates a lockfile: ${envelope.message}`,
+      );
+      assert.ok(
+        !fs.existsSync(path.join(workspaceRoot, 'dist')),
+        'the refused build created an output directory; the write sits downstream of every gate',
       );
     } finally {
       await daemon.stop();

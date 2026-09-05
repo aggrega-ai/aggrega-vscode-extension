@@ -213,17 +213,21 @@ export interface ReleaseCandidatesResponse {
   releases: string[];
 }
 
-// BuildPreviewNotice is one advisory the preview raised that carries no position
-// in a document — a withdrawn pin, an overlapping schema pillar, a parent that
-// would not resolve. class names the advisory surface it came from, so the
-// extension renders each in its own voice instead of parsing the text; it is the
-// empty string for a surface the daemon does not name, which the extension shows
-// as the bare text.
+// BuildNotice is one advisory a build raised that carries no position in a
+// document — a withdrawn pin, an overlapping schema pillar, a parent that would
+// not resolve. class names the advisory surface it came from, so the extension
+// renders each in its own voice instead of parsing the text; it is the empty
+// string for a surface the daemon does not name, which the extension shows as
+// the bare text.
 //
 // These are the advisories the Problems panel does not receive. The ones that
 // carry a position arrive on aggrega/publishDiagnostics instead, under the build
 // layer's source, and land in that layer's own diagnostic collection.
-export interface BuildPreviewNotice {
+//
+// One shape serves both build requests. A build and a report of what that build
+// would write raise the same advisories from the same computation, so a second
+// shape would be a second spelling of one fact.
+export interface BuildNotice {
   class: string;
   text: string;
 }
@@ -232,12 +236,26 @@ export interface BuildPreviewNotice {
 // names of the artifacts a build of the requested Release would emit, and the
 // advisories that carry no document position.
 //
-// files are names rather than paths. The daemon writes nothing, so it has no
+// files are names rather than paths. That request writes nothing, so it has no
 // output root to resolve them against, and reporting one would name a location
 // nothing put a file at.
 export interface BuildPreviewResponse {
   files: string[];
-  notices?: BuildPreviewNotice[];
+  notices?: BuildNotice[];
+}
+
+// BuildResponse is the aggrega/build result: where the build wrote, the
+// output-relative names of the artifacts it wrote there, and the advisories that
+// carry no document position.
+//
+// outputDirectory is the absolute directory the artifacts landed in, so a report
+// of the build can say where to look. Each entry in files is relative to it,
+// which is what makes the two together an answer a reader can act on — and it is
+// why this response names a directory where the preview beside it cannot.
+export interface BuildResponse {
+  outputDirectory: string;
+  files: string[];
+  notices?: BuildNotice[];
 }
 
 // ActiveReleaseResponse is the aggrega/activeRelease result: the absolute path
