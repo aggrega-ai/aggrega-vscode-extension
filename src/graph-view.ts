@@ -6,6 +6,7 @@ import * as vscode from 'vscode';
 import { GraphRedactor, createGraphRedactor } from './graph-payload';
 import { makeGraphMessageHandler } from './graph-messages';
 import { describeError } from './error-surfaces';
+import { reportGraphFailure } from './graph-failure';
 import { NO_ANCHORED_WORKSPACE_MESSAGE } from './workspace';
 
 // GraphDeps supplies the live state the graph view needs without importing
@@ -182,18 +183,17 @@ async function renderGraph(
     // safe direction: with no way to tell a value that may be shown from one
     // that may not, showing none of them is the only honest answer.
     //
-    // The envelope is routed BEFORE the two lines below rather than instead of
-    // them. A daemon refusal is about an authored document and carries which
-    // one, so routing it puts the fault on that document where the reader can
-    // act on it — and where the fault is attributable to a single key, on that
-    // key rather than at the head of the file. The log line and the panel
-    // notice still fire either way: a reader looking at the panel has to be
-    // told the graph is not there, and a value that is not a daemon envelope
-    // at all has nowhere else to surface.
-    deps.reportDaemonError(err, release);
-    const message = err instanceof Error ? err.message : String(err);
-    deps.output.appendLine(`irGraph failed for ${release}: ${message}`);
-    void panel.webview.postMessage({ type: 'error', release, message });
+    // Which surfaces hear about the failure, in which order, and in whose
+    // words is decided in reportGraphFailure — over sinks, so those decisions
+    // are assertable without an editor. This binds each sink to the panel and
+    // the channel this render belongs to.
+    reportGraphFailure(err, release, {
+      reportDaemonError: (thrown, fallbackPath) => deps.reportDaemonError(thrown, fallbackPath),
+      logLine: (line) => { deps.output.appendLine(line); },
+      notifyPanel: (message) => {
+        void panel.webview.postMessage({ type: 'error', release, message });
+      },
+    });
   }
 }
 
