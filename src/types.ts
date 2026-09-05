@@ -41,7 +41,26 @@ export interface DaemonLocation {
 }
 
 // Request param shapes for the aggrega/* methods.
-export interface ValidateParams { file: string; content: string; }
+
+// ValidateParams is the request shape for aggrega/validate.
+//
+// release names the Release to validate against, as a path relative to the
+// workspace root — the same form aggrega/irGraph, aggrega/build and
+// aggrega/buildPreview take. Naming one asks for the checks only a Release can
+// answer: its closure resolved, its lockfile read for pins, its semantic
+// violations reported. Omitting it asks for the checks a document answers on
+// its own, which is a request in its own right rather than a malformed one, and
+// is the honest shape for a workspace that holds no Release to send.
+//
+// It is optional on this interface for that second case alone. Every caller
+// that has a selected Release sends it: the narrower answer reports none of the
+// semantic findings, and it does so without raising an error, so a caller that
+// silently omitted the field would present a shorter list as a clean verdict.
+export interface ValidateParams {
+  file: string;
+  content: string;
+  release?: string;
+}
 export interface InvalidateParams {
   file: string;
   // granularity selects the daemon's cache-eviction scope. When
@@ -120,12 +139,6 @@ export interface ErrorData {
   file?: string;
   line?: number;
   column?: number;
-  // cascade_attempt carries the multi-line cascade trace the daemon
-  // populates on release-not-resolved emissions. Mirrors the
-  // daemon's errors_data.go field of the same name. Consumed by
-  // error-surfaces' release-not-resolved handler for the
-  // OutputChannel auto-log. Other emission sites leave this empty.
-  cascade_attempt?: string;
   // end_line and end_column carry the 1-based end position of the
   // source token, mirroring the daemon's errors_data.go fields. When
   // present alongside line and column, surfaceDiagnostic renders a
@@ -148,8 +161,13 @@ export interface ErrorData {
 }
 
 // Daemon application error codes (see internal/serve/errors.go).
+//
+// 1002 is not allocated. It reported that the daemon could not resolve a
+// Release for an operation that needed one, which no request can reach: every
+// operation acting on a Release is told which one, so there is no choosing left
+// to fail at. The number is left unused rather than reassigned, so a later
+// condition cannot be mistaken for it.
 export const ERR_FILE_NOT_VALIDATED = 1001;
-export const ERR_RELEASE_NOT_RESOLVED = 1002;
 export const ERR_LOCKFILE_ABSENT = 1003;
 export const ERR_ENTITY_NOT_RESOLVABLE = 1004;
 export const ERR_SHUTTING_DOWN = 1005;
@@ -200,9 +218,28 @@ export interface DaemonDiagnostic {
 // aggrega/validate — diagnostics are returned directly in the
 // response, so no separate aggrega/diagnostics poll is needed for
 // the publish path.
+//
+// checked says which of the two answers this is, and it arrives only on the
+// narrower one: a request that named no Release is answered from the document
+// alone and carries CHECKED_DOCUMENT, while a request that named one is
+// answered against that Release and omits the field.
+//
+// The asymmetry is what makes the two answers distinguishable at all. A
+// well-formed document validated without a Release comes back with an empty
+// diagnostic list, which is identical on the wire to a clean full verdict — so
+// a reader treating it as "nothing is wrong" would be told the semantic checks
+// passed when they never ran. Its ABSENCE is the signal that a Release was
+// actually validated against.
 export interface ValidateResponse {
   diagnostics: DaemonDiagnostic[];
+  checked?: string;
 }
+
+// CHECKED_DOCUMENT is the value ValidateResponse.checked carries when the
+// request named no Release: the findings cover the document itself — whether it
+// parses, and whether its own shape is admissible — and nothing that needs a
+// Release was run.
+export const CHECKED_DOCUMENT = 'document';
 
 // ReleaseCandidatesResponse is the aggrega/releaseCandidates result: the
 // absolute paths of the workspace's Release-kind documents, determined by the
@@ -259,13 +296,25 @@ export interface BuildResponse {
 }
 
 // ActiveReleaseResponse is the aggrega/activeRelease result: the absolute path
-// of the Release the daemon resolved for the workspace.
+// of the Release the workspace points at by default, and, where it points at
+// none, an account of why.
 //
-// The field is always present, and the empty string means the workspace has no
-// active Release — a state the daemon reports as a successful answer rather
-// than an error, so an indicator refreshing on daemon restarts and marker
-// edits does not raise a remediation prompt on every refresh in a workspace
-// that legitimately holds none.
+// release is always present, and the empty string means the workspace offers
+// none — a state the daemon reports as a successful answer rather than an
+// error, so a client asking on events the reader did not request does not raise
+// a remediation prompt on every one of them in a workspace that legitimately
+// holds no Release.
+//
+// reason and trace describe the same exhausted reading at two lengths: a
+// one-line summary for a compact surface, and the per-step account for a log.
+// Both are omitted when a Release resolved, there being nothing to explain.
+//
+// trace is diagnostic prose written for a person to read, NOT a structure to
+// parse: its wording, its layout and the labels it uses follow the workspace
+// reading itself and change whenever that does. Pass it through; never match
+// patterns against it or lift values out of it.
 export interface ActiveReleaseResponse {
   release: string;
+  reason?: string;
+  trace?: string;
 }

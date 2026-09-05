@@ -6,7 +6,13 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Daemon, DaemonState } from '../../src/daemon';
 import { settingsFromObject } from '../../src/settings';
-import { ensureAggregaBinary, fixtureWorkspaceRoot } from '../helpers/build-aggrega';
+import { CHECKED_DOCUMENT, ValidateResponse } from '../../src/types';
+import { buildValidateParams } from '../../src/validate-request';
+import {
+  brokenManifestWorkspaceRoot,
+  ensureAggregaBinary,
+  fixtureWorkspaceRoot,
+} from '../helpers/build-aggrega';
 
 // Integration tests that exercise the Daemon class against a real
 // aggrega serve subprocess. The binary is built on demand from the
@@ -168,6 +174,119 @@ describe('Daemon integration (real aggrega serve)', function () {
       assert.ok(
         !fs.existsSync(path.join(workspaceRoot, 'dist')),
         'the refused build created an output directory; the write sits downstream of every gate',
+      );
+    } finally {
+      await daemon.stop();
+    }
+  });
+
+  // The semantic half of validation only runs when the request names a Release,
+  // and the two answers are told apart by the checked key rather than by the
+  // diagnostic list: a clean document validated without a Release comes back
+  // with an empty list, which is identical on the wire to a clean full verdict.
+  //
+  // Both halves below are driven through the extension's OWN request builder,
+  // so what is proved is that this client sends a request that draws the full
+  // answer — not merely that the server is capable of producing one.
+  it('sends the selected Release on validate, and the answer is the full one', async function () {
+    const workspace = brokenManifestWorkspaceRoot();
+    const file = path.join(workspace, 'aggregate.yaml');
+    const content = fs.readFileSync(file, 'utf8');
+    const daemon = buildDaemon();
+    try {
+      await daemon.start(workspace);
+
+      // With a Release selected, the client's builder carries it.
+      const withSelection = buildValidateParams(file, content, 'release.yaml');
+      assert.strictEqual(
+        withSelection.release, 'release.yaml',
+        'the client did not put the selection on the request',
+      );
+      const full = await daemon.request<ValidateResponse>('aggrega/validate', withSelection);
+
+      // The discriminating assertion. An empty diagnostic list looks identical
+      // either way, so the ABSENCE of checked is what proves a Release was
+      // actually validated against.
+      assert.strictEqual(
+        full.checked, undefined,
+        `checked is present as ${JSON.stringify(full.checked)}; the answer covers the document alone, `
+        + 'so the selected Release did not reach the server',
+      );
+      // The fault this workspace exists to provoke is reachable only with a
+      // Release resolved: the Release names a Manifest that is not there.
+      const messages = (full.diagnostics ?? []).map(d => d.message).join('\n');
+      assert.ok(
+        messages.includes('absent-manifest.yaml'),
+        `the Release-scoped finding is missing from the full answer: ${messages || '(no diagnostics)'}`,
+      );
+
+      // With nothing selected the field is omitted, and the answer says so.
+      const documentOnly = buildValidateParams(file, content, null);
+      assert.ok(
+        !('release' in documentOnly),
+        'an empty Release must be omitted rather than sent, it names no coordinate',
+      );
+      const narrow = await daemon.request<ValidateResponse>('aggrega/validate', documentOnly);
+      assert.strictEqual(
+        narrow.checked, CHECKED_DOCUMENT,
+        'the document-only answer must say what it covered',
+      );
+      assert.ok(
+        !(narrow.diagnostics ?? []).some(d => d.message.includes('absent-manifest.yaml')),
+        'the document-only answer reported a Release-scoped finding; the two answers are not distinct',
+      );
+    } finally {
+      await daemon.stop();
+    }
+  });
+
+  // A selection is a coordinate inside the workspace. The server refuses an
+  // absolute one, so a client that passed the Release enumeration's own output
+  // through unconverted would be refused on every request.
+  it('refuses an absolute Release, which is why the selection is held workspace-relative', async function () {
+    const workspace = brokenManifestWorkspaceRoot();
+    const file = path.join(workspace, 'aggregate.yaml');
+    const daemon = buildDaemon();
+    try {
+      await daemon.start(workspace);
+      const absolute = path.join(workspace, 'release.yaml');
+      await assert.rejects(
+        () => daemon.request<ValidateResponse>(
+          'aggrega/validate',
+          buildValidateParams(file, fs.readFileSync(file, 'utf8'), absolute),
+        ),
+        (err: { code?: number; message?: string }) => {
+          assert.strictEqual(err.code, -32602, `expected an invalid-params refusal, got ${err.code}`);
+          assert.ok(
+            (err.message ?? '').includes('relative to the workspace root'),
+            `the refusal does not state the contract: ${err.message}`,
+          );
+          return true;
+        },
+      );
+    } finally {
+      await daemon.stop();
+    }
+  });
+
+  // The condition the editor used to carry a dedicated remediation toast for.
+  // Nothing emits it now, and the account it used to pin travels on the ordinary
+  // active-Release answer instead.
+  it('answers an unresolved workspace rather than refusing it, and says why', async function () {
+    const daemon = buildDaemon();
+    try {
+      await daemon.start(fixtureWorkspaceRoot());
+      const answer = await daemon.request<{ release: string; reason?: string; trace?: string }>(
+        'aggrega/activeRelease', {},
+      );
+      assert.strictEqual(answer.release, '', 'the empty fixture should offer no Release');
+      assert.ok(
+        (answer.reason ?? '').length > 0,
+        'an unresolved workspace must carry the account of why on its answer',
+      );
+      assert.ok(
+        (answer.trace ?? '').length > 0,
+        'the per-step account must travel with it, for the log',
       );
     } finally {
       await daemon.stop();

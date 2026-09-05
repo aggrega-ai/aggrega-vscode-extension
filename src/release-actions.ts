@@ -80,38 +80,32 @@ export async function openAuthoringReleaseConfig(workspaceRoot: string): Promise
   }
 }
 
-// createActiveReleaseMarker opens a quick-pick over the supplied Release
-// candidates for the user to choose one, and writes the chosen
-// workspace-relative path into the workspace's active-release marker. After
-// writing, invokes aggrega.server.restart so the daemon re-runs the cascade.
+// createActiveReleaseMarker writes the Release the editor currently has
+// selected into the workspace's active-release marker, making it this
+// workspace's default: what a fresh editor session starts on, and what the
+// command line picks up when it is not told otherwise.
 //
-// candidates is the daemon's content-kind Release set (absolute paths), fetched
-// by the caller — this function does no Release detection of its own. On zero
-// candidates the user sees an informational message and the function returns
-// without writing. Filesystem write failures (read-only mount, permission
-// denied, .aggrega/ existing as a file rather than directory) surface as error
-// toasts. The function is idempotent: re-invoking it after a successful write
-// overwrites the marker with the new selection.
-export async function createActiveReleaseMarker(workspaceRoot: string, candidates: string[]): Promise<void> {
-  if (candidates.length === 0) {
+// Selecting a Release and persisting one are different acts, and this is the
+// second. The selection already travels on every request, so writing the marker
+// changes nothing about the session in progress — which is why nothing is
+// restarted here. It records the choice for the next one.
+//
+// selectedRelease is the workspace-relative path the editor is acting on. This
+// function prompts for nothing and detects nothing: the editor already holds
+// the reader's answer, and a prompt here would be a second way to choose a
+// Release. A caller with no selection gets an informational message instead.
+//
+// Filesystem write failures (read-only mount, permission denied, .aggrega/
+// existing as a file rather than a directory) surface as error toasts. The
+// function is idempotent: re-invoking it overwrites the marker.
+export async function createActiveReleaseMarker(
+  workspaceRoot: string,
+  selectedRelease: string | null,
+): Promise<void> {
+  if (!selectedRelease) {
     void vscode.window.showInformationMessage(
-      'Aggrega: no Release candidates found in this workspace.',
+      'Aggrega: no Release is selected, so there is none to set as this workspace default. Select one first.',
     );
-    return;
-  }
-
-  const items = candidates.map(p => ({
-    label: path.basename(p),
-    description: path.relative(workspaceRoot, p),
-    detail: p,
-    absolutePath: p,
-  }));
-  const choice = await vscode.window.showQuickPick(items, {
-    placeHolder: 'Aggrega: choose which Release the daemon should anchor to',
-    matchOnDescription: true,
-    matchOnDetail: true,
-  });
-  if (!choice) {
     return;
   }
 
@@ -126,9 +120,8 @@ export async function createActiveReleaseMarker(workspaceRoot: string, candidate
     );
     return;
   }
-  const relativeTarget = path.relative(workspaceRoot, choice.absolutePath);
   try {
-    await fs.writeFile(markerPath, relativeTarget + '\n');
+    await fs.writeFile(markerPath, selectedRelease + '\n');
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
     void vscode.window.showErrorMessage(
@@ -137,7 +130,6 @@ export async function createActiveReleaseMarker(workspaceRoot: string, candidate
     return;
   }
   void vscode.window.showInformationMessage(
-    `Aggrega: marker written; restarting daemon to pick up ${relativeTarget}.`,
+    `Aggrega: ${selectedRelease} is now this workspace's default Release.`,
   );
-  void vscode.commands.executeCommand('aggrega.server.restart');
 }

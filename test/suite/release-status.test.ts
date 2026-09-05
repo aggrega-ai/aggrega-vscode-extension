@@ -6,7 +6,13 @@ import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
 
-import { activateReleaseStatus, DisposableLike, ReleaseStatusDeps } from '../../src/release-status';
+import {
+  SELECT_RELEASE_COMMAND,
+  activateReleaseStatus,
+  DisposableLike,
+  ReleaseStatusDeps,
+} from '../../src/release-status';
+import { SelectionState } from '../../src/release-selection';
 
 // FakeStatusBarItem records everything the indicator writes, so a test reads
 // back exactly the text an operator would have seen.
@@ -22,45 +28,31 @@ class FakeStatusBarItem {
   dispose(): void { this.disposed++; }
 }
 
-// flush lets the indicator's pending query settle. refresh() resolves the
-// daemon query asynchronously, so every assertion runs after a microtask turn.
-async function flush(): Promise<void> {
-  await new Promise<void>(resolve => setImmediate(resolve));
-}
-
 interface Harness {
   item: FakeStatusBarItem;
   deps: ReleaseStatusDeps;
   subscriptions: DisposableLike[];
-  markerChanged: () => void;
-  queryCalls: number;
+  setState: (next: SelectionState) => void;
+  stateReads: number;
 }
 
 // harness builds the indicator's dependency set over a fake status-bar item and
-// a caller-supplied answer for the daemon query.
-function harness(
-  root: string | null,
-  answer: () => Promise<string>,
-): Harness {
+// a caller-controlled selection state.
+function harness(root: string | null, initial: SelectionState): Harness {
   const item = new FakeStatusBarItem();
   const subscriptions: DisposableLike[] = [];
-  let markerChanged: () => void = () => { /* replaced on registration */ };
+  let state = initial;
+  let announce: () => void = () => { /* replaced on registration */ };
   const h: Harness = {
     item,
     subscriptions,
-    markerChanged: () => markerChanged(),
-    queryCalls: 0,
+    stateReads: 0,
+    setState: (next: SelectionState) => { state = next; announce(); },
     deps: {
       getWorkspaceRoot: () => root,
-      requestActiveRelease: () => {
-        h.queryCalls++;
-        return answer();
-      },
+      selectionState: () => { h.stateReads++; return state; },
       createStatusBarItem: () => item,
-      watchActiveReleaseMarker: (onChange) => {
-        markerChanged = onChange;
-        return { dispose: () => undefined };
-      },
+      onSelectionChange: (listener) => { announce = listener; },
     },
   };
   return h;
@@ -68,13 +60,13 @@ function harness(
 
 // writeMarker plants a real .aggrega/active-release marker naming target. The
 // tests below use it as the trap: an indicator that reads the marker rather
-// than asking the daemon displays this value instead of the daemon's.
+// than the selection displays this value instead of the one being sent.
 async function writeMarker(root: string, target: string): Promise<void> {
   await fs.mkdir(path.join(root, '.aggrega'), { recursive: true });
   await fs.writeFile(path.join(root, '.aggrega', 'active-release'), target + '\n');
 }
 
-describe('active-Release status indicator', () => {
+describe('selected-Release status indicator', () => {
   let root: string;
 
   beforeEach(async () => {
@@ -85,36 +77,34 @@ describe('active-Release status indicator', () => {
     await fs.rm(root, { recursive: true, force: true });
   });
 
-  it('renders the Release the daemon resolved', async () => {
-    const resolved = path.join(root, 'envs', 'prod.yaml');
-    const h = harness(root, () => Promise.resolve(resolved));
+  it('renders the selected Release and clicks through to the select command', () => {
+    const absolute = path.join(root, 'envs', 'prod.yaml');
+    const h = harness(root, { kind: 'selected', release: 'envs/prod.yaml', absolute });
 
     activateReleaseStatus({ subscriptions: h.subscriptions }, h.deps);
-    await flush();
 
     assert.strictEqual(h.item.text, '$(rocket) prod.yaml');
     assert.ok(
-      h.item.tooltip.includes(resolved),
-      `tooltip should name the resolved Release; got ${h.item.tooltip}`,
+      h.item.tooltip.includes(absolute),
+      `tooltip should name the selected Release; got ${h.item.tooltip}`,
     );
     assert.strictEqual(h.item.shown, 1);
     assert.strictEqual(
       h.item.command,
-      'aggrega.workspace.createActiveReleaseMarker',
-      'the click action must stay the existing switch flow',
+      SELECT_RELEASE_COMMAND,
+      'clicking the indicator must be the way to select a different Release',
     );
   });
 
-  // The defect the daemon query exists to close. A marker on disk names one
-  // Release while the daemon resolved another (a configured authoring Release
-  // outranks the marker). The indicator must show the daemon's answer.
-  it('shows the daemon answer, not the marker file, when the two disagree', async () => {
+  // The defect the selection exists to close, in its new form. A marker on disk
+  // names one Release while the editor is acting on another. The indicator must
+  // show what is actually being sent.
+  it('shows the selection, not the marker file, when the two disagree', async () => {
     await writeMarker(root, 'marked.yaml');
-    const resolved = path.join(root, 'configured.yaml');
-    const h = harness(root, () => Promise.resolve(resolved));
+    const absolute = path.join(root, 'configured.yaml');
+    const h = harness(root, { kind: 'selected', release: 'configured.yaml', absolute });
 
     activateReleaseStatus({ subscriptions: h.subscriptions }, h.deps);
-    await flush();
 
     assert.strictEqual(h.item.text, '$(rocket) configured.yaml');
     assert.ok(
@@ -123,16 +113,14 @@ describe('active-Release status indicator', () => {
     );
   });
 
-  // The deletion proof. With the daemon down there is no answer to render, and
-  // the marker read is gone rather than kept as a fallback — so a marker
-  // sitting on disk must NOT be displayed. Before the marker read was removed
-  // this is exactly the case that displayed a locally-derived guess.
-  it('shows the answer as unknown when the daemon is not running, even with a marker on disk', async () => {
+  // With the language server down there is nothing to report, and the marker
+  // read is gone rather than kept as a fallback — so a marker sitting on disk
+  // must NOT be displayed.
+  it('shows the answer as unknown when nothing is selected yet, even with a marker on disk', async () => {
     await writeMarker(root, 'marked.yaml');
-    const h = harness(root, () => Promise.reject(new Error('the Aggrega daemon is not running')));
+    const h = harness(root, { kind: 'unknown' });
 
     activateReleaseStatus({ subscriptions: h.subscriptions }, h.deps);
-    await flush();
 
     assert.strictEqual(h.item.text, '$(rocket) Release: unavailable');
     assert.ok(
@@ -142,55 +130,61 @@ describe('active-Release status indicator', () => {
     assert.strictEqual(h.item.shown, 1, 'the indicator stays visible and states what it does not know');
   });
 
-  it('reports that no Release resolved when the daemon answers with an empty path', async () => {
+  it('reports that no Release is selected, and carries the reason it was given', async () => {
     await writeMarker(root, 'marked.yaml');
-    const h = harness(root, () => Promise.resolve(''));
+    const h = harness(root, {
+      kind: 'none',
+      reason: 'no authoring_release configured; workspace contains 0 Release file(s)',
+    });
 
     activateReleaseStatus({ subscriptions: h.subscriptions }, h.deps);
-    await flush();
 
     assert.strictEqual(h.item.text, '$(rocket) Release: none');
+    assert.ok(
+      h.item.tooltip.includes('workspace contains 0 Release file(s)'),
+      `the tooltip dropped the account it was given; got ${h.item.tooltip}`,
+    );
     assert.ok(!h.item.tooltip.includes('marked.yaml'));
     assert.strictEqual(h.item.shown, 1);
   });
 
-  it('hides itself when no workspace is anchored', async () => {
-    const h = harness(null, () => Promise.resolve('/never/asked.yaml'));
+  it('hides itself when no workspace is anchored', () => {
+    const h = harness(null, { kind: 'selected', release: 'a.yaml', absolute: '/never/asked.yaml' });
 
     activateReleaseStatus({ subscriptions: h.subscriptions }, h.deps);
-    await flush();
 
     assert.strictEqual(h.item.hidden, 1);
     assert.strictEqual(h.item.shown, 0);
-    assert.strictEqual(h.queryCalls, 0, 'no anchor means no daemon query');
+    assert.strictEqual(h.stateReads, 0, 'no anchor means nothing to render');
   });
 
-  // A marker edit is a hint, not a value: the indicator re-asks the daemon
-  // rather than reading the file it just saw change.
-  it('re-asks the daemon on a marker change rather than reading the marker', async () => {
-    let answer = path.join(root, 'first.yaml');
-    const h = harness(root, () => Promise.resolve(answer));
+  // The no-restart proof at this surface: the selection changes and the
+  // indicator follows it within the same session, driven by the change
+  // announcement alone.
+  it('re-renders when the selection changes, with no restart and no re-query', () => {
+    const h = harness(root, {
+      kind: 'selected',
+      release: 'first.yaml',
+      absolute: path.join(root, 'first.yaml'),
+    });
 
     activateReleaseStatus({ subscriptions: h.subscriptions }, h.deps);
-    await flush();
     assert.strictEqual(h.item.text, '$(rocket) first.yaml');
-    assert.strictEqual(h.queryCalls, 1);
 
-    await writeMarker(root, 'unrelated.yaml');
-    answer = path.join(root, 'second.yaml');
-    h.markerChanged();
-    await flush();
+    h.setState({
+      kind: 'selected',
+      release: 'second.yaml',
+      absolute: path.join(root, 'second.yaml'),
+    });
 
-    assert.strictEqual(h.queryCalls, 2, 'the marker watcher must trigger a fresh daemon query');
     assert.strictEqual(h.item.text, '$(rocket) second.yaml');
   });
 
-  it('registers the item and the marker watcher for disposal', async () => {
-    const h = harness(root, () => Promise.resolve(''));
+  it('registers the item for disposal', () => {
+    const h = harness(root, { kind: 'unknown' });
 
     activateReleaseStatus({ subscriptions: h.subscriptions }, h.deps);
-    await flush();
 
-    assert.strictEqual(h.subscriptions.length, 2);
+    assert.strictEqual(h.subscriptions.length, 1);
   });
 });

@@ -5,16 +5,24 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { GraphRedactor, createGraphRedactor } from './graph-payload';
 import { makeGraphMessageHandler } from './graph-messages';
-import { resolveRelease } from './release-pick';
-import { NO_ANCHORED_WORKSPACE_MESSAGE, toWorkspaceRelative } from './workspace';
+import { NO_ANCHORED_WORKSPACE_MESSAGE } from './workspace';
 
 // GraphDeps supplies the live state the graph view needs without importing
 // extension.ts (which would form an import cycle): the anchored workspace root
-// (source-file clicks resolve against it), the Release enumeration and the
-// irGraph request (both daemon-backed), and the shared output channel.
+// (source-file clicks resolve against it), the editor's selected Release, the
+// irGraph request (daemon-backed), and the shared output channel.
 export interface GraphDeps {
   getWorkspaceRoot(): string | null;
-  listReleases(): Promise<string[]>;
+  // selectedRelease is the editor's one selected Release, workspace-relative,
+  // or null when none is selected. The view graphs that Release rather than
+  // prompting for one of its own: a prompt here would be a second answer to
+  // "which Release are we talking about", so the graph could draw one Release
+  // while validation reported on another.
+  selectedRelease(): string | null;
+  // requireSelectedRelease reports that nothing is selected, and offers the
+  // reader the way to select one. Supplied rather than spelled out here so
+  // every surface that needs a selection says the same thing.
+  requireSelectedRelease(): void;
   // requestIrGraph returns the serialized IRGraph object (the daemon's
   // irGraph result `graph` field) for the given workspace-relative Release.
   requestIrGraph(release: string): Promise<unknown>;
@@ -65,15 +73,11 @@ export function activateGraphView(context: vscode.ExtensionContext, deps: GraphD
         return;
       }
 
-      const picked = await resolveRelease(deps.listReleases, {
-        placeHolder: 'Aggrega: choose a Release to graph',
-      });
-      if (!picked) { return; }
-      // The Release enumeration reports absolute paths and the irGraph request
-      // takes a workspace-relative one. Convert here, at the point the value
-      // enters this surface, so every later use — the request, the panel title,
-      // the log lines — carries the one form the daemon accepts.
-      const release = toWorkspaceRelative(root, picked);
+      const release = deps.selectedRelease();
+      if (!release) {
+        deps.requireSelectedRelease();
+        return;
+      }
 
       if (!panel) {
         panel = vscode.window.createWebviewPanel(

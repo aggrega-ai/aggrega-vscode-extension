@@ -173,12 +173,16 @@
         "title": "Aggrega: Switch anchored folder…"
       },
       {
+        "command": "aggrega.release.select",
+        "title": "Aggrega: Select Release…"
+      },
+      {
         "command": "aggrega.workspace.openAuthoringReleaseConfig",
         "title": "Aggrega: Set authoring_release in .aggrega-config.yaml…"
       },
       {
         "command": "aggrega.workspace.createActiveReleaseMarker",
-        "title": "Aggrega: Create .aggrega/active-release marker…"
+        "title": "Aggrega: Set the selected Release as this workspace's default"
       }
     ],
     "configuration": {

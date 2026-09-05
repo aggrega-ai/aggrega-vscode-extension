@@ -1,12 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cognitio S.r.l.
 
-import * as path from 'path';
 import type * as vscode from 'vscode';
+import { SelectionState, describeSelection } from './release-selection';
 
 // DisposableLike is the dispose contract the indicator registers against —
-// the status-bar item and the marker watcher both join the extension's
-// disposable registry through it.
+// the status-bar item joins the extension's disposable registry through it.
 export interface DisposableLike {
   dispose(): unknown;
 }
@@ -28,91 +27,72 @@ export interface StatusBarItemLike extends DisposableLike {
 }
 
 // ReleaseStatusContext is the slice of the extension context the indicator
-// uses: the disposable registry its item and watcher join.
+// uses: the disposable registry its item joins.
 export interface ReleaseStatusContext {
   subscriptions: DisposableLike[];
 }
 
-// ReleaseStatusDeps supplies the anchored workspace root, the query that
-// answers which Release is active, and the two editor surfaces the indicator
-// drives.
+// SELECT_RELEASE_COMMAND is the command the indicator runs when clicked. It is
+// the one way a reader changes the selection, so the indicator is both where
+// the current answer is displayed and where a different one is chosen.
+export const SELECT_RELEASE_COMMAND = 'aggrega.release.select';
+
+// ReleaseStatusDeps supplies the anchored workspace root, the editor's current
+// Release selection, and the status-bar surface the indicator drives.
 export interface ReleaseStatusDeps {
   getWorkspaceRoot(): string | null;
-  // requestActiveRelease asks the language server which Release it resolved
-  // for this workspace. The server is the single source for that answer,
-  // because it is what runs the resolution: an input to that resolution names
-  // a different Release whenever a higher-precedence input won, so reading one
-  // here would report a Release the compiler is not using.
-  //
-  // Resolves to the absolute path of the active Release, or to the empty
-  // string when the workspace has none. Rejects when the language server is
-  // not running — the indicator then shows that the answer is unknown rather
-  // than deriving one of its own.
-  requestActiveRelease(): Promise<string>;
+  // selectionState reports the editor's one selected Release. The indicator
+  // renders this and derives nothing of its own: the selection is what travels
+  // on every request, so displaying anything else — a configuration key, the
+  // marker file on disk, a fresh reading of the workspace — would name a
+  // Release the compiler is not being asked about. That an input to the
+  // workspace's default reading names a different Release whenever a
+  // higher-precedence input won is exactly why reading one here is wrong, and
+  // that reasoning survives the selection moving into this client unchanged.
+  selectionState(): SelectionState;
   // createStatusBarItem builds the item the indicator drives.
   createStatusBarItem(): StatusBarItemLike;
-  // watchActiveReleaseMarker registers onChange against edits to the
-  // workspace's active-release marker and returns the watcher's disposable.
-  // The indicator never reads the marker: an edit to it is a hint that the
-  // resolved Release may be about to change, so the callback re-asks the
-  // language server rather than reading the file.
-  watchActiveReleaseMarker(onChange: () => void): DisposableLike;
+  // onSelectionChange registers a listener fired whenever the selection
+  // changes, so the indicator re-renders without polling.
+  onSelectionChange(listener: () => void): void;
 }
 
-// ReleaseStatus is the handle the extension holds to refresh the indicator on
-// events the marker watcher cannot see on its own — language-server
-// (re)start and workspace-anchor changes.
+// ReleaseStatus is the handle the extension holds to re-render the indicator on
+// events the selection itself does not announce — the workspace anchor
+// changing, and the language server stopping.
 export interface ReleaseStatus {
   refresh(): void;
   hide(): void;
 }
 
 // activateReleaseStatus creates the status-bar item that shows which Release
-// the workspace resolved and, on click, runs the existing switch flow (choose
-// a Release → write the marker → restart the server).
+// the editor has selected and, on click, runs the command that selects a
+// different one.
 //
-// The indicator displays the server's own answer, so what the operator reads
-// is the Release the compiler will act on. It has three states: the resolved
-// Release, no Release resolved for this workspace, and — when the server is
-// not answering — unknown.
+// The indicator displays the selection every request carries, so what the
+// operator reads is the Release the compiler is being asked about. It has three
+// states: the selected Release, no Release selected for this workspace, and —
+// when the language server is not answering — unknown.
 export function activateReleaseStatus(
   context: ReleaseStatusContext,
   deps: ReleaseStatusDeps,
 ): ReleaseStatus {
   const item = deps.createStatusBarItem();
-  // Reuse the existing marker-writing command as the click action, so the
-  // indicator adds no second switch path.
-  item.command = 'aggrega.workspace.createActiveReleaseMarker';
+  item.command = SELECT_RELEASE_COMMAND;
   context.subscriptions.push(item);
 
   const refresh = (): void => {
-    const root = deps.getWorkspaceRoot();
-    if (!root) {
+    if (!deps.getWorkspaceRoot()) {
       item.hide();
       return;
     }
-    void deps.requestActiveRelease().then(
-      (active) => {
-        if (active) {
-          item.text = `$(rocket) ${path.basename(active)}`;
-          item.tooltip = `Aggrega active Release: ${active}\nClick to switch`;
-        } else {
-          item.text = '$(rocket) Release: none';
-          item.tooltip =
-            'Aggrega: no active Release resolved for this workspace. Click to pin one.';
-        }
-        item.show();
-      },
-      () => {
-        item.text = '$(rocket) Release: unavailable';
-        item.tooltip =
-          'Aggrega: the language server is not running, so which Release is active is unknown.';
-        item.show();
-      },
-    );
+    const { label, detail } = describeSelection(deps.selectionState());
+    item.text = `$(rocket) ${label}`;
+    item.tooltip = detail;
+    item.show();
   };
 
-  context.subscriptions.push(deps.watchActiveReleaseMarker(refresh));
+  deps.onSelectionChange(refresh);
 
   refresh();
   return { refresh, hide: () => item.hide() };

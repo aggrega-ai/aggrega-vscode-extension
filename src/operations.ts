@@ -3,9 +3,8 @@
 
 import { spawn } from 'child_process';
 import * as vscode from 'vscode';
-import { resolveRelease } from './release-pick';
 import { BuildPreviewResponse, BuildResponse } from './types';
-import { NO_ANCHORED_WORKSPACE_MESSAGE, toWorkspaceRelative } from './workspace';
+import { NO_ANCHORED_WORKSPACE_MESSAGE } from './workspace';
 
 // OperationDeps supplies the live extension state the operation surface reads
 // without importing extension.ts (which would form an import cycle): the
@@ -19,10 +18,15 @@ export interface OperationDeps {
   getBinaryPath(): string;
   output: vscode.OutputChannel;
   validateActiveDocument(): Promise<void>;
-  // listReleases returns the workspace's Release candidates (daemon-backed).
-  // build and pull require a --release argument, so the operation resolves one
-  // before invoking the CLI.
-  listReleases(): Promise<string[]>;
+  // selectedRelease is the editor's one selected Release, workspace-relative,
+  // or null when none is selected. Build, preview build and pull each act on a
+  // Release, and they act on this one: prompting per operation would let a
+  // build and a graph describe two different Releases in the same session.
+  selectedRelease(): string | null;
+  // requireSelectedRelease reports that nothing is selected, and offers the
+  // reader the way to select one. Supplied rather than spelled out here so
+  // every surface that needs a selection says the same thing.
+  requireSelectedRelease(): void;
   // runLint runs the conventions linter and publishes its findings as
   // navigable diagnostics. It is supplied rather than spawned here because the
   // findings land in the linter's own diagnostic collection, which the
@@ -118,29 +122,32 @@ export function activateOperations(context: vscode.ExtensionContext, deps: Opera
   reg('build', () => { void runBuild(deps); });
   reg('preview', () => { void runPreview(deps); });
   reg('lint', () => { void deps.runLint(); });
-  reg('pull', () => { void runReleaseScoped(deps, 'pull'); });
+  reg('pull', () => { runReleaseScoped(deps, 'pull'); });
   reg('push', () => runCli(deps, ['push']));
   reg('import', () => { void runImport(deps); });
   reg('cache', () => { void runCache(deps); });
 }
 
 // runReleaseScoped runs a CLI-backed command that requires a --release
-// argument. It resolves the Release first — the sole candidate when there is
-// one, a quick-pick otherwise — then invokes `aggrega <verb> --release <path>`.
-// Running the bare verb would fail: the CLI marks --release required.
+// argument: it invokes `aggrega <verb> --release <path>` on the selected
+// Release. Running the bare verb would fail — the CLI marks --release required.
+//
+// The path is workspace-relative and the subprocess runs in the workspace root,
+// so it resolves there.
 //
 // The verb is typed as the set this surface actually routes through it rather
 // than as a string, so a verb that has moved to the language server cannot be
 // passed here by a caller that has not noticed.
-async function runReleaseScoped(deps: OperationDeps, verb: 'pull'): Promise<void> {
+function runReleaseScoped(deps: OperationDeps, verb: 'pull'): void {
   if (!deps.getWorkspaceRoot()) {
     void vscode.window.showInformationMessage(NO_ANCHORED_WORKSPACE_MESSAGE);
     return;
   }
-  const release = await resolveRelease(deps.listReleases, {
-    placeHolder: `Aggrega: choose a Release to ${verb}`,
-  });
-  if (!release) { return; }
+  const release = deps.selectedRelease();
+  if (!release) {
+    deps.requireSelectedRelease();
+    return;
+  }
   runCli(deps, [verb, '--release', release]);
 }
 
@@ -165,15 +172,11 @@ async function runBuild(deps: OperationDeps): Promise<void> {
     void vscode.window.showInformationMessage(NO_ANCHORED_WORKSPACE_MESSAGE);
     return;
   }
-  const picked = await resolveRelease(deps.listReleases, {
-    placeHolder: 'Aggrega: choose a Release to build',
-  });
-  if (!picked) { return; }
-  // The Release enumeration reports absolute paths and the request takes a
-  // workspace-relative one. Convert here, at the point the value enters this
-  // surface, so the request and the log lines carry the one form the server
-  // accepts.
-  const release = toWorkspaceRelative(root, picked);
+  const release = deps.selectedRelease();
+  if (!release) {
+    deps.requireSelectedRelease();
+    return;
+  }
 
   const out = deps.output;
   out.show(true);
@@ -233,15 +236,11 @@ async function runPreview(deps: OperationDeps): Promise<void> {
     void vscode.window.showInformationMessage(NO_ANCHORED_WORKSPACE_MESSAGE);
     return;
   }
-  const picked = await resolveRelease(deps.listReleases, {
-    placeHolder: 'Aggrega: choose a Release to preview',
-  });
-  if (!picked) { return; }
-  // The Release enumeration reports absolute paths and the request takes a
-  // workspace-relative one. Convert here, at the point the value enters this
-  // surface, so the request and the log lines carry the one form the server
-  // accepts.
-  const release = toWorkspaceRelative(root, picked);
+  const release = deps.selectedRelease();
+  if (!release) {
+    deps.requireSelectedRelease();
+    return;
+  }
 
   const out = deps.output;
   out.show(true);

@@ -72,8 +72,9 @@ import { activateCatalogViews } from './catalog-views';
 import { activateRegistriesView } from './registries-view';
 import { activateWorkspaceCatalogView } from './workspace-catalog-view';
 import { CatalogIndexDoc } from './workspace-catalog-run';
-import { resolveRelease } from './release-pick';
-import { activateReleaseStatus, ReleaseStatus } from './release-status';
+import { ReleaseSelection, createReleaseSelection } from './release-selection';
+import { buildValidateParams } from './validate-request';
+import { SELECT_RELEASE_COMMAND, activateReleaseStatus, ReleaseStatus } from './release-status';
 import {
   STATE_KEY,
   buildPickerItems,
@@ -100,6 +101,32 @@ let lateInitDone = false;
 let releaseStatus: ReleaseStatus | null = null;
 let graphView: GraphView | null = null;
 let lintRunner: LintRunner | null = null;
+// releaseSelection is the editor's one answer to "which Release are we talking
+// about". Every surface that acts on a Release reads it, and it travels on
+// every request, so the language server holds none of its own and changing the
+// selection needs no restart.
+let releaseSelection: ReleaseSelection | null = null;
+
+// selectedRelease is the workspace-relative Release every request carries, or
+// null when none is selected.
+function selectedRelease(): string | null {
+  return releaseSelection?.current() ?? null;
+}
+
+// requireSelectedRelease tells the reader that an operation needs a Release and
+// offers the one way to select one. Written once here so every surface that
+// needs a selection says the same thing.
+function requireSelectedRelease(): void {
+  const action = 'Select a Release…';
+  void vscode.window.showInformationMessage(
+    'Aggrega: this operation acts on a Release, and none is selected.',
+    action,
+  ).then(choice => {
+    if (choice === action) {
+      void vscode.commands.executeCommand(SELECT_RELEASE_COMMAND);
+    }
+  });
+}
 
 // refreshGraphView re-renders an open topology graph after the language server
 // reports new diagnostics. The server reports per file, so a build that touches
@@ -117,10 +144,38 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   outputChannel = vscode.window.createOutputChannel('Aggrega');
   context.subscriptions.push(outputChannel);
 
+  // The selection is built before any surface that reads it. It contacts
+  // nothing here: the default is adopted once the language server connects, and
+  // an explicit selection replaces it at any time after that.
+  releaseSelection = createReleaseSelection({
+    getWorkspaceRoot: () => workspaceRootForCommands,
+    requestActiveRelease,
+    listReleases: requestReleaseCandidates,
+    pickRelease: async (candidates, placeHolder) => {
+      const root = workspaceRootForCommands;
+      const items = candidates.map(p => ({
+        label: path.basename(p),
+        description: root ? path.relative(root, p) : p,
+        detail: p,
+        absolutePath: p,
+      }));
+      const choice = await vscode.window.showQuickPick(items, {
+        placeHolder,
+        matchOnDescription: true,
+        matchOnDetail: true,
+      });
+      return choice?.absolutePath;
+    },
+    reportInfo: (message) => { void vscode.window.showInformationMessage(message); },
+    reportError: (message) => { void vscode.window.showErrorMessage(message); },
+    logLine: (line) => outputChannel?.appendLine(line),
+  });
+
   // Always register the switch-anchor command so the Command
   // Palette surfaces it regardless of the activation outcome.
   registerSwitchAnchorCommand(context);
   registerReleaseActionCommands(context);
+  registerSelectReleaseCommand(context);
 
   // The conventions linter owns its own diagnostic collection, separate from
   // the language server's, so a validate never drops a lint finding and a lint
@@ -142,7 +197,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     getBinaryPath: () => getSettings().binaryPath,
     output: outputChannel,
     validateActiveDocument,
-    listReleases: requestReleaseCandidates,
+    selectedRelease,
+    requireSelectedRelease,
     runLint: () => lintRunner?.run() ?? Promise.resolve(),
     build: requestBuild,
     previewBuild: requestBuildPreview,
@@ -153,7 +209,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // daemon-backed (irGraph + releaseCandidates); the getters read live state.
   graphView = activateGraphView(context, {
     getWorkspaceRoot: () => workspaceRootForCommands,
-    listReleases: requestReleaseCandidates,
+    selectedRelease,
+    requireSelectedRelease,
     requestIrGraph: async (release: string) => {
       if (!daemon || daemon.getState() !== DaemonState.Running) {
         throw new Error('the Aggrega language server is not running');
@@ -195,24 +252,31 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     output: outputChannel,
   });
 
-  // The active-Release status-bar indicator renders the daemon's own answer,
-  // so it shows the Release the compiler will act on; refresh() is driven from
-  // daemon (re)start below.
+  // The status-bar indicator renders the editor's selected Release — the value
+  // every request carries — so what the operator reads is the Release the
+  // compiler is being asked about.
   releaseStatus = activateReleaseStatus(context, {
     getWorkspaceRoot: () => workspaceRootForCommands,
-    requestActiveRelease,
+    selectionState: () => releaseSelection?.state() ?? { kind: 'unknown' },
     createStatusBarItem: () =>
       vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 99),
-    // The marker is watched but never read: an edit to it means the daemon's
-    // answer may be about to change, so the indicator re-asks the daemon.
-    watchActiveReleaseMarker: (onChange) => {
-      const watcher = vscode.workspace.createFileSystemWatcher(ACTIVE_RELEASE_MARKER_GLOB);
-      watcher.onDidChange(onChange);
-      watcher.onDidCreate(onChange);
-      watcher.onDidDelete(onChange);
-      return watcher;
-    },
+    onSelectionChange: (listener) => releaseSelection?.onChange(listener),
   });
+
+  // The marker is watched but never read. It is this workspace's persisted
+  // default, so an edit to it changes what a session STARTS on and not what
+  // this one is acting on: a selection already in force is left alone, because
+  // moving it under the reader would be a third way for the selection to
+  // change. The one case worth reacting to is a workspace that offered nothing
+  // at connect time and now has a default to offer — there is no selection to
+  // disturb, so the default is adopted.
+  context.subscriptions.push(
+    watchActiveReleaseMarker(() => {
+      if (releaseSelection?.current()) { return; }
+      void adoptDefaultRelease();
+    }),
+  );
+
   context.subscriptions.push(
     vscode.workspace.onDidChangeWorkspaceFolders(() => {
       void reactivate(context);
@@ -380,7 +444,9 @@ async function ensureDaemonAt(
   }
 
   void runCompatibilityCheck();
-  releaseStatus?.refresh();
+  // The default is adopted once per connection, which is the first of the two
+  // ways the selection is ever set. The second is the reader choosing one.
+  await adoptDefaultRelease();
 }
 
 async function stopDaemon(): Promise<void> {
@@ -392,7 +458,62 @@ async function stopDaemon(): Promise<void> {
   if (statusBarItem) {
     statusBarItem.hide();
   }
+  // The selection is dropped with the connection it was resolved against, so a
+  // daemon attaching to a different root does not inherit the previous
+  // workspace's answer.
+  releaseSelection?.forget();
   releaseStatus?.hide();
+}
+
+// watchActiveReleaseMarker registers a callback against edits to the
+// workspace's active-release marker and returns the watcher's disposable.
+function watchActiveReleaseMarker(onChange: () => void): vscode.Disposable {
+  const watcher = vscode.workspace.createFileSystemWatcher(ACTIVE_RELEASE_MARKER_GLOB);
+  watcher.onDidChange(onChange);
+  watcher.onDidCreate(onChange);
+  watcher.onDidDelete(onChange);
+  return watcher;
+}
+
+// adoptDefaultRelease asks the language server what this workspace points at
+// and takes that as the selection. Run once per connection, and again only when
+// nothing is selected — an explicit selection is never overwritten by it.
+async function adoptDefaultRelease(): Promise<void> {
+  await releaseSelection?.adoptDefault();
+  releaseStatus?.refresh();
+}
+
+// registerSelectReleaseCommand wires the one command that changes the
+// selection. The status-bar indicator runs it on click, and the Command Palette
+// surfaces it, so there is one way to choose a Release and one place the
+// current choice is displayed.
+function registerSelectReleaseCommand(context: vscode.ExtensionContext): void {
+  context.subscriptions.push(
+    vscode.commands.registerCommand(SELECT_RELEASE_COMMAND, async () => {
+      if (!workspaceRootForCommands) {
+        void vscode.window.showInformationMessage(NO_ANCHORED_WORKSPACE_MESSAGE);
+        return;
+      }
+      const chosen = await releaseSelection?.choose();
+      if (!chosen) { return; }
+      // Nothing is restarted. The selection travels on the next request, so the
+      // change is in force immediately.
+      outputChannel?.appendLine(`selected Release: ${chosen}`);
+      void revalidateOpenDocuments();
+    }),
+  );
+}
+
+// revalidateOpenDocuments re-validates every open YAML document against the
+// selection that is now in force. Without this the Problems panel would go on
+// showing findings computed against the previous Release until each file
+// happened to be edited, which reads as the new selection having no effect.
+function revalidateOpenDocuments(): void {
+  if (!daemon || daemon.getState() !== DaemonState.Running) { return; }
+  for (const doc of vscode.workspace.textDocuments) {
+    if (doc.languageId !== 'yaml') { continue; }
+    void validateDocument(doc);
+  }
 }
 
 function registerSwitchAnchorCommand(context: vscode.ExtensionContext): void {
@@ -423,11 +544,18 @@ function registerSwitchAnchorCommand(context: vscode.ExtensionContext): void {
   }));
 }
 
-// registerReleaseActionCommands wires the two action commands the
-// release-not-resolved (1002) toast dispatches to. Registered at
-// activation so the Command Palette surfaces them regardless of
-// daemon state — invoking either command without an anchored
-// workspace surfaces an informational toast rather than crashing.
+// registerReleaseActionCommands wires the two commands that record a Release as
+// a workspace default. Neither selects a Release for the session in progress —
+// that is the select command's job — and the split is deliberate: choosing what
+// to work on now and recording what to start on next are different acts, and
+// collapsing them would take away the ability to do either without the other.
+//
+// One writes the workspace's local marker; the other opens the configuration
+// file, which is the shared, committed default and outranks the marker.
+//
+// Registered at activation so the Command Palette surfaces them regardless of
+// language-server state — invoking either without an anchored workspace
+// surfaces an informational toast rather than crashing.
 function registerReleaseActionCommands(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.commands.registerCommand('aggrega.workspace.openAuthoringReleaseConfig', async () => {
@@ -442,16 +570,7 @@ function registerReleaseActionCommands(context: vscode.ExtensionContext): void {
         void vscode.window.showInformationMessage(NO_ANCHORED_WORKSPACE_MESSAGE);
         return;
       }
-      let candidates: string[];
-      try {
-        candidates = await requestReleaseCandidates();
-      } catch {
-        void vscode.window.showErrorMessage(
-          'Aggrega: cannot list Release candidates — the language server is not running. Start it and try again.',
-        );
-        return;
-      }
-      await createActiveReleaseMarker(workspaceRootForCommands, candidates);
+      await createActiveReleaseMarker(workspaceRootForCommands, selectedRelease());
     }),
   );
 }
@@ -480,10 +599,10 @@ async function validateActiveDocument(): Promise<void> {
   }
   const doc = editor.document;
   try {
-    const response = await daemon.request<ValidateResponse>('aggrega/validate', {
-      file: doc.uri.fsPath,
-      content: doc.getText(),
-    });
+    const response = await daemon.request<ValidateResponse>(
+      'aggrega/validate',
+      validateParamsFor(doc),
+    );
     if (diagnosticCollections) {
       publishDiagnostics(diagnosticCollections, doc.uri, response.diagnostics ?? []);
     }
@@ -493,33 +612,45 @@ async function validateActiveDocument(): Promise<void> {
   }
 }
 
-function registerDocumentLifecycle(context: vscode.ExtensionContext): void {
-  const validate = (doc: vscode.TextDocument) => {
-    if (!daemon || daemon.getState() !== DaemonState.Running) { return; }
-    if (doc.languageId !== 'yaml') { return; }
-    const params: ValidateParams = { file: doc.uri.fsPath, content: doc.getText() };
-    daemon.request<ValidateResponse>('aggrega/validate', params).then(
-      response => {
-        if (diagnosticCollections) {
-          publishDiagnostics(diagnosticCollections, doc.uri, response.diagnostics ?? []);
-        }
-      },
-      err => {
-        const ctx = buildErrorContext(doc.uri);
-        if (ctx && isJsonRpcError(err) && handleDaemonError(err, ctx)) {
-          return;
-        }
-        outputChannel?.appendLine(`validate failed: ${describeError(err)}`);
-      },
-    );
-  };
+// validateParamsFor composes the aggrega/validate request for a document
+// against the current selection. The composition rule itself lives in
+// validate-request.ts, which needs no editor and is therefore driven directly
+// against a running language server by the tests.
+function validateParamsFor(doc: vscode.TextDocument): ValidateParams {
+  return buildValidateParams(doc.uri.fsPath, doc.getText(), selectedRelease());
+}
 
+// validateDocument runs the language server's validate on one document and
+// publishes what comes back. It is the single path every proactive validation
+// takes — document open, debounced change, the startup sweep, and the sweep
+// that follows a change of selection — so none of them can drift into sending a
+// different request than the others.
+function validateDocument(doc: vscode.TextDocument): void {
+  if (!daemon || daemon.getState() !== DaemonState.Running) { return; }
+  if (doc.languageId !== 'yaml') { return; }
+  daemon.request<ValidateResponse>('aggrega/validate', validateParamsFor(doc)).then(
+    response => {
+      if (diagnosticCollections) {
+        publishDiagnostics(diagnosticCollections, doc.uri, response.diagnostics ?? []);
+      }
+    },
+    err => {
+      const ctx = buildErrorContext(doc.uri);
+      if (ctx && isJsonRpcError(err) && handleDaemonError(err, ctx)) {
+        return;
+      }
+      outputChannel?.appendLine(`validate failed: ${describeError(err)}`);
+    },
+  );
+}
+
+function registerDocumentLifecycle(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
-    vscode.workspace.onDidOpenTextDocument(validate),
+    vscode.workspace.onDidOpenTextDocument(validateDocument),
   );
 
   const debouncedValidate = debounce(
-    (doc: vscode.TextDocument) => validate(doc),
+    (doc: vscode.TextDocument) => validateDocument(doc),
     () => getSettings().debounceMs,
   );
   context.subscriptions.push(
@@ -527,7 +658,7 @@ function registerDocumentLifecycle(context: vscode.ExtensionContext): void {
   );
 
   for (const doc of vscode.workspace.textDocuments) {
-    validate(doc);
+    validateDocument(doc);
   }
 }
 
@@ -986,24 +1117,7 @@ function buildErrorContext(uri: vscode.Uri) {
       vscode.window.showInformationMessage(message, ...items),
     createTerminal: (options: vscode.TerminalOptions) =>
       vscode.window.createTerminal(options),
-    executeCommand: (command: string) =>
-      vscode.commands.executeCommand(command),
-    scanCandidateReleases: async (): Promise<boolean> => {
-      // Whether the workspace has any Release the daemon would offer. The 1002
-      // path that calls this already presupposes a running daemon (Release
-      // resolution failed, which requires the daemon to have run), so a
-      // not-running daemon means no candidates to surface — return false rather
-      // than scanning by filename, which would diverge from the daemon.
-      try {
-        const candidates = await requestReleaseCandidates();
-        return candidates.length > 0;
-      } catch {
-        return false;
-      }
-    },
-    resolveRelease: () => resolveRelease(requestReleaseCandidates, {
-      placeHolder: 'Aggrega: choose the Release to pull',
-    }),
+    selectedRelease,
     toastDebounce,
     toastDebounceMode: settings.toastDebounceMode,
     toastThrottleSeconds: settings.toastThrottleSeconds,
@@ -1025,20 +1139,22 @@ async function requestReleaseCandidates(): Promise<string[]> {
   return resp.releases;
 }
 
-// requestActiveRelease asks the daemon which Release it resolved for the
-// workspace — the answer the daemon itself acts on. The extension derives no
-// answer of its own: an input to the daemon's resolution (the marker file, say)
-// names a different Release whenever a higher-precedence input won, so reading
-// one here would display a Release the compiler is not using. Resolves to the
-// empty string when the workspace has no active Release, and throws when the
-// daemon is not running so the indicator shows the answer as unknown rather
-// than falling back to a local guess.
-async function requestActiveRelease(): Promise<string> {
+// requestActiveRelease asks the language server which Release this workspace
+// points at by default. The extension derives no answer of its own: an input to
+// that reading (the marker file, say) names a different Release whenever a
+// higher-precedence input won, so consulting one here would start the reader on
+// a Release the compiler would not have chosen.
+//
+// The answer carries the empty path when the workspace offers none, together
+// with the server's own account of why — which is where the explanation for an
+// unresolved workspace now travels, on an ordinary answer rather than on a
+// failed request. Throws when the server is not running, so the selection
+// reports the answer as unknown rather than falling back to a local guess.
+async function requestActiveRelease(): Promise<ActiveReleaseResponse> {
   if (!daemon || daemon.getState() !== DaemonState.Running) {
     throw new Error('the Aggrega daemon is not running');
   }
-  const resp = await daemon.request<ActiveReleaseResponse>('aggrega/activeRelease', {});
-  return resp.release;
+  return await daemon.request<ActiveReleaseResponse>('aggrega/activeRelease', {});
 }
 
 // requestBuildPreview asks the language server what a build of the given
@@ -1104,10 +1220,10 @@ async function handleCacheMiss<T>(method: string, params: unknown, doc: vscode.T
     if (decision !== 'revalidate') { return null; }
   }
   try {
-    await daemon.request<void>('aggrega/validate', {
-      file: doc.uri.fsPath,
-      content: doc.getText(),
-    });
+    // The re-seed carries the selected Release for the same reason every other
+    // validate does: it repopulates the caches the retried request reads, and a
+    // document-only seed would repopulate them from the narrower answer.
+    await daemon.request<void>('aggrega/validate', validateParamsFor(doc));
     return await daemon.request<T>(method, params);
   } catch (err) {
     outputChannel?.appendLine(`cache-miss retry failed: ${describeError(err)}`);
