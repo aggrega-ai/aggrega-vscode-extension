@@ -86,6 +86,44 @@ describe('Daemon integration (real aggrega serve)', function () {
     );
   });
 
+  it('buildPreview is reachable through the client and refuses a workspace with no lockfile', async function () {
+    // The assertion is about reach, not about rendering: the fixture holds no
+    // Release, so the answer is the refusal a workspace with no lockfile earns,
+    // and what it proves is that the request left this client, was routed by the
+    // server, and came back as that server's own envelope.
+    //
+    // The discriminating half is the second check. A method the server does not
+    // route answers with the method-not-found code, which is also an error — so
+    // asserting only that the call rejects would pass just as well with the
+    // method absent, which is the shape this test exists to catch.
+    const daemon = buildDaemon();
+    try {
+      await daemon.start(workspaceRoot);
+      let rejected: unknown;
+      try {
+        await daemon.request('aggrega/buildPreview', { release: 'release.yaml' });
+        assert.fail('the preview answered a workspace with no Release instead of refusing');
+      } catch (err) {
+        rejected = err;
+      }
+      const envelope = rejected as { code?: number; message?: string };
+      assert.notStrictEqual(
+        envelope.code, -32601,
+        'the server does not route aggrega/buildPreview; the editor has no preview to offer',
+      );
+      assert.strictEqual(
+        envelope.code, 1003,
+        `expected the lockfile-absent code, got ${envelope.code}: ${envelope.message}`,
+      );
+      assert.ok(
+        (envelope.message ?? '').includes('aggrega pull'),
+        `the refusal does not name the command that generates a lockfile: ${envelope.message}`,
+      );
+    } finally {
+      await daemon.stop();
+    }
+  });
+
   it('initialize selects UTF-16 when the client offers only UTF-16', async function () {
     // Verify the wire-level negotiation by sending the request
     // directly with a UTF-16-only capability set, bypassing

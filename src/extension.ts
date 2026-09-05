@@ -49,6 +49,7 @@ import {
 } from './translator';
 import {
   ActiveReleaseResponse,
+  BuildPreviewResponse,
   DaemonLocation,
   ERR_FILE_NOT_VALIDATED,
   PublishDiagnosticsParams,
@@ -142,6 +143,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     validateActiveDocument,
     listReleases: requestReleaseCandidates,
     runLint: () => lintRunner?.run() ?? Promise.resolve(),
+    previewBuild: requestBuildPreview,
+    reportDaemonError,
   });
 
   // The topology-graph view renders the compiled IR of a chosen Release. It is
@@ -1034,6 +1037,25 @@ async function requestActiveRelease(): Promise<string> {
   }
   const resp = await daemon.request<ActiveReleaseResponse>('aggrega/activeRelease', {});
   return resp.release;
+}
+
+// requestBuildPreview asks the language server what a build of the given
+// Release would emit. The server runs the same computation a build runs, with
+// every gate on, and writes none of the result — so a refusal here is a refusal
+// a build would reach, and the answer names the artifacts a build would write.
+//
+// The findings that carry a document position do not come back through this
+// call: the server publishes them on its diagnostic channel, so they land in the
+// Problems panel through the same path every other server finding takes. What
+// returns is the artifact list and the advisories that name no position.
+//
+// Throws when the server is not running, so a caller reports that state rather
+// than presenting an empty preview as a Release that renders nothing.
+async function requestBuildPreview(release: string): Promise<BuildPreviewResponse> {
+  if (!daemon || daemon.getState() !== DaemonState.Running) {
+    throw new Error('the Aggrega language server is not running');
+  }
+  return await daemon.request<BuildPreviewResponse>('aggrega/buildPreview', { release });
 }
 
 // requestCatalogIndex asks the language server for the open workspace's entity

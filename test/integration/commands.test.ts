@@ -34,7 +34,7 @@ describe('Aggrega-contributed commands', () => {
 
   it('registers every operation command', async () => {
     const commands = await vscode.commands.getCommands(true);
-    for (const id of ['validate', 'build', 'lint', 'pull', 'push', 'import', 'cache']) {
+    for (const id of ['validate', 'build', 'preview', 'lint', 'pull', 'push', 'import', 'cache']) {
       assert.ok(
         commands.includes(`aggrega.op.${id}`),
         `expected aggrega.op.${id} to be in the command registry`,

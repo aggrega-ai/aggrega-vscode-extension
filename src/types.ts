@@ -213,6 +213,33 @@ export interface ReleaseCandidatesResponse {
   releases: string[];
 }
 
+// BuildPreviewNotice is one advisory the preview raised that carries no position
+// in a document — a withdrawn pin, an overlapping schema pillar, a parent that
+// would not resolve. class names the advisory surface it came from, so the
+// extension renders each in its own voice instead of parsing the text; it is the
+// empty string for a surface the daemon does not name, which the extension shows
+// as the bare text.
+//
+// These are the advisories the Problems panel does not receive. The ones that
+// carry a position arrive on aggrega/publishDiagnostics instead, under the build
+// layer's source, and land in that layer's own diagnostic collection.
+export interface BuildPreviewNotice {
+  class: string;
+  text: string;
+}
+
+// BuildPreviewResponse is the aggrega/buildPreview result: the output-relative
+// names of the artifacts a build of the requested Release would emit, and the
+// advisories that carry no document position.
+//
+// files are names rather than paths. The daemon writes nothing, so it has no
+// output root to resolve them against, and reporting one would name a location
+// nothing put a file at.
+export interface BuildPreviewResponse {
+  files: string[];
+  notices?: BuildPreviewNotice[];
+}
+
 // ActiveReleaseResponse is the aggrega/activeRelease result: the absolute path
 // of the Release the daemon resolved for the workspace.
 //

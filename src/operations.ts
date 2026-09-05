@@ -4,7 +4,8 @@
 import { spawn } from 'child_process';
 import * as vscode from 'vscode';
 import { resolveRelease } from './release-pick';
-import { NO_ANCHORED_WORKSPACE_MESSAGE } from './workspace';
+import { BuildPreviewResponse } from './types';
+import { NO_ANCHORED_WORKSPACE_MESSAGE, toWorkspaceRelative } from './workspace';
 
 // OperationDeps supplies the live extension state the operation surface reads
 // without importing extension.ts (which would form an import cycle): the
@@ -27,12 +28,32 @@ export interface OperationDeps {
   // findings land in the linter's own diagnostic collection, which the
   // extension owns; this surface only invokes it.
   runLint(): Promise<void>;
+  // previewBuild renders a Release the way a build does and reports what a
+  // build would emit, without emitting any of it. It is supplied rather than
+  // spawned here because it is language-server-backed: the findings that carry
+  // a document position travel on the server's diagnostic channel and land in
+  // the Problems panel, which a subprocess streaming its output to a channel
+  // cannot do. The release is workspace-relative, which is the form the
+  // server's request parameters take.
+  previewBuild(release: string): Promise<BuildPreviewResponse>;
+  // reportDaemonError routes a failed request's error envelope to the per-code
+  // surfaces the extension already has for it — a diagnostic on the document
+  // the envelope names, or the toast that offers the remediating command — and
+  // reports whether it recognised the envelope.
+  //
+  // A preview refusal is about an authored document, and the envelope carries
+  // which one plus, where the fault is attributable to a single key, that key's
+  // span. Without this the payload would reach the reader as one line of log
+  // text and the position it carries would be discarded. fallbackPath is the
+  // document to attach a diagnostic to when the envelope names no artifact of
+  // its own.
+  reportDaemonError(err: unknown, fallbackPath: string): boolean;
 }
 
 // OperationId enumerates the compiler operations the surface exposes. Each
 // value is the suffix of its contributed command id (`aggrega.op.<id>`) and the
 // stable key its tree item carries.
-type OperationId = 'validate' | 'build' | 'lint' | 'pull' | 'push' | 'import' | 'cache';
+type OperationId = 'validate' | 'build' | 'preview' | 'lint' | 'pull' | 'push' | 'import' | 'cache';
 
 interface OperationDef {
   id: OperationId;
@@ -48,6 +69,7 @@ interface OperationDef {
 const OPERATIONS: OperationDef[] = [
   { id: 'validate', label: 'Validate active file', detail: 'Validate the active YAML file via the language server', icon: 'check' },
   { id: 'build', label: 'Build', detail: 'Compile the workspace to rendered artifacts', icon: 'package' },
+  { id: 'preview', label: 'Preview build', detail: 'Render what a build would emit without writing it; findings land in the Problems panel', icon: 'eye' },
   { id: 'lint', label: 'Lint', detail: 'Check publishing conventions across the catalog; findings land in the Problems panel', icon: 'search' },
   { id: 'pull', label: 'Pull', detail: 'Pull remote dependencies into the workspace', icon: 'cloud-download' },
   { id: 'push', label: 'Push', detail: 'Publish artifacts to a configured registry', icon: 'cloud-upload' },
@@ -86,6 +108,7 @@ export function activateOperations(context: vscode.ExtensionContext, deps: Opera
 
   reg('validate', () => { void deps.validateActiveDocument(); });
   reg('build', () => { void runReleaseScoped(deps, 'build'); });
+  reg('preview', () => { void runPreview(deps); });
   reg('lint', () => { void deps.runLint(); });
   reg('pull', () => { void runReleaseScoped(deps, 'pull'); });
   reg('push', () => runCli(deps, ['push']));
@@ -107,6 +130,75 @@ async function runReleaseScoped(deps: OperationDeps, verb: 'build' | 'pull'): Pr
   });
   if (!release) { return; }
   runCli(deps, [verb, '--release', release]);
+}
+
+// runPreview renders a Release the way a build does and reports what a build
+// would emit, without emitting any of it.
+//
+// It is language-server-backed where the Build operation beside it is a
+// subprocess, and the difference is what the operation is for: the findings the
+// render raises carry a document position, and the language server publishes
+// them on its diagnostic channel, so they reach the Problems panel where a
+// reader can navigate to each one. A subprocess streaming its output to this
+// channel discards that position.
+//
+// What lands where: the positioned findings arrive on the server's own channel
+// and are published by the extension's diagnostic path, so nothing here handles
+// them. The advisories that carry no position ride back on the answer and are
+// written to this channel, which is the only surface that can show them.
+async function runPreview(deps: OperationDeps): Promise<void> {
+  const root = deps.getWorkspaceRoot();
+  if (!root) {
+    void vscode.window.showInformationMessage(NO_ANCHORED_WORKSPACE_MESSAGE);
+    return;
+  }
+  const picked = await resolveRelease(deps.listReleases, {
+    placeHolder: 'Aggrega: choose a Release to preview',
+  });
+  if (!picked) { return; }
+  // The Release enumeration reports absolute paths and the request takes a
+  // workspace-relative one. Convert here, at the point the value enters this
+  // surface, so the request and the log lines carry the one form the server
+  // accepts.
+  const release = toWorkspaceRelative(root, picked);
+
+  const out = deps.output;
+  out.show(true);
+  out.appendLine(`\nPreview of a build of ${release}. Nothing is written to disk.`);
+
+  let result: BuildPreviewResponse;
+  try {
+    result = await deps.previewBuild(release);
+  } catch (err) {
+    // The envelope is routed BEFORE the log line rather than instead of it. A
+    // refusal is about an authored document and carries which one, so routing it
+    // puts the fault on that document where the reader can act on it. The log
+    // line still fires either way: a reader watching this channel has to be told
+    // the preview did not complete, and a value that is not an envelope at all
+    // has nowhere else to surface.
+    deps.reportDaemonError(err, release);
+    // The message is the compiler's own text, unchanged. Where it named a
+    // remediation, that remediation is what the reader needs.
+    const message = err instanceof Error ? err.message : String(err);
+    out.appendLine(`The preview did not complete: ${message}`);
+    return;
+  }
+
+  for (const notice of result.notices ?? []) {
+    out.appendLine(notice.class ? `  ${notice.class}: ${notice.text}` : `  ${notice.text}`);
+  }
+  for (const file of result.files) {
+    out.appendLine(`  ${file}`);
+  }
+  // The count is followed by where the files go, because the names above are
+  // names and not paths: each one is relative to the output directory the build
+  // is given, so a reader comparing this list against a build's output finds the
+  // same names one level down rather than at the workspace root.
+  out.appendLine(
+    result.files.length === 1
+      ? 'A build of this Release writes 1 file, under the output directory it is given.'
+      : `A build of this Release writes ${result.files.length} files, under the output directory it is given.`,
+  );
 }
 
 // runCli spawns `aggrega <args>` in the anchored workspace root and streams its

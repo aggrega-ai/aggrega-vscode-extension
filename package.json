@@ -121,6 +121,12 @@
         "icon": "$(package)"
       },
       {
+        "command": "aggrega.op.preview",
+        "title": "Preview build",
+        "category": "Aggrega",
+        "icon": "$(eye)"
+      },
+      {
         "command": "aggrega.op.lint",
         "title": "Lint",
         "category": "Aggrega",
