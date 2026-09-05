@@ -53,6 +53,18 @@
   // An author who writes this exact shape into their own configuration has their
   // value withheld and told it was withheld. That is over-withholding, which
   // cannot leak.
+  //
+  // THE COMPILER DEFINES THIS KEY AND THE REASONS ABOVE; the spelling here is a
+  // second runtime's copy of a contract it does not own. The compiler writes the
+  // same marker into the structured views it emits, and the two cannot be held
+  // together by importing anything, because they are different languages.
+  //
+  // So they are held together by measurement instead: a conformance test runs
+  // the compiler for real over a workspace that declares sensitivity and hands
+  // the marker it emits to the reader below. A rename on either side leaves the
+  // reader recognising nothing and fails that test. Do not "simplify" the check
+  // into a comparison against a recorded sample — a sample is a third copy, and
+  // it would agree with this one while both had drifted from the compiler.
   const WITHHELD_MARKER_KEY = 'aggrega_withheld';
 
   // The pillars of an attachment that carry authored configuration, in the

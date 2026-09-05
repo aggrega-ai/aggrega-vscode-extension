@@ -127,6 +127,24 @@ export function fixtureWorkspaceRoot(): string {
   return path.resolve(extensionRoot(), 'test', 'fixtures', 'empty-workspace');
 }
 
+// sensitivityFixtureRoot returns the absolute path of the compiler's own
+// declared-sensitivity fixture — a workspace whose Component and Feature
+// schemas declare leaves sensitive and whose Aggregate and Release author
+// values at them.
+//
+// It is reached in the source tree rather than copied here, and deliberately:
+// the fixture's job in this suite is to make the compiler emit a real withheld
+// marker, so a copy that drifted from the compiler's own fixture would go on
+// asserting against a marker the compiler had stopped producing. The same
+// sibling tree already supplies the binary these tests run.
+export function sensitivityFixtureRoot(): string {
+  return path.resolve(
+    extensionRoot(),
+    SOURCE_TREE_RELATIVE,
+    'internal', 'compiler', 'testdata', 'authored-leaf-marking',
+  );
+}
+
 // brokenManifestWorkspaceRoot returns the absolute path of the workspace
 // whose Release points at a Manifest that is not there. It is the fixture for
 // the one failure whose fault is attributable to a single authored key, so it
