@@ -5,6 +5,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { GraphRedactor, createGraphRedactor } from './graph-payload';
 import { makeGraphMessageHandler } from './graph-messages';
+import { describeError } from './error-surfaces';
 import { NO_ANCHORED_WORKSPACE_MESSAGE } from './workspace';
 
 // GraphDeps supplies the live state the graph view needs without importing
@@ -26,6 +27,16 @@ export interface GraphDeps {
   // requestIrGraph returns the serialized IRGraph object (the daemon's
   // irGraph result `graph` field) for the given workspace-relative Release.
   requestIrGraph(release: string): Promise<unknown>;
+  // requestAttachCandidates reports which Features declare an applicability
+  // that this label set satisfies.
+  //
+  // THE SUBJECT IS THE LABEL SET, not a node name and not a graph node, and
+  // that is what makes the question answerable from a canvas. The labels a
+  // drawn graph carries are the finalised ones the build itself evaluates
+  // applicability against, so passing them asks the strongest form of the
+  // question — while naming a node instead would have the graph rebuilt in
+  // order to look labels back up that the canvas is already displaying.
+  requestAttachCandidates(labels: Record<string, string>): Promise<unknown>;
   // showsSensitiveValues reports whether the reader has asked to see the values
   // a Feature declares sensitive. Read on each render rather than captured, so
   // changing the setting takes effect on the next render of an open panel.
@@ -105,6 +116,13 @@ export function activateGraphView(context: vscode.ExtensionContext, deps: GraphD
             reportNoWorkspace: () => {
               void vscode.window.showInformationMessage(NO_ANCHORED_WORKSPACE_MESSAGE);
             },
+            requestAttachCandidates: (nodeId, labels, requestId) => {
+              // The panel that asked is the panel answered. There is one, it is
+              // reused, and it is cleared when it closes — so a request whose
+              // panel is already gone has nowhere to report and is dropped.
+              if (!panel) { return; }
+              void postAttachCandidates(panel, deps, nodeId, labels, requestId);
+            },
           }),
           null,
           context.subscriptions,
@@ -179,6 +197,50 @@ async function renderGraph(
   }
 }
 
+// postAttachCandidates asks what may attach to one node and posts the answer
+// back to the panel, tagged with the node it was asked about so the panel can
+// tell an answer about the selected node from one that arrived late.
+//
+// # A refusal is reported into the panel, and NOT onto a document
+//
+// The extension routes a daemon refusal to a diagnostic on the document the
+// refusal names, which is right for a failure that is ABOUT an authored
+// document — a graph that would not compile is about the Release. This request
+// is not of that kind. It names no document and builds no graph: its subject is
+// a label set, so nothing it can be refused for is attributable to a file, and
+// nothing it returns carries one. Publishing a diagnostic anyway would need a
+// document chosen here rather than named by the refusal, and the reader would
+// be sent to a file that is not at fault.
+//
+// So the answer and the refusal go to the same place the question was asked —
+// the panel the reader is looking at — with the detail on the output channel
+// where the rest of this view's failures are recorded. Both surfaces, because a
+// reader watching the panel has to be told the list is not coming, and a
+// message worth acting on is worth keeping after the panel closes.
+// The request id is echoed back untouched, on the answer and on the refusal
+// alike. Two requests may be in flight at once and may complete in either
+// order, so a refusal that is not echoed would be as capable of overwriting a
+// fresh answer as a stale answer is.
+async function postAttachCandidates(
+  panel: vscode.WebviewPanel,
+  deps: GraphDeps,
+  nodeId: string,
+  labels: Record<string, string>,
+  requestId: number,
+): Promise<void> {
+  try {
+    const result = await deps.requestAttachCandidates(labels);
+    void panel.webview.postMessage({ type: 'attachCandidates', nodeId, requestId, result });
+  } catch (err) {
+    // describeError is the extension's one home for rendering a thrown value as
+    // a line for a reader, so a transport refusal and a language server that is
+    // not running are worded here by the same rule they are worded everywhere.
+    const message = describeError(err);
+    deps.output.appendLine(`attachCandidates failed for ${nodeId}: ${message}`);
+    void panel.webview.postMessage({ type: 'attachCandidatesError', nodeId, requestId, message });
+  }
+}
+
 // openSource opens the node's authoring file. The IR carries workspace-relative
 // paths, so the click resolves against the anchored root.
 async function openSource(workspaceRoot: string, sourceFile: string): Promise<void> {
@@ -192,9 +254,9 @@ async function openSource(workspaceRoot: string, sourceFile: string): Promise<vo
 }
 
 // graphHtml builds the webview document: a strict CSP allowing only the
-// nonce'd inline bootstrap plus the four local scripts (elk bundle + the
-// layout model + the attachment projection + the graph renderer), served
-// through webview-scoped URIs.
+// nonce'd inline bootstrap plus the five local scripts (elk bundle + the
+// layout model + the attachment projection + the candidate projection + the
+// graph renderer), served through webview-scoped URIs.
 function graphHtml(webview: vscode.Webview, extensionUri: vscode.Uri): string {
   const nonce = makeNonce();
   const elkUri = webview.asWebviewUri(
@@ -205,6 +267,9 @@ function graphHtml(webview: vscode.Webview, extensionUri: vscode.Uri): string {
   );
   const attachmentsUri = webview.asWebviewUri(
     vscode.Uri.joinPath(extensionUri, 'media', 'attachments-model.js'),
+  );
+  const candidatesUri = webview.asWebviewUri(
+    vscode.Uri.joinPath(extensionUri, 'media', 'candidates-model.js'),
   );
   const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'graph.js'));
   const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'graph.css'));
@@ -237,6 +302,7 @@ function graphHtml(webview: vscode.Webview, extensionUri: vscode.Uri): string {
   <script nonce="${nonce}" src="${elkUri}"></script>
   <script nonce="${nonce}" src="${modelUri}"></script>
   <script nonce="${nonce}" src="${attachmentsUri}"></script>
+  <script nonce="${nonce}" src="${candidatesUri}"></script>
   <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>
 </html>`;

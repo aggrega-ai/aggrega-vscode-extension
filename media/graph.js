@@ -4,17 +4,24 @@
 // Webview renderer for the Aggrega IR topology graph. Receives the serialized
 // IRGraph from the extension, lays it out with elkjs (nested boundary →
 // subsystem → node containers, since the IR ships no coordinates), draws it as
-// SVG, shows what is attached to the node the reader selects, and posts a
-// source-open request back when a node is double-clicked. Depends only on the
-// global `ELK` exposed by elk.bundled.js and the globals `AggregaGraphModel`
-// and `AggregaAttachments` exposed by graph-model.js and attachments-model.js,
-// which hold the IR-to-layout transform, the hover text and the attachment
-// projection — no network access.
+// SVG, shows what is attached to the node the reader selects and what may
+// attach to it, and posts a source-open request back when a node is
+// double-clicked. Depends only on the global `ELK` exposed by elk.bundled.js
+// and the globals `AggregaGraphModel`, `AggregaAttachments` and
+// `AggregaCandidates` exposed by graph-model.js, attachments-model.js and
+// candidates-model.js, which hold the IR-to-layout transform, the hover text,
+// the attachment projection and the candidate projection — no network access.
 //
 // Every value the panel shows comes from the attachment projection, and this
 // file reads the IR's attachment table through nothing else. That is what keeps
 // a value the projection withheld out of reach of the drawing code entirely,
 // rather than relying on each drawing site to remember to check.
+//
+// THE PANEL ANSWERS TWO DIFFERENT QUESTIONS AND KEEPS THEM APART. What IS
+// attached is projected from the IR already in hand and is drawn at once. What
+// MAY attach is not in the IR at all: it is asked for when a node is selected
+// and drawn when the answer arrives, so that half of the panel has a waiting
+// state and a failure state the first half has no use for.
 
 (function () {
   'use strict';
@@ -24,6 +31,7 @@
   const elk = new ELK();
   const model = AggregaGraphModel;
   const attachments = AggregaAttachments;
+  const candidates = AggregaCandidates;
 
   const statusEl = document.getElementById('status');
   const canvas = document.getElementById('canvas');
@@ -51,6 +59,29 @@
   // The drawn node groups, so selecting one can mark it and unmark the rest.
   const nodeGroups = new Map();
 
+  // Each node's label set, kept from the render so selecting a node can ask
+  // what may attach to it without the graph being fetched or rebuilt.
+  //
+  // These are the labels the compiler put on the drawn nodes, held exactly as
+  // they arrived. Nothing here derives, merges or normalises them: the question
+  // asked is about the labels the reader is looking at, and a set assembled
+  // here would be a different question wearing the same name.
+  let shownLabels = new Map();
+  // The body of the palette section for the node the panel is showing, so an
+  // answer that arrives later fills it without the whole panel being redrawn
+  // underneath the reader.
+  let candidatesBodyEl = null;
+  // The id of the question the panel is currently waiting on. Every request
+  // mints a new one and only the newest is drawn.
+  //
+  // The node id cannot do this job. A re-render re-asks about the SAME node,
+  // precisely because that node's labels may have just changed, so two answers
+  // can be in flight for one id — and they can complete in either order, since
+  // each is a separate round trip. Matching on the node alone would let the
+  // older answer land last and draw a candidate list computed over labels the
+  // graph no longer has.
+  let candidatesRequestId = 0;
+
   window.addEventListener('message', (event) => {
     const msg = event.data;
     if (msg.type === 'loading') {
@@ -59,6 +90,10 @@
       setStatus(`${msg.release}: ${msg.message}`, true);
     } else if (msg.type === 'render') {
       renderGraph(msg.graph).catch((err) => setStatus(String(err), true));
+    } else if (msg.type === 'attachCandidates') {
+      showCandidates(msg.requestId, candidates.projectCandidates(msg.result));
+    } else if (msg.type === 'attachCandidatesError') {
+      showCandidatesFailure(msg.requestId, msg.message);
     }
   });
 
@@ -89,6 +124,7 @@
     // selection every time would close the panel while they are reading it.
     const wasSelected = selectedId;
     shownAttachments = projectAttachments(graph);
+    shownLabels = nodeLabels(meta);
     clearSelection();
     nodeGroups.clear();
 
@@ -229,6 +265,10 @@
     panelEl.classList.add('hidden');
     panelTitleEl.textContent = '';
     clear(panelBodyEl);
+    // The palette body belongs to the panel that was showing. Dropping the
+    // reference with the panel is what makes a late answer harmless: there is
+    // nothing left for it to fill.
+    candidatesBodyEl = null;
   }
 
   // projectAttachments projects every node's attachments up front, so the IR
@@ -242,27 +282,129 @@
     return projected;
   }
 
+  // nodeLabels keeps each node's label set from the layout model's own reading
+  // of the graph, so the labels a question is asked about and the labels the
+  // hover text shows are one reading rather than two.
+  function nodeLabels(meta) {
+    const kept = new Map();
+    meta.forEach((m, id) => { kept.set(id, (m && m.labels) || {}); });
+    return kept;
+  }
+
   function selectNode(nodeId) {
     selectedId = nodeId;
     nodeGroups.forEach((g, id) => { g.classList.toggle('node-selected', id === nodeId); });
     drawPanel(shownAttachments.get(nodeId) || { nodeId: nodeId, attachments: [] });
     panelEl.classList.remove('hidden');
+    askWhatMayAttach(nodeId);
   }
 
   // drawPanel writes the projection into the panel. It is handed the projected
   // rows and never the IR, so a value the projection withheld is not something
   // this code could draw even by mistake.
+  //
+  // The palette below the attachments is appended in both cases, because "what
+  // may attach" is a question worth an answer precisely when nothing is
+  // attached yet.
   function drawPanel(projected) {
     panelTitleEl.textContent = projected.nodeId;
     clear(panelBodyEl);
 
     if (projected.attachments.length === 0) {
       panelBodyEl.appendChild(el('p', 'panel-empty', 'Nothing is attached to this node.'));
+    } else {
+      for (const a of projected.attachments) {
+        panelBodyEl.appendChild(drawAttachment(a));
+      }
+    }
+    panelBodyEl.appendChild(drawCandidatesSection());
+  }
+
+  // --- what may attach ------------------------------------------------------
+
+  // drawCandidatesSection builds the palette in its waiting state and hands
+  // back the section. Its body is kept so the answer fills it in place.
+  function drawCandidatesSection() {
+    const box = el('section', 'candidates');
+    box.appendChild(el('div', 'candidates-title', candidates.CANDIDATES_TITLE));
+    box.appendChild(el('p', 'candidates-caption', candidates.CANDIDATES_CAPTION));
+    const body = el('div', 'candidates-body');
+    body.appendChild(el('p', 'panel-empty', candidates.PENDING_NOTE));
+    box.appendChild(body);
+    candidatesBodyEl = body;
+    return box;
+  }
+
+  // askWhatMayAttach asks the host about the node the reader just selected,
+  // passing the labels the drawn graph carries for it.
+  //
+  // A node the render kept no labels for is not asked about: there is no
+  // subject to ask with, and sending an empty set in its place would ask a
+  // question about a node carrying no labels — a different question with a
+  // plausible-looking answer. The report says what this view observed rather
+  // than what the node declares, which is the part it cannot know.
+  function askWhatMayAttach(nodeId) {
+    candidatesRequestId += 1;
+    const asked = candidatesRequestId;
+    const labels = shownLabels.get(nodeId);
+    if (!labels) {
+      showCandidatesFailure(asked, 'the rendered graph carries no labels for this node.');
       return;
     }
-    for (const a of projected.attachments) {
-      panelBodyEl.appendChild(drawAttachment(a));
+    vscode.postMessage({
+      type: 'attachCandidates',
+      nodeId: nodeId,
+      labels: labels,
+      requestId: asked,
+    });
+  }
+
+  // showCandidates draws the answer, or the sentence that stands in for an
+  // answer naming nothing.
+  //
+  // An answer to a question the panel has stopped waiting on is dropped —
+  // a different node was selected, the panel was closed, or the graph
+  // re-rendered and the same node was asked about again.
+  function showCandidates(requestId, projected) {
+    if (!answering(requestId)) { return; }
+    const body = candidatesBodyEl;
+    clear(body);
+
+    if (projected.rows.length === 0) {
+      body.appendChild(el('p', 'panel-empty', projected.emptyNote));
+      return;
     }
+    for (const row of projected.rows) {
+      body.appendChild(drawCandidate(row));
+    }
+  }
+
+  // showCandidatesFailure says the list could not be produced, in place of the
+  // list. A reader who is told nothing would read the waiting state as an empty
+  // answer, which is the one reading that is certainly wrong.
+  function showCandidatesFailure(requestId, message) {
+    if (!answering(requestId)) { return; }
+    clear(candidatesBodyEl);
+    candidatesBodyEl.appendChild(
+      el('p', 'candidates-failed', candidates.failureNote(message)),
+    );
+  }
+
+  // answering reports whether this is the answer the panel is still waiting
+  // for, and has somewhere to draw it.
+  function answering(requestId) {
+    return requestId === candidatesRequestId && candidatesBodyEl !== null;
+  }
+
+  function drawCandidate(row) {
+    const box = el('section', 'candidate');
+    box.appendChild(el('div', 'candidate-name', row.name));
+    if (row.facts.length > 0) {
+      const facts = el('dl', 'facts');
+      for (const f of row.facts) { addFact(facts, f.key, f.value); }
+      box.appendChild(facts);
+    }
+    return box;
   }
 
   function drawAttachment(a) {

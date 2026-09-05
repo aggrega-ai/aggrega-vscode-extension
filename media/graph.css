@@ -250,6 +250,50 @@ html, body {
   font-style: italic;
 }
 
+/* What MAY attach, below what IS attached. The heavier rule between them is
+   the whole point of the styling: the rows above are what the compiler
+   resolved, the rows below are what a Feature declares it applies to, and a
+   reader must not read the second list as the first. */
+.candidates {
+  border-top: 2px solid var(--vscode-editorWidget-border);
+  margin-top: 14px;
+  padding-top: 10px;
+}
+
+.candidates-title {
+  font-weight: 600;
+}
+
+.candidates-caption {
+  color: var(--vscode-descriptionForeground);
+  font-size: 12px;
+  margin: 4px 0 8px;
+}
+
+.candidate {
+  border-top: 1px solid var(--vscode-editorWidget-border);
+  padding-top: 6px;
+  margin-top: 6px;
+}
+
+.candidate:first-child {
+  border-top: none;
+  margin-top: 0;
+  padding-top: 0;
+}
+
+.candidate-name {
+  font-weight: 600;
+}
+
+/* A request that could not be answered. It is styled apart from the empty
+   state because the two mean opposite things: one is an answer naming nothing,
+   the other is no answer at all. */
+.candidates-failed {
+  color: var(--vscode-inputValidation-errorForeground, var(--vscode-errorForeground));
+  margin: 4px 0;
+}
+
 /* Edges. */
 .edge {
   fill: none;

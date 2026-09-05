@@ -218,6 +218,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const result = await daemon.request<{ graph: unknown }>('aggrega/irGraph', { release });
       return result.graph;
     },
+    // The label set is sent as the request's ONLY subject. The request takes
+    // one subject and refuses two, and the labels the drawn graph carries are
+    // the strongest of the ones it accepts — they are the finalised set, and
+    // they came from this same graph, so the answer is computed over exactly
+    // what the reader is looking at. Naming the node instead would have the
+    // Release's graph rebuilt to look those labels back up.
+    requestAttachCandidates: async (labels: Record<string, string>) => {
+      if (!daemon || daemon.getState() !== DaemonState.Running) {
+        throw new Error('the Aggrega language server is not running');
+      }
+      return await daemon.request<unknown>('aggrega/attachCandidates', { labels });
+    },
     showsSensitiveValues: () => getSettings().showSensitiveValues,
     reportDaemonError,
     output: outputChannel,
