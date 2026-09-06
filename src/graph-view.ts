@@ -317,6 +317,16 @@ function graphHtml(webview: vscode.Webview, extensionUri: vscode.Uri): string {
 <body>
   <div id="status" class="status">Select a Release to render its topology.</div>
   <svg id="canvas" xmlns="http://www.w3.org/2000/svg"></svg>
+  <!-- The layout has to size every box around the text it will hold, and it
+       runs before any of the graph is in the document. This text element is in
+       the document from the start, parked off to the side of the viewport, so
+       there is somewhere to measure a string before there is a graph to draw.
+       It is moved out of sight rather than hidden: an element the browser does
+       not lay out reports no text advance at all. -->
+  <svg id="measure" class="measure" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+    <text id="measure-text"></text>
+  </svg>
+  <aside id="legend" class="legend hidden"></aside>
   <aside id="panel" class="panel hidden">
     <header class="panel-head">
       <span id="panel-title" class="panel-title"></span>

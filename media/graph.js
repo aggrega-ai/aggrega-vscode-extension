@@ -4,9 +4,15 @@
 // Webview renderer for the Aggrega IR topology graph. Receives the serialized
 // IRGraph from the extension, lays it out with elkjs (nested boundary →
 // subsystem → node containers, since the IR ships no coordinates), draws it as
-// SVG, shows what is attached to the node the reader selects and what may
-// attach to it, and posts a source-open request back when a node is
-// double-clicked. Depends only on the global `ELK` exposed by elk.bundled.js
+// SVG with a legend for the parts of the drawing that are otherwise unreadable,
+// shows what is attached to the node the reader selects and what may attach to
+// it, and posts a source-open request back when a node is double-clicked.
+//
+// This file owns the document, which makes it the only side that can measure
+// text — so it supplies the measurement the layout model asks for, and every
+// decision about which strings are drawn and how a box is sized around them
+// stays in that model where it can be exercised without an editor.
+// Depends only on the global `ELK` exposed by elk.bundled.js
 // and the globals `AggregaGraphModel`, `AggregaAttachments` and
 // `AggregaCandidates` exposed by graph-model.js, attachments-model.js and
 // candidates-model.js, which hold the IR-to-layout transform, the hover text,
@@ -39,6 +45,31 @@
   const panelTitleEl = document.getElementById('panel-title');
   const panelBodyEl = document.getElementById('panel-body');
   const panelCloseEl = document.getElementById('panel-close');
+  const legendEl = document.getElementById('legend');
+  const measureTextEl = document.getElementById('measure-text');
+
+  // WHERE A MEASUREMENT CAN BE TAKEN, since the layout runs before any of the
+  // graph is in the document. Nothing that is laid out exists yet at that
+  // point, but the document itself does — so the measurement is taken on a text
+  // element that is in the document from the start, in its own tiny SVG parked
+  // off to the side of the viewport. It carries the same class the drawn text
+  // carries, so it inherits the same font family and size, and the width it
+  // reports is the width that will be drawn.
+  //
+  // The rig is positioned out of sight rather than hidden: an element the
+  // browser does not lay out has no text advance to report, so hiding it would
+  // silently measure every string as nothing.
+  const MEASURE_CLASS = {};
+  MEASURE_CLASS[model.ROLE_NODE_ID] = 'node-label';
+  MEASURE_CLASS[model.ROLE_NODE_COMPONENT] = 'node-sub';
+  MEASURE_CLASS[model.ROLE_CONTAINER_TITLE] = 'container-title';
+
+  function measureText(text, role) {
+    if (!text) { return 0; }
+    measureTextEl.setAttribute('class', MEASURE_CLASS[role] || '');
+    measureTextEl.textContent = text;
+    return measureTextEl.getComputedTextLength();
+  }
 
   // viewport is the pan/zoom group; every rendered element lives under it so a
   // single transform drives pan and zoom.
@@ -115,7 +146,7 @@
   // --- render -------------------------------------------------------------
 
   async function renderGraph(graph) {
-    const { root, meta } = model.toElkGraph(graph);
+    const { root, meta } = model.toElkGraph(graph, measureText);
     const laid = await elk.layout(root);
     hideStatus();
 
@@ -132,10 +163,20 @@
     viewport = document.createElementNS(SVGNS, 'g');
     canvas.appendChild(viewport);
 
-    // Draw containers and nodes with accumulated absolute offsets, then edges
-    // (whose section coordinates are relative to root, i.e. absolute here).
-    drawChildren(laid.children || [], 0, 0, meta);
-    drawEdges(laid.edges || []);
+    // The layout is nested and every position in it is stated relative to a
+    // parent, so it is resolved into one absolute space before anything is
+    // drawn — boxes in draw order, and the origin each edge's own geometry is
+    // stated against.
+    const { boxes, origins } = model.place(laid);
+    for (const box of boxes) {
+      if (box.kind === 'boundary' || box.kind === 'subsystem') {
+        drawContainer(box);
+      } else {
+        drawNode(box, meta.get(box.node.id));
+      }
+    }
+    drawEdges(laid.edges || [], origins);
+    drawLegend();
 
     if (wasSelected !== null && nodeGroups.has(wasSelected)) {
       selectNode(wasSelected);
@@ -145,45 +186,36 @@
     installInteraction();
   }
 
-  function drawChildren(children, offX, offY, meta) {
-    for (const child of children) {
-      const x = offX + (child.x || 0);
-      const y = offY + (child.y || 0);
-      if (child._kind === 'boundary' || child._kind === 'subsystem') {
-        drawContainer(child, x, y);
-        drawChildren(child.children || [], x, y, meta);
-      } else {
-        drawNode(child, x, y, meta.get(child.id));
-      }
-    }
-  }
-
-  function drawContainer(c, x, y) {
+  function drawContainer(box) {
     const rect = document.createElementNS(SVGNS, 'rect');
-    rect.setAttribute('x', x);
-    rect.setAttribute('y', y);
-    rect.setAttribute('width', c.width || 0);
-    rect.setAttribute('height', c.height || 0);
+    rect.setAttribute('x', box.x);
+    rect.setAttribute('y', box.y);
+    rect.setAttribute('width', box.width);
+    rect.setAttribute('height', box.height);
     rect.setAttribute('rx', '6');
-    rect.setAttribute('class', c._kind === 'boundary' ? 'container-boundary' : 'container-subsystem');
+    rect.setAttribute('class', box.kind === 'boundary' ? 'container-boundary' : 'container-subsystem');
     viewport.appendChild(rect);
 
     const title = document.createElementNS(SVGNS, 'text');
-    title.setAttribute('x', x + 10);
-    title.setAttribute('y', y + 16);
+    title.setAttribute('x', box.x + 10);
+    title.setAttribute('y', box.y + 16);
     title.setAttribute('class', 'container-title');
-    title.textContent = (c._kind === 'boundary' ? '▣ ' : '▢ ') + c._title;
+    // The title names the container's kind in words as well as by its glyph and
+    // its border, because a workspace declaring no grouping gets the same
+    // fallback name at both levels and the kind is then the only difference.
+    title.textContent = box.node._label;
     viewport.appendChild(title);
   }
 
-  function drawNode(node, x, y, m) {
+  function drawNode(box, m) {
+    const node = box.node;
     const g = document.createElementNS(SVGNS, 'g');
 
     const rect = document.createElementNS(SVGNS, 'rect');
-    rect.setAttribute('x', x);
-    rect.setAttribute('y', y);
-    rect.setAttribute('width', node.width);
-    rect.setAttribute('height', node.height);
+    rect.setAttribute('x', box.x);
+    rect.setAttribute('y', box.y);
+    rect.setAttribute('width', box.width);
+    rect.setAttribute('height', box.height);
     rect.setAttribute('class', 'node-rect');
     g.appendChild(rect);
 
@@ -191,29 +223,32 @@
     const accent = m && m.accent;
     if (accent) {
       const bar = document.createElementNS(SVGNS, 'rect');
-      bar.setAttribute('x', x);
-      bar.setAttribute('y', y);
+      bar.setAttribute('x', box.x);
+      bar.setAttribute('y', box.y);
       bar.setAttribute('width', 5);
-      bar.setAttribute('height', node.height);
+      bar.setAttribute('height', box.height);
       bar.setAttribute('class', 'node-accent');
       bar.style.fill = accent;
       g.appendChild(bar);
     }
 
-    const cx = x + node.width / 2;
+    const cx = box.x + box.width / 2;
     const label = document.createElementNS(SVGNS, 'text');
     label.setAttribute('x', cx);
-    label.setAttribute('y', y + node.height / 2 - 4);
+    label.setAttribute('y', box.y + box.height / 2 - 4);
     label.setAttribute('class', 'node-label');
     label.textContent = node.id;
     g.appendChild(label);
 
-    if (m && m.component && m.component !== node.id) {
+    // The second line, and which string it is, is the layout model's own
+    // decision — the same one the box was sized against, so what is drawn here
+    // and what the box was measured for cannot part company.
+    if (m && m.subLabel) {
       const sub = document.createElementNS(SVGNS, 'text');
       sub.setAttribute('x', cx);
-      sub.setAttribute('y', y + node.height / 2 + 11);
+      sub.setAttribute('y', box.y + box.height / 2 + 11);
       sub.setAttribute('class', 'node-sub');
-      sub.textContent = m.component;
+      sub.textContent = m.subLabel;
       g.appendChild(sub);
     }
 
@@ -237,12 +272,13 @@
     viewport.appendChild(g);
   }
 
-  function drawEdges(edges) {
+  function drawEdges(edges, origins) {
     for (const e of edges) {
-      for (const sec of e.sections || []) {
-        const pts = [sec.startPoint, ...(sec.bendPoints || []), sec.endPoint]
-          .map((p) => `${p.x},${p.y}`)
-          .join(' ');
+      // An edge's geometry is stated against the container the layout engine
+      // assigned it to rather than against the graph as a whole, so it is
+      // resolved into the one absolute space the boxes were drawn in.
+      for (const path of model.edgePaths(e, origins)) {
+        const pts = path.map((p) => `${p.x},${p.y}`).join(' ');
         const poly = document.createElementNS(SVGNS, 'polyline');
         poly.setAttribute('points', pts);
         let cls = 'edge';
@@ -255,6 +291,28 @@
         viewport.appendChild(poly);
       }
     }
+  }
+
+  // --- the legend -----------------------------------------------------------
+
+  // drawLegend fills the legend from the rows the layout model declares, and
+  // reveals it once there is a graph for it to explain.
+  //
+  // It sits outside the pan/zoom group, so it stays put and stays readable
+  // whatever the reader does to the canvas. What it names is the part of the
+  // drawing a reader cannot work out by looking: which box is which kind, and
+  // that a node's accent colour is local to the graph in front of them.
+  function drawLegend() {
+    clear(legendEl);
+    legendEl.appendChild(el('div', 'legend-title', model.LEGEND_TITLE));
+    for (const row of model.LEGEND_ROWS) {
+      const line = el('div', 'legend-row');
+      line.appendChild(el('span', `legend-swatch legend-swatch-${row.swatch}`));
+      line.appendChild(el('span', 'legend-text', row.text));
+      legendEl.appendChild(line);
+    }
+    legendEl.appendChild(el('p', 'legend-note', model.LEGEND_NOTE));
+    legendEl.classList.remove('hidden');
   }
 
   // --- selection and the attachments panel --------------------------------

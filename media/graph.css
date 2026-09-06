@@ -47,6 +47,98 @@ html, body {
   display: none;
 }
 
+/* The text-measuring rig. It is parked outside the viewport rather than hidden,
+   because an element the browser does not lay out has no text advance to report
+   and every string would measure as nothing. It takes no pointer events and is
+   one pixel of layout, so it changes nothing a reader can see or reach. */
+.measure {
+  position: fixed;
+  left: -10000px;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  overflow: visible;
+  pointer-events: none;
+}
+
+/* The legend, lower left. It sits outside the pan/zoom group so it stays put
+   and stays the same size whatever the reader does to the canvas, and it names
+   the parts of the drawing that cannot be worked out by looking: which box is
+   which kind, and what a node's accent colour does and does not mean. */
+.legend {
+  position: fixed;
+  left: 8px;
+  bottom: 8px;
+  /* Bounded against the viewport as well as absolutely, so it cannot reach
+     under the attachments panel — which takes up to half the width — on a
+     narrow window. */
+  max-width: min(320px, 40vw);
+  padding: 8px 10px;
+  border-radius: 4px;
+  background: var(--vscode-editorWidget-background);
+  border: 1px solid var(--vscode-editorWidget-border);
+  color: var(--vscode-editorWidget-foreground);
+  font-size: 11px;
+  z-index: 10;
+  pointer-events: none;
+}
+
+.legend.hidden {
+  display: none;
+}
+
+.legend-title {
+  font-weight: 600;
+  margin-bottom: 5px;
+}
+
+.legend-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 3px 0;
+}
+
+/* Each swatch is drawn from the same declarations as the thing it stands for,
+   so a change to a container's border or the accent bar's width shows up in the
+   legend rather than leaving it describing a drawing that has moved on. */
+.legend-swatch {
+  flex: none;
+  display: inline-block;
+  width: 18px;
+  height: 12px;
+  border-radius: 3px;
+}
+
+.legend-swatch-boundary {
+  background: var(--vscode-editorWidget-background);
+  border: 1.5px solid #0e7070;
+}
+
+.legend-swatch-subsystem {
+  background: var(--vscode-editorWidget-background);
+  border: 1.25px dashed #a3e635;
+}
+
+/* The accent swatch is the bar itself: the leading edge of a node body, at the
+   width the node draws it. The palette is per-graph, so no one colour stands
+   for it — the first of the palette stands for the bar. */
+.legend-swatch-accent {
+  background: var(--vscode-button-background);
+  border: 1px solid var(--vscode-contrastBorder, var(--vscode-panel-border));
+  border-left: 5px solid #e69f00;
+}
+
+.legend-text {
+  color: var(--vscode-editorWidget-foreground);
+}
+
+.legend-note {
+  color: var(--vscode-descriptionForeground);
+  margin: 6px 0 0;
+  line-height: 1.35;
+}
+
 /* Boundary and subsystem containers.
    Structural elements carry the brand pair — petrol (#0E7070, the brand's
    structure/link colour) on boundaries, lime (#A3E635, the brand primary) on
