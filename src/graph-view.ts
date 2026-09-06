@@ -5,6 +5,16 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { GraphRedactor, createGraphRedactor } from './graph-payload';
 import { makeGraphMessageHandler } from './graph-messages';
+import {
+  AttachmentSite,
+  attachmentEntryLines,
+  attachmentSites,
+  composeInsertionText,
+  insertionPositionInDocument,
+  placeAttachment,
+  readInsertion,
+  refusesEntryShape,
+} from './attachment-edit';
 import { describeError } from './error-surfaces';
 import { reportGraphFailure } from './graph-failure';
 import { RendersOnReady } from './readiness';
@@ -45,6 +55,14 @@ export interface GraphDeps extends RendersOnReady {
   // question — while naming a node instead would have the graph rebuilt in
   // order to look labels back up that the canvas is already displaying.
   requestAttachCandidates(labels: Record<string, string>): Promise<unknown>;
+  // requestInsertionPoint reports where a new entry under the named container
+  // belongs in one authored document.
+  //
+  // It is the compiler's answer and it is read-only: it reports a position and
+  // writes nothing. Composing the entry's text and applying it belongs on this
+  // side, because this side owns the buffer, the undo history and whatever the
+  // reader has typed and not yet saved.
+  requestInsertionPoint(file: string, container: string[]): Promise<unknown>;
   // showsSensitiveValues reports whether the reader has asked to see the values
   // a Feature declares sensitive. Read on each render rather than captured, so
   // changing the setting takes effect on the next render of an open panel.
@@ -83,6 +101,20 @@ export function activateGraphView(context: vscode.ExtensionContext, deps: GraphD
   // same one without asking the user again, and cleared with the panel so a
   // refresh after a close does nothing.
   let shownRelease: string | null = null;
+  // What the drawn graph knows about each node's authoring, rebuilt on every
+  // render. It holds names and a path per node and no authored value at all, so
+  // keeping it costs nothing the redaction removed.
+  //
+  // It is kept HERE, on the side that received the compiled graph, rather than
+  // asked of the view when an edit is requested. A document path arriving back
+  // from the view would be a path the extension writes to on the view's word,
+  // and the view is a separate context; this way every edit lands in a document
+  // the compiler itself named.
+  let shownSites = new Map<string, AttachmentSite>();
+  // How a completed render hands back what it read. The render is a free
+  // function so it can be reasoned about without this closure; this is the one
+  // thing it has to put back.
+  const keepSites = (sites: Map<string, AttachmentSite>): void => { shownSites = sites; };
 
   context.subscriptions.push(
     vscode.commands.registerCommand('aggrega.graph.show', async () => {
@@ -112,7 +144,11 @@ export function activateGraphView(context: vscode.ExtensionContext, deps: GraphD
             ],
           },
         );
-        panel.onDidDispose(() => { panel = null; shownRelease = null; }, null, context.subscriptions);
+        panel.onDidDispose(() => {
+          panel = null;
+          shownRelease = null;
+          shownSites = new Map();
+        }, null, context.subscriptions);
         // The handler is registered once, with the panel, and the panel
         // outlives the anchor — so it reads the root through the getter on each
         // message rather than closing over the one bound above, which belongs
@@ -131,6 +167,19 @@ export function activateGraphView(context: vscode.ExtensionContext, deps: GraphD
               if (!panel) { return; }
               void postAttachCandidates(panel, deps, nodeId, labels, requestId);
             },
+            attachFeature: (nodeId, featureName) => {
+              if (!panel) { return; }
+              // The site is looked up in this render's own table rather than
+              // taken from the message, so a node the current graph does not
+              // hold has nowhere to attach anything and says so.
+              const site = shownSites.get(nodeId);
+              if (!site) {
+                void postAttachOutcome(panel, nodeId,
+                  `The drawn graph carries no authoring file for ${nodeId}.`, false);
+                return;
+              }
+              void attachFeature(panel, deps, site, featureName);
+            },
           }),
           null,
           context.subscriptions,
@@ -142,7 +191,7 @@ export function activateGraphView(context: vscode.ExtensionContext, deps: GraphD
 
       panel.title = `Aggrega Graph — ${release}`;
       shownRelease = release;
-      await renderGraph(panel, deps, redact, release);
+      await renderGraph(panel, deps, redact, release, keepSites);
     }),
   );
 
@@ -154,7 +203,7 @@ export function activateGraphView(context: vscode.ExtensionContext, deps: GraphD
     if (!panel || !shownRelease) { return; }
     // Quiet: the panel keeps showing the graph it has until the new one
     // replaces it, rather than flashing a layout notice on every recompile.
-    void renderGraph(panel, deps, redact, shownRelease, { quiet: true });
+    void renderGraph(panel, deps, redact, shownRelease, keepSites, { quiet: true });
   };
 
   // A panel left open across a restart is showing a topology drawn by a server
@@ -183,6 +232,7 @@ async function renderGraph(
   deps: GraphDeps,
   redact: GraphRedactor,
   release: string,
+  keepSites: (sites: Map<string, AttachmentSite>) => void,
   opts: { quiet?: boolean } = {},
 ): Promise<void> {
   if (!opts.quiet) {
@@ -201,6 +251,11 @@ async function renderGraph(
         (signal) => deps.requestIrGraph(release, signal),
       );
     const graph = redact(answer, deps.showsSensitiveValues());
+    // Read from the answer rather than from the redacted payload, and only once
+    // the redaction has succeeded: what this keeps is a path and a set of names
+    // per node, none of which the redaction touches, and a render that posts
+    // nothing must leave no sites behind for an edit to act on.
+    keepSites(attachmentSites(answer));
     void panel.webview.postMessage({ type: 'render', release, graph });
   } catch (err) {
     // A redaction that cannot be performed lands here with the request
@@ -264,6 +319,129 @@ async function postAttachCandidates(
     deps.output.appendLine(`attachCandidates failed for ${nodeId}: ${message}`);
     void panel.webview.postMessage({ type: 'attachCandidatesError', nodeId, requestId, message });
   }
+}
+
+// attachFeature commits the Feature the reader chose onto the node they
+// selected, by editing the Aggregate that declares it.
+//
+// # THE COMPILER SAYS WHERE; THIS SIDE WRITES
+//
+// The request that follows is read-only and reports a position. Everything that
+// touches the document happens here, through the editor's own edit machinery,
+// and that routing is the requirement rather than a convenience: an edit
+// applied through the document model joins the undo history, lands on the
+// buffer the reader is looking at rather than on the last bytes written to
+// disk, and leaves every comment and every formatting choice around it as its
+// author wrote them. Writing the file directly would contest all three with the
+// editor that owns them.
+//
+// # NOTHING IS SAVED HERE, AND NOTHING IS RE-VALIDATED HERE EITHER
+//
+// The edit lands in the buffer, which is a document change like any other: the
+// language server is told, it validates, and the diagnostics it reports are
+// what re-renders this graph. Saving on the reader's behalf would take a
+// decision that is theirs, and re-validating from here would be a second
+// trigger for something the ordinary edit path already does.
+async function attachFeature(
+  panel: vscode.WebviewPanel,
+  deps: GraphDeps,
+  site: AttachmentSite,
+  featureName: string,
+): Promise<void> {
+  const placement = placeAttachment(site, featureName);
+  if ('refusal' in placement) {
+    void postAttachOutcome(panel, site.nodeId, placement.refusal, false);
+    return;
+  }
+
+  const root = deps.getWorkspaceRoot();
+  if (root === null) {
+    void postAttachOutcome(panel, site.nodeId, NO_ANCHORED_WORKSPACE_MESSAGE, false);
+    return;
+  }
+
+  try {
+    const answer = await deps.requestInsertionPoint(placement.file, placement.container);
+    const insertion = readInsertion(answer);
+    if (insertion === null) {
+      void postAttachOutcome(panel, site.nodeId,
+        'The compiler\'s answer about where this belongs is in a shape this cannot apply.', false);
+      return;
+    }
+    const shapeRefusal = refusesEntryShape(insertion);
+    if (shapeRefusal) {
+      void postAttachOutcome(panel, site.nodeId, `Cannot attach: ${shapeRefusal}`, false);
+      return;
+    }
+    // The answer names the document workspace-relative, as every other
+    // per-document answer does.
+    const target = path.isAbsolute(insertion.file)
+      ? insertion.file
+      : path.join(root, insertion.file);
+    const uri = vscode.Uri.file(target);
+    const doc = await vscode.workspace.openTextDocument(uri);
+
+    // The units the reported offset is measured in are read off the answer,
+    // which states them. An encoding this side cannot convert from refuses
+    // rather than falls back: a position applied in the wrong units lands on
+    // the wrong column of the right line, which is an edit nobody asked for
+    // rather than an error anybody sees.
+    const at = insertionPositionInDocument(doc.getText(), insertion);
+    if (at === null) {
+      void postAttachOutcome(panel, site.nodeId,
+        `Cannot attach: the position is reported in ${insertion.positionEncoding || 'unstated'} `
+        + 'units, which this cannot convert from.', false);
+      return;
+    }
+
+    const text = composeInsertionText(
+      insertion,
+      attachmentEntryLines(placement.instanceName, featureName, insertion.indentStep),
+    );
+
+    const edit = new vscode.WorkspaceEdit();
+    edit.insert(uri, new vscode.Position(at.line, at.character), text);
+    if (!(await vscode.workspace.applyEdit(edit))) {
+      void postAttachOutcome(panel, site.nodeId, 'The editor did not apply the edit.', false);
+      return;
+    }
+
+    // Shown so the change is in front of the reader rather than in a file they
+    // have to go and find. It is the same document the edit landed in.
+    await vscode.window.showTextDocument(doc, { preview: false });
+
+    // Whether the nesting step was measured from this document or stood in for
+    // by a default is reported rather than smoothed over. A document with no
+    // nesting of its own supplies nothing to match, and a reader whose file
+    // uses a different width is owed the reason the new lines do not match it.
+    const note = insertion.indentStepMeasured
+      ? ''
+      : ' The document exhibits no nesting to measure, so a default indentation was used.';
+    deps.output.appendLine(
+      `attached ${featureName} to ${site.nodeId} as ${placement.instanceName} in ${insertion.file}`,
+    );
+    void postAttachOutcome(panel, site.nodeId,
+      `Attached ${featureName} to ${site.nodeId} as ${placement.instanceName}.${note}`, true);
+  } catch (err) {
+    const message = describeError(err);
+    deps.output.appendLine(`attaching ${featureName} to ${site.nodeId} failed: ${message}`);
+    void postAttachOutcome(panel, site.nodeId, `Cannot attach: ${message}`, false);
+  }
+}
+
+// postAttachOutcome tells the panel what became of the reader's click.
+//
+// It is reported into the panel the click came from rather than onto the
+// document, for the reason a candidate refusal is: what failed is a request
+// about a place in a file, and nothing it can be refused for is a fault of the
+// file the reader would be sent to.
+function postAttachOutcome(
+  panel: vscode.WebviewPanel,
+  nodeId: string,
+  message: string,
+  attached: boolean,
+): Thenable<boolean> {
+  return panel.webview.postMessage({ type: 'attachOutcome', nodeId, message, attached });
 }
 
 // openSource opens the node's authoring file. The IR carries workspace-relative

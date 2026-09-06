@@ -10,6 +10,7 @@ export interface GraphMessage {
   nodeId?: string;
   labels?: Record<string, string>;
   requestId?: number;
+  featureName?: string;
 }
 
 // GraphMessageSinks are the effects a webview message can have. Injecting them
@@ -42,6 +43,15 @@ export interface GraphMessageSinks {
     labels: Record<string, string>,
     requestId: number,
   ): void;
+  // attachFeature commits the Feature the reader chose onto the node they have
+  // selected, by editing the Aggregate that declares it.
+  //
+  // BOTH ARGUMENTS ARE NAMES AND NEITHER IS A LOCATION. Which document the edit
+  // lands in, and where in it, is resolved on the side that holds the compiled
+  // graph — so a path is never something this side accepted from the view. What
+  // arrives here is what the reader clicked: the node they are looking at, and
+  // the entity named on the row.
+  attachFeature(nodeId: string, featureName: string): void;
 }
 
 // makeGraphMessageHandler builds the webview's message handler over a LIVE
@@ -68,6 +78,10 @@ export function makeGraphMessageHandler(
     }
     if (msg.type === 'attachCandidates') {
       dispatchAttachCandidates(msg, sinks);
+      return;
+    }
+    if (msg.type === 'attachFeature') {
+      dispatchAttachFeature(msg, sinks);
       return;
     }
     // Every other type falls through in silence, which is the tolerance the
@@ -124,4 +138,17 @@ function dispatchAttachCandidates(msg: GraphMessage, sinks: GraphMessageSinks): 
     ? msg.requestId
     : 0;
   sinks.requestAttachCandidates(msg.nodeId, labels, requestId);
+}
+
+// dispatchAttachFeature forwards the reader's choice of what to attach.
+//
+// Both names must be there and neither is interpreted. An absent one names no
+// subject — there is either no node to attach to or nothing to attach — so the
+// message is dropped rather than completed with a default, which would commit
+// an edit the reader did not ask for.
+function dispatchAttachFeature(msg: GraphMessage, sinks: GraphMessageSinks): void {
+  if (!msg.nodeId || !msg.featureName) {
+    return;
+  }
+  sinks.attachFeature(msg.nodeId, msg.featureName);
 }

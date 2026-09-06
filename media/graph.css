@@ -374,8 +374,51 @@ html, body {
   padding-top: 0;
 }
 
+.candidate-head {
+  align-items: baseline;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+}
+
 .candidate-name {
   font-weight: 600;
+}
+
+/* The control that commits a candidate. It is drawn as a button rather than as
+   a link because pressing it changes a file, and a control that edits should
+   not look like one that navigates. */
+.candidate-attach {
+  background: var(--vscode-button-secondaryBackground, var(--vscode-button-background));
+  border: none;
+  border-radius: 2px;
+  color: var(--vscode-button-secondaryForeground, var(--vscode-button-foreground));
+  cursor: pointer;
+  flex: none;
+  font-family: inherit;
+  font-size: 12px;
+  padding: 2px 8px;
+}
+
+.candidate-attach:hover {
+  background: var(--vscode-button-secondaryHoverBackground, var(--vscode-button-hoverBackground));
+}
+
+/* What became of a commit. It keeps the palette's own width and sits under it,
+   so a reader who attaches a second Feature still has the list. */
+.attach-outcome {
+  border-top: 1px solid var(--vscode-editorWidget-border);
+  font-size: 12px;
+  margin: 8px 0 0;
+  padding-top: 6px;
+}
+
+.attach-outcome.hidden {
+  display: none;
+}
+
+.attach-outcome.attach-failed {
+  color: var(--vscode-inputValidation-errorForeground, var(--vscode-errorForeground));
 }
 
 /* A request that could not be answered. It is styled apart from the empty

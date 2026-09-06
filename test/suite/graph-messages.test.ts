@@ -8,10 +8,11 @@ interface Recorder {
   opened: Array<{ workspaceRoot: string; sourceFile: string }>;
   noWorkspaceReports: number;
   asked: Array<{ nodeId: string; labels: Record<string, string>; requestId: number }>;
+  attached: Array<{ nodeId: string; featureName: string }>;
 }
 
 function recorder(): Recorder {
-  return { opened: [], noWorkspaceReports: 0, asked: [] };
+  return { opened: [], noWorkspaceReports: 0, asked: [], attached: [] };
 }
 
 function handlerOver(getRoot: () => string | null, rec: Recorder) {
@@ -21,6 +22,7 @@ function handlerOver(getRoot: () => string | null, rec: Recorder) {
     requestAttachCandidates: (nodeId, labels, requestId) => {
       rec.asked.push({ nodeId, labels, requestId });
     },
+    attachFeature: (nodeId, featureName) => { rec.attached.push({ nodeId, featureName }); },
   });
 }
 
@@ -159,5 +161,34 @@ describe('makeGraphMessageHandler', () => {
     // reader is not told to anchor something the question never needed.
     assert.deepStrictEqual(rec.asked, [{ nodeId: 'api', labels: { tier: 'web' }, requestId: 1 }]);
     assert.strictEqual(rec.noWorkspaceReports, 0);
+  });
+
+  it('forwards a commit with the two names it was given, and nothing else', () => {
+    const rec = recorder();
+    const handle = handlerOver(() => '/a/root', rec);
+
+    handle({ type: 'attachFeature', nodeId: 'cache', featureName: 'observability/scrape' });
+
+    assert.deepStrictEqual(rec.attached, [
+      { nodeId: 'cache', featureName: 'observability/scrape' },
+    ]);
+    // A commit is not a source-file click and not a candidacy question.
+    assert.deepStrictEqual(rec.opened, []);
+    assert.deepStrictEqual(rec.asked, []);
+  });
+
+  it('commits nothing when either name is missing, rather than completing one', () => {
+    const rec = recorder();
+    const handle = handlerOver(() => '/a/root', rec);
+
+    // An absent name on either side names no subject: there is either no node
+    // to attach to or nothing to attach. Defaulting either would edit a file on
+    // a guess.
+    handle({ type: 'attachFeature', featureName: 'observability/scrape' });
+    handle({ type: 'attachFeature', nodeId: 'cache' });
+    handle({ type: 'attachFeature', nodeId: '', featureName: 'observability/scrape' });
+    handle({ type: 'attachFeature', nodeId: 'cache', featureName: '' });
+
+    assert.deepStrictEqual(rec.attached, []);
   });
 });

@@ -35,6 +35,20 @@
 
   const PENDING_NOTE = 'Looking for Features that may attach…';
 
+  // The words on the control that commits a candidate, and the sentence under
+  // the palette saying what pressing it does.
+  //
+  // The caption says the edit lands in the Aggregate rather than merely
+  // happening, because the reader is about to have a file of theirs changed and
+  // an affordance that does not say which file is one they cannot predict. It
+  // says nothing about saving: the edit reaches the buffer, and whether that is
+  // written to disk stays the reader's decision like every other edit.
+  const ATTACH_ACTION = 'Attach';
+
+  const ATTACH_ACTION_CAPTION =
+    'Attaching edits the Aggregate that declares this component. '
+    + 'The change lands in the editor, where it can be undone.';
+
   // The label sets an answer can be computed over. Each is a genuinely
   // different statement, so the empty-result sentence is worded from it rather
   // than from one sentence covering all three: an answer computed over labels
@@ -154,5 +168,7 @@
     CANDIDATES_TITLE: CANDIDATES_TITLE,
     CANDIDATES_CAPTION: CANDIDATES_CAPTION,
     PENDING_NOTE: PENDING_NOTE,
+    ATTACH_ACTION: ATTACH_ACTION,
+    ATTACH_ACTION_CAPTION: ATTACH_ACTION_CAPTION,
   };
 })(typeof globalThis !== 'undefined' ? globalThis : this);

@@ -102,6 +102,11 @@
   // answer that arrives later fills it without the whole panel being redrawn
   // underneath the reader.
   let candidatesBodyEl = null;
+  // Where the result of committing a candidate is written. It is a line of its
+  // own rather than a replacement for the palette, because the reader is likely
+  // to attach a second Feature and a surface that replaced the list with a
+  // confirmation would take it away at the moment it is next wanted.
+  let attachOutcomeEl = null;
   // The id of the question the panel is currently waiting on. Every request
   // mints a new one and only the newest is drawn.
   //
@@ -125,6 +130,8 @@
       showCandidates(msg.requestId, candidates.projectCandidates(msg.result));
     } else if (msg.type === 'attachCandidatesError') {
       showCandidatesFailure(msg.requestId, msg.message);
+    } else if (msg.type === 'attachOutcome') {
+      showAttachOutcome(msg.nodeId, msg.message, msg.attached);
     }
   });
 
@@ -328,6 +335,7 @@
     // reference with the panel is what makes a late answer harmless: there is
     // nothing left for it to fill.
     candidatesBodyEl = null;
+    attachOutcomeEl = null;
   }
 
   // projectAttachments projects every node's attachments up front, so the IR
@@ -387,10 +395,16 @@
     const box = el('section', 'candidates');
     box.appendChild(el('div', 'candidates-title', candidates.CANDIDATES_TITLE));
     box.appendChild(el('p', 'candidates-caption', candidates.CANDIDATES_CAPTION));
+    box.appendChild(el('p', 'candidates-caption', candidates.ATTACH_ACTION_CAPTION));
     const body = el('div', 'candidates-body');
     body.appendChild(el('p', 'panel-empty', candidates.PENDING_NOTE));
     box.appendChild(body);
     candidatesBodyEl = body;
+    // The outcome line sits below the palette and outside its body, so filling
+    // the body with a fresh answer does not erase what the last edit reported.
+    const outcome = el('p', 'attach-outcome hidden');
+    box.appendChild(outcome);
+    attachOutcomeEl = outcome;
     return box;
   }
 
@@ -455,15 +469,49 @@
     return requestId === candidatesRequestId && candidatesBodyEl !== null;
   }
 
+  // drawCandidate draws one row of the palette together with the control that
+  // commits it.
+  //
+  // The control is a button rather than the row itself, so the row stays
+  // readable without being an affordance: a reader scanning what may attach is
+  // not one press away from editing their file every time they click a name.
+  //
+  // The button carries the entity's name and nothing else. Where the edit lands
+  // is resolved on the other side of this boundary, from the graph the compiler
+  // sent — so this posts what the reader chose and never where it goes.
   function drawCandidate(row) {
     const box = el('section', 'candidate');
-    box.appendChild(el('div', 'candidate-name', row.name));
+    const head = el('div', 'candidate-head');
+    head.appendChild(el('span', 'candidate-name', row.name));
+    const attach = el('button', 'candidate-attach', candidates.ATTACH_ACTION);
+    attach.addEventListener('click', () => {
+      vscode.postMessage({
+        type: 'attachFeature',
+        nodeId: selectedId,
+        featureName: row.name,
+      });
+    });
+    head.appendChild(attach);
+    box.appendChild(head);
     if (row.facts.length > 0) {
       const facts = el('dl', 'facts');
       for (const f of row.facts) { addFact(facts, f.key, f.value); }
       box.appendChild(facts);
     }
     return box;
+  }
+
+  // showAttachOutcome reports what became of a commit, in the panel the press
+  // came from.
+  //
+  // An outcome for a node the panel has moved on from is dropped. The reader
+  // has selected something else, and a line about the previous node under the
+  // current node's palette reads as being about the current one.
+  function showAttachOutcome(nodeId, message, attached) {
+    if (attachOutcomeEl === null || nodeId !== selectedId) { return; }
+    attachOutcomeEl.textContent = message;
+    attachOutcomeEl.classList.remove('hidden');
+    attachOutcomeEl.classList.toggle('attach-failed', !attached);
   }
 
   function drawAttachment(a) {

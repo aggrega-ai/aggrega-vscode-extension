@@ -412,6 +412,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       return await daemon.request<unknown>('aggrega/attachCandidates', { labels });
     },
+    // Where an entry under a named container belongs in one authored document.
+    // The request reports a position and writes nothing; the view composes the
+    // text and applies it through the editor, which owns the buffer the answer
+    // is computed against — the session reads what the editor is holding, so an
+    // unsaved change is already part of the answer.
+    requestInsertionPoint: async (file: string, container: string[]) => {
+      if (!daemon || daemon.getState() !== DaemonState.Running) {
+        throw new Error('the Aggrega language server is not running');
+      }
+      return await daemon.request<unknown>('aggrega/insertionPoint', { file, container });
+    },
     showsSensitiveValues: () => getSettings().showSensitiveValues,
     reportDaemonError,
     onReady: ready.onReady,
