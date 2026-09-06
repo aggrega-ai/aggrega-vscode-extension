@@ -26,7 +26,24 @@ import {
   notifyStoppedResponding,
   promptCacheMiss,
 } from './notifications';
-import { Readiness, createReadiness } from './readiness';
+import {
+  COMPILER_ANSWERABLE_CONTEXT_KEY,
+  Readiness,
+  createReadiness,
+} from './readiness';
+import {
+  DAEMON_ACTION_DETAIL,
+  DAEMON_ACTION_LABEL,
+  DAEMON_ACTION_PLACEHOLDER,
+  DaemonStatusBar,
+  LIFECYCLE_ACTIONS_COMMAND,
+  RESTART_COMMAND,
+  STATUS_BAR_MENU_COMMAND,
+  TOGGLE_BUILD_ON_INSPECT_COMMAND,
+  createDaemonStatusBar,
+  daemonStanding,
+  daemonStandingAction,
+} from './daemon-status';
 import {
   SHOW_OUTPUT_ACTION,
   countReport,
@@ -46,7 +63,11 @@ import {
   buildOnInspectConfirmation,
   buildOnInspectMenuDescription,
 } from './settings';
-import { createAggregaStatusBar, createPendingChoiceStatusBar } from './status-bar';
+import {
+  createAggregaStatusBar,
+  createLifecycleStatusBarItem,
+  createPendingChoiceStatusBar,
+} from './status-bar';
 import { scheduleBinaryRestart, RestartHandle } from './binary-restart';
 import { checkDaemonVersion } from './version-check';
 import {
@@ -111,6 +132,10 @@ let pendingRestartRemaining = 0;
 let statusBarItem: vscode.StatusBarItem | null = null;
 let baseStatusBarText = '';
 let pendingChoiceItem: vscode.StatusBarItem | null = null;
+// daemonStatusBar reports whether the language server is running at all. It is
+// created at activation and outlives every daemon, because the state it exists
+// to report is the one in which there is no daemon to hang it off.
+let daemonStatusBar: DaemonStatusBar | null = null;
 let activeAnchored: AnchoredFolder<vscode.WorkspaceFolder> | null = null;
 let currentAnchored: AnchoredFolder<vscode.WorkspaceFolder>[] = [];
 let extensionContext: vscode.ExtensionContext | null = null;
@@ -203,6 +228,44 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     isLanguageServerRunning,
   });
   readiness = ready;
+
+  // THE ONE PUBLISHER OF THE READINESS CONDITION, and it computes nothing. It
+  // hands the editor the answer the readiness state already holds, so a
+  // command's availability is decided by the same fact every view renders from
+  // rather than by a second reading taken in a manifest clause's own terms.
+  // Both edges are published: a condition left true after the compiler stops
+  // being answerable leaves a command enabled that cannot run, which is the
+  // enabled-but-inert control this whole arrangement exists to remove.
+  ready.onChange((answerable) => {
+    void vscode.commands.executeCommand(
+      'setContext',
+      COMPILER_ANSWERABLE_CONTEXT_KEY,
+      answerable,
+    );
+  });
+
+  // Registered here rather than when a language server attaches, which is the
+  // defect this replaces: the command that starts one is needed precisely in
+  // the workspace where none has attached, and a command that does not exist is
+  // not in the palette to be found. What decides whether a reader may run one
+  // is the condition above, declared in the manifest — so an unavailable
+  // command is greyed where they can see it rather than absent where they
+  // cannot.
+  registerRestartCommand(context);
+  registerLifecycleActionsCommand(context);
+  registerBuildOnInspectToggle(context);
+  registerStatusBarMenu(context);
+
+  // The lifecycle indicator is created before any daemon and is never taken
+  // down, because the state it reports most usefully is the one with no daemon
+  // in it. It reads the lifecycle through the getter the client already exposes
+  // and keeps no copy of it.
+  daemonStatusBar = createDaemonStatusBar({
+    getDaemonState: () => daemon?.getState() ?? null,
+    isWorkspaceAnchored: () => workspaceRootForCommands !== null,
+    createStatusBarItem: () => createLifecycleStatusBarItem(context),
+    alarmBackground: () => new vscode.ThemeColor('statusBarItem.errorBackground'),
+  });
 
   // The selection is built before any surface that reads it. It contacts
   // nothing here: the default is adopted once the language server connects, and
@@ -486,6 +549,11 @@ async function reactivate(context: vscode.ExtensionContext): Promise<void> {
   // now are, including the branch where the server failed to start, so this is
   // the one place from which the get-started conditions are true of all of them.
   refreshGetStarted?.();
+  // And the same for the lifecycle indicator. Two of the four branches build no
+  // client at all, so nothing there fires the lifecycle listener and the
+  // indicator would otherwise go on reporting whatever it last saw — in the
+  // workspace where what it reports matters most.
+  daemonStatusBar?.refresh();
 }
 
 function surfacePendingChoice(
@@ -566,6 +634,13 @@ async function ensureDaemonAt(
     // anywhere else: it would be a second answer to one question, and the
     // surface written after it would derive a third.
     readiness?.reassess();
+    // The lifecycle indicator reads the position itself rather than the
+    // readiness state, because it reports three standings where readiness
+    // answers yes or no — a server on its way up is not the same news as one
+    // that is not there. It is still the one lifecycle, read through the
+    // client's own getter, and it is refreshed from this listener rather than
+    // from a second one of its own.
+    daemonStatusBar?.refresh();
   });
   daemon.on('notification:aggrega/publishDiagnostics', (params: PublishDiagnosticsParams) => {
     // The same notification drives two surfaces: the editor's diagnostics, and
@@ -582,10 +657,12 @@ async function ensureDaemonAt(
     : undefined;
   statusBarItem = createAggregaStatusBar(context, daemon, anchorContext);
 
+  // What is left behind this guard registers editor providers and watchers,
+  // each of which has nothing to do without a language server and returns as
+  // much when asked. The commands that used to sit here are registered when the
+  // extension activates instead: a command is something a reader looks for, and
+  // one that does not exist yet is one they conclude is missing.
   if (!lateInitDone) {
-    registerRestartCommand(context);
-    registerBuildOnInspectToggle(context);
-    registerStatusBarMenu(context);
     context.subscriptions.push(
       vscode.workspace.onDidChangeConfiguration(e => {
         if (!e.affectsConfiguration('aggrega.server') && !e.affectsConfiguration('aggrega.notifications')) {
@@ -643,6 +720,10 @@ async function stopDaemon(): Promise<void> {
   releaseStatus?.hide();
   // The anchored folder was the daemon's to report, and there is no daemon now.
   operationsView?.refresh();
+  // The client is gone, so the last position it reported is no longer what is
+  // true. Refreshing after the reference is dropped is what makes the indicator
+  // read the absence rather than the memory.
+  daemonStatusBar?.refresh();
 }
 
 // watchActiveReleaseMarker registers a callback against edits to the
@@ -994,15 +1075,23 @@ function registerFileWatcher(context: vscode.ExtensionContext): void {
 // implementation, so the two surfaces cannot diverge.
 function registerBuildOnInspectToggle(context: vscode.ExtensionContext): void {
   context.subscriptions.push(vscode.commands.registerCommand(
-    'aggrega.server.toggleBuildOnInspect',
+    TOGGLE_BUILD_ON_INSPECT_COMMAND,
     () => toggleBuildOnInspect(),
   ));
 }
 
+// registerRestartCommand wires the one command that puts a language server
+// there when there is none, and replaces the one there is when there is.
+//
+// It is the command a reader reaches for when nothing is working, so it is the
+// one command that must never be withheld — and starting is what it does, so
+// refusing to run it because nothing is running would withhold it in exactly
+// the situation it is for. What it used to do there was report that the server
+// is not running, which the reader could already see, and stop.
 function registerRestartCommand(context: vscode.ExtensionContext): void {
-  context.subscriptions.push(vscode.commands.registerCommand('aggrega.server.restart', async () => {
+  context.subscriptions.push(vscode.commands.registerCommand(RESTART_COMMAND, async () => {
     if (!daemon) {
-      vscode.window.showWarningMessage('Aggrega language server is not running.');
+      await startLanguageServer();
       return;
     }
     try {
@@ -1011,6 +1100,55 @@ function registerRestartCommand(context: vscode.ExtensionContext): void {
     } catch (err) {
       notifyDaemonStartupFailed((err as Error).message);
     }
+  }));
+}
+
+// startLanguageServer puts a language server where there is none, by running
+// the same evaluation of the open folders that activation runs. It derives no
+// route of its own: whether this window has a folder to attach to, which one,
+// and what to do when several qualify are questions that path already answers,
+// and a second answer here would disagree with it the moment either moved.
+//
+// It ends in something the reader can see, in every branch. Where a server
+// started, it says so. Where the evaluation settled on a state that starts
+// nothing, it says which — and only where nothing else already has: a window
+// with several candidate folders is asked to choose one, and a server that
+// failed to start reports its own failure, both from inside that path.
+async function startLanguageServer(): Promise<void> {
+  const context = extensionContext;
+  if (!context) { return; }
+  await reactivate(context);
+  if (daemon) {
+    void vscode.window.showInformationMessage('Aggrega language server started.');
+    return;
+  }
+  if (currentAnchored.length === 0) {
+    void vscode.window.showInformationMessage(NO_ANCHORED_WORKSPACE_MESSAGE);
+  }
+}
+
+// registerLifecycleActionsCommand wires what the lifecycle indicator opens on
+// click: the one action that applies to the standing it is reporting, named
+// before it happens.
+//
+// Both actions run the restart command, which is the one implementation of
+// putting a language server there — so the two labels are two readings of one
+// act rather than two paths that could come to disagree. What the standing
+// decides is which reading is honest: a reader with nothing running is offered
+// a start, because that is what will happen.
+//
+// It is hidden from the command palette, which already carries the restart
+// under its own name; a second entry differing from it only in wording would
+// leave a reader choosing between two names for one thing.
+function registerLifecycleActionsCommand(context: vscode.ExtensionContext): void {
+  context.subscriptions.push(vscode.commands.registerCommand(LIFECYCLE_ACTIONS_COMMAND, async () => {
+    const action = daemonStandingAction(daemonStanding(daemon?.getState() ?? null));
+    const choice = await vscode.window.showQuickPick(
+      [{ label: DAEMON_ACTION_LABEL[action], description: DAEMON_ACTION_DETAIL[action] }],
+      { placeHolder: DAEMON_ACTION_PLACEHOLDER },
+    );
+    if (!choice) { return; }
+    await vscode.commands.executeCommand(RESTART_COMMAND);
   }));
 }
 
@@ -1061,7 +1199,7 @@ function scheduleBinaryPathRestart(): void {
 }
 
 function triggerRestart(): void {
-  void vscode.commands.executeCommand('aggrega.server.restart');
+  void vscode.commands.executeCommand(RESTART_COMMAND);
 }
 
 function updateStatusBarForPendingRestart(): void {
@@ -1128,7 +1266,7 @@ function spawnForCompat(binaryPath: string, args: string[]): Promise<string> {
 // Restart now / Cancel restart at the top of the list so the operator
 // can adjust the timer without waiting for it to expire.
 function registerStatusBarMenu(context: vscode.ExtensionContext): void {
-  context.subscriptions.push(vscode.commands.registerCommand('aggrega.statusBar.openMenu', async () => {
+  context.subscriptions.push(vscode.commands.registerCommand(STATUS_BAR_MENU_COMMAND, async () => {
     const items: vscode.QuickPickItem[] = [];
     if (pendingRestart) {
       items.push({ label: 'Restart now', description: 'Run the pending restart immediately' });
@@ -1154,7 +1292,7 @@ function registerStatusBarMenu(context: vscode.ExtensionContext): void {
         pendingRestart?.cancel();
         return;
       case 'Restart server':
-        void vscode.commands.executeCommand('aggrega.server.restart');
+        void vscode.commands.executeCommand(RESTART_COMMAND);
         return;
       case BUILD_ON_INSPECT_MENU_LABEL:
         await toggleBuildOnInspect();
@@ -1198,7 +1336,7 @@ async function toggleBuildOnInspect(): Promise<void> {
     'Restart server',
   );
   if (choice === 'Restart server') {
-    void vscode.commands.executeCommand('aggrega.server.restart');
+    void vscode.commands.executeCommand(RESTART_COMMAND);
   }
 }
 

@@ -18,6 +18,26 @@
 // of a view's dependency contract rather than something a view opts into: a
 // view added later cannot be constructed without being handed the signal.
 
+// COMPILER_ANSWERABLE_CONTEXT_KEY is the editor condition this state is
+// published under, so a command's availability can be declared in the manifest
+// instead of decided inside its handler. A command whose handler registers and
+// then returns looks enabled and does nothing, which teaches a reader that the
+// command is broken; a command the editor greys says the same thing before it
+// is pressed.
+//
+// The key is a PROJECTION of the state below and never a second answer to it:
+// its one publisher reads isReady() and publishes nothing else. That is why the
+// name lives here rather than beside the manifest — the key and the predicate it
+// reports have one home.
+//
+// It is deliberately not one of the get-started step conditions, which report
+// something else: those are four standings of what a workspace still needs,
+// while this one reports whether the compiler can be asked right now. The
+// nearest of them reads the language server alone, so a command gated on it
+// would be offered in a window with no anchored root, where the operations that
+// run the binary as a subprocess have nowhere to run.
+export const COMPILER_ANSWERABLE_CONTEXT_KEY = 'aggrega.compilerAnswerable';
+
 // ReadinessDeps supplies the two facts a surface actually needs before it can
 // ask anything. Both are read through the getters their owners already expose,
 // rather than recorded here when they change: a copy held in this module would
@@ -54,6 +74,23 @@ export interface RendersOnReady {
 export interface Readiness extends RendersOnReady {
   // isReady reports whether the compiler can be asked right now.
   isReady(): boolean;
+  // onChange registers a listener told the answer on EVERY change of it, both
+  // edges, and immediately with the answer as it stands.
+  //
+  // WHY A SECOND CHANNEL OVER ONE PREDICATE, WHICH IS NOT A SECOND ANSWER. Both
+  // channels report isReady() and neither computes anything; what differs is
+  // the edge, and the edge is decided by what a consumer does with the answer.
+  // A view holds content, so redrawing it when the compiler stops being
+  // answerable replaces something the reader can still read with a row
+  // superseded moments later — which is why onReady announces the rising edge
+  // alone. A gate holds no content: leaving it open while the compiler cannot
+  // be asked is exactly the enabled-but-inert control the gate exists to
+  // prevent, so it needs the falling edge too.
+  //
+  // It is not a dependency interface of its own because nothing takes it as
+  // one. The single publisher is the extension's activation, which sets the
+  // editor condition above from it and does nothing else with it.
+  onChange(listener: (answerable: boolean) => void): void;
   // reassess re-reads both facts and announces the answer if it has just become
   // yes. It is called from the single place that observes the server's
   // lifecycle; nothing else needs to call it, and a surface calling it would be
@@ -65,6 +102,7 @@ export interface Readiness extends RendersOnReady {
 // createReadiness builds the readiness state over the supplied facts.
 export function createReadiness(deps: ReadinessDeps): Readiness {
   const listeners: Array<() => void> = [];
+  const changeListeners: Array<(answerable: boolean) => void> = [];
 
   const evaluate = (): boolean =>
     deps.getWorkspaceRoot() !== null && deps.isLanguageServerRunning();
@@ -77,7 +115,16 @@ export function createReadiness(deps: ReadinessDeps): Readiness {
     reassess: (): void => {
       const next = evaluate();
       const becameReady = next && !ready;
+      const changed = next !== ready;
       ready = next;
+      // Both edges, and only on a change: a burst of lifecycle events that
+      // leaves the answer where it was would re-publish a condition the editor
+      // already holds.
+      if (changed) {
+        for (const listener of changeListeners) {
+          listener(next);
+        }
+      }
       // Only the rising edge is announced, and only when it is a change: a
       // burst of lifecycle events that leaves the answer where it was gives a
       // view nothing new to draw, and re-drawing on each one would re-ask the
@@ -99,6 +146,16 @@ export function createReadiness(deps: ReadinessDeps): Readiness {
       if (ready) {
         listener();
       }
+    },
+
+    // Told the answer as it stands on subscription, whichever it is. A gate
+    // whose condition was never published is a condition the editor has no
+    // value for, and a surface reading one cannot tell that from a published
+    // no — so the answer is stated rather than left to be inferred from
+    // silence.
+    onChange: (listener: (answerable: boolean) => void): void => {
+      changeListeners.push(listener);
+      listener(ready);
     },
   };
 }

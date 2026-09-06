@@ -136,6 +136,10 @@
         {
           "command": "aggrega.getStarted.dismiss",
           "when": "false"
+        },
+        {
+          "command": "aggrega.server.lifecycleActions",
+          "when": "false"
         }
       ],
       "view/title": [
@@ -325,7 +329,11 @@
       },
       {
         "command": "aggrega.server.restart",
-        "title": "Aggrega: Restart language server"
+        "title": "Aggrega: Start or restart the language server"
+      },
+      {
+        "command": "aggrega.server.lifecycleActions",
+        "title": "Aggrega: Language server actions"
       },
       {
         "command": "aggrega.server.toggleBuildOnInspect",
@@ -333,7 +341,8 @@
       },
       {
         "command": "aggrega.statusBar.openMenu",
-        "title": "Aggrega: Open status bar menu"
+        "title": "Aggrega: Open status bar menu",
+        "enablement": "aggrega.compilerAnswerable"
       },
       {
         "command": "aggrega.workspace.switchAnchor",

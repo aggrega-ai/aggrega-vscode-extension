@@ -127,6 +127,46 @@ describe('readiness', () => {
     assert.strictEqual(seen.count(), 2, 'the restart re-fires the signal');
   });
 
+  // The command gate is the one consumer that needs the falling edge, and it
+  // needs it for the reason the views do not: it holds no content to protect,
+  // and a gate left open while the compiler cannot be asked is an enabled
+  // control that does nothing.
+  it('tells the gate both edges, where a view is told only the rising one', () => {
+    const facts = new Facts();
+    facts.root = '/ws';
+    const readiness = facts.readiness();
+
+    const answers: boolean[] = [];
+    readiness.onChange((answerable) => answers.push(answerable));
+    const rendered = counter();
+    readiness.onReady(rendered.listener);
+
+    assert.deepStrictEqual(answers, [false], 'the answer as it stands is stated rather than left unsaid');
+
+    facts.running = true;
+    readiness.reassess();
+    facts.running = false;
+    readiness.reassess();
+
+    assert.deepStrictEqual(answers, [false, true, false]);
+    assert.strictEqual(rendered.count(), 1, 'the view is still told only that it became answerable');
+  });
+
+  it('publishes a change and not each reassessment', () => {
+    const facts = new Facts();
+    facts.root = '/ws';
+    const readiness = facts.readiness();
+    const answers: boolean[] = [];
+    readiness.onChange((answerable) => answers.push(answerable));
+
+    facts.running = true;
+    readiness.reassess();
+    readiness.reassess();
+    readiness.reassess();
+
+    assert.deepStrictEqual(answers, [false, true]);
+  });
+
   it('tells a listener registered after the fact, rather than losing it', () => {
     const facts = new Facts();
     facts.root = '/ws';

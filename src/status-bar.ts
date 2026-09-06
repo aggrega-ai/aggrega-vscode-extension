@@ -5,10 +5,20 @@ import * as vscode from 'vscode';
 import { Daemon, DaemonState } from './daemon';
 import { activeFolderLabel } from './anchor-picker';
 import { AnchoredFolder } from './workspace';
+import { DaemonStatusItemLike } from './daemon-status';
 
 // STATUS_BAR_PRIORITY positions the Aggrega indicator on the right
 // side of the status bar at the typical "language indicator" tier.
 const STATUS_BAR_PRIORITY = 100;
+
+// LIFECYCLE_STATUS_BAR_PRIORITY places the lifecycle indicator on the LEFT,
+// immediately beside the Release indicator, which is drawn left at 99 — a
+// higher priority is drawn further left there, so this puts the two adjacent
+// with the lifecycle first. The order is the reading order: whether the
+// compiler is up, then which Release it is being asked about, since the second
+// means nothing without the first. It shares a number with the priority above
+// and not a position: that one is on the other side of the bar.
+const LIFECYCLE_STATUS_BAR_PRIORITY = 100;
 
 // AnchorContext carries the active-anchor and full anchored-folder
 // list so the status-bar label can render the multi-anchor disambiguated
@@ -20,9 +30,18 @@ export interface AnchorContext {
   anchored: AnchoredFolder<vscode.WorkspaceFolder>[];
 }
 
-// createAggregaStatusBar registers a status bar item that surfaces
-// the daemon's reported workspaceRoot + configSource. The item is
-// visible only when the daemon is in Running state.
+// createAggregaStatusBar registers a status bar item that reports a RUNNING
+// language server's identity: the workspace root it anchored to and the
+// configuration source it read. That is its whole subject, which is why it is
+// visible only while the daemon is in Running state — those fields exist only
+// then, and a partial label would name a server that is not there.
+//
+// It does not report the lifecycle, and must not be extended to: whether a
+// language server is running at all is reported by the lifecycle indicator,
+// which is visible across the whole lifecycle precisely because the state worth
+// reporting most is the one this item hides in. Two items both claiming to
+// report the daemon would leave a reader with two answers and no way to tell
+// which is the current one.
 //
 // When anchorContext names 2+ anchored folders, the label switches to
 // `Aggrega · <basename>` (with parent-disambiguation on collision) so
@@ -69,6 +88,21 @@ export function createAggregaStatusBar(
 
   daemon.on('stateChange', refresh);
   refresh();
+  return item;
+}
+
+// createLifecycleStatusBarItem places the lifecycle indicator. Every decision
+// about where a status-bar item of this extension sits is made in this module,
+// so the alignment and the priority that position it relative to one another
+// are read together rather than from two files.
+export function createLifecycleStatusBarItem(
+  context: vscode.ExtensionContext,
+): DaemonStatusItemLike {
+  const item = vscode.window.createStatusBarItem(
+    vscode.StatusBarAlignment.Left,
+    LIFECYCLE_STATUS_BAR_PRIORITY,
+  );
+  context.subscriptions.push(item);
   return item;
 }
 

@@ -43,6 +43,7 @@ Palette brings the panel back.
 ## Features
 
 - **Get started panel** — the first panel in the Aggrega view, listing what the extension needs in this workspace and marking what it already has. Each entry offers both a way to create the thing and a way to point at one you already have, and an entry already met asks you nothing. See [Get started](#get-started).
+- **Language server state** — a status-bar indicator on the left, beside the Release indicator, reading **running**, **starting**, or **not running** in red. It is the one surface that is there whatever the compiler is doing, so it is where you find out that nothing is running rather than being left to infer it from surfaces that have gone quiet — and its tooltip says which of the two reasons applies: no folder here is one Aggrega recognises, or there is one and the server is not attached to it. Clicking it offers **Start** when nothing is running and **Restart** when something is, and does the one you choose. See [When the language server is not running](#when-the-language-server-is-not-running).
 - **Selected Release** — a status-bar indicator and a **Release** row at the top of the Operations panel, each naming the one Release the editor is working on. Everything that acts on a Release — validation, the topology graph, build, preview build, pull and acquire inputs — acts on that one, so the Problems panel and the graph always describe the same Release. See [Selecting a Release](#selecting-a-release).
 - **Diagnostics** — YAML and schema validation surfaced inline as you edit, checked against the selected Release.
 - **Go to Definition** — jump from `extends`, `implements`, `provider`, `uses`, `recipe`, `aggregate`, `manifest` references to their target entity files.
@@ -100,6 +101,31 @@ fall back on — the indicator reads **Release: none** and its tooltip says what
 The full account is written to the Aggrega output channel. Validation still runs in that
 state: you get the findings a document answers on its own — whether it parses, and whether its
 own shape is admissible — and the checks that need a Release are skipped until you select one.
+
+## When the language server is not running
+
+**Every command this extension contributes is there from the moment it starts, whether or not a
+language server is running.** A command that only came into being once one had attached would be
+missing from the palette in exactly the window that needs it most — the one where nothing is
+running and you are looking for the way to start it.
+
+**The status-bar indicator on the left is where you find out what is going on.** It reads
+**running**, **starting**, or **not running** in red, and its tooltip says why: no folder in this
+window is one Aggrega recognises, or there is one and the server is not attached to it. Clicking it
+offers **Start** or **Restart** — whichever applies — and does it.
+
+That indicator exists because a greyed-out command explains nothing. No editor surface shows a
+tooltip on a disabled control, so a command you cannot run tells you only that you cannot run it.
+The indicator is where the reason is written down, and it is also where you act on it.
+
+**A command that cannot run is greyed rather than hidden.** **Aggrega: Open status bar menu** is
+the one in that position: everything it offers is an action on a running language server. It comes
+back the moment one is answering.
+
+**A command that works without one is not greyed**, even though it concerns the server.
+**Aggrega: Toggle the build's analysis while inspecting** writes a preference, and the server reads
+that preference when it starts — so a stopped server is the most useful moment to set it, not a
+reason to withhold it.
 
 ## What a command does when you run it
 
@@ -176,7 +202,7 @@ they write `.aggrega/active-release` or `.aggrega-config.yaml` rather than an ed
 - **Aggrega: Select Release…** — choose the Release the editor works on. Takes effect at once and re-checks the open files against it; nothing restarts. Also reachable by clicking the Release indicator in the status bar. See [Selecting a Release](#selecting-a-release).
 - **Aggrega: Set the selected Release as this workspace's default** — record the selected Release in `.aggrega/active-release`, so a later session starts on it. Local to your checkout, and it does not change the current selection.
 - **Aggrega: Set authoring_release in .aggrega-config.yaml…** — open the configuration file to set `build.authoring_release`, the committed default a team shares. It outranks the marker file.
-- **Aggrega: Restart language server** — terminates the current daemon and spawns a fresh one. Resets the respawn-attempt counter.
+- **Aggrega: Start or restart the language server** — starts the language server where none is running, and where one is, terminates it and spawns a fresh one, resetting the respawn-attempt counter. It is never greyed: starting is what it does, so withholding it while nothing is running would withhold it in the one situation that needs it. Also reachable by clicking the language-server indicator in the status bar. Where no folder in the window is one Aggrega recognises, it says so rather than appearing to do nothing.
 - **Aggrega: Toggle the build's analysis while inspecting** — flips the `aggrega.server.buildOnInspect` setting in place, so the settings UI always agrees with it, and offers the restart that applies it — the language server reads the setting when it starts. Also reachable from the status-bar quick-action menu, which shows whether the setting is currently on. Findings arrive tagged with the layer that raised them, so the build's analysis groups apart from validation in the Problems panel and clears independently of it.
 - **Aggrega: Validate active file / Build / Preview build / Lint** — run the corresponding compiler operation through the language server. Build, preview build and pull act on the selected Release rather than asking each time. Build compiles the selected Release with every gate on and writes the artifacts it renders into the workspace's `dist/` directory; preview build runs the same compile and reports what it would have written, leaving the output directory untouched. Both put the findings that carry a document position in the Problems panel, tagged with the layer that raised them, and write the advisories that name no position — a withdrawn pin, an unresolvable parent — to the Aggrega output channel along with the artifact list. Lint checks publishing conventions and places each finding in the Problems panel, tagged with the rule that produced it, so clicking one opens the entity it concerns; a finding the linter located to a file but not to a line sits at the top of that file rather than at a guessed position, and the full human report goes to the Aggrega output channel as well. All four report how many findings they produced, including when the answer is none, so a clean run is distinguishable from a command that did not run; all four show progress with a Cancel button while they work.
 - **Aggrega: Pull / Acquire inputs** — run the `aggrega` binary against the selected Release and stream its output to the Aggrega output channel. Pull fetches the remote dependencies the workspace declares; acquire inputs pins the external inputs the Release's render consumes and records them in its lockfile, so a later build serves them from the local store. Both reach a registry, so both show progress with a Cancel button, and both end in a message saying what they did.
