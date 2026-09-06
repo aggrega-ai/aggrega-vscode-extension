@@ -142,6 +142,47 @@ export function toWorkspaceRelative(workspaceRoot: string, releasePath: string):
   return path.relative(workspaceRoot, releasePath);
 }
 
+// releaseParamFor converts a Release path into the request parameter the daemon
+// will accept for it, or reports that no such parameter exists.
+//
+// The parameter's contract is a path relative to the workspace root naming a
+// document inside it, and the daemon refuses anything else. So a Release is
+// offerable exactly when this returns a value, and the offer and the acceptance
+// are then one rule rather than two statements of it kept in step by eye.
+//
+// The conversion itself is not repeated here — it stays in toWorkspaceRelative
+// above, which this delegates to. What this adds is the containment judgement,
+// made on the cleaned relative path so an interior `a/../b` resolves and passes
+// while a path that climbs out of the root does not. A sibling directory whose
+// name merely extends the root's is outside it and is refused, which a string
+// prefix comparison against the root would wrongly accept.
+//
+// Returns null for an empty root, for a value that resolves to the root itself
+// (which names no document), and for one that climbs out of it.
+//
+// This is a DELIBERATE second implementation of the containment rule the daemon
+// applies to the same parameter, and it is recorded as one so nobody later
+// unifies it away as an accident. The two run in different languages and the
+// judgement is needed before a request is sent, so there is nothing to call. The
+// duplication is held the way the anchor-discovery rule above holds its own: by
+// a table of cases covering each boundary the rule turns on — an interior climb
+// that resolves back inside, a sibling whose name merely extends the root, the
+// root itself. A case added on one side belongs on the other.
+export function releaseParamFor(workspaceRoot: string, releasePath: string): string | null {
+  if (workspaceRoot === '') {
+    return null;
+  }
+  const relative = toWorkspaceRelative(workspaceRoot, releasePath);
+  if (relative === '' || path.isAbsolute(relative)) {
+    return null;
+  }
+  const cleaned = path.normalize(relative);
+  if (cleaned === '..' || cleaned.startsWith(`..${path.sep}`)) {
+    return null;
+  }
+  return relative;
+}
+
 // findAllAnchoredFolders runs findAggregaWorkspaceAnchor against
 // each entry in folders, keeping only the folders where a marker was
 // found. The result preserves the input order. Folders without an

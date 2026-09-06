@@ -3,6 +3,9 @@
 
 import { spawn } from 'child_process';
 import * as vscode from 'vscode';
+import { SelectionState } from './release-selection';
+import { RendersOnReady } from './readiness';
+import { SelectorRow, selectorRows } from './selector-rows';
 import { BuildPreviewResponse, BuildResponse } from './types';
 import { NO_ANCHORED_WORKSPACE_MESSAGE } from './workspace';
 
@@ -13,8 +16,20 @@ import { NO_ANCHORED_WORKSPACE_MESSAGE } from './workspace';
 // active document. The root and binary path are read through getters so the
 // surface always sees the current value — the root is set only once the daemon
 // attaches, after this surface is registered.
-export interface OperationDeps {
+export interface OperationDeps extends RendersOnReady {
   getWorkspaceRoot(): string | null;
+  // getAnchoredWorkspaceRoot reports the folder the language server anchored
+  // to, or null when it has reported none. It is a different fact from
+  // getWorkspaceRoot above — that one is the folder the editor opened — and the
+  // workspace row shows this one, because it is what the Release list is
+  // computed against.
+  getAnchoredWorkspaceRoot(): string | null;
+  // selectionState reports the editor's one selected Release, for the row that
+  // displays it. The row renders this and derives nothing of its own.
+  selectionState(): SelectionState;
+  // onSelectionChange registers a listener fired whenever the selection
+  // changes, so the row re-renders without polling.
+  onSelectionChange(listener: () => void): void;
   getBinaryPath(): string;
   output: vscode.OutputChannel;
   validateActiveDocument(): Promise<void>;
@@ -89,30 +104,85 @@ const OPERATIONS: OperationDef[] = [
   { id: 'cache', label: 'Cache…', detail: 'Inspect or maintain the local cache', icon: 'database' },
 ];
 
+// OperationsRow is what the tree holds: the two selector rows that name what
+// the editor is acting on, then the operations that act on it.
+type OperationsRow = SelectorRow | OperationDef;
+
+function isSelectorRow(row: OperationsRow): row is SelectorRow {
+  return 'key' in row;
+}
+
 // OperationsTreeProvider backs the Operations view in the Aggrega activity-bar
-// container: one leaf per operation, each carrying the command that runs it on
-// click. The surface is static, so no change events are emitted.
-class OperationsTreeProvider implements vscode.TreeDataProvider<OperationDef> {
-  getTreeItem(op: OperationDef): vscode.TreeItem {
-    const item = new vscode.TreeItem(op.label, vscode.TreeItemCollapsibleState.None);
-    item.tooltip = op.detail;
-    item.iconPath = new vscode.ThemeIcon(op.icon);
-    item.command = { command: `aggrega.op.${op.id}`, title: op.label };
-    item.contextValue = `aggrega.op.${op.id}`;
+// container: the two selector rows first, then one leaf per operation, each
+// carrying the command that runs it on click.
+//
+// The operations are fixed but the selector rows are not, so the provider emits
+// change events. The two facts they render — the anchored folder and the
+// selected Release — are read through the getters their owners already expose
+// rather than copied here, so a row cannot come to disagree with the value a
+// request actually carries.
+class OperationsTreeProvider implements vscode.TreeDataProvider<OperationsRow> {
+  private readonly changed = new vscode.EventEmitter<void>();
+  readonly onDidChangeTreeData = this.changed.event;
+
+  constructor(private readonly deps: OperationDeps) {}
+
+  refresh(): void {
+    this.changed.fire();
+  }
+
+  getTreeItem(row: OperationsRow): vscode.TreeItem {
+    if (isSelectorRow(row)) {
+      const item = new vscode.TreeItem(row.label, vscode.TreeItemCollapsibleState.None);
+      item.description = row.value;
+      item.tooltip = row.tooltip;
+      item.iconPath = new vscode.ThemeIcon(row.icon);
+      item.command = { command: row.command, title: row.label };
+      item.contextValue = `aggrega.selector.${row.key}`;
+      return item;
+    }
+    const item = new vscode.TreeItem(row.label, vscode.TreeItemCollapsibleState.None);
+    item.tooltip = row.detail;
+    item.iconPath = new vscode.ThemeIcon(row.icon);
+    item.command = { command: `aggrega.op.${row.id}`, title: row.label };
+    item.contextValue = `aggrega.op.${row.id}`;
     return item;
   }
 
-  getChildren(): OperationDef[] {
-    return OPERATIONS;
+  getChildren(): OperationsRow[] {
+    return [
+      ...selectorRows(
+        this.deps.getAnchoredWorkspaceRoot(),
+        this.deps.getWorkspaceRoot(),
+        this.deps.selectionState(),
+      ),
+      ...OPERATIONS,
+    ];
   }
+}
+
+// OperationsView is the handle the extension holds to re-render the selector
+// rows on the one event neither the selection nor the readiness signal
+// announces: the anchored folder changing while the server stays as it was.
+export interface OperationsView {
+  refresh(): void;
 }
 
 // activateOperations registers the Operations view and one command per
 // operation. The view id and command ids mirror the package.json contributions.
-export function activateOperations(context: vscode.ExtensionContext, deps: OperationDeps): void {
+export function activateOperations(
+  context: vscode.ExtensionContext,
+  deps: OperationDeps,
+): OperationsView {
+  const provider = new OperationsTreeProvider(deps);
   context.subscriptions.push(
-    vscode.window.registerTreeDataProvider('aggrega.operations', new OperationsTreeProvider()),
+    vscode.window.registerTreeDataProvider('aggrega.operations', provider),
   );
+  // The rows take the readiness signal as a dependency like every other
+  // surface: the anchored folder is reported by the language server, so it is
+  // not known when this view is registered and drawn.
+  deps.onReady(() => provider.refresh());
+  deps.onSelectionChange(() => provider.refresh());
 
   const reg = (id: OperationId, handler: () => void): void => {
     context.subscriptions.push(vscode.commands.registerCommand(`aggrega.op.${id}`, handler));
@@ -126,6 +196,8 @@ export function activateOperations(context: vscode.ExtensionContext, deps: Opera
   reg('push', () => runCli(deps, ['push']));
   reg('import', () => { void runImport(deps); });
   reg('cache', () => { void runCache(deps); });
+
+  return { refresh: () => provider.refresh() };
 }
 
 // runReleaseScoped runs a CLI-backed command that requires a --release

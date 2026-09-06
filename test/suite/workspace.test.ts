@@ -11,6 +11,7 @@ import {
   AGGREGA_DIR,
   activeReleaseMarkerPath,
   findAggregaWorkspaceAnchor,
+  releaseParamFor,
   toWorkspaceRelative,
 } from '../../src/workspace';
 
@@ -156,6 +157,54 @@ describe('toWorkspaceRelative', () => {
       );
       assert.strictEqual(rel, path.join(...depth));
     }
+  });
+});
+
+describe('releaseParamFor', () => {
+  // A Release is offerable exactly when the request derived from it would be
+  // accepted, so this is the offer and the acceptance expressed once. These
+  // cases pin both directions, because a bound whose refusal nobody has
+  // demonstrated proves nothing.
+  const root = path.join(path.sep + 'ws', 'project');
+
+  it('names a document inside the root, in the form a request takes', () => {
+    assert.strictEqual(
+      releaseParamFor(root, path.join(root, 'envs', 'prod.yaml')),
+      path.join('envs', 'prod.yaml'),
+    );
+    assert.strictEqual(releaseParamFor(root, path.join(root, 'release.yaml')), 'release.yaml');
+  });
+
+  it('refuses a path that climbs out of the root', () => {
+    assert.strictEqual(
+      releaseParamFor(root, path.join(path.sep + 'ws', 'other', 'release.yaml')),
+      null,
+    );
+    assert.strictEqual(releaseParamFor(root, path.join('..', 'release.yaml')), null);
+    assert.strictEqual(releaseParamFor(root, '..'), null);
+  });
+
+  it('refuses a sibling whose name merely extends the root, which a prefix test would accept', () => {
+    const sibling = path.join(path.sep + 'ws', 'project-old', 'release.yaml');
+    assert.ok(sibling.startsWith(root), 'the sibling really does share the prefix');
+    assert.strictEqual(releaseParamFor(root, sibling), null);
+  });
+
+  it('accepts an interior climb that resolves back inside', () => {
+    // Escape is a property of where the value lands, not of how it is spelled,
+    // which is the rule the request parameter is judged by.
+    assert.strictEqual(
+      releaseParamFor(root, path.join('a', '..', 'b', 'release.yaml')),
+      path.join('a', '..', 'b', 'release.yaml'),
+    );
+  });
+
+  it('refuses a value naming the root itself, which names no document', () => {
+    assert.strictEqual(releaseParamFor(root, root), null);
+  });
+
+  it('refuses every candidate when there is no root to name one against', () => {
+    assert.strictEqual(releaseParamFor('', path.join(root, 'release.yaml')), null);
   });
 });
 

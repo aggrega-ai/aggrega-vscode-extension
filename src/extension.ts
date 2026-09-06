@@ -66,14 +66,19 @@ import {
   findAllAnchoredFolders,
 } from './workspace';
 import { openAuthoringReleaseConfig, createActiveReleaseMarker } from './release-actions';
-import { activateOperations } from './operations';
+import { activateOperations, OperationsView } from './operations';
+import { SWITCH_ANCHOR_COMMAND } from './selector-rows';
 import { activateLint, LintRunner } from './lint';
 import { activateGraphView, GraphView } from './graph-view';
 import { activateCatalogViews } from './catalog-views';
 import { activateRegistriesView } from './registries-view';
 import { activateWorkspaceCatalogView } from './workspace-catalog-view';
 import { CatalogIndexDoc } from './workspace-catalog-run';
-import { ReleaseSelection, createReleaseSelection } from './release-selection';
+import {
+  SELECTED_RELEASE_STATE_KEY,
+  ReleaseSelection,
+  createReleaseSelection,
+} from './release-selection';
 import { buildValidateParams } from './validate-request';
 import { SELECT_RELEASE_COMMAND, activateReleaseStatus, ReleaseStatus } from './release-status';
 import {
@@ -111,6 +116,21 @@ let releaseSelection: ReleaseSelection | null = null;
 // every view renders from it. Built in activate() before any surface that reads
 // it, and driven from the single lifecycle subscription in ensureDaemonAt.
 let readiness: Readiness | null = null;
+let operationsView: OperationsView | null = null;
+
+// anchoredWorkspaceRoot is the folder the language server reported having
+// anchored to, or null before it has reported one.
+//
+// It is read from the server's own handshake answer rather than derived here,
+// and it is a DIFFERENT fact from workspaceRootForCommands above: that one is
+// the folder the editor opened, while this one is where the server resolved its
+// workspace root by climbing from it. They coincide whenever the opened folder
+// is itself the anchor and differ whenever the anchor sits above it — and it is
+// this one that every Release path is converted against, because it is the root
+// the server both enumerates over and resolves requests against.
+function anchoredWorkspaceRoot(): string | null {
+  return daemon?.getServerInitMetadata()?.workspaceRoot ?? null;
+}
 
 // selectedRelease is the workspace-relative Release every request carries, or
 // null when none is selected.
@@ -171,10 +191,29 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // an explicit selection replaces it at any time after that.
   releaseSelection = createReleaseSelection({
     getWorkspaceRoot: () => workspaceRootForCommands,
+    getDaemonWorkspaceRoot: anchoredWorkspaceRoot,
+    // The choice is remembered per editor window and nothing about it is
+    // written into the workspace. Recording what a workspace starts on for
+    // everyone who opens it is a separate, explicit command with its own file.
+    store: {
+      read: () => {
+        const v = context.workspaceState.get<unknown>(SELECTED_RELEASE_STATE_KEY);
+        return typeof v === 'string' && v.length > 0 ? v : null;
+      },
+      write: (release) => {
+        void context.workspaceState.update(
+          SELECTED_RELEASE_STATE_KEY,
+          release ?? undefined,
+        );
+      },
+    },
     requestActiveRelease,
     listReleases: requestReleaseCandidates,
     pickRelease: async (candidates, placeHolder) => {
-      const root = workspaceRootForCommands;
+      // The path shown beside each candidate is relative to the anchored
+      // folder, which is the folder the candidate list is computed against —
+      // so what the reader reads is the value the request will carry.
+      const root = anchoredWorkspaceRoot();
       const items = candidates.map(p => ({
         label: path.basename(p),
         description: root ? path.relative(root, p) : p,
@@ -214,8 +253,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // anchored root once it is known, and validate reports when no file or
   // daemon is available. The getters read live state so the surface tracks the
   // root the daemon later attaches to.
-  activateOperations(context, {
+  operationsView = activateOperations(context, {
     getWorkspaceRoot: () => workspaceRootForCommands,
+    getAnchoredWorkspaceRoot: anchoredWorkspaceRoot,
+    selectionState: () => releaseSelection?.state() ?? { kind: 'unknown' },
+    onSelectionChange: (listener) => releaseSelection?.onChange(listener),
+    onReady: ready.onReady,
     getBinaryPath: () => getSettings().binaryPath,
     output: outputChannel,
     validateActiveDocument,
@@ -342,6 +385,13 @@ async function reactivate(context: vscode.ExtensionContext): Promise<void> {
     // Stale saved choice — folder removed or marker deleted. Clear
     // so the multi-prompt branch can re-fire when appropriate.
     await context.workspaceState.update(STATE_KEY, undefined);
+    // And say so. A remembered choice that quietly stops applying is
+    // indistinguishable from one that was never remembered, and the reader
+    // meets the difference at a moment they cannot connect to a previous
+    // session.
+    void vscode.window.showInformationMessage(
+      `Aggrega: ${savedAnchor} is no longer an anchored folder, so the remembered choice of workspace was dropped.`,
+    );
   }
 
   const decision = classifyActivation(
@@ -397,7 +447,7 @@ async function notifyMultipleAnchors(count: number): Promise<void> {
   );
   pendingToastShown = false;
   if (choice === action) {
-    void vscode.commands.executeCommand('aggrega.workspace.switchAnchor');
+    void vscode.commands.executeCommand(SWITCH_ANCHOR_COMMAND);
   }
 }
 
@@ -495,9 +545,14 @@ async function ensureDaemonAt(
   }
 
   void runCompatibilityCheck();
-  // The default is adopted once per connection, which is the first of the two
-  // ways the selection is ever set. The second is the reader choosing one.
-  await adoptDefaultRelease();
+  // The selection is resolved once per connection: the choice remembered for
+  // this editor window where the workspace still offers it, and the
+  // workspace's own default where it does not. The second of the two ways the
+  // selection is ever set is the reader choosing one.
+  await restoreReleaseSelection();
+  // The anchored folder is only known once the handshake has answered, and the
+  // rows that name it were drawn before that.
+  operationsView?.refresh();
 }
 
 async function stopDaemon(): Promise<void> {
@@ -514,6 +569,8 @@ async function stopDaemon(): Promise<void> {
   // workspace's answer.
   releaseSelection?.forget();
   releaseStatus?.hide();
+  // The anchored folder was the daemon's to report, and there is no daemon now.
+  operationsView?.refresh();
 }
 
 // watchActiveReleaseMarker registers a callback against edits to the
@@ -531,6 +588,15 @@ function watchActiveReleaseMarker(onChange: () => void): vscode.Disposable {
 // nothing is selected — an explicit selection is never overwritten by it.
 async function adoptDefaultRelease(): Promise<void> {
   await releaseSelection?.adoptDefault();
+  releaseStatus?.refresh();
+}
+
+// restoreReleaseSelection takes the Release remembered for this editor window,
+// re-verified against what the workspace currently offers, and falls back to
+// the workspace's own default where it no longer resolves. Run once per
+// connection.
+async function restoreReleaseSelection(): Promise<void> {
+  await releaseSelection?.restore();
   releaseStatus?.refresh();
 }
 
@@ -568,7 +634,7 @@ function revalidateOpenDocuments(): void {
 }
 
 function registerSwitchAnchorCommand(context: vscode.ExtensionContext): void {
-  context.subscriptions.push(vscode.commands.registerCommand('aggrega.workspace.switchAnchor', async () => {
+  context.subscriptions.push(vscode.commands.registerCommand(SWITCH_ANCHOR_COMMAND, async () => {
     const anchored = currentAnchored;
     if (anchored.length === 0) {
       void vscode.window.showInformationMessage('Aggrega: no anchored folders in this workspace.');

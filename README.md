@@ -10,13 +10,13 @@ Language support for Aggrega YAML — validation, navigation, hover, and complet
 
 ## Features
 
-- **Selected Release** — a status-bar indicator naming the one Release the editor is working on. Everything that acts on a Release — validation, the topology graph, build, preview build and pull — acts on that one, so the Problems panel and the graph always describe the same Release. See [Selecting a Release](#selecting-a-release).
+- **Selected Release** — a status-bar indicator and a **Release** row at the top of the Operations panel, each naming the one Release the editor is working on. Everything that acts on a Release — validation, the topology graph, build, preview build and pull — acts on that one, so the Problems panel and the graph always describe the same Release. See [Selecting a Release](#selecting-a-release).
 - **Diagnostics** — YAML and schema validation surfaced inline as you edit, checked against the selected Release.
 - **Go to Definition** — jump from `extends`, `implements`, `provider`, `uses`, `recipe`, `aggregate`, `manifest` references to their target entity files.
 - **Find References / Implementations** — list every reference to or implementation of an entity.
 - **Hover** — kind-aware summaries for catalog and release entities.
 - **Completion** — context-aware suggestions for entity kinds, API versions, schema keywords, primitives, label values, providers, paths, and intra-document component keys.
-- **Aggrega activity-bar view** — an **Operations** panel with one-click compiler operations (validate, build, preview build, lint, pull, push, import, cache), a **Plugins** panel listing the embedded and configured Wasm plugins, a **Registries** panel listing every registry the effective configuration declares, and a **Workspace catalog** panel listing the entities in the open workspace. Validate, build, preview build and lint report into the Problems panel; pull, push, import and cache stream their output to the Aggrega output channel.
+- **Aggrega activity-bar view** — an **Operations** panel headed by two rows naming what the editor is acting on, **Workspace** and **Release**, each opening its own picker; below them, one-click compiler operations (validate, build, preview build, lint, pull, push, import, cache). The Workspace row names the folder the language server anchored to, which is what the Release list is computed against — so when it differs from the folder you opened, you can see why the offered Releases are the ones they are. Alongside it sit a **Plugins** panel listing the embedded and configured Wasm plugins, a **Registries** panel listing every registry the effective configuration declares, and a **Workspace catalog** panel listing the entities in the open workspace. Validate, build, preview build and lint report into the Problems panel; pull, push, import and cache stream their output to the Aggrega output channel.
 - **Registries panel detail** — each row names the registry's host, its alias where one is configured, which registry is the default, whether signatures are required for artifacts pulled from it, and whether a credential for that host is present. Reading the list contacts no registry: the credential state reports presence only, so it says a credential exists rather than that the registry would accept it.
 - **Topology graph** — renders the selected Release's compiled IR as an interactive graph: boundary and subsystem containers, provenance-styled edges, pan and zoom, click-a-node to select it and double-click to open its source file. Selecting a node opens a panel listing what is attached to it: each attachment's Feature and resolved version, the slot it fills, where it came from, the labels it declares, and the values its author wrote. Below that, under **May attach**, the panel lists the Features whose declared applicability the labels on that node satisfy, each named with its kind and either the workspace file that declares it or the configured catalog it was resolved from. That list is what those Features declare they apply to, not a decision that attaching one will build — and when it is empty it says that no Feature's declared applicability matches those labels, which is a narrower statement than nothing being attachable. A request the language server could not answer says so in place of the list rather than leaving it blank. A value the compiler reports as sensitive is removed before the graph is handed to the view at all, so it is not in the view to be shown — the panel names the field and says why it is withheld, and an attachment whose sensitivity marking is in a shape the panel does not recognise withholds every value rather than guessing at it. `aggrega.graph.showSensitiveValues` turns the withholding off for an author who needs to read back what they wrote, and says on the settings page what that displays. Nodes are laid out in deployment-wave order, so a boundary that declares a `syncWave:` appears ahead of the boundaries that wait on it. Hovering a node names its component and resolved version, its labels, its declared wave, and the catalog entity's own metadata — license, repository, home, keywords and maintainers — showing only the fields the entity actually declares. An open graph re-renders itself when the language server republishes diagnostics, so it follows edits without being reopened. Layout is computed in the view; the compiler ships topology, never coordinates.
 - **Plugins panel detail** — each row names the plugin, its socket type and version, and its readiness where the plugin carries one. A plugin the compiler could not resolve or describe is marked and keeps its own row, with the compiler's message in the tooltip, so it is never mistaken for one that is working. The tooltip also names the configuration key an attachment came from, its capabilities, its input kinds, its boundary and its exports — showing only what the listing actually reports.
@@ -30,21 +30,27 @@ lockfile pins apply, and which findings a document draws. The extension therefor
 **one selected Release at a time**, and it shows you which one in the status bar, next to a
 rocket icon.
 
-The selection starts from what your workspace already implies. When the language server
-connects, the extension asks it which Release the workspace points at and starts there. That
+A Release you pick is remembered by that editor window. When the language server connects, a
+remembered choice is checked against what the workspace still offers and restored when it is
+still there; when it has gone, the editor tells you so and falls back to what your workspace
+implies, which is where the selection starts when you have chosen nothing in this window. That
 answer comes from, in order of precedence:
 
 1. `build.authoring_release` in `.aggrega-config.yaml`, the committed setting a whole team shares.
 2. `.aggrega/active-release`, a local marker file that is not committed.
 3. The single Release in the workspace, when there is exactly one.
 
-**Click the indicator to select a different Release** (or run **Aggrega: Select Release…** from
-the Command Palette). The change takes effect immediately — nothing restarts, and every open
-YAML file is re-checked against the Release you just picked. Selecting is a per-session
-choice: it does not write to your workspace.
+**Click either indicator to select a different Release** (or run **Aggrega: Select Release…**
+from the Command Palette). The change takes effect immediately — nothing restarts, and every
+open YAML file is re-checked against the Release you just picked. Being remembered is local to
+the editor window: choosing **writes nothing into your workspace**.
 
-When you want a choice to persist, two commands record one, and neither of them changes what
-you are working on right now:
+The Releases on offer are the ones inside the folder the language server anchored to, named
+relative to it, because that is the form it accepts. Where a Release cannot be offered, the
+editor says how many and where they sit rather than leaving them out silently.
+
+When you want a choice recorded in the workspace itself — so a fresh checkout starts on it —
+two commands do that, and neither changes what you are working on right now:
 
 - **Aggrega: Set the selected Release as this workspace's default** writes the currently
   selected Release into `.aggrega/active-release`. That file is local to your checkout, so it

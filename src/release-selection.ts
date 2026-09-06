@@ -3,7 +3,14 @@
 
 import * as path from 'path';
 import { ActiveReleaseResponse } from './types';
-import { toWorkspaceRelative } from './workspace';
+import { releaseParamFor } from './workspace';
+
+// SELECTED_RELEASE_STATE_KEY is the editor-local entry the chosen Release is
+// remembered under. Editor-local means per editor window: the choice survives
+// closing the window and nothing about it is written into the workspace. What a
+// workspace starts on for everyone who opens it is a different act with its own
+// file, and this is deliberately not that.
+export const SELECTED_RELEASE_STATE_KEY = 'aggrega.selectedRelease';
 
 // SelectionState is what the editor knows about the selected Release at a
 // moment in time. Every surface that displays the selection renders one of
@@ -25,8 +32,32 @@ export type SelectionState =
 // queries the selection is built from, and the editor surfaces it drives.
 // Injecting them keeps the selection rule testable without the editor: a test
 // supplies recorded answers and reads back the state an operator would see.
+// SelectionStore is where the reader's explicit choice is remembered between
+// sessions. It is a narrow pair rather than the editor's state object so the
+// selection rule stays testable without the editor, and so nothing here can
+// reach a key it was not given.
+export interface SelectionStore {
+  // read returns the remembered selection, workspace-relative, or null.
+  read(): string | null;
+  // write records a selection, or clears the entry when passed null.
+  write(release: string | null): void;
+}
+
 export interface ReleaseSelectionDeps {
   getWorkspaceRoot(): string | null;
+  // getDaemonWorkspaceRoot reports the folder the language server resolved as
+  // its workspace root and named in its handshake, or null when it named none.
+  //
+  // THIS, NOT THE OPENED FOLDER, IS WHAT A RELEASE PATH IS CONVERTED AGAINST.
+  // The server enumerates its candidates over the root it resolved and resolves
+  // the request parameter against that same root, so converting against any
+  // other folder produces a parameter it refuses for a document it has just
+  // offered. The two coincide whenever the opened folder is itself the anchor,
+  // and differ whenever the anchor sits above it — which is the ordinary case
+  // for a folder opened inside a larger workspace.
+  getDaemonWorkspaceRoot(): string | null;
+  // store remembers the reader's explicit choice for this editor window.
+  store: SelectionStore;
   // requestActiveRelease asks the language server which Release this workspace
   // points at by default. The answer is the server's own reading of the
   // workspace, which is why it is asked for rather than derived here: an input
@@ -60,17 +91,30 @@ export interface ReleaseSelection {
   // force. This is the value a request parameter takes.
   current(): string | null;
   // adoptDefault asks the server what this workspace points at and takes that
-  // as the selection. Called once per language-server connection: the answer
-  // is the starting point, and an explicit selection afterwards replaces it.
+  // as the selection. The answer is the starting point, and an explicit
+  // selection afterwards replaces it.
   adoptDefault(): Promise<void>;
+  // restore takes the selection remembered for this editor window, having
+  // re-verified that the workspace still offers it, and falls back to the
+  // workspace's own default where it does not. This is what a connection runs;
+  // adoptDefault is the fallback inside it.
+  //
+  // The re-verification is the point. A remembered value that no longer
+  // resolves fails on first use, at a moment the reader cannot connect to a
+  // choice made in a previous session — so it is checked against what the
+  // workspace currently offers, and a value that has gone is dropped and said
+  // to have been dropped. A silent fallback would be indistinguishable from the
+  // selection never having been remembered at all.
+  restore(): Promise<void>;
   // choose prompts the reader for a Release and selects it. Returns the
-  // workspace-relative selection, or null when nothing was chosen.
+  // workspace-relative selection, or null when nothing was chosen. A choice is
+  // remembered for this editor window.
   choose(placeHolder?: string): Promise<string | null>;
-  // adopt takes an absolute path as the selection, for a caller that already
-  // has the reader's choice in hand and needs no second prompt.
-  adopt(absolutePath: string): void;
-  // forget drops the selection, so the next connection resolves a fresh
-  // default rather than carrying the previous workspace's answer forward.
+  // forget drops the selection in force, so the next connection resolves it
+  // again rather than carrying the previous workspace's answer forward. What
+  // the reader chose stays remembered: a connection ending says nothing about
+  // whether the choice was wrong, and re-verification on the next one is what
+  // decides that.
   forget(): void;
   // onChange registers a listener fired whenever the selection changes.
   onChange(listener: () => void): void;
@@ -92,41 +136,85 @@ export function createReleaseSelection(deps: ReleaseSelectionDeps): ReleaseSelec
     announce();
   };
 
-  const selectAbsolute = (root: string, absolute: string): string => {
-    // The candidate enumeration and the active-Release answer both report
-    // absolute paths, and every request parameter takes a workspace-relative
-    // one. Converting here, at the single point a value becomes the selection,
-    // is what lets every reader below use it without repeating the rule.
-    const release = toWorkspaceRelative(root, absolute);
-    setState({ kind: 'selected', release, absolute });
-    return release;
+  // gatherOfferable partitions what the server reports into the Releases this
+  // editor can name in a request and the ones it cannot.
+  //
+  // The partition is made by the acceptance rule itself, against the root the
+  // server resolved, so a Release lands in `offerable` exactly when the request
+  // derived from it would be accepted. With both sides reading the same root
+  // nothing is dropped, and that is the ordinary outcome rather than a
+  // coincidence — the server enumerates over the root it resolves against. What
+  // remains is the state where it has named no root at all, and there the
+  // editor can derive no parameter for anything, so everything is dropped and
+  // the reader is told rather than shown an empty list.
+  const gatherOfferable = async (): Promise<{
+    offerable: Array<{ release: string; absolute: string }>;
+    dropped: string[];
+    root: string | null;
+  }> => {
+    const candidates = await deps.listReleases();
+    const root = deps.getDaemonWorkspaceRoot();
+    if (root === null) {
+      return { offerable: [], dropped: [...candidates], root: null };
+    }
+    const offerable: Array<{ release: string; absolute: string }> = [];
+    const dropped: string[] = [];
+    for (const absolute of candidates) {
+      const release = releaseParamFor(root, absolute);
+      if (release === null) {
+        dropped.push(absolute);
+        continue;
+      }
+      offerable.push({ release, absolute });
+    }
+    return { offerable, dropped, root };
   };
 
-  return {
-    state: () => state,
+  // reportDropped names what could not be offered, with a count and where those
+  // files sit. An empty list with no explanation is the failure this exists to
+  // prevent: it leaves a reader unable to tell "there are none" from "there are
+  // some I cannot offer you", and only the second is something to act on.
+  const reportDropped = (dropped: string[], root: string | null): void => {
+    if (dropped.length === 0) { return; }
+    deps.reportInfo(describeDropped(dropped.length, root));
+    for (const absolute of dropped) {
+      deps.logLine(`[not offered] ${absolute}`);
+    }
+  };
 
-    current: () => (state.kind === 'selected' ? state.release : null),
-
-    adoptDefault: async (): Promise<void> => {
-      const root = deps.getWorkspaceRoot();
-      if (!root) {
-        setState({ kind: 'unknown' });
+  const adoptDefault = async (): Promise<void> => {
+    const root = deps.getWorkspaceRoot();
+    if (!root) {
+      setState({ kind: 'unknown' });
+      return;
+    }
+    let answer: ActiveReleaseResponse;
+    try {
+      answer = await deps.requestActiveRelease();
+    } catch {
+      // The server is not answering, so there is no default to adopt. The
+      // state says the answer is unknown rather than reporting "none",
+      // which is a different fact and one this client has not established.
+      setState({ kind: 'unknown' });
+      return;
+    }
+    if (answer.release) {
+      const daemonRoot = deps.getDaemonWorkspaceRoot();
+      const release = daemonRoot === null
+        ? null
+        : releaseParamFor(daemonRoot, answer.release);
+      if (release === null) {
+        // The default cannot be named in a request. Reporting it as selected
+        // would put a value on every request that the server refuses, so the
+        // state says nothing is selected and carries why.
+        const reason = describeUnnameable(answer.release, daemonRoot);
+        setState({ kind: 'none', reason });
+        deps.logLine(`[no Release selected] ${reason}`);
         return;
       }
-      let answer: ActiveReleaseResponse;
-      try {
-        answer = await deps.requestActiveRelease();
-      } catch {
-        // The server is not answering, so there is no default to adopt. The
-        // state says the answer is unknown rather than reporting "none",
-        // which is a different fact and one this client has not established.
-        setState({ kind: 'unknown' });
-        return;
-      }
-      if (answer.release) {
-        selectAbsolute(root, answer.release);
-        return;
-      }
+      setState({ kind: 'selected', release, absolute: answer.release });
+      return;
+    }
       // No Release to default to. The server's own account of why travels on
       // this answer; the one-line summary is what a compact surface shows and
       // the per-step account goes to the output channel, where there is room
@@ -142,9 +230,51 @@ export function createReleaseSelection(deps: ReleaseSelectionDeps): ReleaseSelec
         for (const line of answer.trace.split('\n')) {
           deps.logLine(line);
         }
-      } else if (reason) {
-        deps.logLine(`[no Release selected] ${reason}`);
+    } else if (reason) {
+      deps.logLine(`[no Release selected] ${reason}`);
+    }
+  };
+
+  return {
+    state: () => state,
+
+    current: () => (state.kind === 'selected' ? state.release : null),
+
+    adoptDefault,
+
+    restore: async (): Promise<void> => {
+      const remembered = deps.store.read();
+      if (remembered === null) {
+        await adoptDefault();
+        return;
       }
+      let gathered;
+      try {
+        gathered = await gatherOfferable();
+      } catch {
+        // The candidates cannot be listed, so the remembered value cannot be
+        // re-verified — and an unverified value must not become the selection.
+        // It is left in the store rather than dropped: a server that is not
+        // answering says nothing about whether the Release is still there, and
+        // discarding the reader's choice on that evidence would lose it to a
+        // restart.
+        setState({ kind: 'unknown' });
+        return;
+      }
+      const match = gathered.offerable.find(c => c.release === remembered);
+      if (match) {
+        setState({ kind: 'selected', release: match.release, absolute: match.absolute });
+        return;
+      }
+      // Verified and gone. The value is dropped, the reader is told it was
+      // dropped, and the workspace's own default takes over — which is what
+      // they would have started on had they never chosen at all.
+      deps.store.write(null);
+      deps.reportInfo(
+        `Aggrega: ${remembered} is no longer offered in this workspace, so the previous selection was dropped. Falling back to this workspace's default.`,
+      );
+      reportDropped(gathered.dropped, gathered.root);
+      await adoptDefault();
     },
 
     choose: async (placeHolder?: string): Promise<string | null> => {
@@ -153,17 +283,23 @@ export function createReleaseSelection(deps: ReleaseSelectionDeps): ReleaseSelec
         deps.reportInfo('Aggrega: no anchored workspace, so there is no Release to select.');
         return null;
       }
-      let candidates: string[];
+      let gathered;
       try {
-        candidates = await deps.listReleases();
+        gathered = await gatherOfferable();
       } catch {
         deps.reportError(
           'Aggrega: cannot list Releases — the language server is not running. Start it and try again.',
         );
         return null;
       }
-      if (candidates.length === 0) {
-        deps.reportInfo('Aggrega: no Release found in this workspace.');
+      reportDropped(gathered.dropped, gathered.root);
+      if (gathered.offerable.length === 0) {
+        // Only when nothing was dropped is this workspace genuinely empty of
+        // Releases. Saying so when some were dropped would be the wrong
+        // sentence, and it is the one a reader would act on.
+        if (gathered.dropped.length === 0) {
+          deps.reportInfo('Aggrega: no Release found in this workspace.');
+        }
         return null;
       }
       // A sole candidate is still offered rather than taken silently. This is
@@ -171,17 +307,15 @@ export function createReleaseSelection(deps: ReleaseSelectionDeps): ReleaseSelec
       // choose by choosing for them leaves them unable to tell that the
       // command ran at all.
       const picked = await deps.pickRelease(
-        candidates,
+        gathered.offerable.map(c => c.absolute),
         placeHolder ?? 'Aggrega: choose the Release to work on',
       );
       if (!picked) { return null; }
-      return selectAbsolute(root, picked);
-    },
-
-    adopt: (absolutePath: string): void => {
-      const root = deps.getWorkspaceRoot();
-      if (!root) { return; }
-      selectAbsolute(root, absolutePath);
+      const chosen = gathered.offerable.find(c => c.absolute === picked);
+      if (!chosen) { return null; }
+      setState({ kind: 'selected', release: chosen.release, absolute: chosen.absolute });
+      deps.store.write(chosen.release);
+      return chosen.release;
     },
 
     forget: () => setState({ kind: 'unknown' }),
@@ -192,19 +326,53 @@ export function createReleaseSelection(deps: ReleaseSelectionDeps): ReleaseSelec
   };
 }
 
-// describeSelection renders the selection as the short label and the longer
-// explanation a status surface shows. Kept apart from the editor so the text a
-// reader sees is directly testable.
-export function describeSelection(state: SelectionState): { label: string; detail: string } {
+// describeDropped is the sentence a reader gets when the editor cannot offer
+// Releases the server reported. It carries the count and where those files sit,
+// which is what separates "there are none" from "there are some I cannot offer
+// you".
+function describeDropped(count: number, root: string | null): string {
+  const noun = count === 1 ? 'Release' : 'Releases';
+  if (root === null) {
+    return `Aggrega: ${count} ${noun} cannot be offered — the language server has not reported which folder it anchored to, and a Release is named relative to that folder. Restart the language server to try again. The paths are in the Aggrega output channel.`;
+  }
+  const verb = count === 1 ? 'sits' : 'sit';
+  return `Aggrega: ${count} ${noun} ${verb} outside the anchored folder ${root} and cannot be offered, because a Release is named relative to it. The paths are in the Aggrega output channel.`;
+}
+
+// describeUnnameable explains why a Release this workspace points at could not
+// be taken as the selection. Both branches name the anchored folder, or its
+// absence, because that is the fact the reader needs in order to act.
+function describeUnnameable(release: string, root: string | null): string {
+  if (root === null) {
+    return `the language server has not reported which folder it anchored to, so ${release} cannot be named relative to it`;
+  }
+  return `${release} sits outside the anchored folder ${root}, and a Release is named relative to it`;
+}
+
+// describeSelection renders the selection for the two surfaces that display it,
+// and the longer explanation both hang off it. Kept apart from the editor so the
+// text a reader sees is directly testable.
+//
+// label and value are two renderings of one state rather than two states, and
+// they are computed together so they cannot come to disagree. label is the
+// compact form for a surface with a single line and no room to name the field
+// it is showing, so it carries the word Release itself. value is for a surface
+// that already names the field beside it and has room for a path, so it carries
+// the value alone.
+export function describeSelection(
+  state: SelectionState,
+): { label: string; value: string; detail: string } {
   switch (state.kind) {
     case 'selected':
       return {
         label: path.basename(state.absolute),
+        value: state.release,
         detail: `Aggrega selected Release: ${state.absolute}\nClick to select a different one`,
       };
     case 'none':
       return {
         label: 'Release: none',
+        value: 'none selected',
         detail: state.reason
           ? `Aggrega: no Release is selected. ${state.reason}\nClick to select one.`
           : 'Aggrega: no Release is selected. Click to select one.',
@@ -212,6 +380,7 @@ export function describeSelection(state: SelectionState): { label: string; detai
     case 'unknown':
       return {
         label: 'Release: unavailable',
+        value: 'unavailable',
         detail:
           'Aggrega: the language server is not running, so which Release is selected is unknown.',
       };
