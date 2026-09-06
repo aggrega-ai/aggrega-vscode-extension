@@ -27,7 +27,6 @@ import {
   enablementClause,
 } from '../../src/daemon-status';
 import { COMPILER_ANSWERABLE_CONTEXT_KEY } from '../../src/readiness';
-import { STEP_IDS, stepContextKey } from '../../src/get-started-steps';
 
 // The manifest is read and parsed rather than pattern-matched: what is asserted
 // below is a property of the declared contributions, and only a parse can see
@@ -319,18 +318,14 @@ describe('what the manifest declares about availability', () => {
     }
   });
 
-  // The get-started conditions report four standings of what a workspace still
-  // needs; this one reports whether the compiler can be asked right now. The
-  // nearest of them reads the language server alone, so a command gated on it
-  // would be offered in a window with no anchored root — where the operations
-  // that run the binary have nowhere to run.
-  it('keeps the command gate off the get-started conditions', () => {
-    const stepKeys = STEP_IDS.map(stepContextKey);
-    assert.ok(
-      !stepKeys.includes(COMPILER_ANSWERABLE_CONTEXT_KEY),
-      'the command gate reuses a get-started step condition, which answers a different question and belongs to a view\'s own lifetime',
-    );
-  });
+  // The assertion this replaces required the command gate not to be one of the
+  // welcome panel's four step conditions, which the editor published as
+  // conditions of its own. Retired rather than adjusted: the panel is drawn by
+  // this extension and reads its four standings directly, so no step condition
+  // is published to the editor at all and there is none for a gate to collide
+  // with. The assertion above — that every declared gate is the one condition
+  // this extension publishes — is what now carries that guarantee, and it
+  // carries it for every key rather than for four named ones.
 
   // Two palette entries differing only in wording leave a reader choosing
   // between two names for one act. The offer the indicator opens is the

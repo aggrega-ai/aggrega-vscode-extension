@@ -1,0 +1,166 @@
+/* SPDX-License-Identifier: Apache-2.0
+   Copyright 2026 Cognitio S.r.l. */
+
+/* The panel draws in the editor's own colours and font throughout, so it reads
+   as part of the editor a reader has themed rather than as a page pasted into
+   it. */
+
+body {
+  color: var(--vscode-foreground);
+  background: var(--vscode-editor-background);
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+  padding: 0;
+  margin: 0;
+}
+
+/* A measure rather than the full width of the tab: the description is a
+   paragraph of prose, and prose set across a wide editor is hard to track from
+   one line to the next. */
+.welcome {
+  max-width: 46rem;
+  margin: 0 auto;
+  padding: 2.5rem 2rem 4rem;
+}
+
+.welcome-greeting {
+  font-size: 2rem;
+  font-weight: 600;
+  margin: 0 0 1rem;
+}
+
+/* The product's own description, given room to arrive whole. It is never
+   trimmed or re-wrapped to fit, so the layout is what accommodates it. */
+.welcome-description {
+  font-size: 1.05rem;
+  line-height: 1.6;
+  margin: 0 0 2.5rem;
+  color: var(--vscode-descriptionForeground);
+}
+
+.steps {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.step {
+  border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
+  border-radius: 6px;
+  padding: 1.25rem 1.5rem;
+  background: var(--vscode-editorWidget-background);
+}
+
+.step-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0 0 0.75rem;
+  font-size: 1.15rem;
+  font-weight: 600;
+}
+
+.step-mark {
+  flex: none;
+  width: 1.4rem;
+  height: 1.4rem;
+  line-height: 1.4rem;
+  text-align: center;
+  border-radius: 50%;
+  font-size: 0.95rem;
+}
+
+.step-met .step-mark {
+  background: var(--vscode-testing-iconPassed, var(--vscode-charts-green));
+  color: var(--vscode-editor-background);
+}
+
+.step-unmet .step-mark {
+  color: var(--vscode-descriptionForeground);
+}
+
+.step-title {
+  flex: 1 1 auto;
+}
+
+/* The standing in words, beside the mark. A glyph alone leaves its meaning to be
+   guessed at, and is nothing at all to a reader using a screen reader. */
+.step-standing {
+  flex: none;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0.15rem 0.5rem;
+  border-radius: 3px;
+  background: var(--vscode-badge-background);
+  color: var(--vscode-badge-foreground);
+}
+
+.step-met .step-standing {
+  background: var(--vscode-testing-iconPassed, var(--vscode-charts-green));
+  color: var(--vscode-editor-background);
+}
+
+.step-summary {
+  margin: 0 0 0.75rem;
+  line-height: 1.55;
+}
+
+.step-detail {
+  color: var(--vscode-descriptionForeground);
+  line-height: 1.6;
+}
+
+.step-detail p {
+  margin: 0 0 0.75rem;
+}
+
+.step-bullets {
+  margin: 0 0 0.75rem;
+  padding-left: 1.25rem;
+}
+
+.step-bullets li {
+  margin-bottom: 0.35rem;
+}
+
+.step-detail code,
+.step-summary code {
+  font-family: var(--vscode-editor-font-family);
+  font-size: 0.9em;
+  background: var(--vscode-textCodeBlock-background);
+  padding: 0.1rem 0.3rem;
+  border-radius: 3px;
+}
+
+/* Both ways through a step, side by side and weighted the same. Neither is the
+   recommended one: creating and pointing at what you already have end in the
+   same state, and a reader who has the thing should not have to read past a
+   primary control telling them to make another. */
+.step-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.step-action {
+  font-family: inherit;
+  font-size: inherit;
+  color: var(--vscode-button-secondaryForeground, var(--vscode-button-foreground));
+  background: var(--vscode-button-secondaryBackground, var(--vscode-button-background));
+  border: none;
+  border-radius: 3px;
+  padding: 0.45rem 0.9rem;
+  cursor: pointer;
+}
+
+.step-action:hover {
+  background: var(--vscode-button-secondaryHoverBackground, var(--vscode-button-hoverBackground));
+}
+
+.step-action:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 2px;
+}

@@ -10,7 +10,7 @@ import { runCliJson } from './cli-json';
 import { runCliProcess } from './cli-run';
 import { RendersOnReady } from './readiness';
 import { RegistryListDoc } from './registries-run';
-import { DEFAULT_SETTINGS, EXTENSION_ID, SERVER_CONFIG_SECTION } from './settings';
+import { DEFAULT_SETTINGS, SERVER_CONFIG_SECTION } from './settings';
 import {
   ANCHOR_CANDIDATE_GLOB,
   CONFIG_FILENAME,
@@ -26,30 +26,36 @@ import {
   GET_STARTED_SHOW_SETTING,
   GetStartedFacts,
   LOCATE_COMPILER_COMMAND,
+  NOTHING_MET,
   SEED_NAMED_REGISTRY_COMMAND,
   SEED_REGISTRY_COMMAND,
   SHOW_COMMAND,
-  STEP_IDS,
+  StepId,
   USE_COMPILER_ON_PATH_COMMAND,
-  stepContextKey,
+  WELCOME_PANEL_TITLE,
+  panelControlCommands,
   stepStandings,
-  walkthroughAddress,
 } from './get-started-steps';
+import { stepsHtml, welcomeDocumentHtml } from './welcome-render';
 
-// This module is the whole editor-coupled boundary of the welcome panel.
-// What the panel SAYS is contributed to the editor in the manifest, and what it
-// MEANS — which conditions exist and when one is met — is in
-// get-started-steps.ts, which imports no editor type. What is left here is the
-// wiring: reading the four facts, publishing them as the conditions the editor
-// checks the steps off against, running the controls, and opening the panel.
+// This module is the whole editor-coupled boundary of the welcome panel. What
+// the panel MEANS — which conditions exist and when one is met — is in
+// get-started-steps.ts, and how it is COMPOSED is in welcome-render.ts; neither
+// imports an editor type. What is left here is the wiring: reading the four
+// facts, drawing them into the panel, running the controls, and opening it.
 //
-// THE PANEL IS NOT DRAWN BY THIS CODE, AND THAT IS THE POINT. It is a manifest
-// contribution, so the editor renders it for a reader whose workspace has
-// started no extension at all — and opening it is itself what starts this
-// extension, because the editor derives an activation event from the
-// contribution. Drawing it here would reach only the readers who already have
-// enough configured for this extension to run, which is the exact opposite of
-// the audience.
+// THE PANEL IS AGGREGA'S OWN, IN ITS OWN TAB, AND IT IS DRAWN BY THIS CODE.
+// That is what lets a step go back to outstanding when its condition lapses:
+// every refresh re-composes the list from freshly read facts, so a mark follows
+// its condition in both directions rather than only ticking forward.
+//
+// BECAUSE THIS EXTENSION DRAWS THE PANEL, THE PANEL CANNOT OPEN BEFORE THIS
+// EXTENSION RUNS — and the reader it exists for is precisely the one whose
+// folder holds no Aggrega YAML and no configuration file, so neither the
+// language-related nor the workspace-contains activation event fires for them.
+// The manifest therefore declares a startup activation event with no workspace
+// precondition. Without it the panel would be registered, every assertion here
+// would pass, and the reader it is for would never see it.
 
 // BINARY_PATH_KEY is the preference a compiler step writes. It is spelled from
 // the section and key the settings reader already uses, so the two cannot come
@@ -91,16 +97,34 @@ export function activateGetStarted(
   context: vscode.ExtensionContext,
   deps: GetStartedDeps,
 ): () => void {
+  // The one panel, reused. A second press reveals the one already open rather
+  // than stacking tabs, and closing it clears this so a later refresh has
+  // nothing to draw into.
+  let panel: vscode.WebviewPanel | null = null;
+
+  // The standings the panel is currently drawn from. Held so the panel can be
+  // opened from what is already known, and so a refresh that arrives while no
+  // panel is open still leaves the next opening drawing the truth.
+  let standings: Record<StepId, boolean> = stepStandings(NOTHING_MET);
+
   // Two events can ask for a re-read while one is still in flight, because
   // reading the registry condition asks the compiler. Coalescing means the
-  // conditions settle on the last answer asked for rather than on whichever
+  // panel settles on the last answer asked for rather than on whichever
   // subprocess happened to finish last.
   let inFlight = false;
   let again = false;
+  const reread = async (): Promise<void> => {
+    standings = stepStandings(await readFacts(deps));
+    // 🔴 THE LIST IS RE-COMPOSED FROM THE STANDINGS JUST READ, IN BOTH
+    // DIRECTIONS. A step whose condition has lapsed is composed as outstanding
+    // again, because nothing here accumulates a previous mark — which is the
+    // defect a panel drawn by this extension does not inherit.
+    panel?.webview.postMessage({ type: 'steps', html: stepsHtml(standings) });
+  };
   const refresh = (): void => {
     if (inFlight) { again = true; return; }
     inFlight = true;
-    void publishStandings(deps).finally(() => {
+    void reread().finally(() => {
       inFlight = false;
       if (!again) { return; }
       again = false;
@@ -108,31 +132,59 @@ export function activateGetStarted(
     });
   };
 
-  // Published once from what is true now, because the panel can be on screen
-  // before anything has become ready and an unset condition reads as unmet —
-  // which would tell a reader with a working workspace that they have nothing.
+  // openPanel draws the panel from the standings read at the moment it opens,
+  // rather than from whatever was last computed: a reader who built their
+  // configuration elsewhere would otherwise meet a panel telling them they have
+  // nothing, for as long as the first read takes.
+  const openPanel = async (): Promise<void> => {
+    if (panel) {
+      panel.reveal(vscode.ViewColumn.Active);
+      refresh();
+      return;
+    }
+    await reread();
+    panel = vscode.window.createWebviewPanel(
+      'aggrega.welcome',
+      WELCOME_PANEL_TITLE,
+      vscode.ViewColumn.Active,
+      {
+        enableScripts: true,
+        retainContextWhenHidden: true,
+        localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')],
+      },
+    );
+    // The message handler belongs to THIS panel and is disposed with it. A
+    // reader may close and reopen the panel any number of times, and a handler
+    // registered for the extension's whole lifetime would accumulate one dead
+    // listener per closing — each holding the webview it can no longer reach.
+    const listener = panel.webview.onDidReceiveMessage(
+      (message: unknown) => { runPanelControl(message, deps.output); },
+    );
+    panel.onDidDispose(
+      () => { listener.dispose(); panel = null; },
+      null,
+      context.subscriptions,
+    );
+    panel.webview.html = welcomeHtml(panel.webview, context.extensionUri, standings);
+  };
+
+  // Read once from what is true now, so a panel opened a moment later has the
+  // answer in hand.
   refresh();
   // And again whenever the compiler becomes answerable, or the selection moves.
   // Only the rising edge of readiness is announced, which is the extension's
   // one rule about that signal: a step keeps its standing while the language
   // server restarts rather than flickering to unmet and back.
-  //
-  // That rule and the editor's own step-completion semantics agree, which is
-  // worth stating because it is not obvious: a step is CHECKED OFF when its
-  // condition becomes true, and the editor's only paths back to unchecked are
-  // the reader's own — toggling the checkbox, or the mark-incomplete command.
-  // So a condition that lapses leaves its step checked rather than reverting,
-  // exactly as a view here keeps what it has when the compiler stops answering.
   deps.onReady(refresh);
   deps.onSelectionChange(refresh);
 
   // Opened where the reader has not said otherwise. This is what the preference
-  // gates: whether the panel opens, not whether some surface is visible — the
-  // panel costs the sidebar container nothing either way.
-  void openIfWanted();
+  // gates: whether the panel opens, not whether it exists — the command that
+  // brings it back is in the palette either way.
+  void openIfWanted(openPanel);
 
   context.subscriptions.push(
-    vscode.commands.registerCommand(SHOW_COMMAND, () => bringBack()),
+    vscode.commands.registerCommand(SHOW_COMMAND, () => bringBack(openPanel)),
     vscode.commands.registerCommand(DISMISS_COMMAND, () => putAway()),
     vscode.commands.registerCommand(CREATE_WORKSPACE_COMMAND, () => createWorkspace(deps, refresh)),
     vscode.commands.registerCommand(CHOOSE_WORKSPACE_COMMAND, () => chooseWorkspace(deps, refresh)),
@@ -146,15 +198,60 @@ export function activateGetStarted(
   return refresh;
 }
 
-// publishStandings reads the four facts and sets one editor condition per step.
-// Each step names its own condition as what checks it off, so a step a reader
-// has just satisfied is ticked without anything being pressed and without the
-// panel being reopened.
-async function publishStandings(deps: GetStartedDeps): Promise<void> {
-  const standings = stepStandings(await readFacts(deps));
-  for (const id of STEP_IDS) {
-    await vscode.commands.executeCommand('setContext', stepContextKey(id), standings[id]);
+// runPanelControl runs the command a press in the panel names.
+//
+// The name is checked against the commands the panel's own content offers
+// before anything is run. The panel is this extension's own document under a
+// content policy that admits only its own script, so this is not a defence
+// against a page that has been tampered with — it is the guarantee that the
+// panel's reach stays exactly what it draws, so a control cannot be made to
+// invoke something the reader was never offered.
+function runPanelControl(message: unknown, output: vscode.OutputChannel): void {
+  const named = typeof message === 'object' && message !== null
+    ? (message as { type?: unknown; command?: unknown })
+    : null;
+  if (!named || named.type !== 'run' || typeof named.command !== 'string') { return; }
+  if (!panelControlCommands().includes(named.command)) {
+    output.appendLine(
+      `get started: the panel asked for ${named.command}, which none of its controls offers.`,
+    );
+    return;
   }
+  void vscode.commands.executeCommand(named.command);
+}
+
+// welcomeHtml resolves this installation's own panel resources and composes the
+// document. What it composes is decided in welcome-render.ts, which holds no
+// editor types, so the panel's body is assertable without an extension host.
+function welcomeHtml(
+  webview: vscode.Webview,
+  extensionUri: vscode.Uri,
+  standings: Record<StepId, boolean>,
+): string {
+  return welcomeDocumentHtml({
+    nonce: makeNonce(),
+    styleUri: webview.asWebviewUri(
+      vscode.Uri.joinPath(extensionUri, 'media', 'welcome.css'),
+    ).toString(),
+    scriptUri: webview.asWebviewUri(
+      vscode.Uri.joinPath(extensionUri, 'media', 'welcome.js'),
+    ).toString(),
+    cspSource: webview.cspSource,
+    standings,
+  });
+}
+
+// makeNonce returns a random token for the content policy's script allowlist.
+// Math.random is sufficient for it — the nonce is not a security boundary on
+// its own; the policy's source restriction and the local-only resource root
+// are.
+function makeNonce(): string {
+  let text = '';
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  for (let i = 0; i < 32; i++) {
+    text += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return text;
 }
 
 // readFacts reads the four conditions from the parts of the extension that
@@ -202,38 +299,23 @@ async function hasConfiguredRegistry(deps: GetStartedDeps): Promise<boolean> {
 
 // openIfWanted opens the panel unless the reader has turned it off.
 //
-// The preference is read rather than assumed, and it is read here rather than
-// being left to a condition in the manifest: what the preference now gates is
-// whether the panel OPENS, and only something running can decline to open it.
-// The panel itself stays contributed either way, so a reader who dismissed it
-// still finds it where the editor lists what exists.
-async function openIfWanted(): Promise<void> {
+// The preference is read rather than assumed, and what it gates is whether the
+// panel OPENS BY ITSELF — not whether it exists. A reader who dismissed it
+// still finds the way back in the command palette, which is why the dismissal
+// is safe to offer at all.
+async function openIfWanted(openPanel: () => Promise<void>): Promise<void> {
   const [section, key] = splitSetting(GET_STARTED_SHOW_SETTING);
   if (vscode.workspace.getConfiguration(section).get<boolean>(key) !== true) { return; }
-  await openWelcomePanel();
-}
-
-// openWelcomePanel asks the editor to open this extension's walkthrough.
-//
-// The address is composed from the extension's own identifier, which has one
-// home, so the publisher and the name are not spelled again here. A failure is
-// reported to the channel rather than raised at the reader: the panel is an
-// offer, and an editor that declines to open it has cost them nothing they
-// asked for.
-async function openWelcomePanel(): Promise<void> {
-  await vscode.commands.executeCommand(
-    'workbench.action.openWalkthrough',
-    walkthroughAddress(EXTENSION_ID),
-  );
+  await openPanel();
 }
 
 // bringBack turns the panel back on and opens it. It is the way back from the
 // dismissal, so that dismissing is a decision a reader can undo rather than a
 // door that locks behind them.
-async function bringBack(): Promise<void> {
+async function bringBack(openPanel: () => Promise<void>): Promise<void> {
   await setShown(true);
   try {
-    await openWelcomePanel();
+    await openPanel();
   } catch (err) {
     // The preference is the substantive effect and it has landed; opening the
     // panel is on top of it. Where the editor declines, the reader is told the

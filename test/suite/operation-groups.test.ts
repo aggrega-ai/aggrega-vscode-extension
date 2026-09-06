@@ -150,7 +150,7 @@ describe('the surface the manifest actually contributes', () => {
 
   // The operations lead, because they are what a reader came to do. What a
   // reader with nothing configured needs first is the welcome panel, and that
-  // is an editor-area walkthrough rather than a panel here — so it costs the
+  // opens in its own editor tab rather than as a panel here — so it costs the
   // container no slot, and this order holds whether it is shown or dismissed.
   it('orders the container panels Operations, Registries, Catalog, Plugins', () => {
     assert.deepStrictEqual(

@@ -14,6 +14,7 @@
     "Linters"
   ],
   "activationEvents": [
+    "onStartupFinished",
     "onLanguage:yaml",
     "workspaceContains:**/.aggrega-config.yaml"
   ],
@@ -48,59 +49,6 @@
         }
       ]
     },
-    "walkthroughs": [
-      {
-        "id": "aggregaWelcome",
-        "title": "Welcome to Aggrega!",
-        "description": "Aggrega is an open-source language, ecosystem, and compiler for defining and rendering enterprise architectures, featuring a standard library highly specialized for AI applications. It serves as a bridge between abstract developer intent (including cognitive AI frameworks like LangGraph or CrewAI) and secure, physical cloud-native reality.",
-        "steps": [
-          {
-            "id": "workspace",
-            "title": "A workspace Aggrega recognises",
-            "description": "Aggrega looks for a `.aggrega-config.yaml` carrying a `workspace:` block, an `.aggrega` directory, or an `aggregate`, `release` or `manifest` YAML file — starting at the folder you opened and climbing from there.\n[Create a workspace configuration](command:aggrega.getStarted.createWorkspace)\n[Use a folder that already has one](command:aggrega.getStarted.chooseWorkspace)",
-            "media": {
-              "markdown": "media/welcome-workspace.md"
-            },
-            "completionEvents": [
-              "onContext:aggrega.getStarted.workspaceReady"
-            ]
-          },
-          {
-            "id": "compiler",
-            "title": "A compiler this editor can run",
-            "description": "The editor starts the `aggrega` binary named in your settings; a plain name is looked up on your PATH.\n[Use the compiler on my PATH](command:aggrega.getStarted.useCompilerOnPath)\n[Point at a compiler I have](command:aggrega.getStarted.locateCompiler)",
-            "media": {
-              "markdown": "media/welcome-compiler.md"
-            },
-            "completionEvents": [
-              "onContext:aggrega.getStarted.compilerReady"
-            ]
-          },
-          {
-            "id": "release",
-            "title": "A Release to act on",
-            "description": "Building, previewing and the topology graph each act on one Release, so the editor needs to know which one you mean.\n[Draft a Release](command:aggrega.getStarted.draftRelease)\n[Choose a Release I already have](command:aggrega.release.select)",
-            "media": {
-              "markdown": "media/welcome-release.md"
-            },
-            "completionEvents": [
-              "onContext:aggrega.getStarted.releaseReady"
-            ]
-          },
-          {
-            "id": "registry",
-            "title": "A registry to resolve from",
-            "description": "Pulling dependencies and searching the published catalog resolve against the registries your configuration names.\n[Seed the official hub](command:aggrega.getStarted.seedRegistry)\n[Seed a registry I name](command:aggrega.getStarted.seedNamedRegistry)",
-            "media": {
-              "markdown": "media/welcome-registry.md"
-            },
-            "completionEvents": [
-              "onContext:aggrega.getStarted.registryReady"
-            ]
-          }
-        ]
-      }
-    ],
     "menus": {
       "commandPalette": [
         {
@@ -361,7 +309,7 @@
         "aggrega.getStarted.show": {
           "type": "boolean",
           "default": true,
-          "description": "Whether the Aggrega welcome panel opens with the editor. The panel says what Aggrega is, then lists what it needs in this workspace — a workspace it recognises, a compiler it can run, a Release to act on, a registry to resolve from — checking off each one already met. Turning it off is what \"Aggrega: Stop opening the welcome panel\" does, and it stops the panel opening by itself rather than removing it: it stays listed among the editor's walkthroughs. Turning it back on, and opening it, is what \"Aggrega: Get started\" does.",
+          "description": "Whether the Aggrega welcome panel opens with the editor. The panel opens in its own tab, says what Aggrega is, then lists what it needs in this workspace — a workspace it recognises, a compiler it can run, a Release to act on, a registry to resolve from — marking each one already met, and marking it outstanding again if it later lapses. Turning it off is what \"Aggrega: Stop opening the welcome panel\" does, and it stops the panel opening by itself rather than putting it out of reach. Turning it back on, and opening it, is what \"Aggrega: Get started\" does.",
           "scope": "machine"
         },
         "aggrega.server.binaryPath": {
