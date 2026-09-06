@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cognitio S.r.l.
 
+import { CancellationSignal } from './cancellation';
 import { SeverityToken, severityTokenFromString, zeroBasedFromOneBased } from './diagnostics-shape';
+import { outcomeOf, terminalLine } from './operation-outcome';
 import { NO_ANCHORED_WORKSPACE_MESSAGE } from './workspace';
 
 // LINT_DIAGNOSTIC_SOURCE names the conventions linter as the origin of every
@@ -184,7 +186,11 @@ export interface LintRunDeps {
   // runLintJson invokes the linter's structured output. It resolves the parsed
   // document together with the report the product wrote to stderr, and rejects
   // with the product's own message when the linter could not run.
-  runLintJson(): Promise<{ doc: LintDocument; stderr: string }>;
+  //
+  // The signal is how a reader stops it. The linter walks every catalog entity,
+  // so a run on a large catalog is one a reader may want to stop; stopping it
+  // terminates the run rather than leaving it walking with nobody waiting.
+  runLintJson(signal?: CancellationSignal): Promise<{ doc: LintDocument; stderr: string }>;
   sink: LintSink;
   log: LintLog;
   // notify surfaces one short status to the reader. The 'error' tier carries
@@ -206,7 +212,11 @@ export interface LintRunDeps {
 // A run that could not execute leaves the previous run's findings in place. It
 // learned nothing, so clearing them would destroy a result the author has not
 // yet acted on; the failure is surfaced instead.
-export async function runLint(deps: LintRunDeps): Promise<void> {
+//
+// A run the reader stopped is reported as stopped rather than as a failure, and
+// leaves the previous findings in place for the same reason a failed run does:
+// it learned nothing, so there is nothing to replace them with.
+export async function runLint(deps: LintRunDeps, signal?: CancellationSignal): Promise<void> {
   if (!deps.getWorkspaceRoot()) {
     // The shared no-anchor message, so the reader learns the linter was never
     // invoked rather than reading an empty result as a clean catalog — and
@@ -217,14 +227,20 @@ export async function runLint(deps: LintRunDeps): Promise<void> {
 
   let result: { doc: LintDocument; stderr: string };
   try {
-    result = await deps.runLintJson();
+    result = await deps.runLintJson(signal);
   } catch (err) {
+    const outcome = outcomeOf(err);
+    if (outcome.kind === 'cancelled') {
+      const line = terminalLine('The lint', outcome);
+      deps.log.appendLine(line);
+      deps.notify(line, 'info');
+      return;
+    }
     // The message is the linter's own stderr text. It is surfaced as-is: a
     // re-worded wrapper would hide the remediation the compiler already named.
-    const message = err instanceof Error ? err.message : String(err);
-    deps.log.appendLine(message);
+    deps.log.appendLine(outcome.message);
     deps.log.show();
-    deps.notify(message, 'error');
+    deps.notify(outcome.message, 'error');
     return;
   }
 

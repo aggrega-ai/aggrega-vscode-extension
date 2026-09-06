@@ -68,6 +68,39 @@ The full account is written to the Aggrega output channel. Validation still runs
 state: you get the findings a document answers on its own — whether it parses, and whether its
 own shape is admissible — and the checks that need a Release are skipped until you select one.
 
+## What a command does when you run it
+
+**Every command ends in something you can see.** Nothing succeeds silently, because a command that
+says nothing looks exactly like one that never ran.
+
+- **Choosing a Release** changes the two indicators and raises no notification. You can already see
+  the result, and a notification for it would only teach you to dismiss notifications unread.
+- **Validate and lint** report how many problems they found — **including when they found none.** A
+  clean run says so, rather than leaving the Problems panel untouched and you wondering whether the
+  command ran.
+- **Draft entity, inspect and show effective config** end with the document open in a tab.
+- **A long operation shows progress with a Cancel button.** That covers everything that reaches a
+  registry, renders or resolves a Release, or walks the catalog: validate, lint, build, preview
+  build, the topology graph, pull, acquire inputs, inspect, push, sign and deprecate. Drafting a
+  document, importing a file and reporting the effective configuration are none of those, so they run
+  without one.
+- **Pressing Cancel stops the compiler**, not just the editor's waiting. Over the language server the
+  extension sends the cancellation for the request it issued; over a subprocess it terminates the
+  process. Cancellation of a compile takes effect at the compile's own phase boundaries, so a heavy
+  phase already under way finishes first — which is why the message says the operation was stopped
+  rather than that it stopped instantly. Either way the result is reported as **stopped**, never as a
+  failure.
+- **Emptying or pruning the caches asks first, and says what it will reach.** Both touch this
+  workspace's own caches *and* the compiled-module and plugin-describe caches shared by every project
+  on this machine, so the confirmation names both. Afterwards a message says what was removed;
+  declining says that nothing was.
+- **Push, sign and deprecate say what is now true for consumers** — that the version you published is
+  what others pulling it now resolve, that the signature is there to be verified, that the
+  deprecation marker is what resolvers now see.
+- **A failure shows the compiler's own message, with a button beside it,** never a re-worded summary
+  in place of it. The compiler's message usually names what to run or what to fix, and the **Show
+  output** button takes you to the full text in the Aggrega output channel.
+
 ## Settings
 
 **The cog at the top right of the Operations panel opens them** — it is the editor's own settings
@@ -110,14 +143,14 @@ they write `.aggrega/active-release` or `.aggrega-config.yaml` rather than an ed
 - **Aggrega: Set authoring_release in .aggrega-config.yaml…** — open the configuration file to set `build.authoring_release`, the committed default a team shares. It outranks the marker file.
 - **Aggrega: Restart language server** — terminates the current daemon and spawns a fresh one. Resets the respawn-attempt counter.
 - **Aggrega: Toggle the build's analysis while inspecting** — flips the `aggrega.server.buildOnInspect` setting in place, so the settings UI always agrees with it, and offers the restart that applies it — the language server reads the setting when it starts. Also reachable from the status-bar quick-action menu, which shows whether the setting is currently on. Findings arrive tagged with the layer that raised them, so the build's analysis groups apart from validation in the Problems panel and clears independently of it.
-- **Aggrega: Validate active file / Build / Preview build / Lint** — run the corresponding compiler operation through the language server. Build, preview build and pull act on the selected Release rather than asking each time. Build compiles the selected Release with every gate on and writes the artifacts it renders into the workspace's `dist/` directory; preview build runs the same compile and reports what it would have written, leaving the output directory untouched. Both put the findings that carry a document position in the Problems panel, tagged with the layer that raised them, and write the advisories that name no position — a withdrawn pin, an unresolvable parent — to the Aggrega output channel along with the artifact list. Lint checks publishing conventions and places each finding in the Problems panel, tagged with the rule that produced it, so clicking one opens the entity it concerns; a finding the linter located to a file but not to a line sits at the top of that file rather than at a guessed position, and the full human report goes to the Aggrega output channel as well.
-- **Aggrega: Pull / Acquire inputs** — run the `aggrega` binary against the selected Release and stream its output to the Aggrega output channel. Pull fetches the remote dependencies the workspace declares; acquire inputs pins the external inputs the Release's render consumes and records them in its lockfile, so a later build serves them from the local store.
+- **Aggrega: Validate active file / Build / Preview build / Lint** — run the corresponding compiler operation through the language server. Build, preview build and pull act on the selected Release rather than asking each time. Build compiles the selected Release with every gate on and writes the artifacts it renders into the workspace's `dist/` directory; preview build runs the same compile and reports what it would have written, leaving the output directory untouched. Both put the findings that carry a document position in the Problems panel, tagged with the layer that raised them, and write the advisories that name no position — a withdrawn pin, an unresolvable parent — to the Aggrega output channel along with the artifact list. Lint checks publishing conventions and places each finding in the Problems panel, tagged with the rule that produced it, so clicking one opens the entity it concerns; a finding the linter located to a file but not to a line sits at the top of that file rather than at a guessed position, and the full human report goes to the Aggrega output channel as well. All four report how many findings they produced, including when the answer is none, so a clean run is distinguishable from a command that did not run; all four show progress with a Cancel button while they work.
+- **Aggrega: Pull / Acquire inputs** — run the `aggrega` binary against the selected Release and stream its output to the Aggrega output channel. Pull fetches the remote dependencies the workspace declares; acquire inputs pins the external inputs the Release's render consumes and records them in its lockfile, so a later build serves them from the local store. Both reach a registry, so both show progress with a Cancel button, and both end in a message saying what they did.
 - **Aggrega: Draft entity…** — ask the language server for a starter document for an entity kind and open it in a new unsaved tab. Nothing is written to disk: the draft is yours to edit, save or discard. A kind the compiler does not recognise comes back with the compiler's own message naming the kinds it does.
-- **Aggrega: Inspect…** — choose an entity the open workspace declares and see what it resolves to, opened as a new tab.
-- **Aggrega: Import… / Cache…** — run the `aggrega` binary and stream its output to the Aggrega output channel. Import asks for the source first; cache asks which subcommand to run.
-- **Aggrega: Push… / Sign… / Deprecate…** — the operations that change what other people resolve. Push asks which of the open workspace's entities to publish, then bundles and publishes it to a configured registry. Sign and deprecate ask for a reference to an artifact already published, because both amend published bytes rather than the workspace: sign attaches a signature, deprecate attaches a signed deprecation marker and asks for the severity — `warning`, `error` or `retracted` — and the reason it records. All three run the `aggrega` binary and stream their output to the Aggrega output channel.
+- **Aggrega: Inspect…** — choose an entity the open workspace declares and see what it resolves to, opened as a new tab. The resolution runs over the catalog, so it shows progress with a Cancel button.
+- **Aggrega: Import… / Cache…** — run the `aggrega` binary and stream its output to the Aggrega output channel. Import asks for the source first, and reads only the file you name — no other files and no network. Cache asks which subcommand to run: **status** lists every cache and removes nothing; **prune** removes entries no lockfile references; **clear** empties every cache. The two that remove something ask you to confirm first, and the confirmation names what they reach — this workspace's own entity, source-artifact, external-input and documentation-bundle caches, and the compiled-module and plugin-describe caches every project on this machine shares. Cleared caches repopulate on the next build.
+- **Aggrega: Push… / Sign… / Deprecate…** — the operations that change what other people resolve. Push asks which of the open workspace's entities to publish, then bundles and publishes it to a configured registry. Sign and deprecate ask for a reference to an artifact already published, because both amend published bytes rather than the workspace: sign attaches a signature, deprecate attaches a signed deprecation marker and asks for the severity — `warning`, `error` or `retracted` — and the reason it records. All three run the `aggrega` binary and stream their output to the Aggrega output channel, all three show progress with a Cancel button, and each ends by saying what consumers now resolve.
 - **Aggrega: Show effective config** — ask the language server for the configuration it resolved and the layer each setting came from, opened as a new tab.
-- **Aggrega: Show topology graph** — open the topology graph for the selected Release.
+- **Aggrega: Show topology graph** — open the topology graph for the selected Release. Drawing it compiles that Release to its topology, so it shows progress with a Cancel button.
 - **Aggrega: Search published catalog** — open the filter list, narrow the search by kind, labels, capability, plugin socket or a result cap, then run it and copy a matched reference. Each facet is editable in any order and returns to the list, so the whole filter is readable before it runs. A search that matched nothing names the filter it ran, which is a different answer from an index that could not be read at all — the second reports the compiler's own message and the full text goes to the Aggrega output channel, together with the freshness line naming each registry searched and when its index was last updated.
 - **Aggrega: Refresh plugins** — reload the Plugins panel.
 - **Aggrega: Refresh registries** — re-read the configured registries. This contacts no registry, so it is cheap to repeat.

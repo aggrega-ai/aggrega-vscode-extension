@@ -4,6 +4,7 @@
 import { execFile } from 'child_process';
 import * as path from 'path';
 import * as vscode from 'vscode';
+import { CancellationSignal } from './cancellation';
 import { Daemon, DaemonState } from './daemon';
 import { debounce } from './debounce';
 import {
@@ -26,6 +27,13 @@ import {
   promptCacheMiss,
 } from './notifications';
 import { Readiness, createReadiness } from './readiness';
+import {
+  SHOW_OUTPUT_ACTION,
+  countReport,
+  outcomeOf,
+  terminalLine,
+} from './operation-outcome';
+import { withCancellableProgress } from './progress';
 import { getSettings } from './settings-vscode';
 import {
   BUILD_ON_INSPECT_KEY,
@@ -296,11 +304,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     getWorkspaceRoot: () => workspaceRootForCommands,
     selectedRelease,
     requireSelectedRelease,
-    requestIrGraph: async (release: string) => {
+    // Drawing the graph compiles the Release to its topology, so the request
+    // takes the reader's signal: stopping it cancels the request at the language
+    // server rather than leaving the compiler building a graph nobody is waiting
+    // for. Whether an indicator is drawn is the view's decision, not this one —
+    // it refreshes itself quietly on recompile, and an indicator there would be
+    // a notification for something already on screen.
+    requestIrGraph: async (release: string, signal?: CancellationSignal) => {
       if (!daemon || daemon.getState() !== DaemonState.Running) {
         throw new Error('the Aggrega language server is not running');
       }
-      const result = await daemon.request<{ graph: unknown }>('aggrega/irGraph', { release });
+      const result = await daemon.request<{ graph: unknown }>(
+        'aggrega/irGraph',
+        { release },
+        signal,
+      );
       return result.graph;
     },
     // The label set is sent as the request's ONLY subject. The request takes
@@ -724,28 +742,64 @@ export async function deactivate(): Promise<void> {
 // diagnostics through the same collection the proactive lifecycle validate
 // uses. Validate is a language-server operation, not a CLI subprocess, so it
 // stays on the daemon path rather than spawning the binary.
+//
+// It reports its finding count, and it reports it when the count is zero. A run
+// that finds nothing leaves the Problems panel exactly as it was, which is
+// indistinguishable from a run that never happened — so the one case where the
+// panel says nothing is the one case this has to say something. The count is
+// this run's own: the diagnostics that came back for this document, which is
+// what a reader is looking at when they press the entry.
+//
+// It carries the selected Release, so the compiler runs the full resolver and
+// the semantic checks rather than the document-only half — which is work
+// measured in seconds on a real document, so the run is watched and can be
+// stopped. Stopping it sends the language server the cancellation of this
+// request, so the compiler stops rather than the editor merely stopping
+// waiting.
 async function validateActiveDocument(): Promise<void> {
   const editor = vscode.window.activeTextEditor;
   if (!editor || editor.document.languageId !== 'yaml') {
     void vscode.window.showInformationMessage('Aggrega: open a YAML file to validate.');
     return;
   }
-  if (!daemon || daemon.getState() !== DaemonState.Running) {
+  const client = daemon;
+  if (!client || client.getState() !== DaemonState.Running) {
     void vscode.window.showWarningMessage('Aggrega: the language server is not running.');
     return;
   }
   const doc = editor.document;
+  const name = path.basename(doc.uri.fsPath);
   try {
-    const response = await daemon.request<ValidateResponse>(
-      'aggrega/validate',
-      validateParamsFor(doc),
+    const response = await withCancellableProgress(
+      `Aggrega: validating ${name}`,
+      (signal) => client.request<ValidateResponse>(
+        'aggrega/validate',
+        validateParamsFor(doc),
+        signal,
+      ),
     );
+    const findings = response.diagnostics ?? [];
     if (diagnosticCollections) {
-      publishDiagnostics(diagnosticCollections, doc.uri, response.diagnostics ?? []);
+      publishDiagnostics(diagnosticCollections, doc.uri, findings);
     }
-    outputChannel?.appendLine(`validated ${doc.uri.fsPath}`);
+    const report = countReport(`Aggrega: validated ${name}`, findings.length, 'Problems panel');
+    outputChannel?.appendLine(report);
+    void vscode.window.showInformationMessage(report);
   } catch (err) {
-    outputChannel?.appendLine(`validate failed: ${describeError(err)}`);
+    const outcome = outcomeOf(err);
+    const line = terminalLine('The validation', outcome);
+    outputChannel?.appendLine(line);
+    if (outcome.kind === 'cancelled') {
+      void vscode.window.showInformationMessage(line);
+      return;
+    }
+    // The compiler's own message reaches the reader unchanged, with the way to
+    // the full output offered beside it rather than in place of it.
+    void vscode.window.showErrorMessage(line, SHOW_OUTPUT_ACTION).then((choice) => {
+      if (choice === SHOW_OUTPUT_ACTION) {
+        outputChannel?.show(true);
+      }
+    });
   }
 }
 
@@ -1288,11 +1342,14 @@ async function requestActiveRelease(): Promise<ActiveReleaseResponse> {
 //
 // Throws when the server is not running, so a caller reports that state rather
 // than presenting an empty preview as a Release that renders nothing.
-async function requestBuildPreview(release: string): Promise<BuildPreviewResponse> {
+async function requestBuildPreview(
+  release: string,
+  signal?: CancellationSignal,
+): Promise<BuildPreviewResponse> {
   if (!daemon || daemon.getState() !== DaemonState.Running) {
     throw new Error('the Aggrega language server is not running');
   }
-  return await daemon.request<BuildPreviewResponse>('aggrega/buildPreview', { release });
+  return await daemon.request<BuildPreviewResponse>('aggrega/buildPreview', { release }, signal);
 }
 
 // requestBuild asks the language server to build the given Release and write
@@ -1309,11 +1366,14 @@ async function requestBuildPreview(release: string): Promise<BuildPreviewRespons
 //
 // Throws when the server is not running, so a caller reports that state rather
 // than presenting a build that never ran as one that produced nothing.
-async function requestBuild(release: string): Promise<BuildResponse> {
+async function requestBuild(
+  release: string,
+  signal?: CancellationSignal,
+): Promise<BuildResponse> {
   if (!daemon || daemon.getState() !== DaemonState.Running) {
     throw new Error('the Aggrega language server is not running');
   }
-  return await daemon.request<BuildResponse>('aggrega/build', { release });
+  return await daemon.request<BuildResponse>('aggrega/build', { release }, signal);
 }
 
 // requestCatalogIndex asks the language server for the open workspace's entity
@@ -1324,11 +1384,11 @@ async function requestBuild(release: string): Promise<BuildResponse> {
 // using whenever the two disagreed, and nothing would report the disagreement.
 // Throws when the server is not running, so a caller surfaces that state rather
 // than showing an empty workspace.
-async function requestCatalogIndex(): Promise<CatalogIndexDoc> {
+async function requestCatalogIndex(signal?: CancellationSignal): Promise<CatalogIndexDoc> {
   if (!daemon || daemon.getState() !== DaemonState.Running) {
     throw new Error('the Aggrega language server is not running');
   }
-  return await daemon.request<CatalogIndexDoc>('aggrega/catalogIndex', {});
+  return await daemon.request<CatalogIndexDoc>('aggrega/catalogIndex', {}, signal);
 }
 
 // requestScaffoldEntity asks the language server to draft a starter document for
@@ -1353,11 +1413,14 @@ async function requestScaffoldEntity(kind: string, name: string): Promise<Scaffo
 // build would resolve rather than what a second reader of the workspace would.
 // Throws when the server is not running, so a caller reports that state rather
 // than presenting an empty answer as an entity that resolves to nothing.
-async function requestEntityDefinition(name: string): Promise<unknown> {
+async function requestEntityDefinition(
+  name: string,
+  signal?: CancellationSignal,
+): Promise<unknown> {
   if (!daemon || daemon.getState() !== DaemonState.Running) {
     throw new Error('the Aggrega language server is not running');
   }
-  return await daemon.request<unknown>('aggrega/entityDefinition', { name });
+  return await daemon.request<unknown>('aggrega/entityDefinition', { name }, signal);
 }
 
 // requestEffectiveConfiguration asks the language server for the configuration

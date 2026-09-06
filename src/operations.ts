@@ -4,6 +4,8 @@
 import { spawn } from 'child_process';
 import * as vscode from 'vscode';
 import {
+  CACHE_SUBCOMMANDS,
+  CacheSubcommand,
   DEPRECATION_SEVERITIES,
   EntitySubject,
   OperationId,
@@ -11,6 +13,7 @@ import {
   OperationsNode,
   ReleaseScopedVerb,
   cacheArgs,
+  cacheConfirmation,
   catalogUploadArgs,
   commandIdFor,
   deprecateArgs,
@@ -22,6 +25,15 @@ import {
   releaseScopedArgs,
   signArgs,
 } from './operation-groups';
+import { CancellationSignal } from './cancellation';
+import { runCliProcess } from './cli-run';
+import {
+  OperationOutcome,
+  SHOW_OUTPUT_ACTION,
+  outcomeOf,
+  terminalLine,
+} from './operation-outcome';
+import { withCancellableProgress } from './progress';
 import { SelectionState } from './release-selection';
 import { RendersOnReady } from './readiness';
 import { EXTENSION_ID, SETTINGS_COMMAND, extensionSettingsQuery } from './settings';
@@ -75,7 +87,11 @@ export interface OperationDeps extends RendersOnReady {
   // which a subprocess streaming its output to a channel cannot do. The release
   // is workspace-relative, which is the form the server's request parameters
   // take.
-  build(release: string): Promise<BuildResponse>;
+  //
+  // The signal is how a reader stops it. It reaches the language server as the
+  // cancellation of the request this call was sent as, so stopping it stops the
+  // compiler rather than only stopping the editor waiting for an answer.
+  build(release: string, signal?: CancellationSignal): Promise<BuildResponse>;
   // previewBuild renders a Release the way a build does and reports what a
   // build would emit, without emitting any of it. It is supplied rather than
   // spawned here because it is language-server-backed: the findings that carry
@@ -83,7 +99,10 @@ export interface OperationDeps extends RendersOnReady {
   // the Problems panel, which a subprocess streaming its output to a channel
   // cannot do. The release is workspace-relative, which is the form the
   // server's request parameters take.
-  previewBuild(release: string): Promise<BuildPreviewResponse>;
+  //
+  // The signal is how a reader stops it, on the same terms as the build beside
+  // it.
+  previewBuild(release: string, signal?: CancellationSignal): Promise<BuildPreviewResponse>;
   // reportDaemonError routes a failed request's error envelope to the per-code
   // surfaces the extension already has for it — a diagnostic on the document
   // the envelope names, or the toast that offers the remediating command — and
@@ -102,7 +121,7 @@ export interface OperationDeps extends RendersOnReady {
   // compiler cannot come to disagree about what the workspace contains. A picker
   // walking the workspace itself would offer a set the compiler is not using,
   // with nothing to report the disagreement.
-  requestCatalogIndex(): Promise<CatalogIndexDoc>;
+  requestCatalogIndex(signal?: CancellationSignal): Promise<CatalogIndexDoc>;
   // scaffoldEntity asks the language server to draft a starter document for an
   // entity kind. It writes nothing: the answer is text, and where it goes is
   // this surface's decision, which is why it lands in an unsaved buffer.
@@ -110,7 +129,7 @@ export interface OperationDeps extends RendersOnReady {
   // entityDefinition asks the language server what an entity resolves to. The
   // answer is a structured document rather than readable output, so this surface
   // opens it rather than streaming it to a channel.
-  entityDefinition(name: string): Promise<unknown>;
+  entityDefinition(name: string, signal?: CancellationSignal): Promise<unknown>;
   // effectiveConfiguration asks the language server for the configuration it
   // resolved and the layer each setting came from.
   effectiveConfiguration(): Promise<unknown>;
@@ -276,8 +295,8 @@ export function activateOperations(
   // The topology graph contributes its own command, so nothing is registered for
   // it here: the group entry points at that command rather than at a second one
   // wrapping it.
-  reg('pull', () => { runReleaseScoped(deps, 'pull'); });
-  reg('acquire', () => { runReleaseScoped(deps, 'acquire'); });
+  reg('pull', () => { void runReleaseScoped(deps, 'pull'); });
+  reg('acquire', () => { void runReleaseScoped(deps, 'acquire'); });
   reg('scaffold', () => { void runScaffold(deps); });
   reg('import', () => { void runImport(deps); });
   reg('inspect', () => { void runInspect(deps); });
@@ -301,7 +320,8 @@ export function activateOperations(
 // Both verbs read the one selected Release rather than prompting for their own:
 // prompting per operation would let a pull and an acquisition act on two
 // different Releases in the same session.
-function runReleaseScoped(deps: OperationDeps, verb: ReleaseScopedVerb): void {
+// Both reach registries, so both are watched and can be stopped.
+async function runReleaseScoped(deps: OperationDeps, verb: ReleaseScopedVerb): Promise<void> {
   if (!deps.getWorkspaceRoot()) {
     void vscode.window.showInformationMessage(NO_ANCHORED_WORKSPACE_MESSAGE);
     return;
@@ -311,7 +331,18 @@ function runReleaseScoped(deps: OperationDeps, verb: ReleaseScopedVerb): void {
     deps.requireSelectedRelease();
     return;
   }
-  runCli(deps, releaseScopedArgs(verb, release));
+  const [title, what, detail] = verb === 'pull'
+    ? [
+      `Aggrega: pulling dependencies for ${release}`,
+      'The pull',
+      `resolved the dependencies of ${release} and wrote its lockfile.`,
+    ]
+    : [
+      `Aggrega: acquiring inputs for ${release}`,
+      'The acquisition',
+      `pinned the external inputs ${release} renders with, and recorded them in its lockfile.`,
+    ];
+  await runWatchableCli(deps, title, what, releaseScopedArgs(verb, release), detail);
 }
 
 // runBuild compiles a Release and writes the artifacts it renders.
@@ -347,19 +378,25 @@ async function runBuild(deps: OperationDeps): Promise<void> {
 
   let result: BuildResponse;
   try {
-    result = await deps.build(release);
+    result = await withCancellableProgress(
+      `Aggrega: building ${release}`,
+      (signal) => deps.build(release, signal),
+    );
   } catch (err) {
-    // The envelope is routed BEFORE the log line rather than instead of it. A
-    // refusal is about an authored document and carries which one, so routing it
-    // puts the fault on that document where the reader can act on it. The log
-    // line still fires either way: a reader watching this channel has to be told
-    // the build did not complete, and a value that is not an envelope at all has
-    // nowhere else to surface.
-    deps.reportDaemonError(err, release);
+    const outcome = outcomeOf(err);
+    if (outcome.kind === 'failed') {
+      // The envelope is routed BEFORE the log line rather than instead of it. A
+      // refusal is about an authored document and carries which one, so routing it
+      // puts the fault on that document where the reader can act on it. The log
+      // line still fires either way: a reader watching this channel has to be told
+      // the build did not complete, and a value that is not an envelope at all has
+      // nowhere else to surface.
+      deps.reportDaemonError(err, release);
+    }
     // The message is the compiler's own text, unchanged. Where it named a
-    // remediation, that remediation is what the reader needs.
-    const message = err instanceof Error ? err.message : String(err);
-    out.appendLine(`The build did not complete: ${message}`);
+    // remediation, that remediation is what the reader needs — so the action
+    // button is added beside it rather than in place of it.
+    await reportOutcome(deps, 'The build', outcome, true);
     return;
   }
 
@@ -374,6 +411,9 @@ async function runBuild(deps: OperationDeps): Promise<void> {
   // has seen one report should not have to work out that the other is the same.
   out.appendLine(
     `Build completed: ${result.files.length} files written to ${result.outputDirectory}/`,
+  );
+  void vscode.window.showInformationMessage(
+    `Aggrega: built ${release} — ${result.files.length} file(s) written to ${result.outputDirectory}/.`,
   );
 }
 
@@ -411,19 +451,25 @@ async function runPreview(deps: OperationDeps): Promise<void> {
 
   let result: BuildPreviewResponse;
   try {
-    result = await deps.previewBuild(release);
+    result = await withCancellableProgress(
+      `Aggrega: previewing a build of ${release}`,
+      (signal) => deps.previewBuild(release, signal),
+    );
   } catch (err) {
-    // The envelope is routed BEFORE the log line rather than instead of it. A
-    // refusal is about an authored document and carries which one, so routing it
-    // puts the fault on that document where the reader can act on it. The log
-    // line still fires either way: a reader watching this channel has to be told
-    // the preview did not complete, and a value that is not an envelope at all
-    // has nowhere else to surface.
-    deps.reportDaemonError(err, release);
+    const outcome = outcomeOf(err);
+    if (outcome.kind === 'failed') {
+      // The envelope is routed BEFORE the log line rather than instead of it. A
+      // refusal is about an authored document and carries which one, so routing it
+      // puts the fault on that document where the reader can act on it. The log
+      // line still fires either way: a reader watching this channel has to be told
+      // the preview did not complete, and a value that is not an envelope at all
+      // has nowhere else to surface.
+      deps.reportDaemonError(err, release);
+    }
     // The message is the compiler's own text, unchanged. Where it named a
-    // remediation, that remediation is what the reader needs.
-    const message = err instanceof Error ? err.message : String(err);
-    out.appendLine(`The preview did not complete: ${message}`);
+    // remediation, that remediation is what the reader needs — so the action
+    // button is added beside it rather than in place of it.
+    await reportOutcome(deps, 'The preview', outcome, true);
     return;
   }
 
@@ -442,6 +488,42 @@ async function runPreview(deps: OperationDeps): Promise<void> {
       ? 'A build of this Release writes 1 file, under the output directory it is given.'
       : `A build of this Release writes ${result.files.length} files, under the output directory it is given.`,
   );
+  void vscode.window.showInformationMessage(
+    `Aggrega: a build of ${release} writes ${result.files.length} file(s). Nothing was written.`,
+  );
+}
+
+// reportOutcome is where every operation ends.
+//
+// The channel always gets the line, because it is the record a reader returns
+// to. A notification is raised on top of it in the three cases where the reader
+// may not be looking at the channel: a failure, an operation they stopped, and
+// an operation whose completion they were told to wait for. Announcing an
+// ordinary short success as well would put a notification in front of a reader
+// for something they can already see, which is what teaches them to dismiss
+// notifications unread — and that habit costs the surfaces carrying real
+// findings, not this one.
+//
+// A failure carries the compiler's own message and an action beside it. The
+// button reaches the compiler's full output; it replaces none of its words.
+async function reportOutcome(
+  deps: OperationDeps,
+  what: string,
+  outcome: OperationOutcome,
+  announce: boolean,
+): Promise<void> {
+  const line = terminalLine(what, outcome);
+  deps.output.appendLine(line);
+  if (outcome.kind === 'failed') {
+    const choice = await vscode.window.showErrorMessage(line, SHOW_OUTPUT_ACTION);
+    if (choice === SHOW_OUTPUT_ACTION) {
+      deps.output.show(true);
+    }
+    return;
+  }
+  if (outcome.kind === 'cancelled' || announce) {
+    void vscode.window.showInformationMessage(line);
+  }
 }
 
 // runCli spawns `aggrega <args>` in the anchored workspace root and streams its
@@ -450,7 +532,27 @@ async function runPreview(deps: OperationDeps): Promise<void> {
 // The compiler owns the work; this surface only invokes it and surfaces its
 // output verbatim — including its own errors, which are more useful to the
 // author than a re-worded wrapper message.
-function runCli(deps: OperationDeps, args: string[]): void {
+//
+// It resolves rather than returning immediately, and holds the child for the
+// whole run, so an operation that takes a while can be watched and stopped. A
+// handle kept in a local the function returns past is unreachable while the
+// compiler is running, which is the shape that makes an operation unstoppable.
+//
+// what is the operation in the reader's terms, used for the line the run ends
+// in. A run that could not be started at all — no anchored folder — reports that
+// and resolves without having invoked anything.
+//
+// detail is the sentence a completed run ends in, so a publication can say what
+// consumers now resolve rather than merely that it finished; those are
+// different facts and only one of them is useful. announce raises a
+// notification on an ordinary completion, for the operations a reader is told
+// to wait for.
+async function runCli(
+  deps: OperationDeps,
+  what: string,
+  args: string[],
+  options: { announce?: boolean; detail?: string; signal?: CancellationSignal } = {},
+): Promise<void> {
   const root = deps.getWorkspaceRoot();
   if (!root) {
     void vscode.window.showInformationMessage(NO_ANCHORED_WORKSPACE_MESSAGE);
@@ -461,22 +563,66 @@ function runCli(deps: OperationDeps, args: string[]): void {
   out.show(true);
   out.appendLine(`\n$ ${bin} ${args.join(' ')}   (cwd: ${root})`);
 
-  let child;
   try {
-    child = spawn(bin, args, { cwd: root });
+    const code = await runCliProcess(
+      {
+        spawn: () => spawn(bin, args, { cwd: root }),
+        append: (text) => out.append(text),
+        appendLine: (text) => out.appendLine(text),
+      },
+      what,
+      options.signal,
+    );
+    // A non-zero status is the compiler declining to do the work, and the
+    // reason is already on the channel in its own words. It is reported as a
+    // failure so the remedy button appears beside it; the status itself is
+    // named because it is what a reader comparing this run with a command line
+    // would see.
+    if (code !== 0) {
+      await reportOutcome(
+        deps,
+        what,
+        { kind: 'failed', message: `the compiler exited with status ${code ?? 'unknown'}.` },
+        true,
+      );
+      return;
+    }
+    await reportOutcome(
+      deps,
+      what,
+      { kind: 'ok', detail: options.detail ?? 'completed.' },
+      options.announce ?? false,
+    );
   } catch (err) {
-    out.appendLine(`[failed to launch ${bin}: ${(err as Error).message}]`);
-    return;
+    await reportOutcome(deps, what, outcomeOf(err), true);
   }
-  child.on('error', err => out.appendLine(`[failed to launch ${bin}: ${err.message}]`));
-  child.stdout?.on('data', (d: Buffer) => out.append(d.toString()));
-  child.stderr?.on('data', (d: Buffer) => out.append(d.toString()));
-  child.on('close', code => out.appendLine(`\n[${args[0]} exited with code ${code ?? 'unknown'}]`));
+}
+
+// runWatchableCli runs a command-line-backed operation behind the progress
+// indicator, so it can be watched and stopped.
+//
+// The title is what the indicator reads while the work runs; what is how the
+// ending is worded. Both are the reader's terms rather than the verb's. It is
+// the same presentation the language-server-backed operations use, so a reader
+// pressing cancel need not know which transport an operation happens to take.
+async function runWatchableCli(
+  deps: OperationDeps,
+  title: string,
+  what: string,
+  args: string[],
+  detail?: string,
+): Promise<void> {
+  await withCancellableProgress(title, (signal) =>
+    runCli(deps, what, args, { announce: true, detail, signal }),
+  );
 }
 
 // runImport prompts for the source to import, then runs the import operation.
 // The source is passed verbatim as a positional argument; the compiler
 // validates and reports on it.
+// It reads the named file and nothing else — no other files and no network — so
+// it is not watched: there is nothing to wait for and nothing to stop. It still
+// ends in a line, on the channel it already reveals.
 async function runImport(deps: OperationDeps): Promise<void> {
   const source = await vscode.window.showInputBox({
     title: 'Aggrega: import source',
@@ -484,22 +630,73 @@ async function runImport(deps: OperationDeps): Promise<void> {
     ignoreFocusOut: true,
   });
   if (!source) { return; }
-  runCli(deps, importArgs(source));
+  await runCli(deps, 'The import', importArgs(source), {
+    detail: `drafted Aggrega documents from ${source}.`,
+  });
 }
 
 // runCache offers the cache subcommands as a quick-pick, then runs the chosen
 // one. The subcommand set mirrors the CLI's cache command group.
+//
+// The two that remove something confirm first, and the confirmation names which
+// caches it reaches — the ones belonging to this workspace, the ones every
+// project on this machine shares, or both. That distinction is real for these
+// operations and it is not guessable from the entry's label, so it is put in
+// front of the reader before anything happens rather than explained afterwards.
+//
+// Consenting here is what lets the invocation carry its own non-interactive
+// consent. The compiler asks for confirmation at a terminal and refuses outright
+// when there is none, and this surface runs it as a subprocess with no terminal
+// — so without the reader's answer travelling with the invocation the entry
+// could only ever report a refusal, whatever the reader intended.
 async function runCache(deps: OperationDeps): Promise<void> {
-  const picks: Array<vscode.QuickPickItem & { arg: string }> = [
-    { label: 'status', description: 'Show cache size and contents', arg: 'status' },
-    { label: 'prune', description: 'Remove stale cache entries', arg: 'prune' },
-    { label: 'clear', description: 'Empty the cache', arg: 'clear' },
-  ];
-  const choice = await vscode.window.showQuickPick(picks, {
-    placeHolder: 'Aggrega: choose a cache operation',
-  });
+  const choice = await vscode.window.showQuickPick(
+    CACHE_SUBCOMMANDS.map((s) => ({ label: s.value, description: s.detail, value: s.value })),
+    { placeHolder: 'Aggrega: choose a cache operation' },
+  );
   if (!choice) { return; }
-  runCli(deps, cacheArgs(choice.arg));
+  const subcommand = choice.value as CacheSubcommand;
+
+  const confirmation = cacheConfirmation(subcommand);
+  if (confirmation) {
+    const consented = await vscode.window.showWarningMessage(
+      confirmation.question,
+      { modal: true, detail: confirmation.scope },
+      confirmation.confirmLabel,
+    );
+    if (consented !== confirmation.confirmLabel) {
+      // Declining is an answer, and the reader is told their answer was taken:
+      // a confirmation that closes with nothing said is indistinguishable from
+      // one that was dismissed by accident.
+      void vscode.window.showInformationMessage(`Aggrega: ${subcommand} cancelled. Nothing was removed.`);
+      return;
+    }
+  }
+
+  await runCli(deps, cacheWhat(subcommand), cacheArgs(subcommand), {
+    announce: confirmation !== null,
+    detail: cacheDetail(subcommand),
+  });
+}
+
+// cacheWhat names a cache operation the way the ending sentence needs it.
+function cacheWhat(subcommand: CacheSubcommand): string {
+  switch (subcommand) {
+    case 'status': return 'The cache report';
+    case 'prune': return 'The prune';
+    case 'clear': return 'The cache wipe';
+  }
+}
+
+// cacheDetail says what a completed cache operation did. The removals name
+// where to read what was removed, because the compiler lists each cache and the
+// space it reclaimed and that listing is the answer.
+function cacheDetail(subcommand: CacheSubcommand): string {
+  switch (subcommand) {
+    case 'status': return 'listed every cache in the Aggrega output.';
+    case 'prune': return 'removed the unreferenced entries listed in the Aggrega output.';
+    case 'clear': return 'emptied the caches listed in the Aggrega output. They repopulate on the next build.';
+  }
 }
 
 // --- the subjects an operation is given ----------------------------------
@@ -522,13 +719,18 @@ async function pickEntity(
   subjectsFor: (entities: CatalogIndexDoc['entities']) => EntitySubject[],
   placeHolder: string,
 ): Promise<EntitySubject | null> {
+  // Reading the index walks the workspace's entities, which is the same kind of
+  // work every other watched operation does — so it is watched too, rather than
+  // being the one catalog walk a reader cannot see or stop merely because it
+  // happens before a picker rather than after one.
   let doc: CatalogIndexDoc;
   try {
-    doc = await deps.requestCatalogIndex();
+    doc = await withCancellableProgress(
+      'Aggrega: reading the workspace entity index',
+      (signal) => deps.requestCatalogIndex(signal),
+    );
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    deps.output.appendLine(`\nThe workspace entity index could not be read: ${message}`);
-    void vscode.window.showInformationMessage(message);
+    await reportOutcome(deps, 'The workspace entity index', outcomeOf(err), true);
     return null;
   }
   const subjects = subjectsFor(doc.entities);
@@ -543,9 +745,9 @@ async function pickEntity(
 // runCatalogUpload publishes one catalog entity the workspace holds.
 //
 // The entity is chosen before the command is built, because the command takes
-// the entity's path and an invocation carrying none cannot succeed. That was
-// this panel's own long-standing defect: the entry ran the bare verb, so
-// pressing it could only ever produce a usage error.
+// the entity's path and an invocation carrying none can only produce a usage
+// error. Choosing first is what makes the entry pressable at all, rather than a
+// control that reports a fault the reader had no way to avoid.
 async function runCatalogUpload(deps: OperationDeps): Promise<void> {
   if (!deps.getWorkspaceRoot()) {
     void vscode.window.showInformationMessage(NO_ANCHORED_WORKSPACE_MESSAGE);
@@ -557,7 +759,17 @@ async function runCatalogUpload(deps: OperationDeps): Promise<void> {
     'Aggrega: choose the entity to publish',
   );
   if (!subject) { return; }
-  runCli(deps, catalogUploadArgs(subject.file));
+  // A publication's ending says what is now true for other people, because that
+  // is what separates it from every operation above it on the panel: the others
+  // change this machine, and this one changes what anyone pulling from that
+  // registry resolves.
+  await runWatchableCli(
+    deps,
+    `Aggrega: publishing ${subject.label}`,
+    'The publication',
+    catalogUploadArgs(subject.file),
+    `published ${subject.label}. Anyone pulling it from that registry now resolves this version.`,
+  );
 }
 
 // runSign attaches a signature to one already-published artifact.
@@ -575,7 +787,13 @@ async function runSign(deps: OperationDeps): Promise<void> {
     ignoreFocusOut: true,
   });
   if (!reference) { return; }
-  runCli(deps, signArgs(reference));
+  await runWatchableCli(
+    deps,
+    `Aggrega: signing ${reference}`,
+    'The signature',
+    signArgs(reference),
+    `attached a signature to ${reference}. Anyone verifying that artifact now finds it.`,
+  );
 }
 
 // runDeprecate attaches a signed deprecation marker to one already-published
@@ -608,7 +826,13 @@ async function runDeprecate(deps: OperationDeps): Promise<void> {
   });
   if (!reason) { return; }
 
-  runCli(deps, deprecateArgs(reference, severity.label, reason));
+  await runWatchableCli(
+    deps,
+    `Aggrega: deprecating ${reference}`,
+    'The deprecation',
+    deprecateArgs(reference, severity.label, reason),
+    `marked ${reference} deprecated at ${severity.label}. Anyone resolving it now sees that marker.`,
+  );
 }
 
 // --- the language-server-backed entries ----------------------------------
@@ -628,10 +852,16 @@ async function openDocument(content: string, language: string): Promise<void> {
 // extension already has for one, then logs it. The compiler's own message is
 // carried through unchanged: where it named a remediation, that remediation is
 // what the reader needs, and a re-worded wrapper would discard it.
-function reportDaemonFailure(deps: OperationDeps, err: unknown, what: string): void {
-  const message = err instanceof Error ? err.message : String(err);
-  deps.output.appendLine(`\n${what} did not complete: ${message}`);
-  void vscode.window.showInformationMessage(message);
+//
+// An operation the reader stopped comes through here too, and is reported as
+// stopped rather than as a failure. Telling a reader who pressed cancel that
+// something went wrong teaches them the button breaks things.
+async function reportDaemonFailure(
+  deps: OperationDeps,
+  err: unknown,
+  what: string,
+): Promise<void> {
+  await reportOutcome(deps, what, outcomeOf(err), true);
 }
 
 // runScaffold drafts a starter document for an entity kind and opens it.
@@ -663,7 +893,7 @@ async function runScaffold(deps: OperationDeps): Promise<void> {
     const result = await deps.scaffoldEntity(kind, name);
     await openDocument(result.skeleton, 'yaml');
   } catch (err) {
-    reportDaemonFailure(deps, err, 'The draft');
+    await reportDaemonFailure(deps, err, 'The draft');
   }
 }
 
@@ -681,11 +911,16 @@ async function runInspect(deps: OperationDeps): Promise<void> {
   );
   if (!subject) { return; }
 
+  // The resolution runs over the catalog, so it is watched and can be stopped
+  // on the same terms as every other operation that walks one.
   try {
-    const result = await deps.entityDefinition(subject.name);
+    const result = await withCancellableProgress(
+      `Aggrega: inspecting ${subject.name}`,
+      (signal) => deps.entityDefinition(subject.name, signal),
+    );
     await openDocument(JSON.stringify(result, null, 2), 'json');
   } catch (err) {
-    reportDaemonFailure(deps, err, 'The inspection');
+    await reportDaemonFailure(deps, err, 'The inspection');
   }
 }
 
@@ -697,6 +932,6 @@ async function runConfigShow(deps: OperationDeps): Promise<void> {
     const result = await deps.effectiveConfiguration();
     await openDocument(JSON.stringify(result, null, 2), 'json');
   } catch (err) {
-    reportDaemonFailure(deps, err, 'The configuration report');
+    await reportDaemonFailure(deps, err, 'The configuration report');
   }
 }

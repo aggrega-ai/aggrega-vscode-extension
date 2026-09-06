@@ -5,6 +5,7 @@ import * as vscode from 'vscode';
 import { runCliJson } from './cli-json';
 import { replaceLintFindings } from './diagnostics';
 import { LintDocument, runLint } from './lint-run';
+import { withCancellableProgress } from './progress';
 
 // LintRunner is the handle the operation surface holds. Invoking run() lints
 // the workspace and republishes the linter's findings.
@@ -34,11 +35,14 @@ export function activateLint(context: vscode.ExtensionContext, deps: LintDeps): 
   const collection = vscode.languages.createDiagnosticCollection('aggrega-lint');
   context.subscriptions.push(collection);
 
+  // The linter walks every catalog entity, so the run is watched and can be
+  // stopped — behind the same indicator, with the same button, as every other
+  // long operation on the surface.
   return {
-    run: () =>
+    run: () => withCancellableProgress('Aggrega: checking publishing conventions', (signal) =>
       runLint({
         getWorkspaceRoot: deps.getWorkspaceRoot,
-        runLintJson: () => runCliJson<LintDocument>(deps, ['lint', '-o', 'json']),
+        runLintJson: (s) => runCliJson<LintDocument>(deps, ['lint', '-o', 'json'], s, 'The lint'),
         sink: { replace: (byFile) => replaceLintFindings(collection, byFile) },
         log: {
           appendLine: (text) => deps.output.appendLine(text),
@@ -51,6 +55,7 @@ export function activateLint(context: vscode.ExtensionContext, deps: LintDeps): 
             void vscode.window.showInformationMessage(message);
           }
         },
-      }),
+      }, signal),
+    ),
   };
 }

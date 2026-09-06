@@ -2,6 +2,7 @@
 // Copyright 2026 Cognitio S.r.l.
 
 import { execFile } from 'child_process';
+import { CancellationSignal, OperationCancelled } from './cancellation';
 
 // CliJsonDeps is the slice of extension state a structured CLI capture needs:
 // the anchored workspace root the command runs in, and the configured binary
@@ -91,20 +92,64 @@ function excerpt(text: string): string {
 //
 // A zero exit with parsable stdout resolves with the parsed document and the
 // raw stderr alongside it.
-export function runCliJson<T>(deps: CliJsonDeps, args: string[]): Promise<CliJsonResult<T>> {
+//
+// A caller that may need to stop the run passes a signal and names the
+// operation. The child is held for the whole run rather than left unreachable,
+// so stopping terminates the compiler rather than only abandoning the answer —
+// the run would otherwise carry on walking the catalog with nobody waiting for
+// what it found. what is the operation in the reader's terms, carried into the
+// stopped-by-the-reader rejection so the caller need not supply it twice.
+export function runCliJson<T>(
+  deps: CliJsonDeps,
+  args: string[],
+  signal?: CancellationSignal,
+  what = `aggrega ${args[0] ?? ''}`.trim(),
+): Promise<CliJsonResult<T>> {
   const root = deps.getWorkspaceRoot();
   const bin = deps.getBinaryPath();
   return new Promise<CliJsonResult<T>>((resolve, reject) => {
-    execFile(bin, args, { cwd: root ?? undefined, maxBuffer: 16 * 1024 * 1024 }, (err, stdout, stderr) => {
-      if (err) {
-        reject(new Error(stderr?.trim() || err.message));
-        return;
+    if (signal?.isCancellationRequested) {
+      reject(new OperationCancelled(what));
+      return;
+    }
+    let settled = false;
+    let subscription: { dispose(): void } | null = null;
+    const finish = (act: () => void): void => {
+      if (settled) { return; }
+      settled = true;
+      subscription?.dispose();
+      act();
+    };
+    const child = execFile(
+      bin,
+      args,
+      { cwd: root ?? undefined, maxBuffer: 16 * 1024 * 1024 },
+      (err, stdout, stderr) => {
+        // A terminated child reaches this callback carrying the signal that
+        // stopped it. finish makes the stop the only settlement, so that
+        // arrival never overwrites the stopped-by-the-reader answer with a
+        // failure the reader would read as something having gone wrong.
+        if (err) {
+          finish(() => reject(new Error(stderr?.trim() || err.message)));
+          return;
+        }
+        try {
+          const doc = JSON.parse(stdout) as T;
+          finish(() => resolve({ doc, stderr: stderr ?? '' }));
+        } catch {
+          finish(() => reject(new Error(messageForUnparsedOutput(args, stdout ?? '', stderr ?? ''))));
+        }
+      },
+    );
+    if (!signal) { return; }
+    subscription = signal.onCancellationRequested(() => {
+      if (settled) { return; }
+      // Terminating precedes settling, so the reader is told the run stopped
+      // only once the compiler has been told to stop.
+      if (child.exitCode === null && child.signalCode === null) {
+        child.kill('SIGTERM');
       }
-      try {
-        resolve({ doc: JSON.parse(stdout) as T, stderr: stderr ?? '' });
-      } catch {
-        reject(new Error(messageForUnparsedOutput(args, stdout ?? '', stderr ?? '')));
-      }
+      finish(() => reject(new OperationCancelled(what)));
     });
   });
 }

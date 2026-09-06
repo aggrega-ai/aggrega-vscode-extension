@@ -6,11 +6,14 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 import {
+  CACHE_SUBCOMMANDS,
+  CacheSubcommand,
   DEPRECATION_SEVERITIES,
   OPERATION_GROUPS,
   OperationsNode,
   allOperations,
   cacheArgs,
+  cacheConfirmation,
   catalogUploadArgs,
   commandIdFor,
   deprecateArgs,
@@ -267,7 +270,12 @@ describe('an entry whose invocation cannot succeed is refused before it is built
     ['a signature with no reference', () => signArgs('')],
     ['a deprecation with no reference', () => deprecateArgs('', 'warning', 'why')],
     ['an import with no source', () => importArgs('')],
-    ['a cache run with no subcommand', () => cacheArgs('')],
+    // The parameter type already refuses an unnamed subcommand at authoring
+    // time, which is the primary defence. The cast reaches past it on purpose,
+    // to prove the runtime guard still fires for a value that arrives from
+    // outside the type system — a hand-edited setting, or a caller written
+    // later against a widened signature.
+    ['a cache run with no subcommand', () => cacheArgs('' as CacheSubcommand)],
     ['a pull with no Release', () => releaseScopedArgs('pull', '')],
     ['an acquisition with no Release', () => releaseScopedArgs('acquire', '  ')],
   ];
@@ -284,6 +292,81 @@ describe('an entry whose invocation cannot succeed is refused before it is built
 
   it('refuses a deprecation missing the reason the command needs', () => {
     assert.throws(() => deprecateArgs('registry/x:1', 'warning', '  '), /reason/);
+  });
+
+  it('carries the reader’s answer into the wipe, which refuses without one', () => {
+    // The command asks for confirmation at an interactive terminal and refuses
+    // outright when there is none. This surface spawns it with no terminal, so
+    // an invocation that did not carry the answer could only ever report a
+    // refusal — which is the same shape as the deprecation above.
+    assert.deepStrictEqual(cacheArgs('clear'), ['cache', 'clear', '--yes']);
+  });
+
+  it('carries no consent into the operations that were never asked about', () => {
+    // Only the wipe is confirmed, so only the wipe may claim consent. Passing
+    // it elsewhere would assert an answer the reader was never asked for.
+    assert.deepStrictEqual(cacheArgs('status'), ['cache', 'status']);
+    assert.deepStrictEqual(cacheArgs('prune'), ['cache', 'prune']);
+  });
+});
+
+describe('a destructive cache operation names its scope before it runs', () => {
+  it('asks nothing before an operation that removes nothing', () => {
+    assert.strictEqual(cacheConfirmation('status'), null);
+  });
+
+  for (const subcommand of ['prune', 'clear'] as const) {
+    it(`confirms ${subcommand} before anything happens`, () => {
+      const confirmation = cacheConfirmation(subcommand);
+      assert.ok(confirmation, 'a removal must be confirmed');
+      assert.ok(confirmation.question.trim().endsWith('?'), 'the confirmation asks a question');
+      assert.ok(confirmation.confirmLabel.trim().length > 0);
+      assert.notStrictEqual(
+        confirmation.confirmLabel.toLowerCase(),
+        'ok',
+        'the affirmative names the act, so a reader dismissing quickly reads what they agreed to',
+      );
+    });
+
+    it(`names BOTH scopes for ${subcommand}, because it reaches both`, () => {
+      // Established against the compiler rather than guessed: the workspace
+      // artifact caches sit under the workspace's own configured cache
+      // directory, while the compiled-module and plugin-describe caches are
+      // rooted at the user cache root and shared by every project on the
+      // machine. Both removals reach both, so a confirmation naming only one
+      // would understate what is about to happen.
+      const { scope } = cacheConfirmation(subcommand)!;
+      assert.match(scope, /this workspace/i, 'the workspace scope must be named');
+      assert.match(scope, /this machine/i, 'the machine-wide scope must be named');
+      assert.match(scope, /compiled-module cache/, 'the shared cache is named as the compiler names it');
+      assert.match(scope, /plugin-describe cache/, 'the shared cache is named as the compiler names it');
+    });
+  }
+
+  it('offers every subcommand it can compose, and no other', () => {
+    // The offered set and the composable set are one set. A row the composition
+    // refuses would be a control that always fails.
+    for (const { value } of CACHE_SUBCOMMANDS) {
+      assert.doesNotThrow(() => cacheArgs(value));
+    }
+    assert.deepStrictEqual(
+      CACHE_SUBCOMMANDS.map((s) => s.value),
+      ['status', 'prune', 'clear'],
+    );
+  });
+
+  it('states each subcommand’s reach on its own row', () => {
+    // A reader choosing from the list needs the workspace/machine distinction
+    // before they choose, not after.
+    for (const { value, detail } of CACHE_SUBCOMMANDS) {
+      assert.ok(detail.trim().length > 0);
+      if (value === 'status') {
+        assert.match(detail, /removes nothing/i);
+        continue;
+      }
+      assert.match(detail, /this workspace/i);
+      assert.match(detail, /this machine/i);
+    }
   });
 });
 

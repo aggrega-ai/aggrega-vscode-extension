@@ -8,6 +8,8 @@ import { makeGraphMessageHandler } from './graph-messages';
 import { describeError } from './error-surfaces';
 import { reportGraphFailure } from './graph-failure';
 import { RendersOnReady } from './readiness';
+import { CancellationSignal } from './cancellation';
+import { withCancellableProgress } from './progress';
 import { NO_ANCHORED_WORKSPACE_MESSAGE } from './workspace';
 
 // GraphDeps supplies the live state the graph view needs without importing
@@ -28,7 +30,11 @@ export interface GraphDeps extends RendersOnReady {
   requireSelectedRelease(): void;
   // requestIrGraph returns the serialized IRGraph object (the daemon's
   // irGraph result `graph` field) for the given workspace-relative Release.
-  requestIrGraph(release: string): Promise<unknown>;
+  //
+  // The signal is how a reader stops the compile the drawing needs. It is
+  // supplied only for a render the reader asked for; a quiet refresh passes
+  // none, because there is no indicator to press cancel on.
+  requestIrGraph(release: string, signal?: CancellationSignal): Promise<unknown>;
   // requestAttachCandidates reports which Features declare an applicability
   // that this label set satisfies.
   //
@@ -183,7 +189,18 @@ async function renderGraph(
     void panel.webview.postMessage({ type: 'loading', release });
   }
   try {
-    const graph = redact(await deps.requestIrGraph(release), deps.showsSensitiveValues());
+    // A render the reader asked for is watched and can be stopped, on the same
+    // presentation every other operation that compiles a Release uses. A quiet
+    // refresh is not: it happens on recompile rather than on a press, the panel
+    // goes on showing the graph it has, and an indicator for it would put a
+    // notification in front of a reader for something already on screen.
+    const answer = opts.quiet
+      ? await deps.requestIrGraph(release)
+      : await withCancellableProgress(
+        `Aggrega: building the topology of ${release}`,
+        (signal) => deps.requestIrGraph(release, signal),
+      );
+    const graph = redact(answer, deps.showsSensitiveValues());
     void panel.webview.postMessage({ type: 'render', release, graph });
   } catch (err) {
     // A redaction that cannot be performed lands here with the request

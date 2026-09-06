@@ -13,6 +13,7 @@ import {
 } from './types';
 import { Settings } from './settings';
 import { extractServerInitMetadata } from './init-metadata';
+import { CancellationSignal, OperationCancelled } from './cancellation';
 
 // buildServeArgs assembles the argv for `aggrega serve` from the
 // effective settings. The --build-on-inspect flag is appended only when
@@ -25,6 +26,25 @@ export function buildServeArgs(settings: Settings): string[] {
     args.push('--build-on-inspect');
   }
   return args;
+}
+
+// frameMessage encodes one JSON-RPC body for the wire: the JSON payload behind
+// the Content-Length header the daemon reads.
+//
+// It is the single home for that encoding. Three messages leave this client — a
+// request, the shutdown notification, and the cancel notification — and all
+// three are framed here rather than each composing the header for itself.
+// Copies of a wire format agree until one of them is changed, and the ones that
+// were not changed keep compiling; expressing it once means a change to the
+// framing is a change to the framing everywhere.
+//
+// It is exported so a test can read back exactly the bytes a send produces,
+// which is what makes a claim about what reached the compiler assertable
+// without a compiler.
+export function frameMessage(body: unknown): Buffer {
+  const payload = Buffer.from(JSON.stringify(body), 'utf8');
+  const header = Buffer.from(`Content-Length: ${payload.byteLength}\r\n\r\n`, 'ascii');
+  return Buffer.concat([header, payload]);
 }
 
 // isNotification distinguishes JSON-RPC 2.0 server-push
@@ -124,6 +144,15 @@ interface QueuedRequest {
   params: unknown;
   resolve: (value: unknown) => void;
   reject: (reason: JsonRpcError | Error) => void;
+  // signal travels with the queued call so a request stopped while the daemon
+  // was still starting is stopped, and one that survives to dispatch keeps the
+  // ability to be stopped afterwards.
+  signal?: CancellationSignal;
+  // queuedSubscription unregisters the while-queued cancel listener. The
+  // drained request registers its own against the id it is finally given, so
+  // this one is released at drain rather than left to fire against a queue the
+  // entry has left.
+  queuedSubscription?: { dispose(): void };
 }
 
 // DaemonEvents documents the events emitted by Daemon.
@@ -238,27 +267,64 @@ export class Daemon extends EventEmitter {
   // the process the queued call would have been dispatched to is the one being
   // replaced, so the caller is told to ask again rather than left holding a
   // promise against a server that no longer exists.
-  request<T>(method: string, params: unknown): Promise<T> {
+  //
+  // A caller that may need to stop the call passes a signal. Stopping is the
+  // $/cancelRequest notification naming the id this call was sent under, and
+  // that id never leaves this class: it is allocated here, held here, and
+  // written back here. Surfacing it to the caller instead would put the wire
+  // format in a second place and make a second send path the obvious next step,
+  // and it is the send that has to be right — a caller that merely stopped
+  // waiting would leave the compiler working.
+  request<T>(method: string, params: unknown, signal?: CancellationSignal): Promise<T> {
     return new Promise<T>((resolve, reject) => {
       const wrappedResolve = (v: unknown) => resolve(v as T);
       const wrappedReject = (r: JsonRpcError | Error) => reject(r);
+      // Already stopped before anything was sent — a reader can press cancel
+      // while a picker ahead of the call is still open. Nothing is in flight,
+      // so there is nothing to notify the compiler about.
+      if (signal?.isCancellationRequested) {
+        reject(new OperationCancelled(method));
+        return;
+      }
       switch (this.state) {
         case DaemonState.Stopped:
         case DaemonState.Stopping:
           reject(new Error(`daemon is ${this.state}`));
           return;
-        case DaemonState.Starting:
+        case DaemonState.Starting: {
           if (this.startupQueue.length >= STARTUP_QUEUE_LIMIT) {
             reject(new Error('daemon startup queue overflow'));
             return;
           }
-          this.startupQueue.push({ method, params, resolve: wrappedResolve, reject: wrappedReject });
+          const queued: QueuedRequest = {
+            method,
+            params,
+            resolve: wrappedResolve,
+            reject: wrappedReject,
+            signal,
+          };
+          this.startupQueue.push(queued);
+          // A call waiting on a starting daemon has no id yet, so there is no
+          // notification to send: stopping it means never sending it. The
+          // listener drops the entry from the queue, and does nothing when the
+          // entry has already drained, because the dispatched call registers
+          // its own listener against the id it was given.
+          if (signal) {
+            queued.queuedSubscription = signal.onCancellationRequested(() => {
+              const at = this.startupQueue.indexOf(queued);
+              if (at < 0) { return; }
+              this.startupQueue.splice(at, 1);
+              queued.queuedSubscription?.dispose();
+              wrappedReject(new OperationCancelled(method));
+            });
+          }
           return;
+        }
         case DaemonState.Restarting:
           reject(new Error('daemon is restarting; retry after restart completes'));
           return;
         case DaemonState.Running:
-          this.dispatch(method, params, wrappedResolve, wrappedReject);
+          this.dispatch(method, params, wrappedResolve, wrappedReject, signal);
           return;
       }
     });
@@ -346,30 +412,83 @@ export class Daemon extends EventEmitter {
     params: unknown,
     resolve: (v: unknown) => void,
     reject: (r: JsonRpcError | Error) => void,
+    signal?: CancellationSignal,
   ): void {
     if (!this.proc) {
       reject(new Error('no subprocess'));
       return;
     }
+    if (signal?.isCancellationRequested) {
+      reject(new OperationCancelled(method));
+      return;
+    }
     const id = this.nextId++;
-    this.pending.set(id, { resolve, reject });
+    let subscription: { dispose(): void } | null = null;
+    this.pending.set(id, {
+      resolve: v => { subscription?.dispose(); resolve(v); },
+      reject: r => { subscription?.dispose(); reject(r); },
+    });
     this.writeMessage({ jsonrpc: '2.0', id, method, params });
+    if (!signal) { return; }
+    subscription = signal.onCancellationRequested(() => {
+      subscription?.dispose();
+      // Only a request still in flight is this client's to stop. delete
+      // reporting false means the answer already arrived and settled the
+      // promise, so there is nothing to cancel and nothing to settle.
+      if (!this.pending.delete(id)) { return; }
+      // The notification goes first and the promise settles second, because
+      // the notification is what actually stops the compiler. A settle with no
+      // notification leaves the daemon working on an answer nobody is waiting
+      // for, which is indistinguishable to the reader from having stopped it.
+      this.writeCancelRequest(id);
+      // The daemon emits no response frame for a request it cancelled, so
+      // nothing will arrive to settle this promise later. Settling here is not
+      // giving up early — it is the only settlement there will be.
+      reject(new OperationCancelled(method));
+    });
   }
 
   private drainStartupQueue(): void {
     const queue = this.startupQueue;
     this.startupQueue = [];
     for (const q of queue) {
-      this.dispatch(q.method, q.params, q.resolve, q.reject);
+      // The while-queued listener is released before dispatch registers the
+      // one that knows the id, so a stop reaches exactly one of them.
+      q.queuedSubscription?.dispose();
+      this.dispatch(q.method, q.params, q.resolve, q.reject, q.signal);
     }
   }
 
   private writeMessage(body: JsonRpcRequest): void {
     if (!this.proc) { return; }
-    const json = JSON.stringify(body);
-    const payload = Buffer.from(json, 'utf8');
-    const header = Buffer.from(`Content-Length: ${payload.byteLength}\r\n\r\n`, 'ascii');
-    this.proc.stdin.write(Buffer.concat([header, payload]));
+    this.proc.stdin.write(frameMessage(body));
+  }
+
+  // writeCancelRequest emits one $/cancelRequest notification naming the
+  // in-flight request to stop.
+  //
+  // The daemon tracks every id-bearing request while it runs and cancels the
+  // one this notification names, so stopping an operation is this message and
+  // not the client giving up on the answer: abandoning the promise alone would
+  // leave the compiler working while the reader believed they had stopped it.
+  //
+  // The id is the one this client allocated for that request, written back in
+  // the same JSON encoding it was sent in, so the daemon resolves it to the
+  // request it is about.
+  //
+  // Returns false when there is no subprocess or stdin is unwritable, so a
+  // caller can report that the compiler was never told rather than reporting a
+  // stop that did not happen.
+  private writeCancelRequest(id: number): boolean {
+    if (!this.proc) { return false; }
+    try {
+      this.proc.stdin.write(
+        frameMessage({ jsonrpc: '2.0', method: '$/cancelRequest', params: { id } }),
+      );
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   private handleStdoutChunk(chunk: Buffer): void {
@@ -522,10 +641,7 @@ export class Daemon extends EventEmitter {
   // drain-then-abort shutdown: the first drains, the second aborts.
   private writeShutdown(proc: ChildProcessWithoutNullStreams): boolean {
     try {
-      const notification = JSON.stringify({ jsonrpc: '2.0', method: 'aggrega/shutdown' });
-      const payload = Buffer.from(notification, 'utf8');
-      const header = Buffer.from(`Content-Length: ${payload.byteLength}\r\n\r\n`, 'ascii');
-      proc.stdin.write(Buffer.concat([header, payload]));
+      proc.stdin.write(frameMessage({ jsonrpc: '2.0', method: 'aggrega/shutdown' }));
       return true;
     } catch {
       return false;

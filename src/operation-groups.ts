@@ -358,9 +358,100 @@ export function importArgs(source: string): string[] {
   return withSubject('import', source, 'the source to import');
 }
 
+// CacheSubcommand is the closed set of cache operations this surface offers.
+export type CacheSubcommand = 'status' | 'prune' | 'clear';
+
+// CACHE_SUBCOMMANDS is what the reader chooses from, with the scope of each
+// stated on its own row: the difference between emptying what belongs to this
+// workspace and emptying what every project on this machine shares is the fact
+// a reader most needs before choosing, and a label alone cannot carry it.
+export const CACHE_SUBCOMMANDS: Array<{ value: CacheSubcommand; detail: string }> = [
+  {
+    value: 'status',
+    detail: 'List every cache and what it holds — removes nothing',
+  },
+  {
+    value: 'prune',
+    detail: 'Remove entries no lockfile references, in this workspace and on this machine',
+  },
+  {
+    value: 'clear',
+    detail: 'Empty every cache, in this workspace and on this machine',
+  },
+];
+
+// CACHE_CONFIRM_LABEL is the affirmative on a cache confirmation. It says what
+// will happen rather than "OK", so a reader dismissing the dialog quickly is
+// reading the act rather than agreeing to an unnamed one.
+const CACHE_CONFIRM_LABEL_PRUNE = 'Remove unreferenced entries';
+const CACHE_CONFIRM_LABEL_CLEAR = 'Empty every cache';
+
+// CacheConfirmation is what a reader is asked before a cache operation removes
+// anything: the question, the scope it reaches, and the affirmative.
+export interface CacheConfirmation {
+  question: string;
+  // scope names which caches the operation reaches, in the two terms that
+  // matter to a reader — the ones belonging to this workspace and the ones
+  // every project on this machine shares. Both are named where an operation
+  // reaches both, because naming one would understate what is about to happen.
+  scope: string;
+  confirmLabel: string;
+}
+
+// THIS_MACHINE_CACHES names the caches that are not this workspace's.
+//
+// They are shared because what they hold is identical across projects — a
+// compiled plugin is the same bytes whichever workspace asked for it — so
+// emptying them affects every project on the machine, not only this one. The
+// names are the compiler's own, as they appear in its cache listing, so a
+// reader who runs the report sees the same words back.
+const THIS_MACHINE_CACHES =
+  'the compiled-module cache and the plugin-describe cache, which every project on this machine shares';
+
+// THIS_WORKSPACE_CACHES names the caches that sit under this workspace's own
+// configured cache directory.
+const THIS_WORKSPACE_CACHES =
+  "this workspace's own entity, source-artifact, external-input and docs-bundle caches";
+
+// cacheConfirmation reports what to ask before a cache subcommand runs, or null
+// where nothing is removed and there is nothing to confirm.
+//
+// Both removals reach both scopes, which is why neither confirmation names only
+// one: clear empties this workspace's caches and the two shared ones, and prune
+// reclaims unreferenced entries from this workspace's caches, from the shared
+// plugin-describe cache, and from the shared compiled-module cache by reference.
+export function cacheConfirmation(subcommand: CacheSubcommand): CacheConfirmation | null {
+  switch (subcommand) {
+    case 'status':
+      return null;
+    case 'prune':
+      return {
+        question: 'Remove cache entries no lockfile references?',
+        scope: `This reaches ${THIS_WORKSPACE_CACHES}, and ${THIS_MACHINE_CACHES}. Entries still referenced are kept.`,
+        confirmLabel: CACHE_CONFIRM_LABEL_PRUNE,
+      };
+    case 'clear':
+      return {
+        question: 'Empty every cache?',
+        scope: `This empties ${THIS_WORKSPACE_CACHES}, and ${THIS_MACHINE_CACHES}. The caches repopulate on the next build.`,
+        confirmLabel: CACHE_CONFIRM_LABEL_CLEAR,
+      };
+  }
+}
+
 // cacheArgs builds one cache subcommand.
-export function cacheArgs(subcommand: string): string[] {
-  return withSubject('cache', subcommand, 'a subcommand');
+//
+// The wipe carries its own non-interactive consent. The command asks for
+// confirmation at an interactive terminal and refuses outright when there is
+// none, and this surface runs it as a subprocess that has none — so an
+// invocation without the answer refuses every time, whatever the reader
+// intended. The answer travels as a flag because the reader has already given
+// it, in a dialog naming the same scope; this composes no consent the reader
+// did not give, and cacheConfirmation is the only place that consent is
+// obtained.
+export function cacheArgs(subcommand: CacheSubcommand): string[] {
+  const args = withSubject('cache', subcommand, 'a subcommand');
+  return subcommand === 'clear' ? [...args, '--yes'] : args;
 }
 
 // DeprecationSeverity is the severity a deprecation marker records. The three
