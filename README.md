@@ -152,18 +152,22 @@ says nothing looks exactly like one that never ran.
 - **A long operation shows progress with a Cancel button.** That covers everything that reaches a
   registry, renders or resolves a Release, or walks the catalog: validate, lint, build, preview
   build, the topology graph, pull, acquire inputs, inspect, push, sign and deprecate. Drafting a
-  document, importing a file and reporting the effective configuration are none of those, so they run
-  without one.
+  document, importing a file, reporting the effective configuration and maintaining the caches are
+  none of those, so they run without one. Cache maintenance additionally cannot be interrupted at
+  all — the compiler carries no way to stop one part-way — so it is covered by the confirmation
+  beforehand rather than by a button that could only stop the editor waiting.
 - **Pressing Cancel stops the compiler**, not just the editor's waiting. Over the language server the
   extension sends the cancellation for the request it issued; over a subprocess it terminates the
   process. Cancellation of a compile takes effect at the compile's own phase boundaries, so a heavy
   phase already under way finishes first — which is why the message says the operation was stopped
   rather than that it stopped instantly. Either way the result is reported as **stopped**, never as a
   failure.
-- **Emptying or pruning the caches asks first, and says what it will reach.** Both touch this
-  workspace's own caches *and* the compiled-module and plugin-describe caches shared by every project
-  on this machine, so the confirmation names both. Afterwards a message says what was removed;
-  declining says that nothing was.
+- **A cache operation that removes something asks first, and names the caches it will reach.**
+  Emptying and pruning touch this workspace's own caches *and* the compiled-module and plugin-describe
+  caches shared by every project on this machine, so those confirmations name both. Trimming touches
+  only the shared compiled-module cache, so its confirmation names that one and says the workspace's
+  own caches are untouched. Afterwards a message says what was removed; declining says that nothing
+  was.
 - **Push, sign and deprecate say what is now true for consumers** — that the version you published is
   what others pulling it now resolve, that the signature is there to be verified, that the
   deprecation marker is what resolvers now see.
@@ -220,7 +224,8 @@ they write `.aggrega/active-release` or `.aggrega-config.yaml` rather than an ed
 - **Aggrega: Pull / Acquire inputs** — run the `aggrega` binary against the selected Release and stream its output to the Aggrega output channel. Pull fetches the remote dependencies the workspace declares; acquire inputs pins the external inputs the Release's render consumes and records them in its lockfile, so a later build serves them from the local store. Both reach a registry, so both show progress with a Cancel button, and both end in a message saying what they did.
 - **Aggrega: Draft entity…** — ask the language server for a starter document for an entity kind and open it in a new unsaved tab. Nothing is written to disk: the draft is yours to edit, save or discard. A kind the compiler does not recognise comes back with the compiler's own message naming the kinds it does.
 - **Aggrega: Inspect…** — choose an entity the workspace can see and see what it resolves to, opened as a new tab. An inspection is addressed by name, so an entity resolved from a configured catalog directory is offered here as well as one the workspace declares. The resolution runs over the catalog, so it shows progress with a Cancel button.
-- **Aggrega: Import… / Cache…** — run the `aggrega` binary and stream its output to the Aggrega output channel. Import asks for the source first, and reads only the file you name — no other files and no network. Cache asks which subcommand to run: **status** lists every cache and removes nothing; **prune** removes entries no lockfile references; **clear** empties every cache. The two that remove something ask you to confirm first, and the confirmation names what they reach — this workspace's own entity, source-artifact, external-input and documentation-bundle caches, and the compiled-module and plugin-describe caches every project on this machine shares. Cleared caches repopulate on the next build.
+- **Aggrega: Import…** — run the `aggrega` binary and stream its output to the Aggrega output channel. It asks for the source first, and reads only the file you name — no other files and no network.
+- **Aggrega: Cache…** — ask the language server which cache operation to run, then run it. Nothing is spawned, and each answer comes back as a structured result the panel reports: **status** lists every cache, what it holds and how far each one is shared, and removes nothing; **prune** removes the entries no lockfile references and names what it kept, together with anything it had no basis to reclaim and the operation that would; **evict** asks for a size cap first — a byte quantity such as `5GiB` or `512MiB`, or a byte count, read by the same parser the command line uses — and trims the shared compiled-module cache down to it; **clear** empties every cache. The three that remove something ask you to confirm first, and each confirmation names the caches that operation actually reaches: emptying and pruning reach this workspace's own entity, source-artifact, external-input and documentation-bundle caches *and* the compiled-module and plugin-describe caches every project on this machine shares, while trimming reaches only the shared compiled-module cache. A cap the compiler cannot read comes back with the compiler's own message naming what a size cap looks like. Cleared and trimmed caches repopulate on the next build that needs them.
 - **Aggrega: Push… / Sign… / Deprecate…** — the operations that change what other people resolve. Push asks which of the open workspace's entities to publish, then bundles and publishes it to a configured registry. Sign and deprecate ask for a reference to an artifact already published, because both amend published bytes rather than the workspace: sign attaches a signature, deprecate attaches a signed deprecation marker and asks for the severity — `warning`, `error` or `retracted` — and the reason it records. All three run the `aggrega` binary and stream their output to the Aggrega output channel, all three show progress with a Cancel button, and each ends by saying what consumers now resolve.
 - **Aggrega: Show effective config** — ask the language server for the configuration it resolved and the layer each setting came from, opened as a new tab.
 - **Aggrega: Show topology graph** — open the topology graph for the selected Release. Drawing it compiles that Release to its topology, so it shows progress with a Cancel button.

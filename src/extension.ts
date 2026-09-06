@@ -82,6 +82,10 @@ import {
   ActiveReleaseResponse,
   BuildPreviewResponse,
   BuildResponse,
+  CacheClearResponse,
+  CacheEvictResponse,
+  CachePruneResponse,
+  CacheStatusResponse,
   DaemonLocation,
   ERR_FILE_NOT_VALIDATED,
   PublishDiagnosticsParams,
@@ -353,6 +357,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     scaffoldEntity: requestScaffoldEntity,
     entityDefinition: requestEntityDefinition,
     effectiveConfiguration: requestEffectiveConfiguration,
+    cacheStatus: requestCacheStatus,
+    cachePrune: requestCachePrune,
+    cacheEvict: requestCacheEvict,
+    cacheClear: requestCacheClear,
     layout: () => getSettings().operationsLayout,
     // The listener is narrowed to the one section, so an unrelated setting
     // change does not redraw a panel whose shape has not moved.
@@ -1609,6 +1617,70 @@ async function requestEffectiveConfiguration(): Promise<unknown> {
     throw new Error('the Aggrega language server is not running');
   }
   return await daemon.request<unknown>('aggrega/effectiveConfiguration', {});
+}
+
+// requestCacheStatus asks the language server what the on-disk caches hold. It
+// writes nothing, and it still reports how far the answer reached: two of the
+// classes it describes are shared by every project on the machine, so a caller
+// deciding whether to reclaim needs to know which of what it is reading about
+// is not this workspace's before it acts.
+//
+// Throws when the server is not running, so a caller reports that state rather
+// than presenting an unasked question as a machine that caches nothing.
+async function requestCacheStatus(): Promise<CacheStatusResponse> {
+  if (!daemon || daemon.getState() !== DaemonState.Running) {
+    throw new Error('the Aggrega language server is not running');
+  }
+  return await daemon.request<CacheStatusResponse>('aggrega/cacheStatus', {});
+}
+
+// requestCachePrune asks the language server to reclaim the cache entries no
+// workspace lockfile references. It writes, and it is sent for the same reason
+// every other writing request is: a caller that sent it has asked for the
+// reclamation, exactly as a caller sending a build has asked for artifacts.
+//
+// Throws when the server is not running, so a caller reports that state rather
+// than presenting a reclamation that never ran as one that found nothing.
+async function requestCachePrune(): Promise<CachePruneResponse> {
+  if (!daemon || daemon.getState() !== DaemonState.Running) {
+    throw new Error('the Aggrega language server is not running');
+  }
+  return await daemon.request<CachePruneResponse>('aggrega/cachePrune', {});
+}
+
+// requestCacheEvict asks the language server to trim the compiled-module cache
+// to a size cap.
+//
+// maxSize is the reader's own text and travels unread. The server parses it with
+// the same parser the command line uses, so a quantity learned on one surface is
+// accepted on the other; it refuses a blank or unreadable one with a message
+// naming what a size cap looks like, and that refusal is what a caller surfaces
+// rather than a check of its own.
+//
+// Throws when the server is not running, so a caller reports that state rather
+// than presenting a trim that never ran as a cache already within its cap.
+async function requestCacheEvict(maxSize: string): Promise<CacheEvictResponse> {
+  if (!daemon || daemon.getState() !== DaemonState.Running) {
+    throw new Error('the Aggrega language server is not running');
+  }
+  return await daemon.request<CacheEvictResponse>('aggrega/cacheEvict', { maxSize });
+}
+
+// requestCacheClear asks the language server to empty every cache the session
+// addresses. It is the widest of these requests and the answer is explicit about
+// it, naming each subtree it removed and which of them were shared beyond this
+// workspace.
+//
+// The server prompts for nothing: a caller that sent this has asked for it, so
+// whatever confirmation a reader owes is owed to the surface that offered the
+// operation. Throws when the server is not running, so a caller reports that
+// state rather than presenting a wipe that never ran as a wipe that found
+// nothing.
+async function requestCacheClear(): Promise<CacheClearResponse> {
+  if (!daemon || daemon.getState() !== DaemonState.Running) {
+    throw new Error('the Aggrega language server is not running');
+  }
+  return await daemon.request<CacheClearResponse>('aggrega/cacheClear', {});
 }
 
 async function handleCacheMiss<T>(method: string, params: unknown, doc: vscode.TextDocument): Promise<T | null> {

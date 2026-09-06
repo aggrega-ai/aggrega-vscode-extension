@@ -334,3 +334,129 @@ export interface ScaffoldEntityResponse {
   kind: string;
   skeleton: string;
 }
+
+// --- the cache maintenance results ---------------------------------------
+
+// CacheScope states how far a cache answer reached: the classes it addressed
+// whose contents every project on the machine shares, and the workspace the
+// session was opened over.
+//
+// Every cache result carries one. A caller that opened a session over a
+// workspace has every reason to read an answer as being about that workspace,
+// and for some classes that reading is wrong — so the answer says which, rather
+// than leaving this side to recognise a class name.
+//
+// machineWideClasses is always present and always an array, so "no machine-wide
+// class was touched" is an empty list to iterate rather than an absent key to
+// guess at. That holds for every collection below, which is why nothing here is
+// optional and nothing defends against a null.
+export interface CacheScope {
+  machineWideClasses: string[];
+  workspaceRoot: string;
+}
+
+// CacheElement is one enumerated entry in a cache class.
+//
+// digest and note are the two fields the compiler omits when it has none, so
+// they are the only optional members in this group.
+export interface CacheElement {
+  label: string;
+  size: number;
+  digest?: string;
+  note?: string;
+}
+
+// CacheClass is one cache class: its name, how far its contents are shared,
+// whether reclaiming unreferenced entries can free it, and its entries.
+//
+// There is no filesystem path, and its absence is deliberate on the compiler's
+// side: a question about what the caches hold is a question about content, and
+// an answer carrying absolute paths into the machine's own directories would
+// describe the host instead.
+export interface CacheClass {
+  name: string;
+  reach: string;
+  prunable: boolean;
+  elements: CacheElement[];
+}
+
+// CacheProvenance is one recorded content digest's resolved plugin identities.
+// sharedBy arrives only where more than one identity resolves to the same
+// guest bytes.
+export interface CacheProvenance {
+  identities: string[];
+  sharedBy?: number;
+}
+
+// CacheStatusResponse is the aggrega/cacheStatus result: every class with its
+// entries, the recorded plugin provenance, and the totals. It removes nothing.
+export interface CacheStatusResponse {
+  classes: CacheClass[];
+  provenance: CacheProvenance[];
+  totalCount: number;
+  totalSize: number;
+  scope: CacheScope;
+}
+
+// CacheRemoval is one entry an operation removed, carrying the reach of the
+// class it came from — so a reader shown a single removal is told its scope
+// without having to consult the summary.
+export interface CacheRemoval {
+  class: string;
+  label: string;
+  reach: string;
+  size: number;
+}
+
+// CacheShortfall is a set of entries an operation left behind because it has no
+// basis to reclaim them, together with the operations that would. reclaimedBy
+// is the compiler's own guidance about what to run next.
+export interface CacheShortfall {
+  class: string;
+  count: number;
+  size: number;
+  reach: string;
+  reclaimedBy: string[];
+}
+
+// CachePruneResponse is the aggrega/cachePrune result: what was removed, what
+// was kept, and what could not be attributed either way.
+export interface CachePruneResponse {
+  removed: CacheRemoval[];
+  retainedCount: number;
+  reclaimedBytes: number;
+  unattributedCount: number;
+  unattributedSize: number;
+  notPruneEligible: CacheShortfall[];
+  scope: CacheScope;
+}
+
+// CacheEvictResponse is the aggrega/cacheEvict result.
+//
+// withinCapBefore is the case a reader most needs told apart from a failure: the
+// store was already under the cap, so nothing was removed and nothing went
+// wrong.
+export interface CacheEvictResponse {
+  withinCapBefore: boolean;
+  removed: CacheRemoval[];
+  totalBefore: number;
+  reclaimedBytes: number;
+  remainingBytes: number;
+  capBytes: number;
+  scope: CacheScope;
+}
+
+// CacheCleared is one whole cache subtree a wipe removed.
+export interface CacheCleared {
+  class: string;
+  reach: string;
+  size: number;
+}
+
+// CacheClearResponse is the aggrega/cacheClear result: the subtrees the wipe
+// removed and the space it reclaimed.
+export interface CacheClearResponse {
+  cleared: CacheCleared[];
+  reclaimedBytes: number;
+  scope: CacheScope;
+}

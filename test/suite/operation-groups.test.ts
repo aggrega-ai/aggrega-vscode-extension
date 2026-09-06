@@ -5,14 +5,18 @@ import * as assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
+// Imported as a namespace as well as by name, so the export surface itself can
+// be censused: a claim that no cache operation composes an argument list is a
+// claim about what this module exports, and reading the exports measures that
+// directly rather than by pattern over its text.
+import * as groups from '../../src/operation-groups';
 import {
-  CACHE_SUBCOMMANDS,
-  CacheSubcommand,
+  CACHE_OPERATIONS,
+  CacheOperation,
   DEPRECATION_SEVERITIES,
   OPERATION_GROUPS,
   OperationsNode,
   allOperations,
-  cacheArgs,
   cacheConfirmation,
   catalogUploadArgs,
   commandIdFor,
@@ -258,8 +262,21 @@ describe('the argument list each entry composes', () => {
     assert.deepStrictEqual(importArgs('./chart'), ['import', './chart']);
   });
 
-  it('runs a named cache subcommand', () => {
-    assert.deepStrictEqual(cacheArgs('prune'), ['cache', 'prune']);
+  it('composes no argument list for a cache operation, because none is invoked', () => {
+    // The cache operations are language-server requests, so there is no
+    // argument list to compose and no verb to name. A negative control first,
+    // so a zero below is a measurement of the module rather than a claim about
+    // the census: the module does still export the compositions that survive.
+    const composers = Object.keys(groups).filter((name) => /Args$/.test(name));
+    assert.ok(
+      composers.includes('importArgs'),
+      'the census cannot see a composition that is present, so its zeros mean nothing',
+    );
+    assert.deepStrictEqual(
+      composers.filter((name) => /cache/i.test(name)),
+      [],
+      'a cache operation that composed an argument list would be a second way to run one',
+    );
   });
 
   it('offers the three severities the compiler records, in increasing strength', () => {
@@ -280,12 +297,6 @@ describe('an entry whose invocation cannot succeed is refused before it is built
     ['a signature with no reference', () => signArgs('')],
     ['a deprecation with no reference', () => deprecateArgs('', 'warning', 'why')],
     ['an import with no source', () => importArgs('')],
-    // The parameter type already refuses an unnamed subcommand at authoring
-    // time, which is the primary defence. The cast reaches past it on purpose,
-    // to prove the runtime guard still fires for a value that arrives from
-    // outside the type system — a hand-edited setting, or a caller written
-    // later against a widened signature.
-    ['a cache run with no subcommand', () => cacheArgs('' as CacheSubcommand)],
     ['a pull with no Release', () => releaseScopedArgs('pull', '')],
     ['an acquisition with no Release', () => releaseScopedArgs('acquire', '  ')],
   ];
@@ -304,30 +315,59 @@ describe('an entry whose invocation cannot succeed is refused before it is built
     assert.throws(() => deprecateArgs('registry/x:1', 'warning', '  '), /reason/);
   });
 
-  it('carries the reader’s answer into the wipe, which refuses without one', () => {
-    // The command asks for confirmation at an interactive terminal and refuses
-    // outright when there is none. This surface spawns it with no terminal, so
-    // an invocation that did not carry the answer could only ever report a
-    // refusal — which is the same shape as the deprecation above.
-    assert.deepStrictEqual(cacheArgs('clear'), ['cache', 'clear', '--yes']);
-  });
-
-  it('carries no consent into the operations that were never asked about', () => {
-    // Only the wipe is confirmed, so only the wipe may claim consent. Passing
-    // it elsewhere would assert an answer the reader was never asked for.
-    assert.deepStrictEqual(cacheArgs('status'), ['cache', 'status']);
-    assert.deepStrictEqual(cacheArgs('prune'), ['cache', 'prune']);
+  it('leaves the size cap unread, because the compiler owns what a size means', () => {
+    // A cache trim takes a size cap, and this surface deliberately composes no
+    // check over it: the language server parses it with the same parser the
+    // command line uses and refuses a blank or unreadable one in its own words,
+    // naming what a size cap looks like. A guard here would be a second answer
+    // to what a size is, and it would replace that naming with a wording of
+    // this surface's own.
+    //
+    // So this is the one subject on the panel that is NOT refused before it is
+    // built, and the assertion records that as a decision rather than leaving
+    // its absence to read as an oversight: nothing in the module reads or
+    // validates a size.
+    assert.deepStrictEqual(
+      Object.keys(groups).filter((name) => /size|bytes|parse/i.test(name)),
+      [],
+      'a size cap read here would be a second statement of what a byte quantity means',
+    );
   });
 });
 
 describe('a destructive cache operation names its scope before it runs', () => {
+  // The three removals and the one report. Kept as a table because the reach
+  // is not uniform: two removals reach both scopes and one reaches only what
+  // the machine shares, so a loop asserting one formula over all of them would
+  // pass on a confirmation that names the wrong scope.
+  const REMOVALS = ['prune', 'evict', 'clear'] as const;
+
+  it('offers exactly the operations the language server serves', () => {
+    // Four, matching the four request methods. The panel offering fewer would
+    // leave a capability reachable only outside the editor with nothing saying
+    // so; offering more would draw a control with nothing behind it.
+    assert.deepStrictEqual(
+      CACHE_OPERATIONS.map((o) => o.value),
+      ['status', 'prune', 'evict', 'clear'],
+    );
+  });
+
   it('asks nothing before an operation that removes nothing', () => {
     assert.strictEqual(cacheConfirmation('status'), null);
   });
 
-  for (const subcommand of ['prune', 'clear'] as const) {
-    it(`confirms ${subcommand} before anything happens`, () => {
-      const confirmation = cacheConfirmation(subcommand);
+  it('confirms every operation that removes something, and only those', () => {
+    // Derived from the offered set rather than from a second list, so an
+    // operation added later cannot be left unconfirmed by omission.
+    const confirmed = CACHE_OPERATIONS
+      .map((o) => o.value)
+      .filter((value) => cacheConfirmation(value) !== null);
+    assert.deepStrictEqual(confirmed, [...REMOVALS]);
+  });
+
+  for (const operation of REMOVALS) {
+    it(`confirms ${operation} before anything happens`, () => {
+      const confirmation = cacheConfirmation(operation);
       assert.ok(confirmation, 'a removal must be confirmed');
       assert.ok(confirmation.question.trim().endsWith('?'), 'the confirmation asks a question');
       assert.ok(confirmation.confirmLabel.trim().length > 0);
@@ -337,15 +377,17 @@ describe('a destructive cache operation names its scope before it runs', () => {
         'the affirmative names the act, so a reader dismissing quickly reads what they agreed to',
       );
     });
+  }
 
-    it(`names BOTH scopes for ${subcommand}, because it reaches both`, () => {
+  for (const operation of ['prune', 'clear'] as const) {
+    it(`names BOTH scopes for ${operation}, because it reaches both`, () => {
       // Established against the compiler rather than guessed: the workspace
       // artifact caches sit under the workspace's own configured cache
       // directory, while the compiled-module and plugin-describe caches are
       // rooted at the user cache root and shared by every project on the
-      // machine. Both removals reach both, so a confirmation naming only one
-      // would understate what is about to happen.
-      const { scope } = cacheConfirmation(subcommand)!;
+      // machine. These two removals reach both, so a confirmation naming only
+      // one would understate what is about to happen.
+      const { scope } = cacheConfirmation(operation)!;
       assert.match(scope, /this workspace/i, 'the workspace scope must be named');
       assert.match(scope, /this machine/i, 'the machine-wide scope must be named');
       assert.match(scope, /compiled-module cache/, 'the shared cache is named as the compiler names it');
@@ -353,30 +395,51 @@ describe('a destructive cache operation names its scope before it runs', () => {
     });
   }
 
-  it('offers every subcommand it can compose, and no other', () => {
-    // The offered set and the composable set are one set. A row the composition
-    // refuses would be a control that always fails.
-    for (const { value } of CACHE_SUBCOMMANDS) {
-      assert.doesNotThrow(() => cacheArgs(value));
-    }
-    assert.deepStrictEqual(
-      CACHE_SUBCOMMANDS.map((s) => s.value),
-      ['status', 'prune', 'clear'],
+  it('names ONE scope for the trim, because it reaches one', () => {
+    // The trim's subject is the compiled-module store alone, which is
+    // machine-wide without qualification. The rule is that a confirmation names
+    // both scopes when it reaches both — so this one names the machine-shared
+    // store and says the workspace's own caches are untouched. Naming both
+    // would overstate it in the same direction naming one understates the other
+    // two, which is why this is asserted rather than left to the wording.
+    const { scope } = cacheConfirmation('evict')!;
+    assert.match(scope, /this machine/i, 'the machine-wide reach must be named');
+    assert.match(scope, /compiled-module cache/, 'the store is named as the compiler names it');
+    assert.doesNotMatch(
+      scope,
+      /plugin-describe cache/,
+      'the trim does not reach the plugin-describe cache, so it must not claim to',
+    );
+    assert.match(
+      scope,
+      /Nothing under this workspace/,
+      "a reader must be told the workspace's own caches are untouched, not left to infer it",
     );
   });
 
-  it('states each subcommand’s reach on its own row', () => {
+  it('states each operation’s reach on its own row', () => {
     // A reader choosing from the list needs the workspace/machine distinction
-    // before they choose, not after.
-    for (const { value, detail } of CACHE_SUBCOMMANDS) {
-      assert.ok(detail.trim().length > 0);
-      if (value === 'status') {
-        assert.match(detail, /removes nothing/i);
-        continue;
+    // before they choose, not after — and needs it per operation, since the
+    // three removals do not reach the same places.
+    const reachOf = new Map<CacheOperation, RegExp[]>([
+      ['status', [/removes nothing/i]],
+      ['prune', [/this workspace/i, /this machine/i]],
+      ['evict', [/compiled-module cache/, /this machine/i]],
+      ['clear', [/this workspace/i, /this machine/i]],
+    ]);
+    for (const { value, detail } of CACHE_OPERATIONS) {
+      assert.ok(detail.trim().length > 0, `${value} states no reach`);
+      const expected = reachOf.get(value);
+      assert.ok(expected, `${value} has no stated reach to check against`);
+      for (const pattern of expected) {
+        assert.match(detail, pattern, `the ${value} row must state its reach`);
       }
-      assert.match(detail, /this workspace/i);
-      assert.match(detail, /this machine/i);
     }
+    assert.strictEqual(
+      reachOf.size,
+      CACHE_OPERATIONS.length,
+      'every offered operation is checked, so a new one cannot arrive unasserted',
+    );
   });
 });
 

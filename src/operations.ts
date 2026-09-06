@@ -4,15 +4,14 @@
 import { spawn } from 'child_process';
 import * as vscode from 'vscode';
 import {
-  CACHE_SUBCOMMANDS,
-  CacheSubcommand,
+  CACHE_OPERATIONS,
+  CacheOperation,
   DEPRECATION_SEVERITIES,
   EntitySubject,
   OperationId,
   OperationsLayout,
   OperationsNode,
   ReleaseScopedVerb,
-  cacheArgs,
   cacheConfirmation,
   catalogUploadArgs,
   commandIdFor,
@@ -38,7 +37,17 @@ import { SelectionState } from './release-selection';
 import { RendersOnReady } from './readiness';
 import { EXTENSION_ID, SETTINGS_COMMAND, extensionSettingsQuery } from './settings';
 import { SelectorRow, selectorRows } from './selector-rows';
-import { BuildPreviewResponse, BuildResponse, ScaffoldEntityResponse } from './types';
+import {
+  BuildPreviewResponse,
+  BuildResponse,
+  CacheClearResponse,
+  CacheEvictResponse,
+  CachePruneResponse,
+  CacheRemoval,
+  CacheScope,
+  CacheStatusResponse,
+  ScaffoldEntityResponse,
+} from './types';
 import { CatalogIndexDoc } from './workspace-catalog-run';
 import { NO_ANCHORED_WORKSPACE_MESSAGE } from './workspace';
 
@@ -133,6 +142,26 @@ export interface OperationDeps extends RendersOnReady {
   // effectiveConfiguration asks the language server for the configuration it
   // resolved and the layer each setting came from.
   effectiveConfiguration(): Promise<unknown>;
+  // The four cache operations are language-server-backed, and they are supplied
+  // here for the same reason every other server-backed entry is: the answer is
+  // a structured result this surface reports, rather than output it would have
+  // to read back out of a stream. Nothing is spawned, so nothing about the
+  // request depends on there being a terminal for the compiler to prompt at —
+  // which is what lets the confirmation belong wholly to the editor.
+  //
+  // None of them takes a cancellation signal, and that is a property of the
+  // work rather than an omission: the operations these reach accept no
+  // cancellation, so a stop could only stop this side waiting. Reporting that
+  // as a stop would tell a reader the compiler stopped when it did not.
+  cacheStatus(): Promise<CacheStatusResponse>;
+  cachePrune(): Promise<CachePruneResponse>;
+  // cacheEvict trims the shared compiled-module cache to a size cap. maxSize is
+  // the reader's own text, passed through unread: the language server parses it
+  // with the same parser the command line uses, so a quantity learned on one
+  // surface is accepted on the other, and reading it here would put that parser
+  // in a second place.
+  cacheEvict(maxSize: string): Promise<CacheEvictResponse>;
+  cacheClear(): Promise<CacheClearResponse>;
   // layout reports which of the two panel shapes to draw. It is read through a
   // getter so the surface always sees the current value, and re-read on every
   // render rather than captured, which is what lets the setting change take
@@ -635,29 +664,59 @@ async function runImport(deps: OperationDeps): Promise<void> {
   });
 }
 
-// runCache offers the cache subcommands as a quick-pick, then runs the chosen
-// one. The subcommand set mirrors the CLI's cache command group.
+// runCache offers the cache operations as a quick-pick, then asks the language
+// server to perform the chosen one. The set offered is the set the server
+// serves.
 //
-// The two that remove something confirm first, and the confirmation names which
-// caches it reaches — the ones belonging to this workspace, the ones every
-// project on this machine shares, or both. That distinction is real for these
-// operations and it is not guessable from the entry's label, so it is put in
-// front of the reader before anything happens rather than explained afterwards.
+// The three that remove something confirm first, and the confirmation names
+// which caches the operation reaches — the ones belonging to this workspace,
+// the ones every project on this machine shares, or both, whichever is true of
+// that one. That distinction is real for these operations and it is not
+// guessable from the entry's label, so it is put in front of the reader before
+// anything happens rather than explained afterwards.
 //
-// Consenting here is what lets the invocation carry its own non-interactive
-// consent. The compiler asks for confirmation at a terminal and refuses outright
-// when there is none, and this surface runs it as a subprocess with no terminal
-// — so without the reader's answer travelling with the invocation the entry
-// could only ever report a refusal, whatever the reader intended.
+// The confirmation is wholly the editor's own gate, and it is asked because the
+// operation is destructive rather than to satisfy anything on the other side.
+// The server performs what it is asked and prompts for nothing, so declining
+// here is what keeps the request from being sent, and there is no invocation
+// for an answer to be carried into.
+//
+// No progress indicator and no cancel button, and that follows from what these
+// operations are rather than from their being quick. The operations the server
+// reaches accept no cancellation, so a stop here could only stop this side
+// waiting — and reporting that as a stop would tell a reader the compiler
+// stopped when it did not. What the reader gets instead is the confirmation
+// beforehand, which is the affordance a destructive operation owes.
 async function runCache(deps: OperationDeps): Promise<void> {
   const choice = await vscode.window.showQuickPick(
-    CACHE_SUBCOMMANDS.map((s) => ({ label: s.value, description: s.detail, value: s.value })),
+    CACHE_OPERATIONS.map((o) => ({ label: o.value, description: o.detail, value: o.value })),
     { placeHolder: 'Aggrega: choose a cache operation' },
   );
   if (!choice) { return; }
-  const subcommand = choice.value as CacheSubcommand;
+  const operation = choice.value as CacheOperation;
 
-  const confirmation = cacheConfirmation(subcommand);
+  // The trim is the only operation taking a subject, and it is collected before
+  // the confirmation: a reader who has not yet said how far to trim has not
+  // been asked the question the confirmation asks.
+  //
+  // Dismissing the prompt does nothing at all. An empty answer is a different
+  // act — the reader gave one — so it is sent, and the server's own refusal
+  // names what a size cap looks like. Nothing is parsed, checked or normalised
+  // here: the server reads it with the same parser the command line uses, so a
+  // quantity learned on one surface is accepted on the other, and a reading
+  // here would be a second answer to what a size means.
+  let maxSize = '';
+  if (operation === 'evict') {
+    const answer = await vscode.window.showInputBox({
+      title: 'Aggrega: trim the compiled-module cache',
+      prompt: 'Size cap to trim down to — a byte quantity such as 5GiB or 512MiB, or a byte count',
+      ignoreFocusOut: true,
+    });
+    if (answer === undefined) { return; }
+    maxSize = answer;
+  }
+
+  const confirmation = cacheConfirmation(operation);
   if (confirmation) {
     const consented = await vscode.window.showWarningMessage(
       confirmation.question,
@@ -668,34 +727,163 @@ async function runCache(deps: OperationDeps): Promise<void> {
       // Declining is an answer, and the reader is told their answer was taken:
       // a confirmation that closes with nothing said is indistinguishable from
       // one that was dismissed by accident.
-      void vscode.window.showInformationMessage(`Aggrega: ${subcommand} cancelled. Nothing was removed.`);
+      void vscode.window.showInformationMessage(`Aggrega: ${operation} cancelled. Nothing was removed.`);
       return;
     }
   }
 
-  await runCli(deps, cacheWhat(subcommand), cacheArgs(subcommand), {
-    announce: confirmation !== null,
-    detail: cacheDetail(subcommand),
-  });
-}
+  const out = deps.output;
+  out.show(true);
 
-// cacheWhat names a cache operation the way the ending sentence needs it.
-function cacheWhat(subcommand: CacheSubcommand): string {
-  switch (subcommand) {
-    case 'status': return 'The cache report';
-    case 'prune': return 'The prune';
-    case 'clear': return 'The cache wipe';
+  try {
+    const detail = await performCacheOperation(deps, operation, maxSize);
+    await reportOutcome(deps, cacheWhat(operation), { kind: 'ok', detail }, confirmation !== null);
+  } catch (err) {
+    // The server's own message reaches the reader unchanged. A refused size cap
+    // arrives here, and the refusal names what a size cap looks like — which a
+    // composed message would discard for a wording of this surface's own.
+    await reportOutcome(deps, cacheWhat(operation), outcomeOf(err), true);
   }
 }
 
-// cacheDetail says what a completed cache operation did. The removals name
-// where to read what was removed, because the compiler lists each cache and the
-// space it reclaimed and that listing is the answer.
-function cacheDetail(subcommand: CacheSubcommand): string {
-  switch (subcommand) {
-    case 'status': return 'listed every cache in the Aggrega output.';
-    case 'prune': return 'removed the unreferenced entries listed in the Aggrega output.';
-    case 'clear': return 'emptied the caches listed in the Aggrega output. They repopulate on the next build.';
+// performCacheOperation sends one cache request, writes what came back to the
+// channel, and returns the sentence the operation ends in.
+//
+// Each answer is a structured result rather than text, which is what the move
+// off a spawned command line buys: the surface reports the compiler's own
+// figures instead of reading them back out of a stream it cannot parse
+// reliably.
+async function performCacheOperation(
+  deps: OperationDeps,
+  operation: CacheOperation,
+  maxSize: string,
+): Promise<string> {
+  const out = deps.output;
+  switch (operation) {
+    case 'status': {
+      const result = await deps.cacheStatus();
+      out.appendLine('\nCache report. Nothing is removed.');
+      for (const cacheClass of result.classes) {
+        const reclaimable = cacheClass.prunable ? ', reclaimable by prune' : '';
+        out.appendLine(
+          `  ${cacheClass.name} (${cacheClass.reach}${reclaimable}) — ${countOf(cacheClass.elements.length, 'entry', 'entries')}`,
+        );
+        for (const element of cacheClass.elements) {
+          const note = element.note ? ` — ${element.note}` : '';
+          out.appendLine(`    ${element.label}  ${bytes(element.size)}${note}`);
+        }
+      }
+      for (const record of result.provenance) {
+        const shared = record.sharedBy ? ` (shared by ${record.sharedBy})` : '';
+        out.appendLine(`  recorded plugin identities: ${record.identities.join(', ')}${shared}`);
+      }
+      appendCacheScope(out, result.scope);
+      return `listed ${countOf(result.totalCount, 'entry', 'entries')} holding ${bytes(result.totalSize)}.`;
+    }
+    case 'prune': {
+      const result = await deps.cachePrune();
+      out.appendLine('\nRemoving cache entries no lockfile references.');
+      appendCacheRemovals(out, result.removed);
+      out.appendLine(`  kept, still referenced: ${countOf(result.retainedCount, 'entry', 'entries')}`);
+      if (result.unattributedCount > 0) {
+        out.appendLine(
+          `  attributed to no lockfile either way: ${countOf(result.unattributedCount, 'entry', 'entries')}, ${bytes(result.unattributedSize)}`,
+        );
+      }
+      // The compiler names, per shortfall, the operations that would reclaim
+      // what a prune has no basis to touch. That is its own guidance about what
+      // to run next, so it is passed on rather than summarised away.
+      for (const shortfall of result.notPruneEligible) {
+        out.appendLine(
+          `  left in ${shortfall.class} (${shortfall.reach}): ${countOf(shortfall.count, 'entry', 'entries')}, ${bytes(shortfall.size)} — reclaimed by ${shortfall.reclaimedBy.join(', ')}`,
+        );
+      }
+      appendCacheScope(out, result.scope);
+      return `removed ${countOf(result.removed.length, 'entry', 'entries')} and reclaimed ${bytes(result.reclaimedBytes)}.`;
+    }
+    case 'evict': {
+      const result = await deps.cacheEvict(maxSize);
+      out.appendLine('\nTrimming the compiled-module cache to the size cap.');
+      // Already under the cap is the case a reader most needs told apart from a
+      // failure: nothing was removed and nothing went wrong.
+      if (result.withinCapBefore) {
+        appendCacheScope(out, result.scope);
+        return `removed nothing: the cache held ${bytes(result.totalBefore)}, already within the ${bytes(result.capBytes)} cap.`;
+      }
+      appendCacheRemovals(out, result.removed);
+      out.appendLine(`  held before: ${bytes(result.totalBefore)}`);
+      out.appendLine(`  holds now: ${bytes(result.remainingBytes)}, under a cap of ${bytes(result.capBytes)}`);
+      appendCacheScope(out, result.scope);
+      return `removed ${countOf(result.removed.length, 'entry', 'entries')} and reclaimed ${bytes(result.reclaimedBytes)}.`;
+    }
+    case 'clear': {
+      const result = await deps.cacheClear();
+      out.appendLine('\nEmptying every cache this session addresses.');
+      for (const cleared of result.cleared) {
+        out.appendLine(`  emptied ${cleared.class} (${cleared.reach})  ${bytes(cleared.size)}`);
+      }
+      appendCacheScope(out, result.scope);
+      return `emptied ${countOf(result.cleared.length, 'cache', 'caches')} and reclaimed ${bytes(result.reclaimedBytes)}. They repopulate on the next build.`;
+    }
+  }
+}
+
+// appendCacheRemovals writes what an operation removed, and says so when it
+// removed nothing.
+//
+// The empty case is a sentence rather than an absence, for the same reason a
+// finding count reports its zero: an operation that removed nothing and one
+// that never ran look identical when both write nothing.
+function appendCacheRemovals(out: vscode.OutputChannel, removed: CacheRemoval[]): void {
+  if (removed.length === 0) {
+    out.appendLine('  nothing was removed.');
+    return;
+  }
+  for (const removal of removed) {
+    out.appendLine(`  removed ${removal.class}: ${removal.label} (${removal.reach})  ${bytes(removal.size)}`);
+  }
+}
+
+// appendCacheScope writes how far the answer reached.
+//
+// It always writes a line, including where nothing beyond this workspace was
+// touched: that is the reassurance a reader who has just emptied something
+// wants, and leaving it out would make the widest case and the narrowest case
+// look the same on the channel.
+function appendCacheScope(out: vscode.OutputChannel, scope: CacheScope): void {
+  out.appendLine(
+    scope.machineWideClasses.length === 0
+      ? '  Nothing shared with other projects on this machine was reached.'
+      : `  Reached beyond this workspace, shared by every project on this machine: ${scope.machineWideClasses.join(', ')}.`,
+  );
+  if (scope.workspaceRoot !== '') {
+    out.appendLine(`  Workspace: ${scope.workspaceRoot}`);
+  }
+}
+
+// bytes renders a size the way the compiler reported it — a plain byte count.
+//
+// It is deliberately not scaled into a unit ladder. The compiler reads a size
+// the reader typed and reports the sizes it measured, and a ladder written here
+// would be a second statement of how a quantity of bytes is spelled, disagreeing
+// with the compiler's own the first time either rounded differently.
+function bytes(size: number): string {
+  return `${size} bytes`;
+}
+
+// countOf renders a count with the noun agreeing with it, so an ending sentence
+// reads as prose rather than as a figure with a bracketed plural.
+function countOf(count: number, one: string, many: string): string {
+  return `${count} ${count === 1 ? one : many}`;
+}
+
+// cacheWhat names a cache operation the way the ending sentence needs it.
+function cacheWhat(operation: CacheOperation): string {
+  switch (operation) {
+    case 'status': return 'The cache report';
+    case 'prune': return 'The prune';
+    case 'evict': return 'The trim';
+    case 'clear': return 'The cache wipe';
   }
 }
 
