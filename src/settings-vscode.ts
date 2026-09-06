@@ -2,10 +2,13 @@
 // Copyright 2026 Cognitio S.r.l.
 
 import * as vscode from 'vscode';
+import { readLayout } from './operation-groups';
 import {
   BUILD_ON_INSPECT_KEY,
   DEFAULT_SETTINGS,
   GRAPH_CONFIG_SECTION,
+  OPERATIONS_CONFIG_SECTION,
+  OPERATIONS_LAYOUT_KEY,
   SERVER_CONFIG_SECTION,
   SHOW_SENSITIVE_VALUES_KEY,
   Settings,
@@ -20,6 +23,7 @@ export function getSettings(): Settings {
   const serverCfg = vscode.workspace.getConfiguration(SERVER_CONFIG_SECTION);
   const notificationsCfg = vscode.workspace.getConfiguration('aggrega.notifications');
   const graphCfg = vscode.workspace.getConfiguration(GRAPH_CONFIG_SECTION);
+  const operationsCfg = vscode.workspace.getConfiguration(OPERATIONS_CONFIG_SECTION);
   return {
     binaryPath: serverCfg.get<string>('binaryPath', DEFAULT_SETTINGS.binaryPath),
     autoRevalidate: serverCfg.get<boolean>('autoRevalidate', DEFAULT_SETTINGS.autoRevalidate),
@@ -34,5 +38,10 @@ export function getSettings(): Settings {
     // configuration reader: a value in a shape the reader cannot type-check
     // reaches this as it stands, and only the boolean true shows the values.
     showSensitiveValues: showsSensitiveValues(graphCfg.get(SHOW_SENSITIVE_VALUES_KEY)),
+    // Read without a fallback and decided by the reader, for the same reason the
+    // line above is: a value in a shape this cannot type-check reaches here as it
+    // stands, and anything but the one alternative spelling draws the default
+    // shape rather than drawing nothing.
+    operationsLayout: readLayout(operationsCfg.get(OPERATIONS_LAYOUT_KEY)),
   };
 }

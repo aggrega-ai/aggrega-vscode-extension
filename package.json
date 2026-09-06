@@ -35,29 +35,24 @@
           "name": "Operations"
         },
         {
-          "id": "aggrega.plugins",
-          "name": "Plugins"
-        },
-        {
           "id": "aggrega.registries",
           "name": "Registries"
         },
         {
           "id": "aggrega.workspaceCatalog",
-          "name": "Workspace catalog"
+          "name": "Catalog"
+        },
+        {
+          "id": "aggrega.plugins",
+          "name": "Plugins"
         }
       ]
     },
     "menus": {
       "view/title": [
         {
-          "command": "aggrega.graph.show",
-          "when": "view == aggrega.operations",
-          "group": "navigation"
-        },
-        {
           "command": "aggrega.catalog.searchPublished",
-          "when": "view == aggrega.operations",
+          "when": "view == aggrega.workspaceCatalog",
           "group": "navigation"
         },
         {
@@ -139,16 +134,52 @@
         "icon": "$(cloud-download)"
       },
       {
-        "command": "aggrega.op.push",
-        "title": "Push",
+        "command": "aggrega.op.acquire",
+        "title": "Acquire inputs",
         "category": "Aggrega",
-        "icon": "$(cloud-upload)"
+        "icon": "$(pinned)"
+      },
+      {
+        "command": "aggrega.op.scaffold",
+        "title": "Draft entity…",
+        "category": "Aggrega",
+        "icon": "$(new-file)"
       },
       {
         "command": "aggrega.op.import",
         "title": "Import…",
         "category": "Aggrega",
         "icon": "$(arrow-into)"
+      },
+      {
+        "command": "aggrega.op.inspect",
+        "title": "Inspect…",
+        "category": "Aggrega",
+        "icon": "$(list-tree)"
+      },
+      {
+        "command": "aggrega.op.push",
+        "title": "Push…",
+        "category": "Aggrega",
+        "icon": "$(cloud-upload)"
+      },
+      {
+        "command": "aggrega.op.sign",
+        "title": "Sign…",
+        "category": "Aggrega",
+        "icon": "$(verified)"
+      },
+      {
+        "command": "aggrega.op.deprecate",
+        "title": "Deprecate…",
+        "category": "Aggrega",
+        "icon": "$(warning)"
+      },
+      {
+        "command": "aggrega.op.configShow",
+        "title": "Show effective config",
+        "category": "Aggrega",
+        "icon": "$(settings-gear)"
       },
       {
         "command": "aggrega.op.cache",
@@ -228,6 +259,20 @@
           "type": "boolean",
           "default": false,
           "description": "When true, the topology graph shows every value an attachment authors, including the ones a Feature declares sensitive: a credential an Aggregate authors by value is displayed in the clear, and is readable by anyone who can see the editor window or a screen recording of it. When false, those values are removed before the graph is drawn and the panel names each withheld field and says why it is withheld. Values no sensitivity declaration covers are shown either way."
+        },
+        "aggrega.operations.layout": {
+          "type": "string",
+          "enum": [
+            "grouped",
+            "collapsible"
+          ],
+          "enumDescriptions": [
+            "Every group heading and every operation is visible at once.",
+            "Each group is a row that opens, so the panel shows as much as you keep open."
+          ],
+          "default": "grouped",
+          "description": "How the Operations panel draws its groups. Both shapes carry the same groups with the same operations — the setting changes how a group is drawn, never which operations exist or what they do. Changing it redraws the open panel; nothing restarts.",
+          "scope": "application"
         },
         "aggrega.notifications.toastDebounceMode": {
           "type": "string",

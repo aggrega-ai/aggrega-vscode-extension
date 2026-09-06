@@ -318,3 +318,19 @@ export interface ActiveReleaseResponse {
   reason?: string;
   trace?: string;
 }
+
+// ScaffoldEntityResponse is the aggrega/scaffoldEntity result: the kind the
+// skeleton was derived for, and the skeleton itself as YAML text.
+//
+// kind is echoed rather than left for the caller to remember, so a client with
+// several drafting requests outstanding attributes an answer from the answer
+// itself.
+//
+// skeleton is a document to write, not a document that was written. Nothing is
+// created and no path is chosen: where the text goes, and whether it goes
+// anywhere at all, is this client's decision — which is why it lands in an
+// unsaved buffer the author reads, edits or discards.
+export interface ScaffoldEntityResponse {
+  kind: string;
+  skeleton: string;
+}

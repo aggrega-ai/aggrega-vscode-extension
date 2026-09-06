@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cognitio S.r.l.
 
+import { DEFAULT_OPERATIONS_LAYOUT, OperationsLayout } from './operation-groups';
+
 export interface Settings {
   binaryPath: string;
   autoRevalidate: boolean;
@@ -12,6 +14,7 @@ export interface Settings {
   toastDebounceMode: 'time' | 'session';
   toastThrottleSeconds: number;
   showSensitiveValues: boolean;
+  operationsLayout: OperationsLayout;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -25,6 +28,7 @@ export const DEFAULT_SETTINGS: Settings = {
   toastDebounceMode: 'time',
   toastThrottleSeconds: 300,
   showSensitiveValues: false,
+  operationsLayout: DEFAULT_OPERATIONS_LAYOUT,
 };
 
 // settingsFromObject builds a Settings object by overlaying input
@@ -52,6 +56,16 @@ export const GRAPH_CONFIG_SECTION = 'aggrega.graph';
 
 // SHOW_SENSITIVE_VALUES_KEY is the setting name within GRAPH_CONFIG_SECTION.
 export const SHOW_SENSITIVE_VALUES_KEY = 'showSensitiveValues';
+
+// OPERATIONS_CONFIG_SECTION is the configuration section the operation surface's
+// own settings are read from.
+export const OPERATIONS_CONFIG_SECTION = 'aggrega.operations';
+
+// OPERATIONS_LAYOUT_KEY is the setting name within OPERATIONS_CONFIG_SECTION.
+// The reader and the change-listener share this constant rather than each
+// spelling the key out: a mismatch would leave the panel drawing one shape and
+// never noticing that the reader had asked for the other.
+export const OPERATIONS_LAYOUT_KEY = 'layout';
 
 // showsSensitiveValues decides, from whatever the editor reports the setting to
 // be, whether the graph shows values a Feature declares sensitive.

@@ -32,6 +32,8 @@ import {
   BUILD_ON_INSPECT_MENU_LABEL,
   ConfigScope,
   DEFAULT_SETTINGS,
+  OPERATIONS_CONFIG_SECTION,
+  OPERATIONS_LAYOUT_KEY,
   SERVER_CONFIG_SECTION,
   buildOnInspectConfirmation,
   buildOnInspectMenuDescription,
@@ -56,6 +58,7 @@ import {
   ERR_FILE_NOT_VALIDATED,
   PublishDiagnosticsParams,
   ReleaseCandidatesResponse,
+  ScaffoldEntityResponse,
   ValidateParams,
   ValidateResponse,
 } from './types';
@@ -268,6 +271,24 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     build: requestBuild,
     previewBuild: requestBuildPreview,
     reportDaemonError,
+    requestCatalogIndex,
+    scaffoldEntity: requestScaffoldEntity,
+    entityDefinition: requestEntityDefinition,
+    effectiveConfiguration: requestEffectiveConfiguration,
+    layout: () => getSettings().operationsLayout,
+    // The listener is narrowed to the one section, so an unrelated setting
+    // change does not redraw a panel whose shape has not moved.
+    onLayoutChange: (listener) => {
+      context.subscriptions.push(
+        vscode.workspace.onDidChangeConfiguration((event) => {
+          if (event.affectsConfiguration(
+            `${OPERATIONS_CONFIG_SECTION}.${OPERATIONS_LAYOUT_KEY}`,
+          )) {
+            listener();
+          }
+        }),
+      );
+    },
   });
 
   // The topology-graph view renders the compiled IR of a chosen Release. It is
@@ -1327,6 +1348,50 @@ async function requestCatalogIndex(): Promise<CatalogIndexDoc> {
     throw new Error('the Aggrega language server is not running');
   }
   return await daemon.request<CatalogIndexDoc>('aggrega/catalogIndex', {});
+}
+
+// requestScaffoldEntity asks the language server to draft a starter document for
+// an entity kind. The skeleton comes from the schema set compiled into the
+// binary, so the answer is the same bytes every other caller-facing surface
+// produces for that kind and name; deriving one here would agree on the day it
+// was written and part company later.
+//
+// It writes nothing, and that is the property to preserve rather than an
+// incidental one: the answer is text, and where it goes is this client's
+// decision. Throws when the server is not running, so a caller reports that
+// state rather than presenting an empty draft.
+async function requestScaffoldEntity(kind: string, name: string): Promise<ScaffoldEntityResponse> {
+  if (!daemon || daemon.getState() !== DaemonState.Running) {
+    throw new Error('the Aggrega language server is not running');
+  }
+  return await daemon.request<ScaffoldEntityResponse>('aggrega/scaffoldEntity', { kind, name });
+}
+
+// requestEntityDefinition asks the language server what one entity resolves to.
+// It resolves through the session's own catalog view, so the answer is what a
+// build would resolve rather than what a second reader of the workspace would.
+// Throws when the server is not running, so a caller reports that state rather
+// than presenting an empty answer as an entity that resolves to nothing.
+async function requestEntityDefinition(name: string): Promise<unknown> {
+  if (!daemon || daemon.getState() !== DaemonState.Running) {
+    throw new Error('the Aggrega language server is not running');
+  }
+  return await daemon.request<unknown>('aggrega/entityDefinition', { name });
+}
+
+// requestEffectiveConfiguration asks the language server for the configuration
+// it resolved at startup and the layer each setting came from. The extension
+// reads no configuration file of its own for this: a second reading would
+// resolve a cascade the compiler is not using, and would disagree silently in
+// exactly the workspaces where the cascade is worth reporting.
+//
+// Throws when the server is not running, so a caller reports that state rather
+// than presenting an empty report as a workspace that configures nothing.
+async function requestEffectiveConfiguration(): Promise<unknown> {
+  if (!daemon || daemon.getState() !== DaemonState.Running) {
+    throw new Error('the Aggrega language server is not running');
+  }
+  return await daemon.request<unknown>('aggrega/effectiveConfiguration', {});
 }
 
 async function handleCacheMiss<T>(method: string, params: unknown, doc: vscode.TextDocument): Promise<T | null> {
