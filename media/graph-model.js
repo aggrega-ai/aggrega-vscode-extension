@@ -69,15 +69,18 @@
 
   const TYPE_LABEL = 'component.aggrega.ai/type';
 
-  // What the legend names, and the one thing about it a reader cannot work out
-  // by looking. The two container kinds are a shape each; the accent bar is a
-  // colour whose meaning is local to the drawing it appears in, and a reader
-  // told nothing will read a colour as fixed and compare two graphs by it.
+  // What the legend names, and in each case the one thing about it a reader
+  // cannot work out by looking. A grouping's shape and its position are both on
+  // the canvas already; which document declares it is not, so each grouping row
+  // names that document — which is what lets a reader go from a box to the file
+  // they would edit to change it. The accent bar is a colour whose meaning is
+  // local to the drawing it appears in, and a reader told nothing will read a
+  // colour as fixed and compare two graphs by it.
   const LEGEND_TITLE = 'Legend';
 
   const LEGEND_ROWS = [
-    { swatch: 'boundary', text: 'Boundary — the outer grouping.' },
-    { swatch: 'subsystem', text: 'Subsystem — the grouping inside a boundary.' },
+    { swatch: 'boundary', text: 'Boundary — a grouping the Release declares.' },
+    { swatch: 'subsystem', text: 'Subsystem — a grouping the Aggregate declares.' },
     { swatch: 'accent', text: 'Node type — the bar down a node\'s leading edge.' },
   ];
 

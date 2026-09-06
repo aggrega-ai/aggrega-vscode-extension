@@ -555,15 +555,55 @@ describe('topology graph model — the legend', () => {
     model = loadModel();
   });
 
-  it('names the two container kinds and the node accent bar', () => {
-    const said = model.LEGEND_ROWS.map(r => r.text.toLowerCase()).join(' ');
-    for (const subject of ['boundary', 'subsystem', 'node type']) {
-      assert.ok(said.includes(subject), `the legend never mentions ${subject}`);
-    }
+  const rowFor = (m: GraphModel, swatch: string): string => {
+    const row = m.LEGEND_ROWS.find(r => r.swatch === swatch);
+    assert.ok(row, `the legend has no ${swatch} row`);
+    return row!.text;
+  };
+
+  it('names each grouping by the document that declares it', () => {
+    // Asserting that a row merely MENTIONS its own subject is satisfied by any
+    // wording at all, including one that only says where the box sits — which a
+    // reader can already see. What the legend has to carry is where a grouping
+    // comes from: boundaries are declared on a Release and subsystems on an
+    // Aggregate, and naming the document is what turns a box on the canvas into
+    // a file the reader knows how to open.
+    const boundary = rowFor(model, 'boundary');
+    assert.ok(/\bBoundary\b/.test(boundary), `the boundary row drops its heading: ${boundary}`);
+    assert.ok(/\bRelease\b/.test(boundary), `the boundary row never names the Release: ${boundary}`);
+
+    const subsystem = rowFor(model, 'subsystem');
+    assert.ok(/\bSubsystem\b/.test(subsystem), `the subsystem row drops its heading: ${subsystem}`);
+    assert.ok(
+      /\bAggregate\b/.test(subsystem),
+      `the subsystem row never names the Aggregate: ${subsystem}`,
+    );
+
+    const accent = rowFor(model, 'accent');
+    assert.ok(/node type/i.test(accent), `the accent row never names the node type: ${accent}`);
+
     assert.deepStrictEqual(
       model.LEGEND_ROWS.map(r => r.swatch),
       ['boundary', 'subsystem', 'accent'],
     );
+  });
+
+  it('states where a grouping comes from and not where its box sits', () => {
+    // The nesting the drawing shows is how this graph happens to be laid out. A
+    // row asserting that one grouping sits inside the other would be a rule the
+    // legend cannot vouch for, and one describing a box's position teaches the
+    // reader nothing they cannot see.
+    //
+    // This polices the positional vocabulary, which is the wording that was
+    // there to be restored; it cannot police the habit, so a containment claim
+    // phrased in words this pattern does not carry would pass it.
+    for (const swatch of ['boundary', 'subsystem']) {
+      const text = rowFor(model, swatch);
+      assert.ok(
+        !/\b(inside|outer|inner|within|contains?|nested?)\b/i.test(text),
+        `the ${swatch} row describes position rather than origin: ${text}`,
+      );
+    }
   });
 
   it('says an accent colour means nothing outside the graph it is drawn in', () => {

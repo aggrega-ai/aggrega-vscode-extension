@@ -300,8 +300,9 @@
   //
   // It sits outside the pan/zoom group, so it stays put and stays readable
   // whatever the reader does to the canvas. What it names is the part of the
-  // drawing a reader cannot work out by looking: which box is which kind, and
-  // that a node's accent colour is local to the graph in front of them.
+  // drawing a reader cannot work out by looking: which document declares each
+  // grouping, and that a node's accent colour is local to the graph in front of
+  // them.
   function drawLegend() {
     clear(legendEl);
     legendEl.appendChild(el('div', 'legend-title', model.LEGEND_TITLE));
