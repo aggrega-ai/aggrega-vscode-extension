@@ -24,6 +24,7 @@ import {
 } from './operation-groups';
 import { SelectionState } from './release-selection';
 import { RendersOnReady } from './readiness';
+import { EXTENSION_ID, SETTINGS_COMMAND, extensionSettingsQuery } from './settings';
 import { SelectorRow, selectorRows } from './selector-rows';
 import { BuildPreviewResponse, BuildResponse, ScaffoldEntityResponse } from './types';
 import { CatalogIndexDoc } from './workspace-catalog-run';
@@ -244,6 +245,25 @@ export function activateOperations(
   deps.onReady(() => provider.refresh());
   deps.onSelectionChange(() => provider.refresh());
   deps.onLayoutChange(() => provider.refresh());
+
+  // The cog at the top right of this panel, and the only way in to the
+  // preferences. It opens the editor's own settings narrowed to this extension
+  // rather than a page of this extension's own: a second page would be a second
+  // place the same preference could be written, and the two would disagree the
+  // first time anyone edited a settings file by hand.
+  //
+  // It is registered here rather than as an entry in the operation groups
+  // because it is not an operation — nothing about the workspace changes when it
+  // is pressed — and a row for it beside the compiler operations would put a
+  // second door on the same room.
+  context.subscriptions.push(
+    vscode.commands.registerCommand(SETTINGS_COMMAND, () => {
+      void vscode.commands.executeCommand(
+        'workbench.action.openSettings',
+        extensionSettingsQuery(EXTENSION_ID),
+      );
+    }),
+  );
 
   const reg = (id: OperationId, handler: () => void): void => {
     context.subscriptions.push(vscode.commands.registerCommand(`aggrega.op.${id}`, handler));

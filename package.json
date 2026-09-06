@@ -51,6 +51,11 @@
     "menus": {
       "view/title": [
         {
+          "command": "aggrega.settings.open",
+          "when": "view == aggrega.operations",
+          "group": "navigation"
+        },
+        {
           "command": "aggrega.catalog.searchPublished",
           "when": "view == aggrega.workspaceCatalog",
           "group": "navigation"
@@ -73,6 +78,12 @@
       ]
     },
     "commands": [
+      {
+        "command": "aggrega.settings.open",
+        "title": "Open settings",
+        "category": "Aggrega",
+        "icon": "$(gear)"
+      },
       {
         "command": "aggrega.graph.show",
         "title": "Show topology graph",
@@ -222,43 +233,51 @@
         "aggrega.server.binaryPath": {
           "type": "string",
           "default": "aggrega",
-          "description": "Path to the aggrega binary. Plain name resolves via PATH; absolute or relative paths are honored as written."
+          "description": "Path to the aggrega binary. Plain name resolves via PATH; absolute or relative paths are honored as written.",
+          "scope": "machine"
         },
         "aggrega.server.autoRevalidate": {
           "type": "boolean",
           "default": false,
-          "description": "When true, silently revalidates a file on cache-miss and retries the request. When false, surfaces a notification with a Revalidate action."
+          "description": "When true, silently revalidates a file on cache-miss and retries the request. When false, surfaces a notification with a Revalidate action.",
+          "scope": "machine"
         },
         "aggrega.server.buildOnInspect": {
           "type": "boolean",
           "default": false,
-          "description": "When true, the daemon runs the build's analysis while inspecting an IR graph, so the findings aggrega build reports also appear as editor problems. Inspecting a graph costs more when that analysis runs than when it does not. Nothing is written to disk: no rendered artifacts, no output directory, no lockfile. Off by default, matching aggrega inspect, which raises no such finding either. When true, the extension passes --build-on-inspect to aggrega serve."
+          "description": "When true, the daemon runs the build's analysis while inspecting an IR graph, so the findings aggrega build reports also appear as editor problems. Inspecting a graph costs more when that analysis runs than when it does not. Nothing is written to disk: no rendered artifacts, no output directory, no lockfile. Off by default, matching aggrega inspect, which raises no such finding either. When true, the extension passes --build-on-inspect to aggrega serve.",
+          "scope": "machine"
         },
         "aggrega.server.debounceMs": {
           "type": "number",
           "default": 300,
-          "description": "Debounce window in milliseconds for proactive validate-on-change."
+          "description": "Debounce window in milliseconds for proactive validate-on-change.",
+          "scope": "machine"
         },
         "aggrega.server.respawnAttempts": {
           "type": "number",
           "default": 5,
-          "description": "Maximum daemon respawn attempts within the sliding window before the extension surfaces a stopped-responding notification."
+          "description": "Maximum daemon respawn attempts within the sliding window before the extension surfaces a stopped-responding notification.",
+          "scope": "machine"
         },
         "aggrega.server.respawnWindowSeconds": {
           "type": "number",
           "default": 180,
-          "description": "Sliding window in seconds for counting daemon respawn attempts."
+          "description": "Sliding window in seconds for counting daemon respawn attempts.",
+          "scope": "machine"
         },
         "aggrega.server.restartGraceSeconds": {
           "type": "number",
           "default": 5,
           "minimum": 0,
-          "description": "Grace window in seconds before the extension automatically restarts the daemon after a binaryPath change. The status bar surfaces a countdown during the window; the quick-action menu offers Restart now and Cancel restart."
+          "description": "Grace window in seconds before the extension automatically restarts the daemon after a binaryPath change. The status bar surfaces a countdown during the window; the quick-action menu offers Restart now and Cancel restart.",
+          "scope": "machine"
         },
         "aggrega.graph.showSensitiveValues": {
           "type": "boolean",
           "default": false,
-          "description": "When true, the topology graph shows every value an attachment authors, including the ones a Feature declares sensitive: a credential an Aggregate authors by value is displayed in the clear, and is readable by anyone who can see the editor window or a screen recording of it. When false, those values are removed before the graph is drawn and the panel names each withheld field and says why it is withheld. Values no sensitivity declaration covers are shown either way."
+          "description": "When true, the topology graph shows every value an attachment authors, including the ones a Feature declares sensitive: a credential an Aggregate authors by value is displayed in the clear, and is readable by anyone who can see the editor window or a screen recording of it. When false, those values are removed before the graph is drawn and the panel names each withheld field and says why it is withheld. Values no sensitivity declaration covers are shown either way.",
+          "scope": "machine"
         },
         "aggrega.operations.layout": {
           "type": "string",
@@ -272,7 +291,7 @@
           ],
           "default": "grouped",
           "description": "How the Operations panel draws its groups. Both shapes carry the same groups with the same operations — the setting changes how a group is drawn, never which operations exist or what they do. Changing it redraws the open panel; nothing restarts.",
-          "scope": "application"
+          "scope": "machine"
         },
         "aggrega.notifications.toastDebounceMode": {
           "type": "string",
@@ -281,13 +300,15 @@
             "session"
           ],
           "default": "time",
-          "description": "How repeated toast notifications for the same error code are debounced. `time` re-surfaces after `toastThrottleSeconds` elapses since the last toast went away (action click, X click, or auto-dismiss). `session` suppresses repeats until the daemon restarts."
+          "description": "How repeated toast notifications for the same error code are debounced. `time` re-surfaces after `toastThrottleSeconds` elapses since the last toast went away (action click, X click, or auto-dismiss). `session` suppresses repeats until the daemon restarts.",
+          "scope": "machine"
         },
         "aggrega.notifications.toastThrottleSeconds": {
           "type": "number",
           "default": 300,
           "minimum": 0,
-          "description": "Throttle window in seconds between toast re-surfacings of the same error code. Consulted only when `toastDebounceMode` is `time`."
+          "description": "Throttle window in seconds between toast re-surfacings of the same error code. Consulted only when `toastDebounceMode` is `time`.",
+          "scope": "machine"
         }
       }
     }

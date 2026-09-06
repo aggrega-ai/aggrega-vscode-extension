@@ -157,7 +157,14 @@ describe('the surface the manifest actually contributes', () => {
     const onOperations = manifest.contributes.menus['view/title']
       .filter((m) => m.when === 'view == aggrega.operations')
       .map((m) => m.command);
-    assert.deepStrictEqual(onOperations, [], 'each panel carries the buttons for its own area');
+    // The cog belongs to this panel: it opens the preferences that decide how
+    // this panel and the compiler behind it behave. Every other panel's refresh
+    // and search buttons stay on their own panel.
+    assert.deepStrictEqual(
+      onOperations,
+      ['aggrega.settings.open'],
+      'each panel carries the buttons for its own area',
+    );
   });
 
   it('puts the published-catalog search on the catalog panel', () => {

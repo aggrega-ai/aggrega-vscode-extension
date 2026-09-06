@@ -30,14 +30,13 @@ import { getSettings } from './settings-vscode';
 import {
   BUILD_ON_INSPECT_KEY,
   BUILD_ON_INSPECT_MENU_LABEL,
-  ConfigScope,
   DEFAULT_SETTINGS,
+  EXTENSION_ID,
   OPERATIONS_CONFIG_SECTION,
   OPERATIONS_LAYOUT_KEY,
   SERVER_CONFIG_SECTION,
   buildOnInspectConfirmation,
   buildOnInspectMenuDescription,
-  scopeForSettingWrite,
 } from './settings';
 import { createAggregaStatusBar, createPendingChoiceStatusBar } from './status-bar';
 import { scheduleBinaryRestart, RestartHandle } from './binary-restart';
@@ -998,7 +997,7 @@ function restoreStatusBar(): void {
 // the operator.
 async function runCompatibilityCheck(): Promise<void> {
   const settings = getSettings();
-  const ext = vscode.extensions.getExtension('aggrega-ai.aggrega-vscode-extension');
+  const ext = vscode.extensions.getExtension(EXTENSION_ID);
   const compatibilityRange = (ext?.packageJSON as { aggregaCompatibility?: string } | undefined)?.aggregaCompatibility;
   const result = await checkDaemonVersion({
     binaryPath: settings.binaryPath,
@@ -1090,20 +1089,16 @@ function registerStatusBarMenu(context: vscode.ExtensionContext): void {
 // the only home for the choice — nothing here keeps a copy — so this toggle and
 // the settings UI cannot disagree about the state.
 //
-// The write targets whichever configuration layer already holds an explicit
-// value, innermost first, so flipping changes the value the editor is actually
-// applying instead of an outer layer a nearer one keeps overriding.
-// scopeForSettingWrite owns that rule and is tested without the editor.
+// The write targets the reader's own settings, and there is no layer to choose
+// between: every preference this extension declares is confined to the reader, so
+// the workspace and folder layers hold no value for one and refuse a write of
+// one. Picking among layers here would be a choice with two unreachable outcomes.
 async function toggleBuildOnInspect(): Promise<void> {
   const cfg = vscode.workspace.getConfiguration(SERVER_CONFIG_SECTION);
   const current = cfg.get<boolean>(BUILD_ON_INSPECT_KEY, DEFAULT_SETTINGS.buildOnInspect);
   const next = !current;
-  const scope = scopeForSettingWrite(
-    cfg.inspect<boolean>(BUILD_ON_INSPECT_KEY),
-    (vscode.workspace.workspaceFolders?.length ?? 0) > 0,
-  );
   try {
-    await cfg.update(BUILD_ON_INSPECT_KEY, next, configurationTargetFor(scope));
+    await cfg.update(BUILD_ON_INSPECT_KEY, next, vscode.ConfigurationTarget.Global);
   } catch (err) {
     void vscode.window.showErrorMessage(
       `Aggrega: the setting could not be changed. ${describeError(err)}`,
@@ -1116,20 +1111,6 @@ async function toggleBuildOnInspect(): Promise<void> {
   );
   if (choice === 'Restart server') {
     void vscode.commands.executeCommand('aggrega.server.restart');
-  }
-}
-
-// configurationTargetFor maps the layer the pure rule chose onto the editor's
-// own enum. Kept apart from the rule so the decision stays testable and only
-// this translation needs the editor.
-function configurationTargetFor(scope: ConfigScope): vscode.ConfigurationTarget {
-  switch (scope) {
-    case 'workspaceFolder':
-      return vscode.ConfigurationTarget.WorkspaceFolder;
-    case 'workspace':
-      return vscode.ConfigurationTarget.Workspace;
-    case 'global':
-      return vscode.ConfigurationTarget.Global;
   }
 }
 

@@ -17,6 +17,7 @@ Language support for Aggrega YAML — validation, navigation, hover, and complet
 - **Hover** — kind-aware summaries for catalog and release entities.
 - **Completion** — context-aware suggestions for entity kinds, API versions, schema keywords, primitives, label values, providers, paths, and intra-document component keys.
 - **Aggrega activity-bar view** — four panels in reading order: **Operations**, **Registries**, **Catalog** and **Plugins**, each carrying the buttons for its own area. The Operations panel is headed by two rows naming what the editor is acting on, **Workspace** and **Release**, each opening its own picker. The Workspace row names the folder the language server anchored to, which is what the Release list is computed against — so when it differs from the folder you opened, you can see why the offered Releases are the ones they are. Below those rows the compiler operations are grouped by what you came to do: **Build** (validate, lint, build, preview build, show topology graph), **Dependencies** (pull, acquire inputs), **Author** (draft entity, import, inspect), **Publish** (push, sign, deprecate) and **Configuration** (show effective config, cache). The Publish group is set apart because its operations change what everyone resolving that catalog gets, while the rest act on this machine. Alongside Operations sit a **Registries** panel listing every registry the effective configuration declares, a **Catalog** panel listing the entities in the open workspace, and a **Plugins** panel listing the embedded and configured Wasm plugins. Validate, build, preview build and lint report into the Problems panel; the command-line-backed operations stream their output to the Aggrega output channel.
+- **One settings surface, reached from a cog** — the Operations panel carries a cog at its top right, and it opens the editor's own settings narrowed to this extension. There is no second settings page of the extension's own, so a preference has one place it lives and one place it is written. Every preference is yours rather than the project's; see [Settings](#settings).
 - **Two shapes for the Operations panel** — `aggrega.operations.layout` chooses between `grouped`, where every heading and every operation is visible at once, and `collapsible`, where each group is a row you open. Both carry the same groups with the same operations; the setting changes how a group is drawn, never which operations exist. Changing it redraws the open panel and restarts nothing.
 - **Every operation asks for what it needs before it runs** — an operation is on the panel only when pressing it can succeed. Push, sign and deprecate each ask for their subject first: push offers the entities the open workspace declares, while sign and deprecate ask for a reference to an artifact already in a registry, because that is what those two amend. Deprecate also asks for a severity and a reason, which the command requires and cannot prompt for from inside the editor. Acquire inputs runs against the selected Release, as pull does.
 - **Registries panel detail** — each row names the registry's host, its alias where one is configured, which registry is the default, whether signatures are required for artifacts pulled from it, and whether a credential for that host is present. Reading the list contacts no registry: the credential state reports presence only, so it says a credential exists rather than that the registry would accept it.
@@ -69,6 +70,24 @@ own shape is admissible — and the checks that need a Release are skipped until
 
 ## Settings
 
+**The cog at the top right of the Operations panel opens them** — it is the editor's own settings
+page, narrowed to this extension, and it is the only settings surface there is. Everything below is
+also reachable from the ordinary Settings editor and from your settings file.
+
+**Every one of these settings is yours, not the project's.** Each describes your own environment or
+your own reading habits — where your binary is, how long to wait before revalidating, how many
+respawns to tolerate, whether to show values that would be readable over your shoulder, how you want
+a panel drawn — so each is confined to your user settings, and to your remote settings when you are
+working on a remote or containerised host. That last part matters for the binary path in particular:
+the compiler runs on whichever host the extension does, so the path can differ between your laptop
+and a container, and each host keeps its own value.
+
+The consequence is deliberate: **a repository cannot pin any of these for whoever opens it.** Writing
+one into a workspace `.vscode/settings.json` has no effect — the editor marks it as not applicable
+there and goes on using your value. If you want a choice recorded in the workspace itself, the two
+Release commands under [Selecting a Release](#selecting-a-release) are the ones that do that, and
+they write `.aggrega/active-release` or `.aggrega-config.yaml` rather than an editor setting.
+
 | Setting | Default | Purpose |
 |---------|---------|---------|
 | `aggrega.server.binaryPath` | `aggrega` | Path to the `aggrega` binary. |
@@ -76,11 +95,16 @@ own shape is admissible — and the checks that need a Release are skipped until
 | `aggrega.server.debounceMs` | `300` | Debounce window for proactive validate-on-change. |
 | `aggrega.server.respawnAttempts` | `5` | Max daemon respawn attempts before the stopped-responding notification. |
 | `aggrega.server.respawnWindowSeconds` | `180` | Sliding window for counting respawn attempts. |
+| `aggrega.server.restartGraceSeconds` | `5` | Grace window before the extension automatically restarts the daemon after a `binaryPath` change. The status bar shows a countdown; the quick-action menu offers Restart now and Cancel restart. |
 | `aggrega.server.buildOnInspect` | `false` | Run the build's analysis while inspecting a graph, so the findings `aggrega build` reports also appear as editor problems. Inspecting costs more when it runs; nothing is written to disk. |
 | `aggrega.graph.showSensitiveValues` | `false` | Show the values a Feature declares sensitive in the topology graph, displaying a by-value credential in the clear. Left off, those values are removed before the graph is drawn. |
+| `aggrega.operations.layout` | `grouped` | How the Operations panel draws its groups — `grouped` shows every heading and operation at once, `collapsible` makes each group a row you open. Same groups either way. |
+| `aggrega.notifications.toastDebounceMode` | `time` | How a repeated notification for the same error code is held back: `time` re-surfaces it after the throttle window, `session` suppresses repeats until the daemon restarts. |
+| `aggrega.notifications.toastThrottleSeconds` | `300` | Seconds between re-surfacings of the same error code. Read only when `toastDebounceMode` is `time`. |
 
 ## Commands
 
+- **Aggrega: Open settings** — open this extension's preferences. Also the cog at the top right of the Operations panel. It opens the editor's own settings page filtered to this extension, so there is one place a preference lives and one place it is written. Distinct from **Show effective config**, which reports what the *compiler* resolved for the workspace rather than what your editor is set to.
 - **Aggrega: Select Release…** — choose the Release the editor works on. Takes effect at once and re-checks the open files against it; nothing restarts. Also reachable by clicking the Release indicator in the status bar. See [Selecting a Release](#selecting-a-release).
 - **Aggrega: Set the selected Release as this workspace's default** — record the selected Release in `.aggrega/active-release`, so a later session starts on it. Local to your checkout, and it does not change the current selection.
 - **Aggrega: Set authoring_release in .aggrega-config.yaml…** — open the configuration file to set `build.authoring_release`, the committed default a team shares. It outranks the marker file.

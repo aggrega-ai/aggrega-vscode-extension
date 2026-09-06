@@ -9,7 +9,6 @@ import {
   SERVER_CONFIG_SECTION,
   buildOnInspectConfirmation,
   buildOnInspectMenuDescription,
-  scopeForSettingWrite,
   settingsFromObject,
 } from '../../src/settings';
 import { buildServeArgs } from '../../src/daemon';
@@ -103,31 +102,6 @@ describe('settings', () => {
     it('names one section and one key, shared by the reader and the writer', () => {
       assert.strictEqual(SERVER_CONFIG_SECTION, 'aggrega.server');
       assert.strictEqual(BUILD_ON_INSPECT_KEY, 'buildOnInspect');
-    });
-
-    it('writes the innermost layer that already holds a value', () => {
-      assert.strictEqual(
-        scopeForSettingWrite(
-          { workspaceFolderValue: false, workspaceValue: true, globalValue: true },
-          true,
-        ),
-        'workspaceFolder',
-      );
-      assert.strictEqual(
-        scopeForSettingWrite({ workspaceValue: false, globalValue: true }, true),
-        'workspace',
-      );
-      assert.strictEqual(scopeForSettingWrite({ globalValue: true }, true), 'global');
-    });
-
-    it('treats an explicit false as a value, not as absence', () => {
-      assert.strictEqual(scopeForSettingWrite({ globalValue: false }, true), 'global');
-    });
-
-    it('falls back to the workspace only when one is open', () => {
-      assert.strictEqual(scopeForSettingWrite(undefined, true), 'workspace');
-      assert.strictEqual(scopeForSettingWrite(undefined, false), 'global');
-      assert.strictEqual(scopeForSettingWrite({}, false), 'global');
     });
   });
 
