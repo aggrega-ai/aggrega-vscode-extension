@@ -36,6 +36,7 @@ function entity(over: Partial<CatalogIndexEntity>): CatalogIndexEntity {
     description: '',
     labels: {},
     file: 'catalog/components/api-server.yaml',
+    origin: 'workspace',
     ...over,
   };
 }

@@ -71,17 +71,26 @@ class WorkspaceCatalogTreeProvider implements vscode.TreeDataProvider<WorkspaceC
     item.description = node.row.description;
     item.tooltip = node.row.tooltip;
     item.iconPath = new vscode.ThemeIcon(node.row.icon);
-    // The path is already resolved against the workspace root by the shaping
-    // layer, so the click carries a location rather than a lookup. resourceUri
-    // is set alongside the command so the editor's own file actions — reveal,
-    // copy path — apply to the row the reader is pointing at.
-    const uri = vscode.Uri.file(node.row.openPath);
-    item.resourceUri = uri;
-    item.command = {
-      command: 'vscode.open',
-      title: OPEN_COMMAND_TITLE,
-      arguments: [uri],
-    };
+    // A row with nothing to open carries neither affordance rather than one
+    // that cannot do anything: a click that silently does nothing teaches the
+    // reader that rows in this panel are unreliable, which costs the rows that
+    // do work. The row still names the entity and says where it came from, so
+    // what is absent is the action and not the information.
+    //
+    // resourceUri is withheld on the same condition and not merely the command.
+    // It is what the editor's own file actions — reveal, copy path — act on, so
+    // leaving it set would hand a reader a path to a file that is not there.
+    if (node.row.openPath !== null) {
+      // The path is already resolved against the workspace root by the shaping
+      // layer, so the click carries a location rather than a lookup.
+      const uri = vscode.Uri.file(node.row.openPath);
+      item.resourceUri = uri;
+      item.command = {
+        command: 'vscode.open',
+        title: OPEN_COMMAND_TITLE,
+        arguments: [uri],
+      };
+    }
     return item;
   }
 

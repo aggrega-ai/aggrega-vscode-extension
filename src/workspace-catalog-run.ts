@@ -6,7 +6,7 @@ import { NO_ANCHORED_WORKSPACE_TREE_LABEL } from './workspace';
 
 // --- wire shapes (mirror the language server's workspace entity index) ----
 
-// CatalogIndexEntity is one entity the language server found in the open
+// CatalogIndexEntity is one entity the language server reported for the open
 // workspace, reported exactly as its author wrote it: the index derives nothing
 // and classifies nothing by kind, name or label.
 //
@@ -17,8 +17,13 @@ import { NO_ANCHORED_WORKSPACE_TREE_LABEL } from './workspace';
 // optional and nothing defends against a null. labels arrives as an empty
 // object for the same reason.
 //
-// file is workspace-RELATIVE. The server reports only documents under the
-// workspace root, so a path here always resolves against that root.
+// origin says where the entity was read from, and file is read together with it
+// rather than alone: an entity read from a workspace document reports that
+// document's workspace-RELATIVE path, while one resolved from a configured
+// catalog directory reports an EMPTY path. That empty path is a complete answer
+// rather than a gap — the only path such an entity has names a location on the
+// machine the server runs on, which resolves against nothing on this side of
+// the connection — and origin is the field that makes it readable as such.
 export interface CatalogIndexEntity {
   kind: string;
   name: string;
@@ -26,7 +31,26 @@ export interface CatalogIndexEntity {
   description: string;
   labels: Record<string, string>;
   file: string;
+  origin: string;
 }
+
+// The origin values the server sends.
+//
+// These are a DELIBERATE second copy of values the server declares, recorded as
+// one so nobody later unifies them away as an accident: they arrive as strings
+// on a wire, in a language that cannot import the server's own declaration, so
+// there is nothing here to call and no shared declaration to read.
+//
+// Two things hold the copies in step, and the second matters more than the
+// first. The suite reads them back from a response RECORDED from the running
+// server, so a reading here that stops matching that response fails — which
+// binds this side to what was recorded, and correspondingly obliges a change on
+// the server's side to re-record it. And the classification below is written so
+// that an origin matching neither value yields no open target rather than a
+// guessed one: a value that moves therefore costs a reader an affordance they
+// can see is missing, never a click that opens the wrong thing.
+export const ENTITY_ORIGIN_WORKSPACE = 'workspace';
+export const ENTITY_ORIGIN_CATALOG = 'catalog';
 
 // CatalogIndexDoc is the top level of the index response. entities is always an
 // array — empty rather than absent when the workspace declares no entity, so a
@@ -56,11 +80,36 @@ export const FAILURE_LABEL =
 // failure would send a reader looking for a fault that is not there.
 export const SERVER_STOPPED_LABEL = 'The Aggrega language server is not running.';
 
+// CATALOG_ORIGIN_LABEL is the row's note for an entity that came from one of
+// the catalog directories the workspace configures rather than from a document
+// in the workspace.
+//
+// It says where the entity came from and stops there. Such an entity is
+// present, named and usable — it is what a Recipe or an Aggregate resolves by
+// name — so wording this as something missing or unavailable would report a
+// fault where there is none. It is the same distinction the empty and failure
+// rows above draw, one step further in: "this came from somewhere else" is a
+// fact about the entity, not a limit on it.
+//
+// "catalog directory" is the reader's own term for it: these are the
+// directories their configuration's workspace block names. Naming the
+// directories rather than the catalog keeps it distinct from the published
+// catalog the search palette reaches, which is a registry and not a directory.
+export const CATALOG_ORIGIN_LABEL = 'from a configured catalog directory';
+
 // ENTITY_ICON is the editor's own theme-icon id, so the tree follows the
-// reader's theme rather than shipping bitmaps. One icon serves every entity:
-// choosing one per kind would mean holding a kind list here, and the index
-// reports whatever kind an author wrote rather than a closed set.
+// reader's theme rather than shipping bitmaps. One icon serves every entity of
+// a given origin: choosing one per kind would mean holding a kind list here,
+// and the index reports whatever kind an author wrote rather than a closed set.
 const ENTITY_ICON = 'file-code';
+
+// CATALOG_ENTITY_ICON marks a row that is not a file in this workspace. It
+// varies on origin, which is a two-valued fact the server states, and not on
+// kind, which is the open set ENTITY_ICON declines to hold a list of. The file
+// icon is wrong on such a row for the same reason the row opens nothing: it
+// would draw a file the reader cannot go to, and the icon is what they read
+// before the note beside it.
+const CATALOG_ENTITY_ICON = 'library';
 
 // --- row shaping ---------------------------------------------------------
 
@@ -72,12 +121,23 @@ export interface WorkspaceEntityRow {
   // label is the name the author declared, because that is how the entity is
   // referred to everywhere else.
   label: string;
-  // description is the dimmed secondary line: the labels the author declared,
-  // as key=value. Labels get this slot rather than the description text because
-  // a label is what a selector matches on, so it is the fact a reader scanning
-  // the list is looking for. An entity declaring none leaves the line empty
-  // rather than carrying a placeholder.
+  // description is the dimmed secondary line: where the entity came from when
+  // that is worth saying, then the labels the author declared, as key=value.
+  // Labels get this slot rather than the description text because a label is
+  // what a selector matches on, so it is the fact a reader scanning the list is
+  // looking for. An entity declaring none leaves that part empty rather than
+  // carrying a placeholder.
+  //
+  // The origin note leads, and the labels are pushed right by it, because it
+  // says whether the row can be opened at all — and because the labels are
+  // repeated in the tooltip while a truncated line's tail is not recoverable
+  // anywhere else.
   description: string;
+  // originLabel is the origin note alone, empty for an entity read from a
+  // workspace document. It is carried separately as well as composed into
+  // description so the note is assertable on its own, without a test having to
+  // take it apart from whatever labels sit beside it.
+  originLabel: string;
   // tooltip repeats every fact one per line, named, so a reader who needs them
   // unambiguously gets them named rather than positional — the author's own
   // description text among them.
@@ -85,8 +145,14 @@ export interface WorkspaceEntityRow {
   // icon is a theme-icon id.
   icon: string;
   // openPath is the absolute path this row opens, resolved from the
-  // workspace-relative path the server reported.
-  openPath: string;
+  // workspace-relative path the server reported — or null when the entity is
+  // not a document in this workspace and there is therefore nothing to open.
+  //
+  // Null rather than an empty string: an empty string is a path that resolves,
+  // and joining one onto the workspace root yields the root itself, so a row
+  // that has nothing to open would offer to open the whole workspace. The
+  // absence has to be a value no path operation accepts.
+  openPath: string | null;
 }
 
 // WorkspaceCatalogNode is what the tree renders: a kind heading, an entity
@@ -114,11 +180,24 @@ export function labelSegments(labels: Record<string, string>): string[] {
 // A field the author did not declare contributes nothing — no blank segment and
 // no named-but-empty tooltip line — so the row reports what was written rather
 // than what the shape allows.
+//
+// What the row may do is decided by the origin the server states, never by
+// reading the file path it sent. The empty path a catalog-resolved entity
+// carries is a consequence of that origin, and reading the consequence would be
+// a second answer to a question the server already answers — one that agrees
+// with the first only for as long as the server expresses the consequence the
+// same way. So the origin is read, and read once.
+//
+// An origin matching neither declared value is classified as neither: it gets
+// no open target, because only a workspace document's path resolves against
+// this root, and no note claiming a source this reader cannot be told about.
 export function rowForEntity(
   workspaceRoot: string,
   entity: CatalogIndexEntity,
 ): WorkspaceEntityRow {
   const labels = labelSegments(entity.labels);
+  const fromWorkspace = entity.origin === ENTITY_ORIGIN_WORKSPACE;
+  const originLabel = entity.origin === ENTITY_ORIGIN_CATALOG ? CATALOG_ORIGIN_LABEL : '';
 
   const lines = [`kind: ${entity.kind}`, `name: ${entity.name}`];
   if (entity.apiVersion) { lines.push(`apiVersion: ${entity.apiVersion}`); }
@@ -126,15 +205,29 @@ export function rowForEntity(
   for (const segment of labels) { lines.push(`label: ${segment}`); }
   // The relative path is what the reader recognizes and what names the file
   // this row opens; the absolute form it resolves to is not shown, because it
-  // says nothing a reader working inside the workspace needs.
-  lines.push(`file: ${entity.file}`);
+  // says nothing a reader working inside the workspace needs. An entity with no
+  // document in this workspace contributes no such line, the same way an
+  // undeclared description contributes none, and carries where it came from
+  // instead — so the tooltip answers "where is this from" either way, and never
+  // with a name followed by nothing.
+  if (entity.file) { lines.push(`file: ${entity.file}`); }
+  if (originLabel) { lines.push(originLabel); }
+
+  // The two parts of the dimmed line are separated by a dash rather than by the
+  // labels' own separator: the note is not another label, and running it into
+  // the same list would present it as one the author had declared.
+  const labelLine = labels.join(' · ');
+  const description = originLabel && labelLine
+    ? `${originLabel} — ${labelLine}`
+    : originLabel || labelLine;
 
   return {
     label: entity.name,
-    description: labels.join(' · '),
+    description,
+    originLabel,
     tooltip: lines.join('\n'),
-    icon: ENTITY_ICON,
-    openPath: path.join(workspaceRoot, entity.file),
+    icon: fromWorkspace ? ENTITY_ICON : CATALOG_ENTITY_ICON,
+    openPath: fromWorkspace ? path.join(workspaceRoot, entity.file) : null,
   };
 }
 
