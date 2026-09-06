@@ -8,12 +8,12 @@ Language support for Aggrega YAML — validation, navigation, hover, and complet
 - `aggrega` binary on `PATH`, or its absolute path set in the `aggrega.server.binaryPath` setting.
 - A folder Aggrega recognises as a workspace root, at or above the folder you open. Discovery climbs from the opened folder looking for a `.aggrega-config.yaml` carrying a top-level `workspace:` block, an `.aggrega` directory, or an `aggregate`, `release` or `manifest` YAML file. A `.aggrega-config.yaml` **without** a `workspace:` block does not anchor one — settings can live in a configuration file anywhere, and a bare one must not turn every directory above it into a workspace root.
 
-You do not have to arrange any of that by hand: see [Get started](#get-started).
+You do not have to arrange any of that by hand: see [The welcome panel](#the-welcome-panel).
 
-## Get started
+## The welcome panel
 
-The **Get started** panel is the first thing in the Aggrega view, and it lists what the extension
-needs in the workspace you have open:
+**Welcome to Aggrega!** opens in the editor area, in the manner of the editor's own welcome page. It
+says what Aggrega is, then lists what the extension needs in the workspace you have open:
 
 1. **A workspace Aggrega recognises** — the discovery described under [Prerequisites](#prerequisites).
 2. **A compiler this editor can run** — the `aggrega` binary named in `aggrega.server.binaryPath`.
@@ -21,28 +21,39 @@ needs in the workspace you have open:
 4. **A registry to resolve from** — pulling dependencies and searching the published catalog resolve
    against the registries your configuration names.
 
-**Each entry offers two ways through, and one of them is always "I already have this."** You can
+Each step carries its own pane explaining what the condition is for and how the editor reaches it, so
+the panel is somewhere to read about the product rather than only a checklist.
+
+**Each step offers two ways through, and one of them is always "I already have this."** You can
 create a workspace configuration or point the editor at a folder that already carries one; use the
 compiler on your `PATH` or select a build you have somewhere else; draft a Release or choose one of
 yours; seed the official hub or name your own registry. Nothing here is a dead end that hands you a
-file dialog and leaves the entry outstanding.
+file dialog and leaves the step outstanding.
 
-**An entry you have already met shows as met and asks you nothing.** The panel reads what is true
+**A step you have already met is checked off and asks you nothing.** The panel reads what is true
 rather than putting the same questions to everybody, so if you built your configuration from the
-command line and then opened the editor, every entry is ticked and the only thing left to press is
-**Don't show this again**.
+command line and then opened the editor, every step arrives ticked.
 
-The panel is a view rather than a dialog on purpose: every entry asks you to point at something in
-your own workspace, and a dialog would be covering the files that hold the answers.
+A step is checked off when its condition becomes true, and the editor keeps that mark once it is
+made — so a condition that later lapses leaves its step checked rather than reverting. Clicking a
+step's checkbox is what puts it back. Where a lapse matters it is reported where you are already
+looking: the status bar carries a compiler that has stopped answering, and the **Workspace** and
+**Release** rows at the top of the Operations panel name the current selection.
 
-**Don't show this again** starts unpressed, and pressing it writes
-`aggrega.getStarted.show` to your own settings — never into the repository, so your choice does not
-travel to whoever else opens it. It is not a one-way door: **Aggrega: Get started** in the Command
-Palette brings the panel back.
+The panel is a panel rather than a dialog on purpose: every step asks you to point at something in
+your own workspace, and a dialog would be covering the files that hold the answers. It sits in the
+editor area rather than in the Aggrega view, so it costs the sidebar no space and can say what the
+product is — which a narrow column had no room for.
+
+**Aggrega: Stop opening the welcome panel** writes `aggrega.getStarted.show` to your own settings —
+never into the repository, so your choice does not travel to whoever else opens it. It stops the
+panel opening by itself; the panel stays where the editor lists what exists, so it is not hidden from
+you. It is not a one-way door either: **Aggrega: Get started** in the Command Palette turns it back
+on and opens it.
 
 ## Features
 
-- **Get started panel** — the first panel in the Aggrega view, listing what the extension needs in this workspace and marking what it already has. Each entry offers both a way to create the thing and a way to point at one you already have, and an entry already met asks you nothing. See [Get started](#get-started).
+- **Welcome panel** — an editor-area panel, in the manner of the editor's own welcome page, saying what Aggrega is and then listing what the extension needs in this workspace, checking off what it already has. Each step offers both a way to create the thing and a way to point at one you already have, carries its own pane explaining the condition, and a step already met asks you nothing. It costs the Aggrega view no space. See [The welcome panel](#the-welcome-panel).
 - **Language server state** — a status-bar indicator on the left, beside the Release indicator, reading **running**, **starting**, or **not running** in red. It is the one surface that is there whatever the compiler is doing, so it is where you find out that nothing is running rather than being left to infer it from surfaces that have gone quiet — and its tooltip says which of the two reasons applies: no folder here is one Aggrega recognises, or there is one and the server is not attached to it. Clicking it offers **Start** when nothing is running and **Restart** when something is, and does the one you choose. See [When the language server is not running](#when-the-language-server-is-not-running).
 - **Selected Release** — a status-bar indicator and a **Release** row at the top of the Operations panel, each naming the one Release the editor is working on. Everything that acts on a Release — validation, the topology graph, build, preview build, pull and acquire inputs — acts on that one, so the Problems panel and the graph always describe the same Release. See [Selecting a Release](#selecting-a-release).
 - **Diagnostics** — YAML and schema validation surfaced inline as you edit, checked against the selected Release.
@@ -182,7 +193,7 @@ they write `.aggrega/active-release` or `.aggrega-config.yaml` rather than an ed
 
 | Setting | Default | Purpose |
 |---------|---------|---------|
-| `aggrega.getStarted.show` | `true` | Whether the [Get started](#get-started) panel appears. **Don't show this again** turns it off; **Aggrega: Get started** turns it back on. |
+| `aggrega.getStarted.show` | `true` | Whether the [welcome panel](#the-welcome-panel) opens with the editor. **Aggrega: Stop opening the welcome panel** turns it off, which stops it opening rather than removing it; **Aggrega: Get started** turns it back on and opens it. |
 | `aggrega.server.binaryPath` | `aggrega` | Path to the `aggrega` binary. |
 | `aggrega.server.autoRevalidate` | `false` | Silent revalidate on cache-miss instead of a notification. |
 | `aggrega.server.debounceMs` | `300` | Debounce window for proactive validate-on-change. |
@@ -197,7 +208,8 @@ they write `.aggrega/active-release` or `.aggrega-config.yaml` rather than an ed
 
 ## Commands
 
-- **Aggrega: Get started** — bring the [Get started](#get-started) panel back after you have dismissed it, and reveal it. It turns `aggrega.getStarted.show` back on, so dismissing the panel is a choice you can undo rather than a door that locks behind you.
+- **Aggrega: Get started** — bring the [welcome panel](#the-welcome-panel) back after you have turned it off, and open it. It turns `aggrega.getStarted.show` back on, so turning the panel off is a choice you can undo rather than a door that locks behind you.
+- **Aggrega: Stop opening the welcome panel** — stop the [welcome panel](#the-welcome-panel) opening with the editor, by turning `aggrega.getStarted.show` off in your own settings. The panel stays listed among the editor's walkthroughs, so this stops it arriving unasked rather than putting it out of reach.
 - **Aggrega: Open settings** — open this extension's preferences. Also the cog at the top right of the Operations panel. It opens the editor's own settings page filtered to this extension, so there is one place a preference lives and one place it is written. Distinct from **Show effective config**, which reports what the *compiler* resolved for the workspace rather than what your editor is set to.
 - **Aggrega: Select Release…** — choose the Release the editor works on. Takes effect at once and re-checks the open files against it; nothing restarts. Also reachable by clicking the Release indicator in the status bar. See [Selecting a Release](#selecting-a-release).
 - **Aggrega: Set the selected Release as this workspace's default** — record the selected Release in `.aggrega/active-release`, so a later session starts on it. Local to your checkout, and it does not change the current selection.

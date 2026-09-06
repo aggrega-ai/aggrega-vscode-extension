@@ -143,13 +143,14 @@ describe('the surface the manifest actually contributes', () => {
     fs.readFileSync(path.join(__dirname, '..', '..', '..', 'package.json'), 'utf8'),
   );
 
-  // The get-started list sits ahead of the operations because it is what a
-  // reader with nothing configured needs first, and it is the one panel that
-  // goes away: it is drawn only while the reader's own preference asks for it.
-  it('orders the container panels Get started, Operations, Registries, Catalog, Plugins', () => {
+  // The operations lead, because they are what a reader came to do. What a
+  // reader with nothing configured needs first is the welcome panel, and that
+  // is an editor-area walkthrough rather than a panel here — so it costs the
+  // container no slot, and this order holds whether it is shown or dismissed.
+  it('orders the container panels Operations, Registries, Catalog, Plugins', () => {
     assert.deepStrictEqual(
       manifest.contributes.views.aggrega.map((v) => v.name),
-      ['Get started', 'Operations', 'Registries', 'Catalog', 'Plugins'],
+      ['Operations', 'Registries', 'Catalog', 'Plugins'],
     );
   });
 
@@ -157,7 +158,6 @@ describe('the surface the manifest actually contributes', () => {
     assert.deepStrictEqual(
       manifest.contributes.views.aggrega.map((v) => v.id),
       [
-        'aggrega.getStarted',
         'aggrega.operations',
         'aggrega.registries',
         'aggrega.workspaceCatalog',

@@ -10,7 +10,7 @@ import { runCliJson } from './cli-json';
 import { runCliProcess } from './cli-run';
 import { RendersOnReady } from './readiness';
 import { RegistryListDoc } from './registries-run';
-import { DEFAULT_SETTINGS, SERVER_CONFIG_SECTION } from './settings';
+import { DEFAULT_SETTINGS, EXTENSION_ID, SERVER_CONFIG_SECTION } from './settings';
 import {
   ANCHOR_CANDIDATE_GLOB,
   CONFIG_FILENAME,
@@ -24,7 +24,6 @@ import {
   DISMISS_COMMAND,
   DRAFT_RELEASE_COMMAND,
   GET_STARTED_SHOW_SETTING,
-  GET_STARTED_VIEW_ID,
   GetStartedFacts,
   LOCATE_COMPILER_COMMAND,
   SEED_NAMED_REGISTRY_COMMAND,
@@ -34,29 +33,32 @@ import {
   USE_COMPILER_ON_PATH_COMMAND,
   stepContextKey,
   stepStandings,
+  walkthroughAddress,
 } from './get-started-steps';
 
-// This module is the whole editor-coupled boundary of the get-started list.
-// What the list SAYS is contributed to the editor in the manifest, and what it
+// This module is the whole editor-coupled boundary of the welcome panel.
+// What the panel SAYS is contributed to the editor in the manifest, and what it
 // MEANS — which conditions exist and when one is met — is in
 // get-started-steps.ts, which imports no editor type. What is left here is the
 // wiring: reading the four facts, publishing them as the conditions the editor
-// draws against, and running the controls.
+// checks the steps off against, running the controls, and opening the panel.
 //
-// THE LIST IS NOT DRAWN BY THIS CODE, AND THAT IS THE POINT. It is a manifest
+// THE PANEL IS NOT DRAWN BY THIS CODE, AND THAT IS THE POINT. It is a manifest
 // contribution, so the editor renders it for a reader whose workspace has
-// started no extension at all. Drawing it here would reach only the readers who
-// already have enough configured for this extension to run, which is the exact
-// opposite of the audience.
+// started no extension at all — and opening it is itself what starts this
+// extension, because the editor derives an activation event from the
+// contribution. Drawing it here would reach only the readers who already have
+// enough configured for this extension to run, which is the exact opposite of
+// the audience.
 
 // BINARY_PATH_KEY is the preference a compiler step writes. It is spelled from
 // the section and key the settings reader already uses, so the two cannot come
 // to name different preferences.
 const BINARY_PATH_KEY = 'binaryPath';
 
-// GetStartedDeps is the live state the list reads. Every field is a fact some
+// GetStartedDeps is the live state the panel reads. Every field is a fact some
 // other part of the extension already owns; nothing here keeps a copy, so the
-// list cannot come to disagree with the surfaces reporting the same facts.
+// panel cannot come to disagree with the surfaces reporting the same facts.
 export interface GetStartedDeps extends RendersOnReady {
   getWorkspaceRoot(): string | null;
   getBinaryPath(): string;
@@ -106,16 +108,28 @@ export function activateGetStarted(
     });
   };
 
-  // Published once from what is true now, because the list is on screen before
-  // anything has become ready and an unset condition reads as unmet — which
-  // would tell a reader with a working workspace that they have nothing.
+  // Published once from what is true now, because the panel can be on screen
+  // before anything has become ready and an unset condition reads as unmet —
+  // which would tell a reader with a working workspace that they have nothing.
   refresh();
   // And again whenever the compiler becomes answerable, or the selection moves.
   // Only the rising edge of readiness is announced, which is the extension's
   // one rule about that signal: a step keeps its standing while the language
   // server restarts rather than flickering to unmet and back.
+  //
+  // That rule and the editor's own step-completion semantics agree, which is
+  // worth stating because it is not obvious: a step is CHECKED OFF when its
+  // condition becomes true, and the editor's only paths back to unchecked are
+  // the reader's own — toggling the checkbox, or the mark-incomplete command.
+  // So a condition that lapses leaves its step checked rather than reverting,
+  // exactly as a view here keeps what it has when the compiler stops answering.
   deps.onReady(refresh);
   deps.onSelectionChange(refresh);
+
+  // Opened where the reader has not said otherwise. This is what the preference
+  // gates: whether the panel opens, not whether some surface is visible — the
+  // panel costs the sidebar container nothing either way.
+  void openIfWanted();
 
   context.subscriptions.push(
     vscode.commands.registerCommand(SHOW_COMMAND, () => bringBack()),
@@ -133,9 +147,9 @@ export function activateGetStarted(
 }
 
 // publishStandings reads the four facts and sets one editor condition per step.
-// The editor re-draws the list whenever one of them moves, which is what makes
-// a step a reader has just satisfied report itself satisfied without anything
-// being pressed.
+// Each step names its own condition as what checks it off, so a step a reader
+// has just satisfied is ticked without anything being pressed and without the
+// panel being reopened.
 async function publishStandings(deps: GetStartedDeps): Promise<void> {
   const standings = stepStandings(await readFacts(deps));
   for (const id of STEP_IDS) {
@@ -186,27 +200,53 @@ async function hasConfiguredRegistry(deps: GetStartedDeps): Promise<boolean> {
   }
 }
 
-// bringBack turns the list on and reveals it. It is the way back from the
-// dismissal, so that pressing "Don't show this again" is a decision a reader can
-// undo rather than a door that locks behind them.
+// openIfWanted opens the panel unless the reader has turned it off.
+//
+// The preference is read rather than assumed, and it is read here rather than
+// being left to a condition in the manifest: what the preference now gates is
+// whether the panel OPENS, and only something running can decline to open it.
+// The panel itself stays contributed either way, so a reader who dismissed it
+// still finds it where the editor lists what exists.
+async function openIfWanted(): Promise<void> {
+  const [section, key] = splitSetting(GET_STARTED_SHOW_SETTING);
+  if (vscode.workspace.getConfiguration(section).get<boolean>(key) !== true) { return; }
+  await openWelcomePanel();
+}
+
+// openWelcomePanel asks the editor to open this extension's walkthrough.
+//
+// The address is composed from the extension's own identifier, which has one
+// home, so the publisher and the name are not spelled again here. A failure is
+// reported to the channel rather than raised at the reader: the panel is an
+// offer, and an editor that declines to open it has cost them nothing they
+// asked for.
+async function openWelcomePanel(): Promise<void> {
+  await vscode.commands.executeCommand(
+    'workbench.action.openWalkthrough',
+    walkthroughAddress(EXTENSION_ID),
+  );
+}
+
+// bringBack turns the panel back on and opens it. It is the way back from the
+// dismissal, so that dismissing is a decision a reader can undo rather than a
+// door that locks behind them.
 async function bringBack(): Promise<void> {
   await setShown(true);
   try {
-    await vscode.commands.executeCommand(`${GET_STARTED_VIEW_ID}.focus`);
-  } catch {
-    // The preference is the substantive effect and it has landed; revealing the
-    // view is a convenience on top of it. Where the editor declines to reveal
-    // it, the reader is told where it now is rather than left to wonder whether
-    // anything happened.
+    await openWelcomePanel();
+  } catch (err) {
+    // The preference is the substantive effect and it has landed; opening the
+    // panel is on top of it. Where the editor declines, the reader is told the
+    // panel is back rather than left to wonder whether anything happened.
     void vscode.window.showInformationMessage(
-      'Aggrega: the get-started list is back, at the top of the Aggrega panel.',
+      `Aggrega: the welcome panel is back; it will open with the editor. ${messageOf(err)}`,
     );
   }
 }
 
-// putAway turns the list off. The preference is the reader's own and is never
-// written into a project, so one person's dismissal never travels to whoever
-// else opens the repository.
+// putAway stops the panel opening. The preference is the reader's own and is
+// never written into a project, so one person's dismissal never travels to
+// whoever else opens the repository.
 async function putAway(): Promise<void> {
   await setShown(false);
   void vscode.window.showInformationMessage(DISMISSED_CONFIRMATION);

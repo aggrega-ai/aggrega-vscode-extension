@@ -31,11 +31,6 @@
     "views": {
       "aggrega": [
         {
-          "id": "aggrega.getStarted",
-          "name": "Get started",
-          "when": "config.aggrega.getStarted.show"
-        },
-        {
           "id": "aggrega.operations",
           "name": "Operations"
         },
@@ -53,54 +48,57 @@
         }
       ]
     },
-    "viewsWelcome": [
+    "walkthroughs": [
       {
-        "view": "aggrega.getStarted",
-        "contents": "Aggrega compiles the Aggregate and Release you author into deployment artifacts. This list shows what it still needs in this workspace, and what it already has."
-      },
-      {
-        "view": "aggrega.getStarted",
-        "when": "!aggrega.getStarted.workspaceReady",
-        "contents": "$(circle-large-outline) **A workspace Aggrega recognises.** It looks for a `.aggrega-config.yaml` carrying a `workspace:` block, an `.aggrega` directory, or an `aggregate`, `release` or `manifest` YAML file — starting at the folder you opened and climbing from there.\n[Create a workspace configuration](command:aggrega.getStarted.createWorkspace)\n[Use a folder that already has one](command:aggrega.getStarted.chooseWorkspace)"
-      },
-      {
-        "view": "aggrega.getStarted",
-        "when": "aggrega.getStarted.workspaceReady",
-        "contents": "$(pass-filled) A workspace Aggrega recognises."
-      },
-      {
-        "view": "aggrega.getStarted",
-        "when": "!aggrega.getStarted.compilerReady",
-        "contents": "$(circle-large-outline) **A compiler this editor can run.** The editor starts the `aggrega` binary named in your settings; a plain name is looked up on your PATH.\n[Use the compiler on my PATH](command:aggrega.getStarted.useCompilerOnPath)\n[Point at a compiler I have](command:aggrega.getStarted.locateCompiler)"
-      },
-      {
-        "view": "aggrega.getStarted",
-        "when": "aggrega.getStarted.compilerReady",
-        "contents": "$(pass-filled) A compiler this editor can run."
-      },
-      {
-        "view": "aggrega.getStarted",
-        "when": "!aggrega.getStarted.releaseReady",
-        "contents": "$(circle-large-outline) **A Release to act on.** Building, previewing and the topology graph each act on one Release, so the editor needs to know which one you mean.\n[Draft a Release](command:aggrega.getStarted.draftRelease)\n[Choose a Release I already have](command:aggrega.release.select)"
-      },
-      {
-        "view": "aggrega.getStarted",
-        "when": "aggrega.getStarted.releaseReady",
-        "contents": "$(pass-filled) A Release to act on."
-      },
-      {
-        "view": "aggrega.getStarted",
-        "when": "!aggrega.getStarted.registryReady",
-        "contents": "$(circle-large-outline) **A registry to resolve from.** Pulling dependencies and searching the published catalog resolve against the registries your configuration names.\n[Seed the official hub](command:aggrega.getStarted.seedRegistry)\n[Seed a registry I name](command:aggrega.getStarted.seedNamedRegistry)"
-      },
-      {
-        "view": "aggrega.getStarted",
-        "when": "aggrega.getStarted.registryReady",
-        "contents": "$(pass-filled) A registry to resolve from."
-      },
-      {
-        "view": "aggrega.getStarted",
-        "contents": "[Don't show this again](command:aggrega.getStarted.dismiss)\nYou can bring it back at any time with **Aggrega: Get started** in the Command Palette."
+        "id": "aggregaWelcome",
+        "title": "Welcome to Aggrega!",
+        "description": "Aggrega is an open-source language, ecosystem, and compiler for defining and rendering enterprise architectures, featuring a standard library highly specialized for AI applications. It serves as a bridge between abstract developer intent (including cognitive AI frameworks like LangGraph or CrewAI) and secure, physical cloud-native reality.",
+        "steps": [
+          {
+            "id": "workspace",
+            "title": "A workspace Aggrega recognises",
+            "description": "Aggrega looks for a `.aggrega-config.yaml` carrying a `workspace:` block, an `.aggrega` directory, or an `aggregate`, `release` or `manifest` YAML file — starting at the folder you opened and climbing from there.\n[Create a workspace configuration](command:aggrega.getStarted.createWorkspace)\n[Use a folder that already has one](command:aggrega.getStarted.chooseWorkspace)",
+            "media": {
+              "markdown": "media/welcome-workspace.md"
+            },
+            "completionEvents": [
+              "onContext:aggrega.getStarted.workspaceReady"
+            ]
+          },
+          {
+            "id": "compiler",
+            "title": "A compiler this editor can run",
+            "description": "The editor starts the `aggrega` binary named in your settings; a plain name is looked up on your PATH.\n[Use the compiler on my PATH](command:aggrega.getStarted.useCompilerOnPath)\n[Point at a compiler I have](command:aggrega.getStarted.locateCompiler)",
+            "media": {
+              "markdown": "media/welcome-compiler.md"
+            },
+            "completionEvents": [
+              "onContext:aggrega.getStarted.compilerReady"
+            ]
+          },
+          {
+            "id": "release",
+            "title": "A Release to act on",
+            "description": "Building, previewing and the topology graph each act on one Release, so the editor needs to know which one you mean.\n[Draft a Release](command:aggrega.getStarted.draftRelease)\n[Choose a Release I already have](command:aggrega.release.select)",
+            "media": {
+              "markdown": "media/welcome-release.md"
+            },
+            "completionEvents": [
+              "onContext:aggrega.getStarted.releaseReady"
+            ]
+          },
+          {
+            "id": "registry",
+            "title": "A registry to resolve from",
+            "description": "Pulling dependencies and searching the published catalog resolve against the registries your configuration names.\n[Seed the official hub](command:aggrega.getStarted.seedRegistry)\n[Seed a registry I name](command:aggrega.getStarted.seedNamedRegistry)",
+            "media": {
+              "markdown": "media/welcome-registry.md"
+            },
+            "completionEvents": [
+              "onContext:aggrega.getStarted.registryReady"
+            ]
+          }
+        ]
       }
     ],
     "menus": {
@@ -131,10 +129,6 @@
         },
         {
           "command": "aggrega.getStarted.seedNamedRegistry",
-          "when": "false"
-        },
-        {
-          "command": "aggrega.getStarted.dismiss",
           "when": "false"
         },
         {
@@ -177,7 +171,7 @@
       },
       {
         "command": "aggrega.getStarted.dismiss",
-        "title": "Aggrega: Stop showing the get-started list"
+        "title": "Aggrega: Stop opening the welcome panel"
       },
       {
         "command": "aggrega.getStarted.createWorkspace",
@@ -367,7 +361,7 @@
         "aggrega.getStarted.show": {
           "type": "boolean",
           "default": true,
-          "description": "Whether the Get started list appears in the Aggrega panel. It lists what Aggrega needs in this workspace — a workspace it recognises, a compiler it can run, a Release to act on, a registry to resolve from — and marks each one already met. Turning it off is what the list's own \"Don't show this again\" does; turning it back on is the same as running \"Aggrega: Get started\".",
+          "description": "Whether the Aggrega welcome panel opens with the editor. The panel says what Aggrega is, then lists what it needs in this workspace — a workspace it recognises, a compiler it can run, a Release to act on, a registry to resolve from — checking off each one already met. Turning it off is what \"Aggrega: Stop opening the welcome panel\" does, and it stops the panel opening by itself rather than removing it: it stays listed among the editor's walkthroughs. Turning it back on, and opening it, is what \"Aggrega: Get started\" does.",
           "scope": "machine"
         },
         "aggrega.server.binaryPath": {

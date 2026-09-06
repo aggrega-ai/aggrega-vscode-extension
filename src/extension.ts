@@ -153,7 +153,7 @@ let releaseSelection: ReleaseSelection | null = null;
 // it, and driven from the single lifecycle subscription in ensureDaemonAt.
 let readiness: Readiness | null = null;
 let operationsView: OperationsView | null = null;
-// refreshGetStarted re-reads the conditions the get-started list reports. It is
+// refreshGetStarted re-reads the conditions the welcome panel reports. It is
 // called at the end of every re-evaluation of the open folders, because the
 // readiness signal the other views render from announces itself only when a
 // workspace root and an answerable language server are both in hand — so a
@@ -444,11 +444,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     output: outputChannel,
   });
 
-  // The get-started list names what the extension still needs in this
-  // workspace and what it already has. The editor draws it from the manifest,
-  // so it is on screen for a reader whose workspace has started nothing at all;
-  // what is registered here is the reading of the four conditions and the
-  // controls that satisfy them.
+  // The welcome panel says what Aggrega is, then names what the extension still
+  // needs in this workspace and what it already has. The editor draws it from
+  // the manifest and starts this extension when it is opened, so it reaches a
+  // reader whose workspace has started nothing at all; what is registered here
+  // is the reading of the four conditions, the controls that satisfy them, and
+  // the opening of the panel itself.
   refreshGetStarted = activateGetStarted(context, {
     getWorkspaceRoot: () => workspaceRootForCommands,
     getBinaryPath: () => getSettings().binaryPath,

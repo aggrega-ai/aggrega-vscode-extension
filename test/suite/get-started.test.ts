@@ -6,20 +6,23 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {
+  DISMISS_COMMAND,
+  DISMISS_COMMAND_TITLE,
   EVERYTHING_MET,
   GET_STARTED_SHOW_SETTING,
-  GET_STARTED_VIEW_ID,
-  GET_STARTED_VIEW_WHEN,
   NOTHING_MET,
   SHOW_COMMAND,
   SHOW_COMMAND_TITLE,
   STEP_IDS,
-  StepId,
+  WALKTHROUGH_ID,
+  WELCOME_DESCRIPTION,
+  WELCOME_GREETING,
+  stepCompletionEvent,
   stepContextKey,
   stepMet,
   stepStandings,
-  stepWhenClause,
   unmetStepIds,
+  walkthroughAddress,
 } from '../../src/get-started-steps';
 import {
   ANCHOR_CANDIDATE_GLOB,
@@ -34,60 +37,71 @@ import {
 const MANIFEST = path.resolve(__dirname, '../../../package.json');
 const README = path.resolve(__dirname, '../../../README.md');
 
-interface WelcomeEntry { view?: unknown; contents?: unknown; when?: unknown }
+interface StepEntry {
+  id?: unknown;
+  title?: unknown;
+  description?: unknown;
+  media?: unknown;
+  completionEvents?: unknown;
+}
+interface WalkthroughEntry {
+  id?: unknown;
+  title?: unknown;
+  description?: unknown;
+  steps?: StepEntry[];
+}
 interface ViewEntry { id?: unknown; name?: unknown; when?: unknown }
 interface CommandEntry { command?: unknown; title?: unknown }
 interface MenuEntry { command?: unknown; when?: unknown }
 
 function manifest(): {
-  welcome: WelcomeEntry[];
+  walkthroughs: WalkthroughEntry[];
   views: ViewEntry[];
   commands: CommandEntry[];
   palette: MenuEntry[];
   properties: Record<string, { type?: unknown; default?: unknown; scope?: unknown }>;
+  viewsWelcome: unknown[];
 } {
   const pkg = JSON.parse(fs.readFileSync(MANIFEST, 'utf8'));
   return {
-    welcome: pkg.contributes.viewsWelcome ?? [],
+    walkthroughs: pkg.contributes.walkthroughs ?? [],
     views: pkg.contributes.views.aggrega,
     commands: pkg.contributes.commands,
     palette: pkg.contributes.menus.commandPalette ?? [],
     properties: pkg.contributes.configuration.properties,
+    viewsWelcome: pkg.contributes.viewsWelcome ?? [],
   };
 }
 
-// ourEntries are the contributed welcome entries for this list, in the order the
-// manifest declares them — which is the order they render in, since ordering a
-// welcome contribution any other way needs an editor capability this extension
-// does not opt into.
-function ourEntries(): WelcomeEntry[] {
-  return manifest().welcome.filter((e) => e.view === GET_STARTED_VIEW_ID);
+// ourWalkthrough is the panel this extension contributes. Fetched rather than
+// indexed, so adding a second walkthrough later does not silently re-point
+// every assertion below at the wrong one.
+function ourWalkthrough(): WalkthroughEntry {
+  const found = manifest().walkthroughs.find((w) => w.id === WALKTHROUGH_ID);
+  assert.ok(found, `the manifest contributes no walkthrough with id ${WALKTHROUGH_ID}`);
+  return found;
 }
 
-// visibleFor selects the entries the editor would draw for a given state,
-// WITHOUT interpreting the condition strings. Each entry is matched against the
-// exact clause the model produces for that state, so nothing here re-implements
-// the editor's own condition grammar — a second implementation of which would
-// agree with the editor until the day it did not.
-function visibleFor(met: Record<StepId, boolean>): WelcomeEntry[] {
-  const wanted = new Set(STEP_IDS.map((id) => stepWhenClause(id, met[id])));
-  return ourEntries().filter((e) => e.when === undefined || wanted.has(e.when as string));
+// ourSteps are the panel's steps, in the order the manifest declares them —
+// which is the order they render in.
+function ourSteps(): StepEntry[] {
+  return ourWalkthrough().steps ?? [];
 }
 
-// commandLinksIn counts the controls in a set of entries — the links the editor
+// commandLinksIn collects the controls in a set of steps — the links the editor
 // turns into buttons and into clickable text.
-function commandLinksIn(entries: WelcomeEntry[]): string[] {
+function commandLinksIn(steps: StepEntry[]): string[] {
   const found: string[] = [];
-  for (const entry of entries) {
-    for (const match of String(entry.contents).matchAll(/\(command:([^)]+)\)/g)) {
+  for (const step of steps) {
+    for (const match of String(step.description ?? '').matchAll(/\(command:([^)]+)\)/g)) {
       found.push(match[1]);
     }
   }
   return found;
 }
 
-describe('the get-started list', () => {
-  describe('what the list means', () => {
+describe('the welcome panel', () => {
+  describe('what the panel means', () => {
     it('reports every condition met for a reader who configured everything elsewhere', () => {
       assert.deepStrictEqual(unmetStepIds(EVERYTHING_MET), []);
       assert.deepStrictEqual(stepStandings(EVERYTHING_MET), {
@@ -120,30 +134,84 @@ describe('the get-started list', () => {
       }
     });
 
-    it('names one condition key per step, and one clause per standing', () => {
+    it('names one condition key per step, and one completion event per key', () => {
       const keys = STEP_IDS.map(stepContextKey);
       assert.strictEqual(new Set(keys).size, keys.length, 'two steps share a condition key');
       for (const id of STEP_IDS) {
-        assert.strictEqual(stepWhenClause(id, true), stepContextKey(id));
-        assert.strictEqual(stepWhenClause(id, false), `!${stepContextKey(id)}`);
+        assert.strictEqual(stepCompletionEvent(id), `onContext:${stepContextKey(id)}`);
       }
+      const events = STEP_IDS.map(stepCompletionEvent);
+      assert.strictEqual(
+        new Set(events).size,
+        events.length,
+        'two steps are checked off by the same event, so one of them reports a condition it never read',
+      );
+    });
+
+    // The address the editor takes is the extension's own identifier and the
+    // walkthrough's, joined by a hash. Asserted on an arbitrary identifier
+    // rather than on this extension's, so what is proved is the SHAPE — the
+    // part that could be got wrong — independently of who is asking.
+    it('addresses the panel as the editor addresses a contributed walkthrough', () => {
+      assert.strictEqual(
+        walkthroughAddress('some.extension'),
+        `some.extension#${WALKTHROUGH_ID}`,
+      );
     });
   });
 
   describe('what the editor is told to draw', () => {
-    it('declares the list as a view gated on the reader\'s own preference', () => {
-      const { views } = manifest();
-      const view = views.find((v) => v.id === GET_STARTED_VIEW_ID);
-      assert.ok(view, `the manifest contributes no ${GET_STARTED_VIEW_ID} view`);
-      assert.strictEqual(
-        view.when,
-        GET_STARTED_VIEW_WHEN,
-        'the view must be drawn under the preference the dismissal writes, or nothing turns the list off',
+    // 🔴 THE PANEL IS AN EDITOR-AREA WALKTHROUGH AND NO LONGER A SIDEBAR VIEW.
+    // The assertion this replaces required the get-started view to sit first in
+    // the container. It is retired rather than adjusted: the view has left the
+    // container, so an assertion pinning it to any position could only be
+    // satisfied by putting it back.
+    it('contributes the panel as a walkthrough rather than as a container view', () => {
+      const { views, viewsWelcome } = manifest();
+      const stranded = views.filter((v) => String(v.id).startsWith('aggrega.getStarted'));
+      assert.deepStrictEqual(
+        stranded.map((v) => v.id),
+        [],
+        `the panel is an editor-area walkthrough, so it must cost the sidebar container no slot; these views remain: ${stranded.map((v) => String(v.id)).join(', ')}`,
       );
+      // Every welcome contribution this extension had targeted that view, so a
+      // surviving one would be content declared against a view nothing draws.
+      assert.deepStrictEqual(
+        viewsWelcome,
+        [],
+        'a view-welcome contribution survives the view it was drawn in, so its content is declared against nothing',
+      );
+      assert.ok(ourWalkthrough(), 'the panel is contributed as a walkthrough');
+    });
+
+    // The container's own order is asserted where the container is the subject.
+    // What matters here is only that the panel takes none of its slots.
+    it('leaves the container carrying its own four panels', () => {
+      assert.deepStrictEqual(
+        manifest().views.map((v) => v.id),
+        [
+          'aggrega.operations',
+          'aggrega.registries',
+          'aggrega.workspaceCatalog',
+          'aggrega.plugins',
+        ],
+        'the panel no longer costs a sidebar slot, so the container reads Operations, Registries, Catalog, Plugins in both states — shown and dismissed',
+      );
+    });
+
+    // 🔴 THE COPY IS TRANSCRIBED, NOT COMPOSED. The description is the one the
+    // product's own documentation carries, character for character. This is the
+    // assertion that fails when somebody re-words it for the surface: two
+    // divergent descriptions of the product is the drift a single source exists
+    // to prevent, and a paraphrase reads perfectly well, so nothing but an
+    // exact comparison catches it.
+    it('opens with the greeting and the product description, verbatim', () => {
+      const walkthrough = ourWalkthrough();
+      assert.strictEqual(walkthrough.title, WELCOME_GREETING);
       assert.strictEqual(
-        views[0].id,
-        GET_STARTED_VIEW_ID,
-        'the list is what a reader with nothing configured needs first, so it sits first in the panel',
+        walkthrough.description,
+        WELCOME_DESCRIPTION,
+        'the panel must carry the product description exactly as it is written, not a paraphrase or a trim',
       );
     });
 
@@ -154,86 +222,79 @@ describe('the get-started list', () => {
       assert.strictEqual(
         property.default,
         true,
-        'the list starts on: a reader who wants it gone says so, and one who has read nothing yet is exactly the reader who would not notice a switch already thrown',
+        'the panel starts on: a reader who wants it gone says so, and one who has read nothing yet is exactly the reader who would not notice a switch already thrown',
       );
     });
 
-    // Two entries per step and no more: one for met, one for unmet. A step with
-    // only the unmet form would go on asking a reader who has already answered.
-    it('contributes both standings of every step', () => {
-      const entries = ourEntries();
-      for (const id of STEP_IDS) {
-        for (const met of [true, false]) {
-          const clause = stepWhenClause(id, met);
-          const matching = entries.filter((e) => e.when === clause);
-          assert.strictEqual(
-            matching.length,
-            1,
-            `expected exactly one entry drawn under \`${clause}\`, found ${matching.length}`,
-          );
-        }
+    // One step per condition, in condition order, and nothing else. A fifth
+    // step would be an entry in a checklist that no fact ever checks off, so it
+    // would read as outstanding work forever.
+    it('contributes one step per condition, in condition order', () => {
+      assert.deepStrictEqual(
+        ourSteps().map((s) => s.id),
+        [...STEP_IDS],
+        'the panel\'s steps are the conditions the extension needs, in the order each one\'s remedy depends on the ones above it',
+      );
+    });
+
+    // 🔴 THE ASSERTION THAT FAILS WHEN A STEP STOPS READING ITS OWN FACT. Every
+    // other assertion here holds while a step is checked off by a key belonging
+    // to a different condition — at which point the panel reports a reader has
+    // something they do not. It replaces the met/unmet entry pair the sidebar
+    // needed: the editor now draws the standing itself, from this event.
+    it('checks off every step from its own condition and no other', () => {
+      for (const step of ourSteps()) {
+        const id = STEP_IDS.find((candidate) => candidate === step.id);
+        assert.ok(id, `the panel declares a step ${String(step.id)} that is not a condition`);
+        assert.deepStrictEqual(
+          step.completionEvents,
+          [stepCompletionEvent(id)],
+          `the ${id} step must be checked off by its own condition; a step left with no completion event is checked off by merely pressing one of its controls, whether or not that control worked`,
+        );
       }
     });
 
-    it('offers two ways through every step a reader has not met', () => {
-      const entries = ourEntries();
-      for (const id of STEP_IDS) {
-        const unmet = entries.find((e) => e.when === stepWhenClause(id, false));
-        assert.ok(unmet, `no unmet entry for ${id}`);
-        const controls = commandLinksIn([unmet]);
+    it('offers two ways through every step', () => {
+      for (const step of ourSteps()) {
+        const controls = commandLinksIn([step]);
         assert.strictEqual(
           controls.length,
           2,
-          `the ${id} step offers ${controls.length} way(s) through — a step that knows only how to create walks a reader through making what they already have: ${controls.join(', ')}`,
+          `the ${String(step.id)} step offers ${controls.length} way(s) through — a step that knows only how to create walks a reader through making what they already have: ${controls.join(', ')}`,
         );
       }
     });
 
-    it('asks a reader who has met a step for nothing at all', () => {
-      const entries = ourEntries();
-      for (const id of STEP_IDS) {
-        const met = entries.find((e) => e.when === stepWhenClause(id, true));
-        assert.ok(met, `no met entry for ${id}`);
-        assert.deepStrictEqual(
-          commandLinksIn([met]),
-          [],
-          `the ${id} step still offers a control once it is met`,
+    // Media is required on every step by the contribution's own schema, so a
+    // step without it is not a presentation choice: the editor rejects the
+    // contribution and the whole panel goes missing.
+    it('gives every step the pane the contribution requires', () => {
+      for (const step of ourSteps()) {
+        assert.ok(
+          step.media && typeof step.media === 'object',
+          `the ${String(step.id)} step declares no media, which the walkthrough contribution requires`,
+        );
+        const markdown = (step.media as { markdown?: unknown }).markdown;
+        assert.strictEqual(
+          typeof markdown,
+          'string',
+          `the ${String(step.id)} step's pane must name a markdown document`,
+        );
+        const resolved = path.resolve(__dirname, '../../..', String(markdown));
+        assert.ok(
+          fs.existsSync(resolved),
+          `the ${String(step.id)} step names a pane that is not in the extension: ${String(markdown)}`,
         );
       }
-    });
-
-    // 🔴 THE COUNT THAT THE REST OF THIS FILE WOULD OTHERWISE PASS AROUND. Every
-    // assertion above holds while a reader who configured everything from the
-    // command line is still asked four questions. This is the one that measures
-    // it: with every condition met, the only control left is the one that puts
-    // the list away.
-    it('leaves a fully configured reader exactly one control to press', () => {
-      const visible = visibleFor(stepStandings(EVERYTHING_MET));
-      const controls = commandLinksIn(visible);
-      assert.deepStrictEqual(
-        controls,
-        ['aggrega.getStarted.dismiss'],
-        `a reader who arrives with everything configured must be asked nothing; they are still offered ${controls.length} control(s): ${controls.join(', ')}`,
-      );
-    });
-
-    it('offers a reader who has just installed it every way through', () => {
-      const visible = visibleFor(stepStandings(NOTHING_MET));
-      const controls = commandLinksIn(visible);
-      assert.strictEqual(
-        controls.length,
-        STEP_IDS.length * 2 + 1,
-        `expected two ways through each of the ${STEP_IDS.length} steps plus the dismissal; found: ${controls.join(', ')}`,
-      );
     });
 
     // The editor derives an activation event from each declared command, so a
     // control naming an undeclared one would do nothing at all for a reader
     // whose workspace has not otherwise started the extension — which is most
-    // readers meeting this list, and a failure that reports nothing anywhere.
+    // readers meeting this panel, and a failure that reports nothing anywhere.
     it('declares every command a control invokes', () => {
       const declared = new Set(manifest().commands.map((c) => String(c.command)));
-      const invoked = [...new Set(commandLinksIn(ourEntries()))];
+      const invoked = [...new Set(commandLinksIn(ourSteps()))];
       const undeclared = invoked.filter((c) => !declared.has(c));
       assert.deepStrictEqual(
         undeclared,
@@ -242,31 +303,44 @@ describe('the get-started list', () => {
       );
     });
 
-    it('keeps the way back in the command palette', () => {
+    // Both directions live in the palette, and that is what makes the dismissal
+    // safe to offer. The steps are the conditions and nothing else, so a control
+    // belonging to none of them has nowhere to sit among them — and a command
+    // withheld from the editor's own index of what exists reads as absent rather
+    // than as unavailable.
+    it('keeps both the way out and the way back in the command palette', () => {
       const { commands, palette } = manifest();
-      const declared = commands.find((c) => c.command === SHOW_COMMAND);
-      assert.ok(declared, `${SHOW_COMMAND} is not declared`);
-      assert.strictEqual(declared.title, SHOW_COMMAND_TITLE);
-      const hidden = palette.find((m) => m.command === SHOW_COMMAND);
-      assert.strictEqual(
-        hidden,
-        undefined,
-        'the way back must stay in the palette, or dismissing the list is a one-way door',
-      );
+      for (const [command, title] of [
+        [SHOW_COMMAND, SHOW_COMMAND_TITLE],
+        [DISMISS_COMMAND, DISMISS_COMMAND_TITLE],
+      ] as const) {
+        const declared = commands.find((c) => c.command === command);
+        assert.ok(declared, `${command} is not declared`);
+        assert.strictEqual(declared.title, title);
+        assert.strictEqual(
+          palette.find((m) => m.command === command),
+          undefined,
+          `${command} must stay in the palette: the panel has no slot for it, so hiding it leaves a reader no way to reach it at all`,
+        );
+      }
     });
 
-    it('keeps the list\'s own controls out of the command palette', () => {
+    // A step's own control is a button in the panel and belongs nowhere else:
+    // run from the palette it acts on whatever the panel happens to be showing,
+    // with none of the surrounding explanation. The two commands that turn the
+    // panel on and off are the exception, and they are asserted above.
+    it('keeps the panel\'s step controls out of the command palette', () => {
       const hidden = new Set(
         manifest().palette.filter((m) => m.when === 'false').map((m) => String(m.command)),
       );
-      const stepControls = [...new Set(commandLinksIn(ourEntries()))]
+      const stepControls = [...new Set(commandLinksIn(ourSteps()))]
         .filter((c) => c.startsWith('aggrega.getStarted.'))
-        .filter((c) => c !== SHOW_COMMAND);
+        .filter((c) => c !== SHOW_COMMAND && c !== DISMISS_COMMAND);
       const leaked = stepControls.filter((c) => !hidden.has(c));
       assert.deepStrictEqual(
         leaked,
         [],
-        `these belong to the list rather than to the palette: ${leaked.join(', ')}`,
+        `these belong to the panel rather than to the palette: ${leaked.join(', ')}`,
       );
     });
   });
