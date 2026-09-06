@@ -4,12 +4,13 @@
 import * as vscode from 'vscode';
 import { runCliJson } from './cli-json';
 import { RegistryListDoc, RegistryNode, registryNodes } from './registries-run';
+import { RendersOnReady } from './readiness';
 
 // RegistriesDeps supplies the live state the registries tree needs: the
 // anchored workspace root (the command runs there, and it is what selects the
 // configuration the reader is actually working against), the configured binary
 // path, and the shared output channel that carries failure detail.
-export interface RegistriesDeps {
+export interface RegistriesDeps extends RendersOnReady {
   getWorkspaceRoot(): string | null;
   getBinaryPath(): string;
   output: vscode.OutputChannel;
@@ -73,6 +74,12 @@ export function activateRegistriesView(
   deps: RegistriesDeps,
 ): void {
   const registries = new RegistriesTreeProvider(deps);
+  // The tree is registered before the workspace root is known, so its first
+  // render reports honestly that there is no anchored workspace. Re-asking when
+  // the compiler becomes answerable is what supersedes that row without the
+  // reader doing anything; the refresh command stays an override a reader may
+  // press, rather than the way to obtain correct data the first time.
+  deps.onReady(() => registries.refresh());
   context.subscriptions.push(
     vscode.window.registerTreeDataProvider('aggrega.registries', registries),
     vscode.commands.registerCommand('aggrega.registries.refresh', () => registries.refresh()),

@@ -7,13 +7,14 @@ import { GraphRedactor, createGraphRedactor } from './graph-payload';
 import { makeGraphMessageHandler } from './graph-messages';
 import { describeError } from './error-surfaces';
 import { reportGraphFailure } from './graph-failure';
+import { RendersOnReady } from './readiness';
 import { NO_ANCHORED_WORKSPACE_MESSAGE } from './workspace';
 
 // GraphDeps supplies the live state the graph view needs without importing
 // extension.ts (which would form an import cycle): the anchored workspace root
 // (source-file clicks resolve against it), the editor's selected Release, the
 // irGraph request (daemon-backed), and the shared output channel.
-export interface GraphDeps {
+export interface GraphDeps extends RendersOnReady {
   getWorkspaceRoot(): string | null;
   // selectedRelease is the editor's one selected Release, workspace-relative,
   // or null when none is selected. The view graphs that Release rather than
@@ -139,18 +140,25 @@ export function activateGraphView(context: vscode.ExtensionContext, deps: GraphD
     }),
   );
 
-  return {
-    // refresh re-renders the Release the panel is already showing. It does
-    // nothing when no panel is open or none has been chosen yet: the graph is
-    // a view the user opens deliberately, so nothing here opens one on its own
-    // or asks the language server for a graph nobody is looking at.
-    refresh: (): void => {
-      if (!panel || !shownRelease) { return; }
-      // Quiet: the panel keeps showing the graph it has until the new one
-      // replaces it, rather than flashing a layout notice on every recompile.
-      void renderGraph(panel, deps, redact, shownRelease, { quiet: true });
-    },
+  // refresh re-renders the Release the panel is already showing. It does
+  // nothing when no panel is open or none has been chosen yet: the graph is
+  // a view the user opens deliberately, so nothing here opens one on its own
+  // or asks the language server for a graph nobody is looking at.
+  const refresh = (): void => {
+    if (!panel || !shownRelease) { return; }
+    // Quiet: the panel keeps showing the graph it has until the new one
+    // replaces it, rather than flashing a layout notice on every recompile.
+    void renderGraph(panel, deps, redact, shownRelease, { quiet: true });
   };
+
+  // A panel left open across a restart is showing a topology drawn by a server
+  // that has since been replaced, and the recompile notice that ordinarily
+  // re-renders it need never arrive — nothing has been edited. Re-rendering
+  // when the compiler becomes answerable again is what closes that gap; a panel
+  // that is not open is unaffected, because refresh has nothing to draw.
+  deps.onReady(refresh);
+
+  return { refresh };
 }
 
 // renderGraph requests the IR graph and posts it to the webview, surfacing any

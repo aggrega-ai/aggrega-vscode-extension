@@ -18,12 +18,13 @@ import {
 import { runCliJson } from './cli-json';
 import { describeError } from './error-surfaces';
 import { PluginListDoc, PluginNode, pluginNodes } from './plugins-run';
+import { RendersOnReady } from './readiness';
 import { NO_ANCHORED_WORKSPACE_MESSAGE } from './workspace';
 
 // CatalogDeps supplies the live state the plugins tree and the published-catalog
 // search need: the anchored workspace root (the CLI runs there), the configured
 // binary path, and the shared output channel for the product's own report.
-export interface CatalogDeps {
+export interface CatalogDeps extends RendersOnReady {
   getWorkspaceRoot(): string | null;
   getBinaryPath(): string;
   output: vscode.OutputChannel;
@@ -277,6 +278,12 @@ async function offerMatches(rows: CatalogRow[]): Promise<void> {
 // published-catalog search command. View and command ids mirror package.json.
 export function activateCatalogViews(context: vscode.ExtensionContext, deps: CatalogDeps): void {
   const plugins = new PluginsTreeProvider(deps);
+  // The tree is registered before the workspace root is known, so its first
+  // render reports honestly that there is no anchored workspace. Re-asking when
+  // the compiler becomes answerable is what supersedes that row without the
+  // reader doing anything; the refresh command stays an override a reader may
+  // press, rather than the way to obtain correct data the first time.
+  deps.onReady(() => plugins.refresh());
   context.subscriptions.push(
     vscode.window.registerTreeDataProvider('aggrega.plugins', plugins),
     vscode.commands.registerCommand('aggrega.plugins.refresh', () => plugins.refresh()),

@@ -25,6 +25,7 @@ import {
   notifyStoppedResponding,
   promptCacheMiss,
 } from './notifications';
+import { Readiness, createReadiness } from './readiness';
 import { getSettings } from './settings-vscode';
 import {
   BUILD_ON_INSPECT_KEY,
@@ -106,11 +107,22 @@ let lintRunner: LintRunner | null = null;
 // every request, so the language server holds none of its own and changing the
 // selection needs no restart.
 let releaseSelection: ReleaseSelection | null = null;
+// readiness is the editor's one answer to "can the compiler be asked yet", and
+// every view renders from it. Built in activate() before any surface that reads
+// it, and driven from the single lifecycle subscription in ensureDaemonAt.
+let readiness: Readiness | null = null;
 
 // selectedRelease is the workspace-relative Release every request carries, or
 // null when none is selected.
 function selectedRelease(): string | null {
   return releaseSelection?.current() ?? null;
+}
+
+// isLanguageServerRunning reports whether the server can be asked right now.
+// Written once so the surfaces that gate on it and the readiness state cannot
+// come to disagree about what "running" means.
+function isLanguageServerRunning(): boolean {
+  return daemon?.getState() === DaemonState.Running;
 }
 
 // requireSelectedRelease tells the reader that an operation needs a Release and
@@ -143,6 +155,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   extensionContext = context;
   outputChannel = vscode.window.createOutputChannel('Aggrega');
   context.subscriptions.push(outputChannel);
+
+  // Built before any view, because a view takes the signal as a dependency and
+  // subscribes as it is registered. It reads both facts through the getters
+  // their owners already expose, so it holds no copy of either and cannot come
+  // to disagree with what a view sees.
+  const ready = createReadiness({
+    getWorkspaceRoot: () => workspaceRootForCommands,
+    isLanguageServerRunning,
+  });
+  readiness = ready;
 
   // The selection is built before any surface that reads it. It contacts
   // nothing here: the default is adopted once the language server connects, and
@@ -232,23 +254,28 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     },
     showsSensitiveValues: () => getSettings().showSensitiveValues,
     reportDaemonError,
+    onReady: ready.onReady,
     output: outputChannel,
   });
 
   // The plugins tree and published-catalog search are CLI-backed (plugin list
-  // -o json, search -o json), independent of daemon state.
+  // -o json, search -o json), so they need no language server — but they do
+  // need the anchored root the CLI runs in, which is not known when they are
+  // registered, so they render from the readiness signal like every other view.
   activateCatalogViews(context, {
     getWorkspaceRoot: () => workspaceRootForCommands,
     getBinaryPath: () => getSettings().binaryPath,
+    onReady: ready.onReady,
     output: outputChannel,
   });
 
-  // The registries tree is CLI-backed (registry list -o json), independent of
-  // daemon state. The command reads the resolved configuration and contacts no
-  // registry, so a refresh costs nothing over the network.
+  // The registries tree is CLI-backed (registry list -o json). The command
+  // reads the resolved configuration and contacts no registry, so a refresh
+  // costs nothing over the network.
   activateRegistriesView(context, {
     getWorkspaceRoot: () => workspaceRootForCommands,
     getBinaryPath: () => getSettings().binaryPath,
+    onReady: ready.onReady,
     output: outputChannel,
   });
 
@@ -259,8 +286,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // later attaches to.
   activateWorkspaceCatalogView(context, {
     getWorkspaceRoot: () => workspaceRootForCommands,
-    isLanguageServerRunning: () => daemon?.getState() === DaemonState.Running,
+    isLanguageServerRunning,
     requestCatalogIndex,
+    onReady: ready.onReady,
     output: outputChannel,
   });
 
@@ -394,6 +422,11 @@ async function ensureDaemonAt(
   await context.workspaceState.update(STATE_KEY, target.anchorPath);
   workspaceRootForCommands = targetRoot;
   activeAnchored = target;
+  // The root is one of the two facts readiness is made of, so it is reported as
+  // it changes. Today it always settles before the server can reach a state
+  // where anything is answerable, which makes this quiet; reporting it anyway
+  // is what keeps that ordering from being load-bearing.
+  readiness?.reassess();
 
   diagnosticCollections ??= createSourcedCollections(
     disposable => context.subscriptions.push(disposable),
@@ -405,6 +438,12 @@ async function ensureDaemonAt(
     if (next === DaemonState.Running || next === DaemonState.Restarting) {
       resetSessionDedup(toastDebounce);
     }
+    // THE EXTENSION'S ONE SUBSCRIPTION TO THE SERVER'S LIFECYCLE. Every surface
+    // that needs to know whether the compiler can be asked reads the readiness
+    // state this drives, so a second listener is not to be added here or
+    // anywhere else: it would be a second answer to one question, and the
+    // surface written after it would derive a third.
+    readiness?.reassess();
   });
   daemon.on('notification:aggrega/publishDiagnostics', (params: PublishDiagnosticsParams) => {
     // The same notification drives two surfaces: the editor's diagnostics, and

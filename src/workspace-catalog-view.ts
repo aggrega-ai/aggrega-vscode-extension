@@ -7,6 +7,7 @@ import {
   WorkspaceCatalogNode,
   workspaceCatalogNodes,
 } from './workspace-catalog-run';
+import { RendersOnReady } from './readiness';
 
 // KIND_GROUP_ICON is the theme-icon id on a kind heading. The heading also
 // carries the kind's name and its count in the label, so no fact lives only in
@@ -22,7 +23,7 @@ const OPEN_COMMAND_TITLE = 'Open the entity file';
 // needs: the anchored root the reported paths resolve against, whether the
 // language server is running, the request itself, and the shared output channel
 // that carries failure detail.
-export interface WorkspaceCatalogDeps {
+export interface WorkspaceCatalogDeps extends RendersOnReady {
   getWorkspaceRoot(): string | null;
   isLanguageServerRunning(): boolean;
   requestCatalogIndex(): Promise<CatalogIndexDoc>;
@@ -106,6 +107,13 @@ export function activateWorkspaceCatalogView(
   deps: WorkspaceCatalogDeps,
 ): void {
   const catalog = new WorkspaceCatalogTreeProvider(deps);
+  // The tree is registered before the workspace root is resolved and before the
+  // server can answer, so its first render honestly reports one of those two
+  // states. Re-asking when the compiler becomes answerable is what supersedes
+  // that row without the reader doing anything; the refresh command stays an
+  // override a reader may press, rather than the way to obtain correct data the
+  // first time.
+  deps.onReady(() => catalog.refresh());
   context.subscriptions.push(
     vscode.window.registerTreeDataProvider('aggrega.workspaceCatalog', catalog),
     vscode.commands.registerCommand('aggrega.workspaceCatalog.refresh', () => catalog.refresh()),

@@ -231,9 +231,13 @@ export class Daemon extends EventEmitter {
     await this.spawnAndInitialize();
   }
 
-  // request dispatches a JSON-RPC call. In Stopped/Stopping the call
-  // rejects immediately; in Starting/Restarting the call queues; in
-  // Running the call dispatches directly.
+  // request dispatches a JSON-RPC call. In Running the call dispatches
+  // directly. In Starting it queues, because the server is on its way to
+  // answering and the caller's question stays valid. In Stopped, Stopping and
+  // Restarting it rejects: restarting is not a slower form of starting, since
+  // the process the queued call would have been dispatched to is the one being
+  // replaced, so the caller is told to ask again rather than left holding a
+  // promise against a server that no longer exists.
   request<T>(method: string, params: unknown): Promise<T> {
     return new Promise<T>((resolve, reject) => {
       const wrappedResolve = (v: unknown) => resolve(v as T);
