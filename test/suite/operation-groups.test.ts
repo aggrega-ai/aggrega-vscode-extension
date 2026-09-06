@@ -30,6 +30,7 @@ import {
   releaseScopedArgs,
   signArgs,
 } from '../../src/operation-groups';
+import { selectorRows } from '../../src/selector-rows';
 import { CatalogIndexEntity } from '../../src/workspace-catalog-run';
 
 function entity(over: Partial<CatalogIndexEntity>): CatalogIndexEntity {
@@ -498,6 +499,73 @@ describe('the two shapes the panel is drawn in', () => {
       operationsTopLevel('grouped').filter((n) => n.kind === 'heading').map((n) => n.group.id),
       OPERATION_GROUPS.map((g) => g.id),
     );
+  });
+});
+
+describe('the two rows naming the subject sit outside every collapsible', () => {
+  // A reader who collapses a group to reduce clutter must not lose the two
+  // facts that say what any action would apply to: which folder is anchored,
+  // and which Release is selected. A reader who cannot see the selected Release
+  // cannot safely press anything.
+  //
+  // 🔴 What this block proves is the half that is mechanically provable without
+  // an extension host: no selector row is reachable BELOW a group, so
+  // collapsing a group can hide neither row. The other half — that the pair is
+  // emitted at the root, ahead of the groups — is composed in the tree
+  // provider, which imports editor types and cannot be constructed here. That
+  // half is read from the provider and confirmed at the editor.
+
+  const NO_ANSWER_YET = { kind: 'unknown' } as const;
+
+  it('models a selector row and an operation node as disjoint shapes', () => {
+    // The discriminant is asserted rather than assumed. Re-rolling the
+    // provider's own predicate here would be a second copy of it, agreeing
+    // until the day either moved, so the two shapes are compared directly.
+    const rows = selectorRows(null, null, NO_ANSWER_YET);
+    assert.ok(
+      rows.length > 0,
+      'no selector row was produced, so every absence asserted below measures nothing',
+    );
+    for (const row of rows) {
+      assert.ok('key' in row, `the ${row.label} row is identified by its key`);
+      assert.ok(!('kind' in row), `the ${row.label} row is not a node of the operation model`);
+    }
+  });
+
+  it('opens a group onto its own operations and nothing else, in either shape', () => {
+    for (const group of OPERATION_GROUPS) {
+      const children = operationsUnder(group);
+      // A negative control per group: a group that yielded nothing would make
+      // the two absences below true for a reason that has nothing to do with
+      // the rule they are asserting.
+      assert.ok(
+        children.length > 0,
+        `${group.id} opens onto nothing, so the absences below measure the group rather than the rule`,
+      );
+      assert.deepStrictEqual(
+        children.filter((n) => n.kind !== 'operation').map((n) => n.kind),
+        [],
+        `${group.id} opens onto something that is not one of its operations`,
+      );
+      assert.deepStrictEqual(
+        children.filter((n) => 'key' in n),
+        [],
+        `${group.id} carries a selector row among its children, where collapsing the group would hide it`,
+      );
+    }
+  });
+
+  it('emits no selector row among the operation rows either shape draws', () => {
+    // The rows are contributed once, by the provider, above everything the
+    // shape produces. A shape emitting one of its own would be a second copy of
+    // the pair, and the copy is what would go stale.
+    for (const layout of ['grouped', 'collapsible'] as const) {
+      assert.deepStrictEqual(
+        operationsTopLevel(layout).filter((n) => 'key' in n),
+        [],
+        `the ${layout} shape emits a selector row of its own`,
+      );
+    }
   });
 });
 
