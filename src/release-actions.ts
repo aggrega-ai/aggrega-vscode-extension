@@ -12,24 +12,37 @@ import {
   activeReleaseMarkerPath,
 } from './workspace';
 
-// CONFIG_TEMPLATE is what openAuthoringReleaseConfig writes when no
-// .aggrega-config.yaml exists at the workspace root. The cursor is
-// positioned on the empty value line so the user types the Release
+// CONFIG_TEMPLATE is what openAuthoringReleaseConfig writes when the
+// folder it was given carries no .aggrega-config.yaml yet. The cursor
+// is positioned on the empty value line so the user types the Release
 // path immediately without navigating.
+//
+// It is deliberately minimal, and it deliberately carries no top-level
+// `workspace:` key. That key is what marks a directory as the root of a
+// workspace, and this file is written into the folder the editor has
+// open — which is frequently not that root, because discovery climbs
+// from the open folder and an explicit root above it wins. Writing the
+// key here would not record where the root is; it would place a new and
+// nearer one in the way, changing which Releases are enumerated and
+// which paths resolve. Making a directory a workspace root is a
+// separate act with its own template, which lives in workspace.ts
+// beside the discovery that recognises it.
 const CONFIG_TEMPLATE = `build:
   authoring_release:
 `;
 
-// openAuthoringReleaseConfig opens the workspace-root
-// .aggrega-config.yaml. When the file does not exist, creates it
+// openAuthoringReleaseConfig opens the .aggrega-config.yaml of the
+// folder it is given. When the file does not exist, creates it
 // from CONFIG_TEMPLATE and positions the cursor on the empty value
 // line; when it exists, navigates the cursor to the
 // build.authoring_release key if present, else opens the file and
 // leaves the cursor at the document start.
 //
-// workspaceRoot is the absolute path the daemon used as its anchor;
-// the helper writes the config there. Filesystem write failures
-// surface as error toasts rather than crashing.
+// workspaceRoot is the absolute path of the folder the editor has open,
+// and the helper writes the config there. That is not necessarily the
+// root the language server resolved to, which is a separate fact the
+// server reports for itself. Filesystem write failures surface as error
+// toasts rather than crashing.
 export async function openAuthoringReleaseConfig(workspaceRoot: string): Promise<void> {
   const configPath = path.join(workspaceRoot, CONFIG_FILENAME);
   let created = false;
