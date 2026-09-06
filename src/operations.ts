@@ -753,7 +753,16 @@ async function runCache(deps: OperationDeps): Promise<void> {
 // off a spawned command line buys: the surface reports the compiler's own
 // figures instead of reading them back out of a stream it cannot parse
 // reliably.
-async function performCacheOperation(
+//
+// Every size below is printed as the *Text member the answer carries, exactly as
+// it arrived. Scaling, rounding or re-spelling one here would put a second
+// statement of how a quantity of bytes is written next to the compiler's own —
+// and the two would agree until the day either rounded differently, which is
+// precisely the divergence nothing on this side would notice. The size cap this
+// surface asks for is read by the compiler with the same vocabulary it writes,
+// so a figure copied out of a report and typed into the trim prompt has to stay
+// one the compiler accepts.
+export async function performCacheOperation(
   deps: OperationDeps,
   operation: CacheOperation,
   maxSize: string,
@@ -770,7 +779,7 @@ async function performCacheOperation(
         );
         for (const element of cacheClass.elements) {
           const note = element.note ? ` — ${element.note}` : '';
-          out.appendLine(`    ${element.label}  ${bytes(element.size)}${note}`);
+          out.appendLine(`    ${element.label}  ${element.sizeText}${note}`);
         }
       }
       for (const record of result.provenance) {
@@ -778,7 +787,7 @@ async function performCacheOperation(
         out.appendLine(`  recorded plugin identities: ${record.identities.join(', ')}${shared}`);
       }
       appendCacheScope(out, result.scope);
-      return `listed ${countOf(result.totalCount, 'entry', 'entries')} holding ${bytes(result.totalSize)}.`;
+      return `listed ${countOf(result.totalCount, 'entry', 'entries')} holding ${result.totalSizeText}.`;
     }
     case 'prune': {
       const result = await deps.cachePrune();
@@ -787,7 +796,7 @@ async function performCacheOperation(
       out.appendLine(`  kept, still referenced: ${countOf(result.retainedCount, 'entry', 'entries')}`);
       if (result.unattributedCount > 0) {
         out.appendLine(
-          `  attributed to no lockfile either way: ${countOf(result.unattributedCount, 'entry', 'entries')}, ${bytes(result.unattributedSize)}`,
+          `  attributed to no lockfile either way: ${countOf(result.unattributedCount, 'entry', 'entries')}, ${result.unattributedSizeText}`,
         );
       }
       // The compiler names, per shortfall, the operations that would reclaim
@@ -795,11 +804,11 @@ async function performCacheOperation(
       // to run next, so it is passed on rather than summarised away.
       for (const shortfall of result.notPruneEligible) {
         out.appendLine(
-          `  left in ${shortfall.class} (${shortfall.reach}): ${countOf(shortfall.count, 'entry', 'entries')}, ${bytes(shortfall.size)} — reclaimed by ${shortfall.reclaimedBy.join(', ')}`,
+          `  left in ${shortfall.class} (${shortfall.reach}): ${countOf(shortfall.count, 'entry', 'entries')}, ${shortfall.sizeText} — reclaimed by ${shortfall.reclaimedBy.join(', ')}`,
         );
       }
       appendCacheScope(out, result.scope);
-      return `removed ${countOf(result.removed.length, 'entry', 'entries')} and reclaimed ${bytes(result.reclaimedBytes)}.`;
+      return `removed ${countOf(result.removed.length, 'entry', 'entries')} and reclaimed ${result.reclaimedBytesText}.`;
     }
     case 'evict': {
       const result = await deps.cacheEvict(maxSize);
@@ -808,22 +817,22 @@ async function performCacheOperation(
       // failure: nothing was removed and nothing went wrong.
       if (result.withinCapBefore) {
         appendCacheScope(out, result.scope);
-        return `removed nothing: the cache held ${bytes(result.totalBefore)}, already within the ${bytes(result.capBytes)} cap.`;
+        return `removed nothing: the cache held ${result.totalBeforeText}, already within the ${result.capBytesText} cap.`;
       }
       appendCacheRemovals(out, result.removed);
-      out.appendLine(`  held before: ${bytes(result.totalBefore)}`);
-      out.appendLine(`  holds now: ${bytes(result.remainingBytes)}, under a cap of ${bytes(result.capBytes)}`);
+      out.appendLine(`  held before: ${result.totalBeforeText}`);
+      out.appendLine(`  holds now: ${result.remainingBytesText}, under a cap of ${result.capBytesText}`);
       appendCacheScope(out, result.scope);
-      return `removed ${countOf(result.removed.length, 'entry', 'entries')} and reclaimed ${bytes(result.reclaimedBytes)}.`;
+      return `removed ${countOf(result.removed.length, 'entry', 'entries')} and reclaimed ${result.reclaimedBytesText}.`;
     }
     case 'clear': {
       const result = await deps.cacheClear();
       out.appendLine('\nEmptying every cache this session addresses.');
       for (const cleared of result.cleared) {
-        out.appendLine(`  emptied ${cleared.class} (${cleared.reach})  ${bytes(cleared.size)}`);
+        out.appendLine(`  emptied ${cleared.class} (${cleared.reach})  ${cleared.sizeText}`);
       }
       appendCacheScope(out, result.scope);
-      return `emptied ${countOf(result.cleared.length, 'cache', 'caches')} and reclaimed ${bytes(result.reclaimedBytes)}. They repopulate on the next build.`;
+      return `emptied ${countOf(result.cleared.length, 'cache', 'caches')} and reclaimed ${result.reclaimedBytesText}. They repopulate on the next build.`;
     }
   }
 }
@@ -840,7 +849,7 @@ function appendCacheRemovals(out: vscode.OutputChannel, removed: CacheRemoval[])
     return;
   }
   for (const removal of removed) {
-    out.appendLine(`  removed ${removal.class}: ${removal.label} (${removal.reach})  ${bytes(removal.size)}`);
+    out.appendLine(`  removed ${removal.class}: ${removal.label} (${removal.reach})  ${removal.sizeText}`);
   }
 }
 
@@ -859,16 +868,6 @@ function appendCacheScope(out: vscode.OutputChannel, scope: CacheScope): void {
   if (scope.workspaceRoot !== '') {
     out.appendLine(`  Workspace: ${scope.workspaceRoot}`);
   }
-}
-
-// bytes renders a size the way the compiler reported it — a plain byte count.
-//
-// It is deliberately not scaled into a unit ladder. The compiler reads a size
-// the reader typed and reports the sizes it measured, and a ladder written here
-// would be a second statement of how a quantity of bytes is spelled, disagreeing
-// with the compiler's own the first time either rounded differently.
-function bytes(size: number): string {
-  return `${size} bytes`;
 }
 
 // countOf renders a count with the noun agreeing with it, so an ending sentence

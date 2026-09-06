@@ -337,6 +337,17 @@ export interface ScaffoldEntityResponse {
 
 // --- the cache maintenance results ---------------------------------------
 
+// Every size in this group arrives twice: the measured byte count, and the
+// compiler's own rendering of it in a *Text member beside it. A caller that
+// computes reads the number; a caller that shows a reader reads the text.
+//
+// The pairing is what keeps one spelling of a size in one place. The compiler
+// reads its own spelling back, and this surface asks for a size cap in the same
+// vocabulary — so a reader who copies a figure out of a cache report and types
+// it into the trim prompt is copying something the compiler accepts. Rendering
+// a size on this side instead would be a second statement of how a quantity of
+// bytes is written, agreeing until the day either side rounded differently.
+
 // CacheScope states how far a cache answer reached: the classes it addressed
 // whose contents every project on the machine shares, and the workspace the
 // session was opened over.
@@ -362,6 +373,7 @@ export interface CacheScope {
 export interface CacheElement {
   label: string;
   size: number;
+  sizeText: string;
   digest?: string;
   note?: string;
 }
@@ -395,6 +407,7 @@ export interface CacheStatusResponse {
   provenance: CacheProvenance[];
   totalCount: number;
   totalSize: number;
+  totalSizeText: string;
   scope: CacheScope;
 }
 
@@ -406,6 +419,7 @@ export interface CacheRemoval {
   label: string;
   reach: string;
   size: number;
+  sizeText: string;
 }
 
 // CacheShortfall is a set of entries an operation left behind because it has no
@@ -415,6 +429,7 @@ export interface CacheShortfall {
   class: string;
   count: number;
   size: number;
+  sizeText: string;
   reach: string;
   reclaimedBy: string[];
 }
@@ -425,8 +440,10 @@ export interface CachePruneResponse {
   removed: CacheRemoval[];
   retainedCount: number;
   reclaimedBytes: number;
+  reclaimedBytesText: string;
   unattributedCount: number;
   unattributedSize: number;
+  unattributedSizeText: string;
   notPruneEligible: CacheShortfall[];
   scope: CacheScope;
 }
@@ -440,9 +457,13 @@ export interface CacheEvictResponse {
   withinCapBefore: boolean;
   removed: CacheRemoval[];
   totalBefore: number;
+  totalBeforeText: string;
   reclaimedBytes: number;
+  reclaimedBytesText: string;
   remainingBytes: number;
+  remainingBytesText: string;
   capBytes: number;
+  capBytesText: string;
   scope: CacheScope;
 }
 
@@ -451,6 +472,7 @@ export interface CacheCleared {
   class: string;
   reach: string;
   size: number;
+  sizeText: string;
 }
 
 // CacheClearResponse is the aggrega/cacheClear result: the subtrees the wipe
@@ -458,5 +480,6 @@ export interface CacheCleared {
 export interface CacheClearResponse {
   cleared: CacheCleared[];
   reclaimedBytes: number;
+  reclaimedBytesText: string;
   scope: CacheScope;
 }
