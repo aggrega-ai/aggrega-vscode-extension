@@ -142,17 +142,26 @@ describe('the surface the manifest actually contributes', () => {
     fs.readFileSync(path.join(__dirname, '..', '..', '..', 'package.json'), 'utf8'),
   );
 
-  it('orders the container panels Operations, Registries, Catalog, Plugins', () => {
+  // The get-started list sits ahead of the operations because it is what a
+  // reader with nothing configured needs first, and it is the one panel that
+  // goes away: it is drawn only while the reader's own preference asks for it.
+  it('orders the container panels Get started, Operations, Registries, Catalog, Plugins', () => {
     assert.deepStrictEqual(
       manifest.contributes.views.aggrega.map((v) => v.name),
-      ['Operations', 'Registries', 'Catalog', 'Plugins'],
+      ['Get started', 'Operations', 'Registries', 'Catalog', 'Plugins'],
     );
   });
 
   it('keeps every panel identifier, because it is the key a reader\'s layout is remembered under', () => {
     assert.deepStrictEqual(
       manifest.contributes.views.aggrega.map((v) => v.id),
-      ['aggrega.operations', 'aggrega.registries', 'aggrega.workspaceCatalog', 'aggrega.plugins'],
+      [
+        'aggrega.getStarted',
+        'aggrega.operations',
+        'aggrega.registries',
+        'aggrega.workspaceCatalog',
+        'aggrega.plugins',
+      ],
     );
   });
 

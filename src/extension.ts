@@ -81,6 +81,7 @@ import { SWITCH_ANCHOR_COMMAND } from './selector-rows';
 import { activateLint, LintRunner } from './lint';
 import { activateGraphView, GraphView } from './graph-view';
 import { activateCatalogViews } from './catalog-views';
+import { activateGetStarted } from './get-started';
 import { activateRegistriesView } from './registries-view';
 import { activateWorkspaceCatalogView } from './workspace-catalog-view';
 import { CatalogIndexDoc } from './workspace-catalog-run';
@@ -127,6 +128,13 @@ let releaseSelection: ReleaseSelection | null = null;
 // it, and driven from the single lifecycle subscription in ensureDaemonAt.
 let readiness: Readiness | null = null;
 let operationsView: OperationsView | null = null;
+// refreshGetStarted re-reads the conditions the get-started list reports. It is
+// called at the end of every re-evaluation of the open folders, because the
+// readiness signal the other views render from announces itself only when a
+// workspace root and an answerable language server are both in hand — so a
+// workspace that is anchored but whose compiler will not start would otherwise
+// never publish the one condition it has met.
+let refreshGetStarted: (() => void) | null = null;
 
 // anchoredWorkspaceRoot is the folder the language server reported having
 // anchored to, or null before it has reported one.
@@ -373,6 +381,27 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     output: outputChannel,
   });
 
+  // The get-started list names what the extension still needs in this
+  // workspace and what it already has. The editor draws it from the manifest,
+  // so it is on screen for a reader whose workspace has started nothing at all;
+  // what is registered here is the reading of the four conditions and the
+  // controls that satisfy them.
+  refreshGetStarted = activateGetStarted(context, {
+    getWorkspaceRoot: () => workspaceRootForCommands,
+    getBinaryPath: () => getSettings().binaryPath,
+    isCompilerAnswering: isLanguageServerRunning,
+    selectedRelease,
+    // Two of the controls change a fact the editor raises no event for — a
+    // configuration file written into a folder that is already open, and a
+    // binary path changed while no language server exists to watch it — so both
+    // re-run the activation path rather than waiting for something that will
+    // not happen.
+    reanchor: () => reactivate(context),
+    onReady: ready.onReady,
+    onSelectionChange: (listener) => releaseSelection?.onChange(listener),
+    output: outputChannel,
+  });
+
   // The status-bar indicator renders the editor's selected Release — the value
   // every request carries — so what the operator reads is the Release the
   // compiler is being asked about.
@@ -441,17 +470,22 @@ async function reactivate(context: vscode.ExtensionContext): Promise<void> {
     case 'none':
       await tearDownPendingChoice();
       await stopDaemon();
-      return;
+      break;
     case 'single':
     case 'multiSaved':
       await tearDownPendingChoice();
       await ensureDaemonAt(context, decision.target);
-      return;
+      break;
     case 'multiPrompt':
       await stopDaemon();
       surfacePendingChoice(context, decision.anchored);
-      return;
+      break;
   }
+
+  // Every branch above settles what the workspace root and the language server
+  // now are, including the branch where the server failed to start, so this is
+  // the one place from which the get-started conditions are true of all of them.
+  refreshGetStarted?.();
 }
 
 function surfacePendingChoice(

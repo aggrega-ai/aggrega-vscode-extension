@@ -46,6 +46,41 @@ const GLOB_PREFIXES = ['aggregate', 'release', 'manifest'] as const;
 const LOCKFILE_SUFFIX = '.lock.yaml';
 const YAML_SUFFIX = '.yaml';
 
+// WORKSPACE_ANCHOR_CONFIG is what a surface writes to make a directory the root
+// of an Aggrega workspace: the smallest configuration that anchors one.
+//
+// It lives HERE, beside hasWorkspaceBlock, because the two are one rule seen
+// from its two sides — what is written and what is recognised. Held apart they
+// would agree until somebody tightened the probe or reworded the template, and
+// the symptom would be a reader pressing "create a workspace configuration",
+// getting a file, and still being told nothing is anchored. A test writes this
+// through the probe rather than eyeballing the two.
+//
+// The `workspace:` key is the whole marker; an empty mapping is a complete
+// answer, and the comment above it says what the file is for so the reader who
+// opens it afterwards is not looking at two bare words.
+export const WORKSPACE_ANCHOR_CONFIG =
+  `# Aggrega reads this file to find the root of your workspace. The workspace\n` +
+  `# key below is what marks this directory as that root; everything else in\n` +
+  `# this file is optional and layers on top of Aggrega's own defaults.\n` +
+  `workspace: {}\n`;
+
+// ANCHOR_CANDIDATE_GLOB matches, loosely, the files whose presence in a
+// directory might anchor a workspace there.
+//
+// It is deliberately a SUPERSET of what findAggregaWorkspaceAnchor decides on,
+// and that asymmetry is the design rather than a shortcut. A surface offering a
+// reader candidate folders uses this to narrow a whole-workspace search, then
+// confirms each candidate through findAggregaWorkspaceAnchor — which stays the
+// one home for the rule. So a pattern that is too wide can only produce a
+// candidate the confirmation drops, while one that is too narrow hides a folder
+// the reader has; the pattern is therefore built from the same constants the
+// tiers are, and errs wide.
+export const ANCHOR_CANDIDATE_GLOB =
+  `**/{${CONFIG_FILENAME},${AGGREGA_DIR}/**,` +
+  GLOB_PREFIXES.map((prefix) => `${prefix}*${YAML_SUFFIX}`).join(',') +
+  `}`;
+
 // activeReleaseMarkerPath is the absolute path of the workspace's
 // active-release marker.
 export function activeReleaseMarkerPath(workspaceRoot: string): string {
