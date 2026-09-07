@@ -253,9 +253,13 @@ export const OPERATION_GROUPS: OperationGroup[] = [
     operations: [
       {
         id: 'configShow',
-        label: 'Show config',
-        detail: 'Show the resolved configuration and the layer each setting came from',
+        label: 'Configuration',
+        detail: 'Every setting the schema declares, with the value in force and where it came from',
         icon: 'settings-gear',
+        // The configuration surface contributes its own command, so the entry
+        // points at that rather than at a second one wrapping it — the same
+        // arrangement the topology graph and the registry entries use.
+        command: 'aggrega.config.open',
       },
       {
         id: 'cache',

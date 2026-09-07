@@ -410,8 +410,8 @@
         "icon": "$(warning)"
       },
       {
-        "command": "aggrega.op.configShow",
-        "title": "Show effective config",
+        "command": "aggrega.config.open",
+        "title": "Configuration",
         "category": "Aggrega",
         "icon": "$(settings-gear)"
       },

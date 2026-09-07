@@ -1,0 +1,135 @@
+/* SPDX-License-Identifier: Apache-2.0
+   Copyright 2026 Cognitio S.r.l. */
+
+/* The configuration surface draws in the editor's own colours and font
+   throughout, so it reads as part of the editor a reader has themed rather than
+   as a page pasted into it. */
+
+body {
+  color: var(--vscode-foreground);
+  background: var(--vscode-editor-background);
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+  padding: 0;
+  margin: 0;
+}
+
+/* A measure rather than the full width of the tab: every setting carries the
+   schema's own description, which is a paragraph of prose, and prose set across
+   a wide editor is hard to track from one line to the next. */
+.config {
+  max-width: 52rem;
+  margin: 0 auto;
+  padding: 2rem 2rem 4rem;
+}
+
+.config h1 {
+  font-size: 1.6rem;
+  font-weight: 600;
+  margin: 0 0 1.5rem;
+}
+
+/* What the page can and cannot say, before any setting. It is set apart because
+   it governs how the rest of the page is read. */
+.config-summary {
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 4px;
+  padding: 1rem 1.25rem;
+  margin: 0 0 2rem;
+}
+
+.config-summary h2 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0 0 0.5rem;
+}
+
+.config-layers {
+  margin: 0.25rem 0 0.75rem;
+  padding-left: 1.25rem;
+}
+
+.config-note {
+  color: var(--vscode-descriptionForeground);
+  line-height: 1.5;
+  margin: 0.25rem 0;
+}
+
+/* A group's heading carries the setting path a reader would type, so what they
+   see on the page and what they write in a file are the same words. */
+.config-group {
+  margin: 2rem 0 0;
+}
+
+.config-group > h2,
+.config-group > h3,
+.config-group > h4,
+.config-group > h5,
+.config-group > h6 {
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin: 0 0 0.35rem;
+  border-bottom: 1px solid var(--vscode-panel-border);
+  padding-bottom: 0.35rem;
+}
+
+.config-row {
+  margin: 1.25rem 0;
+}
+
+.config-row dt {
+  font-family: var(--vscode-editor-font-family);
+  font-size: 0.9rem;
+  color: var(--vscode-textPreformat-foreground);
+}
+
+.config-setting {
+  margin: 0.35rem 0 0 0;
+  padding-left: 1rem;
+  border-left: 2px solid var(--vscode-panel-border);
+}
+
+.config-label {
+  font-weight: 600;
+  margin: 0 0 0.25rem;
+}
+
+/* The schema's own sentence about the setting. It arrives whole and is never
+   trimmed to fit, so the layout is what accommodates it. */
+.config-description {
+  color: var(--vscode-descriptionForeground);
+  line-height: 1.5;
+  margin: 0 0 0.4rem;
+}
+
+.config-shape,
+.config-value,
+.config-source {
+  margin: 0.15rem 0;
+  font-size: 0.92rem;
+}
+
+.config-value {
+  font-family: var(--vscode-editor-font-family);
+}
+
+.config-source {
+  color: var(--vscode-descriptionForeground);
+}
+
+/* A setting whose change would reach every project on the machine says so in
+   place. It is drawn only where the product has something to say about the
+   reach, so the note keeps its weight instead of appearing on every row. */
+.config-reach {
+  margin: 0.4rem 0 0;
+  padding: 0.4rem 0.6rem;
+  border-radius: 3px;
+  font-size: 0.92rem;
+  color: var(--vscode-inputValidation-warningForeground, var(--vscode-foreground));
+  background: var(--vscode-inputValidation-warningBackground);
+  border: 1px solid var(--vscode-inputValidation-warningBorder);
+}
+
+code {
+  font-family: var(--vscode-editor-font-family);
+}

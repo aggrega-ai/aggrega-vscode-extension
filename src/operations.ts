@@ -141,9 +141,6 @@ export interface OperationDeps extends RendersOnReady {
   // answer is a structured document rather than readable output, so this surface
   // opens it rather than streaming it to a channel.
   entityDefinition(name: string, signal?: CancellationSignal): Promise<unknown>;
-  // effectiveConfiguration asks the language server for the configuration it
-  // resolved and the layer each setting came from.
-  effectiveConfiguration(): Promise<unknown>;
   // The four cache operations are language-server-backed, and they are supplied
   // here for the same reason every other server-backed entry is: the answer is
   // a structured result this surface reports, rather than output it would have
@@ -419,7 +416,6 @@ export function activateOperations(
   reg('push', () => { void runCatalogUpload(deps); });
   reg('sign', () => { void runSign(deps); });
   reg('deprecate', () => { void runDeprecate(deps); });
-  reg('configShow', () => { void runConfigShow(deps); });
   reg('cache', () => { void runCache(deps); });
 
   return { refresh: () => provider.refresh() };
@@ -1063,14 +1059,8 @@ async function runInspect(deps: OperationDeps): Promise<void> {
   }
 }
 
-// runConfigShow reports the configuration the language server resolved, and the
-// layer each setting came from. It takes no subject: the configuration is a
-// property of the workspace the server already anchored to.
-async function runConfigShow(deps: OperationDeps): Promise<void> {
-  try {
-    const result = await deps.effectiveConfiguration();
-    await openDocument(JSON.stringify(result, null, 2), 'json');
-  } catch (err) {
-    await reportDaemonFailure(deps, err, 'The configuration report');
-  }
-}
+// The configuration is reported by the surface generated from its schema, which
+// contributes its own command and asks the language server both of its
+// questions. Nothing is registered for it here: a wrapper would be a second
+// command that only forwards, and it would have to keep its own copy of which
+// requests the surface needs.

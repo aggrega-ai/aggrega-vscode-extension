@@ -111,6 +111,7 @@ import { activateGetStarted } from './get-started';
 import { CHOOSE_WORKSPACE_COMMAND } from './get-started-steps';
 import { activatePluginsView } from './plugins-view';
 import { activateRegistriesView } from './registries-view';
+import { activateConfigPanel } from './config-view';
 import { activateWorkspaceCatalogView } from './workspace-catalog-view';
 import { CatalogIndexDoc } from './workspace-catalog-run';
 import {
@@ -359,7 +360,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     requestCatalogIndex,
     scaffoldEntity: requestScaffoldEntity,
     entityDefinition: requestEntityDefinition,
-    effectiveConfiguration: requestEffectiveConfiguration,
     cacheStatus: requestCacheStatus,
     cachePrune: requestCachePrune,
     cacheEvict: requestCacheEvict,
@@ -474,6 +474,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     getWorkspaceRoot: () => workspaceRootForCommands,
     getBinaryPath: () => getSettings().binaryPath,
     onReady: ready.onReady,
+    output: outputChannel,
+  });
+
+  // The configuration surface is generated from the configuration schema the
+  // running binary holds, joined against the configuration that binary resolved.
+  // Both halves are asked for rather than read here: the schema so the surface
+  // matches the contract in force, and the resolution so the reported origins
+  // are the ones the compiler is acting on.
+  activateConfigPanel(context, {
+    getSchema: requestSchema,
+    effectiveConfiguration: requestEffectiveConfiguration,
     output: outputChannel,
   });
 
@@ -1688,6 +1699,25 @@ async function requestEffectiveConfiguration(): Promise<unknown> {
     throw new Error('the Aggrega language server is not running');
   }
   return await daemon.request<unknown>('aggrega/effectiveConfiguration', {});
+}
+
+// requestSchema asks the language server for one kind's schema.
+//
+// The schema is asked for rather than read from a file beside the installation,
+// and that is a correctness choice rather than a convenience: a path into a
+// compiler checkout is a layout no installation is obliged to have, and a copy
+// shipped alongside would be the contract as it stood when the extension was
+// packaged rather than the contract the running binary holds. Asking the process
+// that will do the work is the only way to be generated from the schema in
+// force.
+//
+// Throws when the server is not running, so a caller reports that state rather
+// than presenting an absent schema as a product that declares nothing.
+async function requestSchema(kind: string): Promise<unknown> {
+  if (!daemon || daemon.getState() !== DaemonState.Running) {
+    throw new Error('the Aggrega language server is not running');
+  }
+  return await daemon.request<unknown>('aggrega/getSchema', { kind });
 }
 
 // requestCacheStatus asks the language server what the on-disk caches hold. It

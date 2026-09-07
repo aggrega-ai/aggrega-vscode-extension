@@ -183,7 +183,7 @@ describe('the Commands panel document', () => {
       'Pull', 'Acquire inputs',
       'Draft entity', 'Import', 'Inspect',
       'Push', 'Sign', 'Deprecate',
-      'Show config', 'Cache…',
+      'Configuration', 'Cache…',
       'Add registry', 'Update index',
       'Search catalog',
       'Add plugin', 'Generate entities',
