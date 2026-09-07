@@ -2,7 +2,7 @@
 // Copyright 2026 Cognitio S.r.l.
 
 // The extension draws two of its own documents — the welcome tab and the
-// Operations panel — and both need the same two pieces to compose one: a way to
+// Commands panel — and both need the same two pieces to compose one: a way to
 // render authored text as text, and a token for the content policy's script
 // allowlist. Each has one home here rather than one per document: two copies
 // would agree until the day either was changed, and the symptom of a

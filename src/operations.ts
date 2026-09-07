@@ -207,7 +207,7 @@ function readPanelState(stored: unknown): PanelState {
   };
 }
 
-// OperationsViewProvider backs the Operations view in the Aggrega activity-bar
+// OperationsViewProvider backs the Commands view in the Aggrega activity-bar
 // container: the two selector rows first, then the operation groups in one of
 // two shapes.
 //
@@ -311,7 +311,7 @@ class OperationsViewProvider implements vscode.WebviewViewProvider {
     const command = panelControlCommand(
       message,
       this.offeredCommands(),
-      'operations',
+      'commands',
       this.deps.output,
     );
     if (command === null) { return; }
@@ -351,8 +351,11 @@ export interface OperationsView {
   refresh(): void;
 }
 
-// activateOperations registers the Operations view and one command per
-// operation. The view id and command ids mirror the package.json contributions.
+// activateOperations registers the Commands view and a command for each entry
+// this surface owns. An entry naming a command of its own registers nothing
+// here: the topology graph and the registry, catalog and plugin entries are each
+// contributed and handled where their subject lives. The view id and command ids
+// mirror the package.json contributions.
 export function activateOperations(
   context: vscode.ExtensionContext,
   deps: OperationDeps,
@@ -405,7 +408,9 @@ export function activateOperations(
   reg('preview', () => { void runPreview(deps); });
   // The topology graph contributes its own command, so nothing is registered for
   // it here: the group entry points at that command rather than at a second one
-  // wrapping it.
+  // wrapping it. The registry, catalog and plugin entries are the same case —
+  // each is registered by the surface whose subject it acts on, and a wrapper
+  // here would be a second command that only forwards.
   reg('pull', () => { void runReleaseScoped(deps, 'pull'); });
   reg('acquire', () => { void runReleaseScoped(deps, 'acquire'); });
   reg('scaffold', () => { void runScaffold(deps); });

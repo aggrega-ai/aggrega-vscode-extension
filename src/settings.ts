@@ -126,7 +126,7 @@ export const USER_ONLY_SCOPES = ['application', 'machine'] as const;
 export const SETTINGS_SCOPE: (typeof USER_ONLY_SCOPES)[number] = 'machine';
 
 // SETTINGS_COMMAND is the one entry point to the extension's preferences. It is
-// the cog at the top right of the Operations panel, and it opens the editor's own
+// the cog at the top right of the Commands panel, and it opens the editor's own
 // settings filtered to this extension — never a settings surface of this
 // extension's own, which would be a second place the same preference could be
 // written, disagreeing with the first as soon as anyone edited a settings file by

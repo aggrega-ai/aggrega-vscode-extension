@@ -335,7 +335,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     output: outputChannel,
   });
 
-  // The operation surface (activity-bar Operations view + commands) is
+  // The operation surface (activity-bar Commands view + commands) is
   // available regardless of daemon state: CLI-backed operations scope to the
   // anchored root once it is known, and validate reports when no file or
   // daemon is available. The getters read live state so the surface tracks the
@@ -901,7 +901,7 @@ export async function deactivate(): Promise<void> {
 }
 
 // validateActiveDocument runs the serve-backed validate on the active YAML
-// document on demand (the Operations view's Validate action), publishing its
+// document on demand (the Commands view's Validate action), publishing its
 // diagnostics through the same collection the proactive lifecycle validate
 // uses. Validate is a language-server operation, not a CLI subprocess, so it
 // stays on the daemon path rather than spawning the binary.

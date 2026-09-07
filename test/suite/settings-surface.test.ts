@@ -81,7 +81,7 @@ describe('one settings surface, holding only user preferences', () => {
   });
 
   describe('the cog that reaches them', () => {
-    it('sits in the Operations panel title, in the navigation group', () => {
+    it('sits in the Commands panel title, in the navigation group', () => {
       const { viewTitleMenus } = manifest();
       const entry = viewTitleMenus.find((m) => m.command === SETTINGS_COMMAND);
       assert.ok(entry, `no view/title entry contributes ${SETTINGS_COMMAND}`);

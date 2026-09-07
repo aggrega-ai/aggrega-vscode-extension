@@ -277,7 +277,7 @@ export const STEP_CONTENT: readonly StepContent[] = [
       },
       {
         paragraph:
-          'Because discovery climbs rather than descends, the root may legitimately sit *above* the folder you opened. The **Workspace** row at the top of the Operations panel always names the folder that was actually anchored, so when it differs from what you opened you can see why.',
+          'Because discovery climbs rather than descends, the root may legitimately sit *above* the folder you opened. The **Workspace** row at the top of the Commands panel always names the folder that was actually anchored, so when it differs from what you opened you can see why.',
       },
       {
         paragraph:
@@ -346,7 +346,7 @@ export const STEP_CONTENT: readonly StepContent[] = [
       },
       {
         paragraph:
-          'The selection is named in two places — a status-bar indicator, and a **Release** row at the top of the Operations panel — so the Problems panel and the graph always describe the same Release, and you can see which without pressing anything.',
+          'The selection is named in two places — a status-bar indicator, and a **Release** row at the top of the Commands panel — so the Problems panel and the graph always describe the same Release, and you can see which without pressing anything.',
       },
       {
         paragraph: 'Two properties of the selection are worth knowing:',

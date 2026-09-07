@@ -6,7 +6,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as vm from 'vm';
 
-// Whether a group boundary in the Operations panel earns its mark is decided
+// Whether a group boundary in the Commands panel earns its mark is decided
 // AFTER the browser has laid the flow out, because it depends on where the line
 // breaks fall and nothing knows that until there is a width to break against.
 // That makes the rule the one part of this panel a composed-document assertion

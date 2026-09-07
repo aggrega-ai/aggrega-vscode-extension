@@ -92,7 +92,7 @@ function boundariesIn(html: string): string[] {
 
 const BOTH: OperationsLayout[] = ['buttons', 'sections'];
 
-describe('the Operations panel document', () => {
+describe('the Commands panel document', () => {
   it('draws one continuous flow of buttons, with no group title anywhere', () => {
     // The buttons are siblings in one wrapping container. Per-group rows spent
     // a line on every group whether it needed one or not, and a title line on
@@ -162,6 +162,9 @@ describe('the Operations panel document', () => {
       'Draft entity', 'Import', 'Inspect',
       'Push', 'Sign', 'Deprecate',
       'Show config', 'Cache…',
+      'Add registry', 'Update index',
+      'Search catalog',
+      'Add plugin', 'Generate entities',
     ];
     for (const layout of BOTH) {
       const html = operationsBodyHtml(body({ layout }));
@@ -501,7 +504,7 @@ describe('what the panel owes a reader who is not using a pointer', () => {
     // so the control states it whether or not anything draws a box around it.
     const html = operationsBodyHtml(body({ layout: 'buttons' }));
     assert.ok(
-      html.includes('role="toolbar" aria-label="Operations" aria-orientation="horizontal"'),
+      html.includes('role="toolbar" aria-label="Commands" aria-orientation="horizontal"'),
       'the flow does not declare itself a named horizontal toolbar',
     );
     assert.strictEqual(
@@ -516,10 +519,11 @@ describe('what the panel owes a reader who is not using a pointer', () => {
   });
 
   it('costs one tab stop for the whole flow, not one per group', () => {
-    // Fifteen operations and two rows would be seventeen tab stops against a
-    // tree's one. Per-group rows cost one each; a single flow costs one for the
-    // panel, and the arrow keys walk the whole sequence — which is the contract
-    // a reader already has from the trees beside this panel, now cheaper.
+    // A stop per control would cost one for every operation and every row,
+    // against a tree's one — and that cost grows with the panel. Per-group rows
+    // cost one each; a single flow costs one for the panel, and the arrow keys
+    // walk the whole sequence — which is the contract a reader already has from
+    // the trees beside this panel, now cheaper.
     const html = operationsBodyHtml(body({ layout: 'buttons' }));
     assert.strictEqual(
       occurrences(html, /data-roving/), 1,

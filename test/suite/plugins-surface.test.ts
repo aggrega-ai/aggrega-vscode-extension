@@ -4,6 +4,7 @@
 import * as assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { allOperations, commandIdFor } from '../../src/operation-groups';
 import {
   PLUGIN_CONFIG_ENTRY_ROW_CONTEXT,
   PLUGIN_ROW_CONTEXT,
@@ -100,14 +101,28 @@ describe('the operations the plugins panel contributes', () => {
     assert.strictEqual(refresh.group, 'navigation');
   });
 
-  it('puts the operations acting on the whole panel in its title bar', () => {
-    const commands = titleBarEntries().map((m) => m.command);
+  it('leaves the refresh alone in the title bar, the operations having moved to the flow', () => {
+    // A title-bar entry is a hover-revealed unlabelled icon, which reads as a
+    // different surface from a labelled button — so every operation acting on
+    // the whole panel is now a button in the Commands panel instead, and the
+    // title bar carries only what belongs to the view.
+    assert.deepStrictEqual(
+      titleBarEntries().map((m) => m.command),
+      ['aggrega.plugins.refresh'],
+      'an operation is still a hover-revealed icon in this panel\'s title bar',
+    );
+  });
+
+  it('reaches both panel-scoped operations from the Commands panel instead', () => {
+    // The other half of the move: cleared from the title bar AND present as a
+    // button, so neither operation is merely gone.
+    const offered = allOperations().map(commandIdFor);
     assert.ok(
-      commands.includes('aggrega.plugins.add'),
+      offered.includes('aggrega.plugins.add'),
       'a reader can see their plugins and cannot add one',
     );
     assert.ok(
-      commands.includes('aggrega.plugins.genCatalog'),
+      offered.includes('aggrega.plugins.genCatalog'),
       'generating the catalog entities for these plugins is on no panel',
     );
   });
@@ -240,14 +255,16 @@ describe('the operations the plugins panel contributes', () => {
     }
   });
 
-  it('adds nothing to the operations panel', () => {
-    const onOperations = manifest.contributes.menus['view/title']
+  it('adds nothing to the Commands panel\'s title bar', () => {
+    // Its operations arrive on that panel as buttons in the drawn document, not
+    // as title-bar entries — so the cog stays the only thing in that title bar.
+    const onCommands = manifest.contributes.menus['view/title']
       .filter((m) => m.when === 'view == aggrega.operations')
       .map((m) => m.command);
     assert.deepStrictEqual(
-      onOperations,
+      onCommands,
       ['aggrega.settings.open'],
-      'each panel carries the buttons for its own area',
+      'the title bar carries what belongs to the view, and the flow carries the operations',
     );
   });
 

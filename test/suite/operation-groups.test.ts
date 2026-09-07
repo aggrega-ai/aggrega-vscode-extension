@@ -50,10 +50,28 @@ function entity(over: Partial<CatalogIndexEntity>): CatalogIndexEntity {
 }
 
 describe('the operation surface, grouped by what a reader came to do', () => {
-  it('carries the five groups in the ruled order', () => {
+  it('carries the ruled groups in the ruled order, ecosystem last', () => {
+    // The workspace-authoring groups keep the order and the positions readers
+    // have already learnt, and the three ecosystem groups are APPENDED after
+    // them rather than interleaved. Their own order mirrors the container's
+    // panel order, so nothing new has to be remembered.
     assert.deepStrictEqual(
       OPERATION_GROUPS.map((g) => g.id),
+      [
+        'build', 'dependencies', 'author', 'publish', 'config',
+        'registries', 'catalog', 'plugins',
+      ],
+    );
+  });
+
+  it('leaves the workspace-authoring groups first, in the order they already had', () => {
+    // Asserted as a prefix rather than by index, so a group appended later
+    // cannot pass this by accident and an interleaved one cannot pass at all.
+    const ids = OPERATION_GROUPS.map((g) => g.id);
+    assert.deepStrictEqual(
+      ids.slice(0, 5),
       ['build', 'dependencies', 'author', 'publish', 'config'],
+      'an arriving group was interleaved into the five a reader had already learnt',
     );
   });
 
@@ -67,7 +85,73 @@ describe('the operation surface, grouped by what a reader came to do', () => {
       author: ['scaffold', 'import', 'inspect'],
       publish: ['push', 'sign', 'deprecate'],
       config: ['configShow', 'cache'],
+      registries: ['registryAdd', 'registryIndex'],
+      catalog: ['catalogSearch'],
+      plugins: ['pluginAdd', 'pluginEntities'],
     });
+  });
+
+  it('holds every panel-scoped operation the list panels used to carry', () => {
+    // The ruling this asserts: an operation whose subject is a panel or the
+    // workspace lives on this one panel and nowhere else. Written against the
+    // commands rather than the entry ids, because the command is what the
+    // manifest and the list panels' own registrations name.
+    const offered = allOperations().map(commandIdFor);
+    for (const command of [
+      'aggrega.registries.add',
+      'aggrega.registries.update',
+      'aggrega.catalog.searchPublished',
+      'aggrega.plugins.add',
+      'aggrega.plugins.genCatalog',
+    ]) {
+      assert.ok(offered.includes(command), `${command} acts on a whole panel and is on none`);
+    }
+    // Drafting was already here. It is asserted alongside them because its own
+    // title-bar entry was removed as a DUPLICATE rather than moved, and the
+    // failure that would follow from treating it as a move is a second Draft
+    // entity button — which the uniqueness assertion below would catch, but
+    // only if this one establishes that the single entry is still present.
+    assert.ok(offered.includes('aggrega.op.scaffold'), 'drafting an entity is on no panel');
+  });
+
+  it('leaves every row-scoped operation off this panel, so none re-asks what a click answered', () => {
+    // The other half of the ruling, and the half that would break the list
+    // panels if it were got wrong: an operation acting on a particular
+    // registry, entity or plugin takes its subject from the row the reader
+    // clicked, so an entry here would have to open a picker to ask again.
+    const offered = new Set(allOperations().map(commandIdFor));
+    // A negative control first: the census does see a command that IS offered,
+    // so the absences below are measurements rather than claims about the set.
+    assert.ok(offered.has('aggrega.op.build'), 'the census cannot see an offered command');
+    for (const command of [
+      'aggrega.registries.updateOne',
+      'aggrega.registries.logout',
+      'aggrega.registries.remove',
+      'aggrega.workspaceCatalog.inspect',
+      'aggrega.workspaceCatalog.validate',
+      'aggrega.workspaceCatalog.lint',
+      'aggrega.workspaceCatalog.push',
+      'aggrega.plugins.remove',
+    ]) {
+      assert.ok(
+        !offered.has(command),
+        `${command} acts on one row's subject; on this panel it could only re-ask for it`,
+      );
+    }
+  });
+
+  it('keeps the refresh commands off this panel, because each belongs to its own list', () => {
+    // A refresh re-reads one list rather than acting on the thing listed, so it
+    // belongs to that view. In one panel it would have no answer to "refresh
+    // which list?".
+    const offered = new Set(allOperations().map(commandIdFor));
+    for (const command of [
+      'aggrega.registries.refresh',
+      'aggrega.workspaceCatalog.refresh',
+      'aggrega.plugins.refresh',
+    ]) {
+      assert.ok(!offered.has(command), `${command} belongs to its own list view, not to this panel`);
+    }
   });
 
   it('keeps Lint immediately beside Validate, so one question sits in one place', () => {
@@ -121,13 +205,54 @@ describe('the operation surface, grouped by what a reader came to do', () => {
     }
   });
 
-  it('points the topology-graph entry at the command already contributed for it', () => {
-    const graph = allOperations().find((op) => op.id === 'graph');
-    assert.ok(graph);
-    assert.strictEqual(
-      commandIdFor(graph), 'aggrega.graph.show',
-      'a command id is what a reader binds a keystroke to, so it is reused rather than renamed',
+  it('reuses the command already contributed for an entry another surface owns', () => {
+    // A command id is what a reader binds a keystroke to, so it is reused
+    // rather than renamed — and the handler stays where it already is rather
+    // than being wrapped in a second command that only forwards.
+    const borrowed: Array<[string, string]> = [
+      ['graph', 'aggrega.graph.show'],
+      ['registryAdd', 'aggrega.registries.add'],
+      ['registryIndex', 'aggrega.registries.update'],
+      ['catalogSearch', 'aggrega.catalog.searchPublished'],
+      ['pluginAdd', 'aggrega.plugins.add'],
+      ['pluginEntities', 'aggrega.plugins.genCatalog'],
+    ];
+    for (const [id, command] of borrowed) {
+      const entry = allOperations().find((op) => op.id === id);
+      assert.ok(entry, `the ${id} entry is not on the panel at all`);
+      assert.strictEqual(commandIdFor(entry), command);
+    }
+  });
+
+  it('reaches a registered handler for every entry, including the ones it does not own', () => {
+    // The defect this catches is a dead button: an entry naming a command
+    // nothing registers draws normally and reports "command not found" when
+    // pressed. The manifest cannot see that, so the sources that register are
+    // read. Both registration shapes are collected — the literal id, and this
+    // surface's own composition from an entry id — because an entry may name
+    // either.
+    const src = path.join(__dirname, '..', '..', '..', 'src');
+    const sources = fs.readdirSync(src)
+      .filter((name) => name.endsWith('.ts'))
+      .map((name) => fs.readFileSync(path.join(src, name), 'utf8'))
+      .join('\n');
+    const registered = new Set<string>([
+      ...Array.from(sources.matchAll(/registerCommand\(\s*'([^']+)'/g)).map((m) => m[1]),
+      ...Array.from(sources.matchAll(/\breg\(\s*'([^']+)'/g)).map((m) => `aggrega.op.${m[1]}`),
+    ]);
+    // A negative control on the census: it does find a registration that is
+    // certainly there, so a miss below is a missing handler rather than a
+    // pattern that matches nothing.
+    assert.ok(
+      registered.has('aggrega.op.build'),
+      'the census sees no registration it certainly should, so its misses mean nothing',
     );
+    for (const op of allOperations()) {
+      assert.ok(
+        registered.has(commandIdFor(op)),
+        `the ${op.id} entry runs ${commandIdFor(op)}, which no source registers a handler for`,
+      );
+    }
   });
 });
 
@@ -137,7 +262,10 @@ describe('the surface the manifest actually contributes', () => {
   interface Manifest {
     contributes: {
       views: { aggrega: Array<{ id: string; name: string; type?: string }> };
-      menus: { 'view/title': Array<{ command: string; when: string }> };
+      menus: {
+        'view/title': Array<{ command: string; when: string }>;
+        'view/item/context': Array<{ command: string; when: string; group?: string }>;
+      };
       commands: Array<{ command: string; title: string }>;
       configuration: {
         properties: Record<string, {
@@ -153,14 +281,14 @@ describe('the surface the manifest actually contributes', () => {
     fs.readFileSync(path.join(__dirname, '..', '..', '..', 'package.json'), 'utf8'),
   );
 
-  // The operations lead, because they are what a reader came to do. What a
+  // The commands lead, because they are what a reader came to do. What a
   // reader with nothing configured needs first is the welcome panel, and that
   // opens in its own editor tab rather than as a panel here — so it costs the
   // container no slot, and this order holds whether it is shown or dismissed.
-  it('orders the container panels Operations, Registries, Catalog, Plugins', () => {
+  it('orders the container panels Commands, Registries, Catalog, Plugins', () => {
     assert.deepStrictEqual(
       manifest.contributes.views.aggrega.map((v) => v.name),
-      ['Operations', 'Registries', 'Catalog', 'Plugins'],
+      ['Commands', 'Registries', 'Catalog', 'Plugins'],
     );
   });
 
@@ -176,25 +304,111 @@ describe('the surface the manifest actually contributes', () => {
     );
   });
 
-  it('leaves no other area\'s button on the operations panel', () => {
-    const onOperations = manifest.contributes.menus['view/title']
+  it('leaves the cog alone in this panel\'s title bar', () => {
+    const onCommands = manifest.contributes.menus['view/title']
       .filter((m) => m.when === 'view == aggrega.operations')
       .map((m) => m.command);
-    // The cog belongs to this panel: it opens the preferences that decide how
-    // this panel and the compiler behind it behave. Every other panel's refresh
-    // and search buttons stay on their own panel.
+    // The cog belongs to the VIEW: it opens the reader's own preferences rather
+    // than acting on the workspace, exactly as a refresh belongs to the list it
+    // re-reads. So it stays here and is not duplicated into the flow — and the
+    // operations arriving from the other panels arrive as buttons in the drawn
+    // document, never as title-bar entries.
     assert.deepStrictEqual(
-      onOperations,
+      onCommands,
       ['aggrega.settings.open'],
-      'each panel carries the buttons for its own area',
+      'the title bar carries what belongs to the view, and the flow carries the operations',
     );
   });
 
-  it('puts the published-catalog search on the catalog panel', () => {
-    const search = manifest.contributes.menus['view/title']
-      .find((m) => m.command === 'aggrega.catalog.searchPublished');
-    assert.ok(search, 'the published-catalog search is bound to no panel');
-    assert.strictEqual(search.when, 'view == aggrega.workspaceCatalog');
+  it('clears the three list panels\' title bars of operations, leaving each its refresh', () => {
+    // The ruling this asserts: a title-bar operation was a hover-revealed
+    // unlabelled icon, which reads as a different surface from a labelled
+    // button. A refresh is not an operation in that sense — it re-reads a list
+    // rather than acting on the thing listed — so it stays, and the sweep is of
+    // operations rather than of every entry.
+    const byView = new Map<string, string[]>();
+    for (const entry of manifest.contributes.menus['view/title']) {
+      byView.set(entry.when, [...(byView.get(entry.when) ?? []), entry.command]);
+    }
+    assert.deepStrictEqual(
+      byView.get('view == aggrega.registries'),
+      ['aggrega.registries.refresh'],
+    );
+    assert.deepStrictEqual(
+      byView.get('view == aggrega.workspaceCatalog'),
+      ['aggrega.workspaceCatalog.refresh'],
+    );
+    assert.deepStrictEqual(
+      byView.get('view == aggrega.plugins'),
+      ['aggrega.plugins.refresh'],
+    );
+    // And nothing else is bound to a title bar at all, so an operation cannot
+    // return to one under a `when` clause this check did not name.
+    assert.deepStrictEqual(
+      [...byView.keys()].sort(),
+      [
+        'view == aggrega.operations',
+        'view == aggrega.plugins',
+        'view == aggrega.registries',
+        'view == aggrega.workspaceCatalog',
+      ],
+    );
+  });
+
+  it('takes the published-catalog search off the catalog title bar and onto the flow', () => {
+    const inTitleBars = manifest.contributes.menus['view/title']
+      .map((m) => m.command);
+    // A negative control: the census does see a command that IS in a title bar,
+    // so the absence below measures the manifest rather than the search.
+    assert.ok(
+      inTitleBars.includes('aggrega.settings.open'),
+      'the census cannot see a title-bar entry that is present',
+    );
+    assert.ok(
+      !inTitleBars.includes('aggrega.catalog.searchPublished'),
+      'the published-catalog search is still a hover-revealed icon in a title bar',
+    );
+    assert.ok(
+      allOperations().map(commandIdFor).includes('aggrega.catalog.searchPublished'),
+      'the search left the title bar and reached no button',
+    );
+  });
+
+  it('removes the drafting entry from the catalog title bar rather than duplicating it', () => {
+    // Drafting was panel-scoped AND already a button in the flow, so its
+    // title-bar entry was a duplicate. Moving it would have shipped a second
+    // Draft entity button; this asserts one entry, in the flow, and none in a
+    // title bar.
+    assert.ok(
+      !manifest.contributes.menus['view/title'].some((m) => m.command === 'aggrega.op.scaffold'),
+      'the drafting entry is still in a title bar as well as in the flow',
+    );
+    assert.deepStrictEqual(
+      allOperations().filter((op) => commandIdFor(op) === 'aggrega.op.scaffold').map((op) => op.id),
+      ['scaffold'],
+      'the flow carries a number of drafting entries other than one',
+    );
+  });
+
+  it('leaves every row-scoped operation bound to its row', () => {
+    // Clause-for-clause the counterpart of the title-bar sweep: the ruling
+    // reaches the title bars and does not reach the rows, so every operation
+    // whose subject is the clicked thing is still bound in the row block.
+    const onRows = new Set(
+      (manifest.contributes.menus['view/item/context'] ?? []).map((m) => m.command),
+    );
+    for (const command of [
+      'aggrega.registries.updateOne',
+      'aggrega.registries.logout',
+      'aggrega.registries.remove',
+      'aggrega.workspaceCatalog.inspect',
+      'aggrega.workspaceCatalog.validate',
+      'aggrega.workspaceCatalog.lint',
+      'aggrega.workspaceCatalog.push',
+      'aggrega.plugins.remove',
+    ]) {
+      assert.ok(onRows.has(command), `${command} acts on one row's subject and is bound to no row`);
+    }
   });
 
   it('declares a command for every entry on the panel, so no entry is a dead button', () => {
@@ -531,11 +745,12 @@ describe('what an entry needs before it can run', () => {
   });
 
   it('reads each requirement off the guard the operation\'s own handler applies', () => {
-    // Established by reading the handlers rather than inferred from the entry:
-    // the five Release-scoped operations check the anchored folder and then the
-    // selection; the five command-line-backed ones check the folder they run
-    // in; and the five language-server-backed ones that take no subject check
-    // neither, so nothing this panel can observe stops them.
+    // Established by reading the handlers rather than inferred from the entry.
+    // A Release-scoped operation checks the anchored folder and then the
+    // selection. A command-line-backed one checks the folder it runs in,
+    // because the one invocation path they share refuses without it. A
+    // language-server-backed one that takes no subject checks neither, so
+    // nothing this panel can observe stops it.
     assert.deepStrictEqual(OPERATION_REQUIREMENTS, {
       validate: 'none',
       lint: 'workspace',
@@ -552,7 +767,35 @@ describe('what an entry needs before it can run', () => {
       deprecate: 'workspace',
       configShow: 'none',
       cache: 'none',
+      registryAdd: 'workspace',
+      registryIndex: 'workspace',
+      catalogSearch: 'workspace',
+      pluginAdd: 'workspace',
+      pluginEntities: 'workspace',
     });
+  });
+
+  it('gates every arriving entry on the folder its invocation would refuse without', () => {
+    // The rule that has to hold for the arrivals specifically, because it is
+    // what makes them pressable: each runs the binary through the one shared
+    // invocation path, which reports there is no anchored folder rather than
+    // invoking anything. So the control is drawn unavailable in exactly that
+    // state, with the reason, and never hidden.
+    const nothing = { workspaceAnchored: false, releaseSelected: false };
+    const anchored = { workspaceAnchored: true, releaseSelected: false };
+    for (const id of [
+      'registryAdd', 'registryIndex', 'catalogSearch', 'pluginAdd', 'pluginEntities',
+    ] as OperationId[]) {
+      assert.strictEqual(
+        unavailableReason(id, nothing),
+        NO_ANCHORED_WORKSPACE_CONTROL_REASON,
+        `${id} is drawn as pressable in the state its invocation refuses`,
+      );
+      assert.strictEqual(
+        unavailableReason(id, anchored), null,
+        `${id} asks for a Release, which its handler never reads`,
+      );
+    }
   });
 
   it('reports no reason for anything once a folder is anchored and a Release chosen', () => {

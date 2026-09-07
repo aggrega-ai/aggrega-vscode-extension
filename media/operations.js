@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cognitio S.r.l.
 
-// The Operations panel's script. It forwards a press, swaps in the body the
+// The Commands panel's script. It forwards a press, swaps in the body the
 // extension composed, moves the roving tab stop, remembers where the reader
 // was, and decides which group boundaries earn a mark once the flow has been
 // laid out. It composes no markup of its own, because the layout has one home

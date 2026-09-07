@@ -33,7 +33,7 @@
       "aggrega": [
         {
           "id": "aggrega.operations",
-          "name": "Operations",
+          "name": "Commands",
           "type": "webview"
         },
         {
@@ -124,38 +124,8 @@
           "group": "navigation"
         },
         {
-          "command": "aggrega.op.scaffold",
-          "when": "view == aggrega.workspaceCatalog",
-          "group": "navigation"
-        },
-        {
-          "command": "aggrega.catalog.searchPublished",
-          "when": "view == aggrega.workspaceCatalog",
-          "group": "navigation"
-        },
-        {
-          "command": "aggrega.plugins.add",
-          "when": "view == aggrega.plugins",
-          "group": "navigation"
-        },
-        {
-          "command": "aggrega.plugins.genCatalog",
-          "when": "view == aggrega.plugins",
-          "group": "navigation"
-        },
-        {
           "command": "aggrega.plugins.refresh",
           "when": "view == aggrega.plugins",
-          "group": "navigation"
-        },
-        {
-          "command": "aggrega.registries.add",
-          "when": "view == aggrega.registries",
-          "group": "navigation"
-        },
-        {
-          "command": "aggrega.registries.update",
-          "when": "view == aggrega.registries",
           "group": "navigation"
         },
         {
@@ -554,7 +524,7 @@
             "Each group is a section you open, under its own title, so the panel shows as much as you keep open."
           ],
           "default": "buttons",
-          "description": "How the Operations panel draws its groups. Both shapes carry the same groups with the same operations — the setting changes how a group is drawn, never which operations exist or what they do. Changing it redraws the open panel; nothing restarts.",
+          "description": "How the Commands panel draws its groups. Both shapes carry the same groups with the same operations — the setting changes how a group is drawn, never which operations exist or what they do. Changing it redraws the open panel; nothing restarts.",
           "scope": "machine"
         },
         "aggrega.notifications.toastDebounceMode": {

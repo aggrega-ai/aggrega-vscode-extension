@@ -13,7 +13,7 @@ import {
 import { escapeHtml } from './html';
 import { SelectorRow } from './selector-rows';
 
-// This module composes the Operations panel's document and holds no editor
+// This module composes the Commands panel's document and holds no editor
 // type, so what a reader is shown is assertable without an extension host: the
 // two rows arriving ahead of the operations, one continuous flow of buttons in
 // the button shape, the same groups in the same order in the section shape,
@@ -34,7 +34,7 @@ import { SelectorRow } from './selector-rows';
 // PANEL_TITLE is the document's title. The view's own name comes from the
 // manifest; this is what a reader's assistive technology announces for the
 // document inside it.
-const PANEL_TITLE = 'Aggrega operations';
+const PANEL_TITLE = 'Aggrega commands';
 
 // selectorHtml draws one of the two rows naming what the panel acts on. The key
 // is already the row's, and it is reused as the control's focus key so the
@@ -145,7 +145,7 @@ export interface OperationsBody {
 // FLOW_LABEL names the flow for a reader who arrives at it without seeing it.
 // It is the panel's own name, which is the word that container already puts in
 // front of them.
-const FLOW_LABEL = 'Operations';
+const FLOW_LABEL = 'Commands';
 
 // buttonsFlowHtml draws every operation as one continuous sequence of buttons
 // that wraps over as many lines as the panel's width needs, with a mark at each

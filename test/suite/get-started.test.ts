@@ -278,7 +278,7 @@ describe('the welcome panel', () => {
           'aggrega.workspaceCatalog',
           'aggrega.plugins',
         ],
-        'the panel costs no sidebar slot, so the container reads Operations, Registries, Catalog, Plugins in both states — shown and dismissed',
+        'the panel costs no sidebar slot, so the container reads Commands, Registries, Catalog, Plugins in both states — shown and dismissed',
       );
     });
 

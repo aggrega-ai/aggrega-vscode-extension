@@ -33,15 +33,26 @@ export type OperationId =
   | 'sign'
   | 'deprecate'
   | 'configShow'
-  | 'cache';
+  | 'cache'
+  | 'registryAdd'
+  | 'registryIndex'
+  | 'catalogSearch'
+  | 'pluginAdd'
+  | 'pluginEntities';
 
-// OperationGroupId names the five reasons a person opens this panel.
+// OperationGroupId names the reasons a person opens this panel. The first ones
+// concern the workspace being authored; the rest concern the ecosystem around
+// it — the registries resolved through, the catalog published to, the plugins
+// attached.
 export type OperationGroupId =
   | 'build'
   | 'dependencies'
   | 'author'
   | 'publish'
-  | 'config';
+  | 'config'
+  | 'registries'
+  | 'catalog'
+  | 'plugins';
 
 export interface OperationDef {
   id: OperationId;
@@ -51,10 +62,13 @@ export interface OperationDef {
   // theme rather than shipping bitmap assets.
   icon: string;
   // command overrides the derived id for an operation whose command is
-  // contributed under a name of its own. The topology graph is the case: it was
-  // contributed before this surface grouped anything, and a command id is what a
-  // reader binds a keystroke to, so renaming it would silently break that
-  // binding.
+  // contributed and registered elsewhere. Two kinds of entry need it. The
+  // topology graph was contributed before this surface grouped anything. The
+  // registry, catalog and plugin entries are each owned by the list panel whose
+  // subject they act on, which is where their handler already lives. In both
+  // cases a command id is what a reader binds a keystroke to, so it is reused
+  // rather than renamed — and the handler stays in one place rather than being
+  // wrapped in a second command that only forwards.
   command?: string;
 }
 
@@ -81,10 +95,24 @@ export interface OperationGroup {
 
 // OPERATION_GROUPS is the operation surface, in display order.
 //
-// The groups are the five reasons a person opens this panel: to compile
-// something, to fetch what compiling needs, to write something new, to publish,
-// and to see or change how the tool is configured. Ordering by that reason means
-// a reader looking for one thing scans one group.
+// EVERY OPERATION WHOSE SUBJECT IS THE WORKSPACE OR A PANEL LIVES HERE, and the
+// panel is the one place a reader looks for one. An operation acting on a
+// particular registry, entity or plugin is not here: its subject is the row the
+// reader clicked, so it stays on that row, where clicking has already answered
+// the question a picker here would have to ask again.
+//
+// The groups are the reasons a person opens this panel: to compile something, to
+// fetch what compiling needs, to write something new, to publish, to see or
+// change how the tool is configured, and then the three that concern the
+// ecosystem around the workspace rather than the workspace itself — the
+// registries it resolves through, the catalog it publishes to, the plugins it
+// attaches. Ordering by that reason means a reader looking for one thing scans
+// one group.
+//
+// The ecosystem groups come last, and in the order the container draws its own
+// panels: what a reader does most often sits where they already expect it, the
+// groups they had already learnt keep their positions, and the new arrivals
+// introduce no second ordering to remember.
 //
 // Validate and Lint sit adjacent, and that adjacency is deliberate: they are the
 // two entries that answer "what is wrong with what I wrote", and both report
@@ -235,6 +263,59 @@ export const OPERATION_GROUPS: OperationGroup[] = [
       },
     ],
   },
+  {
+    id: 'registries',
+    heading: 'Registries',
+    operations: [
+      {
+        id: 'registryAdd',
+        label: 'Add registry',
+        detail: 'Register a registry to resolve dependencies from and publish to',
+        icon: 'add',
+        command: 'aggrega.registries.add',
+      },
+      {
+        id: 'registryIndex',
+        label: 'Update index',
+        detail: 'Refresh the searchable index of every configured registry',
+        icon: 'cloud-download',
+        command: 'aggrega.registries.update',
+      },
+    ],
+  },
+  {
+    id: 'catalog',
+    heading: 'Catalog',
+    operations: [
+      {
+        id: 'catalogSearch',
+        label: 'Search catalog',
+        detail: 'Search the published catalog and copy the reference of a match',
+        icon: 'cloud',
+        command: 'aggrega.catalog.searchPublished',
+      },
+    ],
+  },
+  {
+    id: 'plugins',
+    heading: 'Plugins',
+    operations: [
+      {
+        id: 'pluginAdd',
+        label: 'Add plugin',
+        detail: 'Search a configured registry for a plugin and attach it to this workspace',
+        icon: 'add',
+        command: 'aggrega.plugins.add',
+      },
+      {
+        id: 'pluginEntities',
+        label: 'Generate entities',
+        detail: 'Write a Plugin entity per selected plugin, under a directory you choose',
+        icon: 'export',
+        command: 'aggrega.plugins.genCatalog',
+      },
+    ],
+  },
 ];
 
 // commandIdFor reports the command an entry runs. It is derived from the
@@ -320,6 +401,17 @@ export const OPERATION_REQUIREMENTS: Record<OperationId, OperationRequirement> =
   deprecate: 'workspace',
   configShow: 'none',
   cache: 'none',
+  // The five that arrive from the list panels are all command-line-backed, and
+  // the single invocation path they share refuses without an anchored folder to
+  // run in — so each is gated on the folder and on nothing else. Two of them ask
+  // their questions before that path is reached; the control is still drawn as
+  // unavailable, because a reader who has answered three dialogs and is then
+  // told there is no folder has answered them for nothing.
+  registryAdd: 'workspace',
+  registryIndex: 'workspace',
+  catalogSearch: 'workspace',
+  pluginAdd: 'workspace',
+  pluginEntities: 'workspace',
 };
 
 // SurfaceFacts is what the panel knows about its own subject at the moment it
