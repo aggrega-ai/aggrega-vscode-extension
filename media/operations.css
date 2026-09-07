@@ -42,8 +42,15 @@ body {
   min-width: 0;
 }
 
+/* ONE LINE, and it stays one line however narrow the panel gets. The row
+   reports the concept and the current answer; everything else the row's text
+   carries reaches the reader on the hover. A row that wrapped would spend the
+   height this shape exists to give back, so the answer is clipped with an
+   ellipsis instead — and the hover is where the untruncated text already is. */
 .selector {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
   width: 100%;
   min-width: 0;
   text-align: left;
@@ -54,14 +61,8 @@ body {
   border: none;
   border-radius: 3px;
   padding: 0.25rem 0.6rem;
+  white-space: nowrap;
   cursor: pointer;
-}
-
-.selector-head {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  min-width: 0;
 }
 
 .selector-label {
@@ -74,24 +75,8 @@ body {
 .selector-value {
   flex: 1 1 auto;
   min-width: 0;
-  overflow-wrap: anywhere;
-}
-
-/* The explanation is drawn inside the row rather than left to a hover. The
-   workspace row's is load-bearing — it names the anchored folder and, when they
-   differ, the folder that was opened — and a reader should not have to hover to
-   learn which folder the offered Releases come from. */
-.selector-detail {
-  display: flex;
-  flex-direction: column;
-  padding-left: 1.4rem;
-  color: var(--vscode-descriptionForeground);
-  font-size: 0.9em;
-  line-height: 1.4;
-}
-
-.selector-line {
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .selector:hover {
@@ -109,16 +94,6 @@ body {
   display: flex;
   flex-direction: column;
   min-width: 0;
-}
-
-/* The divider ahead of the publish group, as a rule with a margin. The
-   operations below it change what every consumer of a catalog resolves, while
-   everything above writes to this machine, and that difference belongs in front
-   of the reader before the press rather than in an explanation after it. */
-.group-separated {
-  border-top: 1px solid var(--vscode-panel-border, var(--vscode-widget-border));
-  margin-top: 0.5rem;
-  padding-top: 0.5rem;
 }
 
 /* A control that cannot run keeps its place in the row. Removing one would move
@@ -149,32 +124,60 @@ body {
   font-size: 16px;
 }
 
-/* --- one row of buttons per group ---------------------------------------- */
+/* --- one continuous flow of buttons -------------------------------------- */
 
-.groups-buttons {
-  gap: 0.65rem;
+/* Every operation is a sibling here, with no per-group box between them, and
+   that is what makes the sequence continuous: a line with room for the next
+   group's first button gets it rather than ending because a group ended.
+
+   A narrow panel WRAPS. Scrolling sideways would hide operations behind a
+   gesture with no affordance, in a panel whose whole premise is that everything
+   is visible at once; shrinking would truncate a label at exactly the width
+   where the reader most needs to read it. Wrapping is the vertical shape the
+   reader already knows how to read.
+
+   How many lines it takes is decided by the width and the labels, and by
+   nothing else. NO BREAK IS EVER FORCED: a break written in here would hold at
+   the width it was written for and be wrong at every other one, and it would
+   break the wrapping the whole shape depends on. */
+.ops-flow {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
   padding: 0 0.6rem;
 }
 
-.group-heading {
-  margin: 0 0 0.3rem;
-  font-size: 0.85em;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--vscode-descriptionForeground);
+/* The mark between two groups: a thin vertical rule, inset so it reads as a
+   divider between controls rather than as a border around them.
+
+   The final fallback is the foreground colour rather than nothing. In the flow
+   shape this rule is the ONLY thing separating one group from the next, so a
+   theme that declares neither border colour would leave the groups
+   indistinguishable — whereas the section shape has its own headings to fall
+   back on. */
+.flow-bar {
+  flex: 0 0 auto;
+  width: 1px;
+  height: 1.1rem;
+  background: var(--vscode-panel-border, var(--vscode-widget-border, currentColor));
 }
 
-/* A narrow panel WRAPS. Scrolling sideways would hide operations behind a
-   gesture with no affordance, in a panel whose whole premise is that everything
-   is visible at once; shrinking would truncate a label at exactly the width
-   where the reader most needs to read it. Wrapping turns one row into two,
-   which is the vertical shape the reader already knows how to read. */
-.group-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-  min-width: 0;
+/* Set by the panel's script AFTER the browser has laid the flow out, and
+   reachable no other way: a boundary that landed at the start or the end of a
+   line needs no mark, because the line break is already the separation, and
+   where the break falls is not known until there is a width to break against.
+
+   IT HIDES THE INK AND KEEPS THE BOX. Taking the box away would give its width
+   back to the line, which can pull a later control up onto the previous one and
+   move the next boundary — so the suppression would change the layout it was
+   computed from, and could disagree with itself on the next measurement. The
+   box stays, the measurement is the same however many marks are suppressed, and
+   the cost is that a line beginning at a suppressed boundary starts one gap
+   further in. `visibility` also takes the mark out of the accessibility tree,
+   so a suppressed boundary is announced to nobody either. */
+.flow-bar[data-edge] {
+  visibility: hidden;
 }
 
 .op {
@@ -211,6 +214,21 @@ body {
    child indented by one level. */
 .groups-sections .group {
   display: block;
+}
+
+/* The divider ahead of a group whose operations differ in KIND, as a rule with
+   a margin. What lies below it changes what every consumer of a catalog
+   resolves, while everything above writes to this machine, and that difference
+   belongs in front of the reader before the press rather than in an explanation
+   after it.
+
+   It is drawn only here. The flow shape has no group box to put a border on,
+   and it marks every boundary rather than one, so the difference in kind is not
+   what a mark reports there. */
+.groups-sections .group-separated {
+  border-top: 1px solid var(--vscode-panel-border, var(--vscode-widget-border));
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
 }
 
 .groups-sections .op,
@@ -266,11 +284,6 @@ body {
 .section-head:active {
   background: var(--vscode-list-activeSelectionBackground);
   color: var(--vscode-list-activeSelectionForeground, inherit);
-}
-
-.groups-sections .group-separated {
-  margin-left: 0;
-  margin-right: 0;
 }
 
 /* --- high contrast ------------------------------------------------------- */

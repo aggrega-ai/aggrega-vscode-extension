@@ -2,10 +2,89 @@
 // Copyright 2026 Cognitio S.r.l.
 
 // The Operations panel's script. It forwards a press, swaps in the body the
-// extension composed, moves the roving tab stop, and remembers where the reader
-// was. It composes no markup of its own, because the layout has one home and it
-// is not this file.
-(function () {
+// extension composed, moves the roving tab stop, remembers where the reader
+// was, and decides which group boundaries earn a mark once the flow has been
+// laid out. It composes no markup of its own, because the layout has one home
+// and it is not this file.
+//
+// IT HAS TWO HALVES AND THE SPLIT IS DELIBERATE. The first reads no document
+// and holds no state: given where each item in the flow landed, it says which
+// boundary marks are drawn. It is assigned to a global before anything touches
+// the document, so it can be exercised on its own — which is the only way the
+// mid-line rule is provable at all, since everything else about it needs a
+// browser to have laid something out. The second half is the document work, and
+// it runs only where there is a document and a host to talk to.
+(function (root) {
+  'use strict';
+
+  // --- where a group boundary earns a mark: the document-free half --------
+
+  // A boundary mark is drawn only in the MIDDLE of a line. Where a wrap puts a
+  // boundary at the start or the end of one, the line break is already the
+  // separation and a mark there would be a stray tick against the edge of the
+  // panel.
+  //
+  // The rule reduces to one comparison: a mark is drawn exactly when the
+  // control BEFORE it and the control AFTER it are on the same line. If they
+  // are, the mark sits between them on that line, so it is mid-line. If they
+  // are not, the break falls at this boundary, and the mark is at the end of
+  // one line or the start of the next whichever side it landed on — so it is
+  // suppressed either way.
+  //
+  // Comparing the two neighbours rather than the mark's own position is what
+  // makes this independent of how the mark is styled: it can be inset, centred
+  // or full height without the answer changing.
+  function sameLine(a, b, slack) {
+    if (typeof a !== 'number' || typeof b !== 'number') { return false; }
+    return Math.abs(a - b) <= slack;
+  }
+
+  // drawnBars reports, for each boundary mark in the flow, whether it is drawn.
+  //
+  // items is the flow's children in document order, each { bar, top } — bar
+  // true for a boundary mark, top the offset of the line it landed on. The
+  // answer is one boolean per mark, in the same order.
+  //
+  // slack absorbs sub-pixel differences between two controls on one line. It is
+  // a tolerance on "same line", never a guess at a line's height: two lines are
+  // a whole control apart, so no plausible tolerance confuses them.
+  //
+  // An item whose position could not be measured, or a mark with no control on
+  // one side of it, yields false. That is the safe direction: an unmarked
+  // boundary loses a visual cue, while a mark drawn against a line edge is the
+  // defect this whole function exists to prevent.
+  function drawnBars(items, slack) {
+    var list = Array.isArray(items) ? items : [];
+    var tolerance = typeof slack === 'number' && slack >= 0 ? slack : 0;
+    var answer = [];
+    for (var at = 0; at < list.length; at += 1) {
+      var item = list[at] || {};
+      if (item.bar !== true) { continue; }
+      var before = at > 0 ? (list[at - 1] || {}) : null;
+      var after = at + 1 < list.length ? (list[at + 1] || {}) : null;
+      answer.push(
+        before !== null && after !== null
+        && before.bar !== true && after.bar !== true
+        && sameLine(before.top, after.top, tolerance),
+      );
+    }
+    return answer;
+  }
+
+  // The tolerance the panel measures with. One pixel: enough for a sub-pixel
+  // difference between two controls sharing a line, and far below the distance
+  // between two lines.
+  var LINE_SLACK = 1;
+
+  root.AggregaOperationsFlow = {
+    drawnBars: drawnBars,
+    LINE_SLACK: LINE_SLACK,
+  };
+
+  // --- the document half --------------------------------------------------
+
+  if (typeof document === 'undefined' || typeof acquireVsCodeApi !== 'function') { return; }
+
   const vscode = acquireVsCodeApi();
   const panel = document.getElementById('panel');
 
@@ -44,10 +123,41 @@
     });
   }
 
+  // resolveBoundaries decides which boundary marks are drawn, from where the
+  // browser actually put things.
+  //
+  // The composed document carries one mark per boundary and no verdict about
+  // any of them, because a verdict needs a width and the composing side has
+  // none. This is where the width exists, so this is where the answer is
+  // reached — and it is reached again on every re-drawing, on every resize, and
+  // once the icon font has loaded, because each of those moves where the flow
+  // wraps.
+  //
+  // Marking a mark keeps its box, so re-running this over an already-marked
+  // flow measures the same positions and reaches the same answer.
+  function resolveBoundaries() {
+    const flow = panel.querySelector('[data-flow]');
+    if (!flow) { return; }
+    const children = Array.prototype.slice.call(flow.children);
+    const bars = children.filter((el) => el.hasAttribute('data-boundary'));
+    if (bars.length === 0) { return; }
+    const drawn = root.AggregaOperationsFlow.drawnBars(
+      children.map((el) => ({
+        bar: el.hasAttribute('data-boundary'),
+        top: el.offsetTop,
+      })),
+      root.AggregaOperationsFlow.LINE_SLACK,
+    );
+    bars.forEach((bar, at) => {
+      if (drawn[at]) { bar.removeAttribute('data-edge'); }
+      else { bar.setAttribute('data-edge', ''); }
+    });
+  }
+
   // controlsIn reports the controls a roving container's arrow keys move
   // between. A disabled control is left out because it cannot hold focus, so
   // stopping on one would strand the reader on a control that never receives the
-  // keystroke.
+  // keystroke. A boundary mark carries no focus key, so it is never one of them.
   function controlsIn(container) {
     return Array.prototype.slice.call(
       container.querySelectorAll('[data-focus-key]:not([disabled])'),
@@ -179,6 +289,10 @@
     const held = panel.contains(active) ? active.closest('[data-focus-key]') : null;
     const key = held ? held.dataset.focusKey : null;
     panel.innerHTML = message.html;
+    // The swapped-in flow arrives with every boundary marked and none
+    // suppressed, so the verdicts are reached again here rather than inherited
+    // from the flow that was replaced.
+    resolveBoundaries();
     if (typeof message.scrollTop === 'number') {
       window.scrollTo(0, message.scrollTop);
     }
@@ -187,7 +301,24 @@
     if (returning) { returning.focus(); }
   });
 
+  // The reader drags this panel as narrow as they like, and every width wraps
+  // the flow differently — so the verdicts are re-reached whenever the box
+  // changes rather than once at load.
+  if (typeof ResizeObserver === 'function') {
+    new ResizeObserver(resolveBoundaries).observe(document.documentElement);
+  } else {
+    window.addEventListener('resize', resolveBoundaries);
+  }
+
+  // The icon font arrives after the first layout, and every control draws an
+  // icon — so the widths the first measurement saw are not the final ones.
+  if (document.fonts && document.fonts.ready && typeof document.fonts.ready.then === 'function') {
+    document.fonts.ready.then(resolveBoundaries);
+  }
+
+  resolveBoundaries();
+
   if (state.scrollTop > 0) {
     window.scrollTo(0, state.scrollTop);
   }
-})();
+})(typeof globalThis !== 'undefined' ? globalThis : this);

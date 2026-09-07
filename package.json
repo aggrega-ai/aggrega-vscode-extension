@@ -550,8 +550,8 @@
             "sections"
           ],
           "enumDescriptions": [
-            "Each group is a single row of buttons, so every operation is a labelled control you can see and press without opening anything.",
-            "Each group is a section you open, so the panel shows as much as you keep open."
+            "Every operation is a labelled button in one flow that wraps, with a thin bar where one group ends and the next begins, so everything is visible without opening anything.",
+            "Each group is a section you open, under its own title, so the panel shows as much as you keep open."
           ],
           "default": "buttons",
           "description": "How the Operations panel draws its groups. Both shapes carry the same groups with the same operations — the setting changes how a group is drawn, never which operations exist or what they do. Changing it redraws the open panel; nothing restarts.",

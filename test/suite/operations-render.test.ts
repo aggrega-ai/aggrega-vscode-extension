@@ -61,36 +61,163 @@ function commandsIn(html: string): string[] {
   return Array.from(html.matchAll(/data-command="([^"]+)"/g)).map((m) => m[1]);
 }
 
+// groupsInDocument recovers, from the document's own attributes, which group
+// each control states it belongs to — as consecutive runs, in document order.
+//
+// It reads membership AND order: a group whose controls were split apart would
+// come back as two runs under one id and fail the comparison, and two groups
+// swapped would come back in the wrong order. It is written against the
+// attribute rather than against a wrapper so it reads both shapes — the flow
+// has no wrapper to read, which is the whole reason the attribute is there.
+//
+// Requiring data-group to follow data-focus-key is what confines this to the
+// operation controls: the two rows naming the panel's subject carry a command
+// and a focus key and no group, and they must not be counted as members of one.
+function groupsInDocument(html: string): Array<[string, string[]]> {
+  const runs: Array<[string, string[]]> = [];
+  for (const m of html.matchAll(/data-command="([^"]+)" data-focus-key="[^"]*" data-group="([^"]+)"/g)) {
+    const command = m[1];
+    const group = m[2];
+    const last = runs[runs.length - 1];
+    if (last !== undefined && last[0] === group) { last[1].push(command); }
+    else { runs.push([group, [command]]); }
+  }
+  return runs;
+}
+
+// boundariesIn reports the group each boundary mark says it opens, in order.
+function boundariesIn(html: string): string[] {
+  return Array.from(html.matchAll(/class="flow-bar"[^>]*data-boundary="([^"]+)"/g)).map((m) => m[1]);
+}
+
 const BOTH: OperationsLayout[] = ['buttons', 'sections'];
 
 describe('the Operations panel document', () => {
-  it('draws one row of buttons per group, and as many rows as there are groups', () => {
+  it('draws one continuous flow of buttons, with no group title anywhere', () => {
+    // The buttons are siblings in one wrapping container. Per-group rows spent
+    // a line on every group whether it needed one or not, and a title line on
+    // top of that; a flow lets a line that has room for the next group's first
+    // button take it.
     const html = operationsBodyHtml(body({ layout: 'buttons' }));
     assert.strictEqual(
-      occurrences(html, /class="group-row"/),
-      OPERATION_GROUPS.length,
-      'a group without its own row is a group whose buttons joined another one',
+      occurrences(html, /data-flow/), 1,
+      'the buttons shape draws a number of flows other than one',
     );
-    for (const chunk of sectionsOf(html)) {
-      assert.strictEqual(
-        occurrences(chunk, /class="group-row"/), 1,
-        'a group draws one row, so its buttons sit on one line and wrap together',
+    // No group box between the controls, which is what makes the sequence
+    // continuous rather than one row per group.
+    assert.strictEqual(
+      occurrences(html, /<section/), 0,
+      'the buttons shape still wraps each group in a box, so its buttons cannot share a line',
+    );
+    assert.strictEqual(
+      occurrences(html, /class="group-row"/), 0,
+      'the buttons shape still draws a row per group',
+    );
+    // The titles, by class and by element: a heading re-introduced as a
+    // different element would pass a check written only against the class.
+    assert.strictEqual(
+      occurrences(html, /class="group-heading"/), 0,
+      'the buttons shape still draws a group title',
+    );
+    assert.strictEqual(
+      occurrences(html, /<h[1-6]/), 0,
+      'the buttons shape draws a heading element, which is a group title by another name',
+    );
+    assert.strictEqual(
+      occurrences(html, /class="section-title"/), 0,
+      'the buttons shape draws a group title as the section shape\'s own title element',
+    );
+    // A closed set over what the flow is built from, so a title cannot arrive
+    // as some element the checks above do not name. The container, the
+    // controls, and the spans that are their icons, their labels and the
+    // boundary marks — and nothing else.
+    //
+    // Asserted this way rather than by searching for each group's name as
+    // content, which cannot work: one group is called Build and so is one of
+    // the operations inside it, so that search reports a title that is not
+    // there.
+    const flow = html.slice(html.indexOf('<div class="groups ops-flow"'));
+    assert.deepStrictEqual(
+      Array.from(new Set(Array.from(flow.matchAll(/<([a-z0-9]+)[\s>]/g)).map((m) => m[1]))).sort(),
+      ['button', 'div', 'span'],
+      'the flow draws an element that is neither the container, a control, nor part of one',
+    );
+    // A negative control: the operations themselves ARE drawn, so the zeros
+    // above measure the titles rather than an empty document.
+    assert.strictEqual(
+      occurrences(html, /class="op"/),
+      allOperations().length,
+      'the flow draws a number of operations other than all of them',
+    );
+  });
+
+  it('draws each operation\'s name and nothing else, in both shapes', () => {
+    // A label carries the name; the explanation is on the control's hover,
+    // where a reader who wants it asks for it. Written out literally rather
+    // than read back from the same table the composer reads, which would agree
+    // with itself whatever the table said.
+    const ruled = [
+      'Validate', 'Lint', 'Build', 'Preview', 'Graph',
+      'Pull', 'Acquire inputs',
+      'Draft entity', 'Import', 'Inspect',
+      'Push', 'Sign', 'Deprecate',
+      'Show config', 'Cache…',
+    ];
+    for (const layout of BOTH) {
+      const html = operationsBodyHtml(body({ layout }));
+      assert.deepStrictEqual(
+        Array.from(html.matchAll(/<span class="op-label">(.*?)<\/span>/g)).map((m) => m[1]),
+        ruled,
+        `the ${layout} shape draws a different label, or draws them in a different order`,
       );
     }
+  });
+
+  it('marks the one entry that asks WHICH operation, and no entry that asks for a subject', () => {
+    // The mark reads as a promise about what happens next. Asking for the
+    // SUBJECT of a named operation is what almost every entry here does, so
+    // marking that would mark most of the panel and distinguish nothing. The
+    // cache is not the same act: pressing it names no operation, and what it
+    // asks is which one to run.
+    const marked = allOperations().filter((op) => op.label.endsWith('…')).map((op) => op.id);
+    assert.deepStrictEqual(
+      marked, ['cache'],
+      'an entry that asks for a subject is marked as though it asked which operation',
+    );
+    // A negative control on the census: the mark is a character this search can
+    // actually see, established against the one label that carries it.
+    assert.ok(
+      allOperations().some((op) => op.label.includes('…')),
+      'the census cannot see the mark on a label that carries it, so its zeros mean nothing',
+    );
+    // And it reaches the drawn document, not only the table.
+    const html = operationsBodyHtml(body({ layout: 'buttons' }));
+    assert.strictEqual(
+      occurrences(html, /<span class="op-label">[^<]*…<\/span>/), 1,
+      'the drawn labels carry a number of marks other than the one',
+    );
   });
 
   it('carries the same groups, the same membership and the same order in both shapes', () => {
     // The shape decides how a group is drawn, never what is in it or what order
     // they come in — which a finished decision settled and this document does
     // not revisit.
-    const expected = OPERATION_GROUPS.map((group) => group.operations.map(commandIdFor));
+    const expected: Array<[string, string[]]> = OPERATION_GROUPS
+      .map((group) => [group.id, group.operations.map(commandIdFor)]);
     for (const layout of BOTH) {
-      const drawn = sectionsOf(operationsBodyHtml(body({ layout }))).map(commandsIn);
       assert.deepStrictEqual(
-        drawn, expected,
+        groupsInDocument(operationsBodyHtml(body({ layout }))), expected,
         `the ${layout} shape draws different groups, membership or order`,
       );
     }
+    // The section shape additionally nests each group's controls inside that
+    // group's own box, which is what its headings label.
+    const sections = operationsBodyHtml(body({ layout: 'sections' }));
+    assert.deepStrictEqual(
+      sectionsOf(sections).map(commandsIn),
+      OPERATION_GROUPS.map((group) => group.operations.map(commandIdFor)),
+      'the section shape does not nest each group\'s controls in that group\'s box',
+    );
   });
 
   it('puts the two rows naming the subject ahead of every group, in both shapes', () => {
@@ -104,8 +231,14 @@ describe('the Operations panel document', () => {
         rows < groups,
         `the ${layout} shape draws a group before the rows naming what it acts on`,
       );
-      // And neither row is inside a group, which is what makes the rule a
-      // property of the document rather than one somebody has to remember.
+      // And neither row is inside the operations, which is what makes the rule
+      // a property of the document rather than one somebody has to remember.
+      // Asserted over everything from the operations onward, so it holds for
+      // the flow — which has no per-group box for the loop below to slice.
+      assert.strictEqual(
+        occurrences(html.slice(groups), /class="selector"/), 0,
+        `the ${layout} shape puts a selector row among the operations`,
+      );
       for (const chunk of sectionsOf(html)) {
         assert.strictEqual(
           occurrences(chunk, /class="selector"/), 0,
@@ -143,37 +276,59 @@ describe('the Operations panel document', () => {
     );
   });
 
-  it('draws the workspace explanation inside the row rather than only on hover', () => {
-    // The explanation names the anchored folder and, when they differ, the
-    // folder that was opened. It is load-bearing and multi-line, and a reader
-    // should not have to hover to learn which folder the offered Releases come
-    // from.
+  it('keeps each context row to one line and puts its detail on the hover', () => {
+    // The row exists so a reader knows WHAT the buttons would act on, and the
+    // identity answers that. The full path answers "which one exactly", which
+    // is a second question — so it is asked for rather than drawn, and the row
+    // costs one line instead of a block.
     const rows = selectorRows('/work/demo', '/work/demo/services/api', SELECTED);
     const html = operationsBodyHtml(body({ selectors: rows }));
 
-    // Asserted inside the drawn explanation, never against the whole document:
-    // the control also carries the whole text as its hover, so a document-wide
-    // search finds every line whether it is DRAWN or not — which is how an
-    // earlier form of this test passed with the explanation cut to one line.
-    const drawn = Array.from(html.matchAll(/<span class="selector-detail">(.*?)<\/span>\s*<\/button>/gs))
-      .map((m) => m[1]);
-    assert.strictEqual(drawn.length, rows.length, 'a row draws no explanation at all');
+    // Nothing is drawn beneath a row, by class and by count.
+    assert.strictEqual(
+      occurrences(html, /class="selector-detail"/), 0,
+      'a row still draws a block of text beneath itself',
+    );
+    assert.strictEqual(
+      occurrences(html, /class="selector-line"/), 0,
+      'a row still draws its explanation as lines of its own',
+    );
 
-    const workspace = drawn[0];
+    // What each row DRAWS is its own name and its own value, and nothing else.
+    // Sliced from the control's own markup rather than searched for across the
+    // document: the control carries the whole text as its hover, so a
+    // document-wide search finds every line whether it is drawn or not.
+    const drawn = Array.from(html.matchAll(/<button class="selector"[^>]*>(.*?)<\/button>/gs))
+      .map((m) => m[1]);
+    assert.strictEqual(drawn.length, rows.length, 'a row is not drawn as a control');
+    for (let at = 0; at < rows.length; at += 1) {
+      assert.ok(drawn[at].includes(rows[at].label), `the ${rows[at].key} row draws no name`);
+      assert.ok(drawn[at].includes(rows[at].value), `the ${rows[at].key} row draws no value`);
+    }
     assert.ok(
-      workspace.includes('/work/demo/services/api'),
-      'the open folder is not drawn where it differs from the anchored one',
+      !drawn[0].includes('/work/demo/services/api'),
+      'the workspace row still draws the open folder rather than leaving it to the hover',
     );
     assert.ok(
-      occurrences(workspace, /class="selector-line"/) >= 2,
-      'the explanation is drawn as one line, so its later facts are not drawn at all',
+      !drawn[0].includes('Aggrega workspace: /work/demo'),
+      'the workspace row still draws the anchored path rather than leaving it to the hover',
     );
-    // Every line the row's own text carries is drawn, so nothing here decides
-    // which of them a reader is allowed to see.
+
+    // And every line of it is on the hover, whole and unfiltered — including
+    // the open folder, which is the fact that only exists when the two differ.
+    // A row that dropped a line would have moved the detail nowhere rather
+    // than onto the hover.
+    const hovers = Array.from(html.matchAll(/<button class="selector"[^>]*title="([^"]*)"/gs))
+      .map((m) => m[1]);
+    assert.strictEqual(hovers.length, rows.length, 'a row carries no hover at all');
+    assert.ok(
+      hovers[0].includes('/work/demo/services/api'),
+      'the open folder reaches neither the row nor its hover',
+    );
     for (const line of rows[0].tooltip.split('\n')) {
       assert.ok(
-        workspace.includes(line),
-        `the explanation drops the line ${JSON.stringify(line)}`,
+        hovers[0].includes(line),
+        `the hover drops the line ${JSON.stringify(line)}`,
       );
     }
   });
@@ -277,12 +432,10 @@ describe('an operation whose invocation cannot succeed', () => {
       );
     }
     const buttons = operationsBodyHtml(body({ unavailable: noRelease, focused: 'aggrega.op.build' }));
-    for (const chunk of sectionsOf(buttons)) {
-      assert.strictEqual(
-        occurrences(chunk, /tabindex="0"/), 1,
-        'a group carries a number of tab stops other than one',
-      );
-    }
+    assert.strictEqual(
+      occurrences(buttons, /tabindex="0"/), 1,
+      'the flow carries a number of tab stops other than one',
+    );
   });
 
   it('reports no reason for anything when nothing is unavailable', () => {
@@ -322,47 +475,65 @@ describe('what the panel owes a reader who is not using a pointer', () => {
     }
   });
 
-  it('names every group once, as a landmark the reader is told they have entered', () => {
-    // A tree announces "N of M, level L" for free; a flat row of buttons
-    // announces nothing about where the reader is. One labelled landmark per
-    // group is the replacement, and it is cheaper and clearer than hanging a
-    // description off every button.
-    for (const layout of BOTH) {
-      const html = operationsBodyHtml(body({ layout }));
-      for (const group of OPERATION_GROUPS) {
-        assert.ok(
-          html.includes(`role="group" aria-labelledby="grp-${group.id}"`),
-          `the ${layout} shape leaves ${group.id} unlabelled`,
-        );
-        assert.strictEqual(
-          occurrences(html, new RegExp(`id="grp-${group.id}"`)), 1,
-          `the ${layout} shape gives ${group.id} a number of labels other than one`,
-        );
-      }
+  it('names every group once as a landmark in the section shape, which has a box to label', () => {
+    // A tree announces "N of M, level L" for free. In the section shape a
+    // labelled landmark per group is the replacement, and it is cheaper and
+    // clearer than hanging a description off every button.
+    const html = operationsBodyHtml(body({ layout: 'sections' }));
+    for (const group of OPERATION_GROUPS) {
+      assert.ok(
+        html.includes(`role="group" aria-labelledby="grp-${group.id}"`),
+        `the section shape leaves ${group.id} unlabelled`,
+      );
+      assert.strictEqual(
+        occurrences(html, new RegExp(`id="grp-${group.id}"`)), 1,
+        `the section shape gives ${group.id} a number of labels other than one`,
+      );
     }
   });
 
-  it('costs one tab stop per group in the button shape, not one per operation', () => {
+  it('names the flow itself, and states each control\'s group on the control', () => {
+    // The flow shape has no group box and no title, so there is nothing to hang
+    // a per-group landmark on: the replacement is one named toolbar the reader
+    // is told they have entered, positioned within, and a boundary announced
+    // between one group and the next. Which group a control belongs to is a
+    // ruled property of the surface rather than a consequence of the drawing,
+    // so the control states it whether or not anything draws a box around it.
+    const html = operationsBodyHtml(body({ layout: 'buttons' }));
+    assert.ok(
+      html.includes('role="toolbar" aria-label="Operations" aria-orientation="horizontal"'),
+      'the flow does not declare itself a named horizontal toolbar',
+    );
+    assert.strictEqual(
+      occurrences(html, /data-group="/),
+      allOperations().length,
+      'a control in the flow states no group, or one is stated twice',
+    );
+    assert.strictEqual(
+      occurrences(html, /aria-labelledby="grp-/), 0,
+      'the flow points at a group label that no longer exists',
+    );
+  });
+
+  it('costs one tab stop for the whole flow, not one per group', () => {
     // Fifteen operations and two rows would be seventeen tab stops against a
-    // tree's one. The arrow keys move within a group and Tab moves between
-    // them, which is the contract a reader already has from the trees beside
-    // this panel.
+    // tree's one. Per-group rows cost one each; a single flow costs one for the
+    // panel, and the arrow keys walk the whole sequence — which is the contract
+    // a reader already has from the trees beside this panel, now cheaper.
     const html = operationsBodyHtml(body({ layout: 'buttons' }));
     assert.strictEqual(
-      occurrences(html, /data-roving/),
-      OPERATION_GROUPS.length,
-      'the button shape does not put one roving container around each group',
+      occurrences(html, /data-roving/), 1,
+      'the button shape does not put one roving container around the whole flow',
     );
-    for (const chunk of sectionsOf(html)) {
-      assert.strictEqual(
-        occurrences(chunk, /tabindex="0"/), 1,
-        'a group carries a number of tab stops other than one',
-      );
-      assert.ok(
-        chunk.includes('role="toolbar" aria-orientation="horizontal"'),
-        'a group\'s row does not declare itself a horizontal toolbar',
-      );
-    }
+    assert.strictEqual(
+      occurrences(html, /tabindex="0"/), 1,
+      'the flow carries a number of tab stops other than one',
+    );
+    assert.strictEqual(
+      occurrences(html, /tabindex="-1"/),
+      allOperations().length - 1,
+      'a control in the flow is outside the roving stop\'s reach',
+    );
   });
 
   it('costs one tab stop for the whole list in the section shape', () => {
@@ -393,9 +564,7 @@ describe('what the panel owes a reader who is not using a pointer', () => {
     // container with no tab stop at all is one Tab skips entirely, which is
     // worse than starting the reader at the beginning of it.
     const html = operationsBodyHtml(body({ layout: 'buttons', focused: 'aggrega.op.nothing' }));
-    for (const chunk of sectionsOf(html)) {
-      assert.strictEqual(occurrences(chunk, /tabindex="0"/), 1);
-    }
+    assert.strictEqual(occurrences(html, /tabindex="0"/), 1);
     assert.ok(html.includes('tabindex="0" data-command="aggrega.op.validate"'));
   });
 
@@ -419,28 +588,92 @@ describe('what the panel owes a reader who is not using a pointer', () => {
   });
 });
 
-describe('the divider ahead of the publish group', () => {
-  it('is one rule with a margin, on the one group that declares the separation, in both shapes', () => {
-    // The row of box-drawing characters a tree needed is gone: a document can
-    // draw a rule. The group declares the separation, so both shapes separate
-    // the same one.
+describe('how one group is separated from the next', () => {
+  it('marks a difference in KIND once, in the section shape, which has a box to border', () => {
+    // The group declares that its operations differ in kind — publishing
+    // changes what every consumer of a catalog resolves, while everything else
+    // writes to this machine. The section shape has a group box, so it draws
+    // that as a rule with a margin ahead of the one group carrying it.
     const separated = OPERATION_GROUPS.filter((group) => group.separated).map((g) => g.id);
     assert.deepStrictEqual(separated, ['publish'], 'the group model separates a different group');
-    for (const layout of BOTH) {
-      const html = operationsBodyHtml(body({ layout }));
+    const html = operationsBodyHtml(body({ layout: 'sections' }));
+    assert.strictEqual(
+      occurrences(html, /group group-separated/), 1,
+      'the section shape draws a number of dividers other than one',
+    );
+    assert.ok(
+      html.includes('class="group group-separated" role="group" aria-labelledby="grp-publish"'),
+      'the section shape separates the wrong group',
+    );
+    assert.strictEqual(
+      occurrences(html, /─/), 0,
+      'the section shape still stands a row of characters in for a divider',
+    );
+  });
+
+  it('marks EVERY boundary in the flow shape, once each, naming the group it opens', () => {
+    // In the flow there is no group box to border and no title to read, so
+    // separation stops being a property of the one group that differs in kind
+    // and becomes a property of every adjacent pair. One mark per boundary,
+    // which is one fewer than there are groups.
+    const html = operationsBodyHtml(body({ layout: 'buttons' }));
+    assert.strictEqual(
+      occurrences(html, /class="flow-bar"/),
+      OPERATION_GROUPS.length - 1,
+      'the flow draws a number of boundary marks other than one per boundary',
+    );
+    assert.deepStrictEqual(
+      boundariesIn(html),
+      OPERATION_GROUPS.slice(1).map((group) => group.id),
+      'the flow marks the wrong boundaries, or marks them out of order',
+    );
+    // No mark opens the first group: there is nothing before it to separate it
+    // from, so a mark there would sit against the panel's leading edge.
+    assert.ok(
+      !boundariesIn(html).includes(OPERATION_GROUPS[0].id),
+      'the flow opens with a boundary mark, which separates nothing',
+    );
+    // The kind-based divider draws nothing here, so the flag it reads is not
+    // silently doing two jobs.
+    assert.strictEqual(
+      occurrences(html, /group-separated/), 0,
+      'the flow still draws the kind-based divider as well as a mark per boundary',
+    );
+    // Each mark is a separator rather than a control: it takes no focus, it is
+    // not in the roving walk, and it is not one of the buttons counted
+    // elsewhere.
+    assert.strictEqual(
+      occurrences(html, /role="separator" aria-orientation="vertical"/),
+      OPERATION_GROUPS.length - 1,
+      'a boundary mark does not declare itself a vertical separator',
+    );
+    assert.strictEqual(
+      occurrences(html, /class="flow-bar"[^>]*data-focus-key/), 0,
+      'a boundary mark can hold the tab stop, which would strand the reader on a divider',
+    );
+  });
+
+  it('composes no verdict about which marks are drawn, because it cannot have one', () => {
+    // Whether a boundary falls mid-line or at a line edge is decided by where
+    // the flow wraps, and the composing side has no width to wrap against. So
+    // every mark is emitted unsuppressed and the panel's script decides after
+    // layout. A document that arrived with marks already suppressed would be
+    // guessing at a width it never sees — and it would be wrong at every other
+    // width.
+    for (const focused of [null, 'aggrega.op.deprecate']) {
+      const html = operationsBodyHtml(body({ layout: 'buttons', focused }));
       assert.strictEqual(
-        occurrences(html, /group group-separated/), 1,
-        `the ${layout} shape draws a number of dividers other than one`,
-      );
-      assert.ok(
-        html.includes('class="group group-separated" role="group" aria-labelledby="grp-publish"'),
-        `the ${layout} shape separates the wrong group`,
-      );
-      assert.strictEqual(
-        occurrences(html, /─/), 0,
-        `the ${layout} shape still stands a row of characters in for a divider`,
+        occurrences(html, /data-edge/), 0,
+        'the composed flow already suppresses a mark, which is a guess about the panel\'s width',
       );
     }
+    // And the container the script has to find in order to reach that verdict
+    // is the one the flow declares.
+    const html = operationsBodyHtml(body({ layout: 'buttons' }));
+    assert.ok(
+      /<div class="groups ops-flow"[^>]*data-flow/.test(html),
+      'the flow does not declare itself as the container the layout-time pass measures',
+    );
   });
 });
 

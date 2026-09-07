@@ -5,6 +5,7 @@ import {
   OPERATION_GROUPS,
   OperationDef,
   OperationGroup,
+  OperationGroupId,
   OperationId,
   OperationsLayout,
   commandIdFor,
@@ -14,10 +15,10 @@ import { SelectorRow } from './selector-rows';
 
 // This module composes the Operations panel's document and holds no editor
 // type, so what a reader is shown is assertable without an extension host: the
-// two rows arriving ahead of every group, one row of buttons per group in the
-// button shape, the same groups in the same order in the section shape, every
-// control naming the command it runs, and an unavailable control carrying the
-// reason it cannot run.
+// two rows arriving ahead of the operations, one continuous flow of buttons in
+// the button shape, the same groups in the same order in the section shape,
+// every control naming the command it runs and the group it belongs to, and an
+// unavailable control carrying the reason it cannot run.
 //
 // THE PANEL'S BODY IS COMPOSED HERE AND NOWHERE ELSE, including on refresh. The
 // alternative — posting the facts and letting the panel's script build the same
@@ -35,30 +36,25 @@ import { SelectorRow } from './selector-rows';
 // document inside it.
 const PANEL_TITLE = 'Aggrega operations';
 
-// SelectorRowView pairs a row with the address it is drawn at. The key is
-// already the row's, and it is reused as the control's focus key so the reader's
-// place survives a re-composition.
+// selectorHtml draws one of the two rows naming what the panel acts on. The key
+// is already the row's, and it is reused as the control's focus key so the
+// reader's place survives a re-composition.
+//
+// THE ROW IS ONE LINE: the concept, then the current answer. Everything else
+// the row's own text carries — the anchored folder's full path, the open folder
+// where the two differ, what pressing it does — reaches the reader on the
+// hover and is drawn nowhere. The row exists so a reader knows WHAT the buttons
+// would act on, and the identity answers that; the path answers "which one
+// exactly", which is a second question and is asked for on demand.
+//
+// The whole text goes onto the hover unfiltered. Which of its lines matter is
+// not decided here: the module that writes them owns that, and a filter here
+// would be a second editorial judgement over one text.
 function selectorHtml(row: SelectorRow): string {
-  // Every line of the row's explanation is drawn inside the row rather than
-  // left to a native tooltip. The workspace row's explanation is genuinely
-  // multi-line and load-bearing — it names the anchored folder, says the
-  // offered Releases come from inside it, and names the open folder whenever
-  // the two differ — and a native tooltip is plainer than the editor's own
-  // hover and appears on a delay this document does not control. Which of those
-  // lines matter is not decided here: the module that writes them owns that,
-  // and a filter here would be a second editorial judgement over one text.
-  const detail = row.tooltip
-    .split('\n')
-    .filter((line) => line.trim() !== '')
-    .map((line) => `<span class="selector-line">${escapeHtml(line)}</span>`)
-    .join('');
   return `<button class="selector" type="button" data-command="${escapeHtml(row.command)}" data-focus-key="${escapeHtml(row.key)}" title="${escapeHtml(row.tooltip)}">
-  <span class="selector-head">
-    <span class="codicon codicon-${escapeHtml(row.icon)}" aria-hidden="true"></span>
-    <span class="selector-label">${escapeHtml(row.label)}</span>
-    <span class="selector-value">${escapeHtml(row.value)}</span>
-  </span>
-  <span class="selector-detail">${detail}</span>
+  <span class="codicon codicon-${escapeHtml(row.icon)}" aria-hidden="true"></span>
+  <span class="selector-label">${escapeHtml(row.label)}</span>
+  <span class="selector-value">${escapeHtml(row.value)}</span>
 </button>`;
 }
 
@@ -73,6 +69,7 @@ function selectorHtml(row: SelectorRow): string {
 // the label, because a label that grows a sentence is a row that reflows.
 function operationHtml(
   op: OperationDef,
+  group: OperationGroupId,
   reason: string | null,
   focused: boolean,
 ): string {
@@ -92,17 +89,37 @@ function operationHtml(
   const note = reason === null
     ? ''
     : `<span class="op-reason" id="${reasonId}">${escapeHtml(reason)}</span>`;
-  return `<button class="op" type="button"${disabled}${described} tabindex="${tabindex}" data-command="${escapeHtml(command)}" data-focus-key="${escapeHtml(command)}" title="${escapeHtml(hint)}">
+  // The group each control belongs to is stated on the control itself. In the
+  // flow shape there is no group box left to read it off, and which group an
+  // operation sits in is a ruled property of the surface rather than a
+  // consequence of how it is drawn — so the document says it in both shapes,
+  // and the flow's membership stays assertable without one.
+  return `<button class="op" type="button"${disabled}${described} tabindex="${tabindex}" data-command="${escapeHtml(command)}" data-focus-key="${escapeHtml(command)}" data-group="${escapeHtml(group)}" title="${escapeHtml(hint)}">
       <span class="codicon codicon-${escapeHtml(op.icon)}" aria-hidden="true"></span>
       <span class="op-label">${escapeHtml(op.label)}</span>${note}
     </button>`;
 }
 
-// groupClasses carries the divider ahead of the publish group as a rule with a
-// margin rather than as a row of characters standing in for one. The group
-// declares the separation, so both shapes separate the same one.
+// groupClasses carries the divider ahead of a group whose operations differ in
+// kind, as a rule with a margin rather than as a row of characters standing in
+// for one. Only the section shape has a group box to draw it on; the flow shape
+// marks every boundary instead, and draws nothing from this.
 function groupClasses(group: OperationGroup): string {
   return group.separated ? 'group group-separated' : 'group';
+}
+
+// boundaryHtml draws the mark between the last control of one group and the
+// first control of the next, named after the group it opens.
+//
+// IT CARRIES NO VERDICT ABOUT WHETHER IT IS DRAWN, and it cannot: whether a
+// boundary falls in the middle of a line or at the edge of one is decided by
+// where the flow wraps, and nothing here knows the panel's width. The document
+// therefore emits one mark per boundary, unconditionally, and the panel's own
+// script suppresses the ones that land at a line edge once the browser has laid
+// the flow out. A mark composed as suppressed, or omitted, would be a guess
+// about a width this side never sees.
+function boundaryHtml(opens: OperationGroupId): string {
+  return `<span class="flow-bar" role="separator" aria-orientation="vertical" data-boundary="${escapeHtml(opens)}"></span>`;
 }
 
 // OperationsBody is what the panel is drawn from: the shape, the two rows, which
@@ -125,30 +142,49 @@ export interface OperationsBody {
   focused: string | null;
 }
 
-// buttonsGroupHtml draws one group as a single horizontal row of buttons.
+// FLOW_LABEL names the flow for a reader who arrives at it without seeing it.
+// It is the panel's own name, which is the word that container already puts in
+// front of them.
+const FLOW_LABEL = 'Operations';
+
+// buttonsFlowHtml draws every operation as one continuous sequence of buttons
+// that wraps over as many lines as the panel's width needs, with a mark at each
+// group boundary and NO GROUP TITLES AT ALL.
 //
-// The row is a toolbar with one tab stop: the panel would otherwise cost
-// seventeen, against the one a tree costs, so the arrow keys move within a group
-// and Tab moves between them — which is the contract a reader already has from
-// every tree in this container.
-function buttonsGroupHtml(
-  group: OperationGroup,
+// The buttons are siblings in one wrapping container rather than one row per
+// group, and that is the whole shape: a group's buttons cannot claim a line of
+// their own, so a line that has room for the next group's first button gets it.
+// A row per group would spend a line on every group whether it needed one or
+// not, and a title line on top of that.
+//
+// It is ONE toolbar with ONE tab stop: Tab reaches the flow once and the arrow
+// keys walk every operation in it, which is the contract a reader already has
+// from every tree in this container. A row per group would instead cost one
+// stop each.
+//
+// A group with no operations contributes no boundary mark. Two marks side by
+// side would draw a doubled bar, and a mark with no control beside it separates
+// nothing.
+function buttonsFlowHtml(
   body: OperationsBody,
   rovingKey: string | null,
 ): string {
-  const controls = group.operations
-    .map((op) => operationHtml(
-      op,
-      body.unavailable[op.id] ?? null,
-      commandIdFor(op) === rovingKey,
-    ))
-    .join('\n    ');
-  return `<section class="${groupClasses(group)}" role="group" aria-labelledby="grp-${group.id}" data-group="${group.id}">
-  <h2 class="group-heading" id="grp-${group.id}">${escapeHtml(group.heading)}</h2>
-  <div class="group-row" role="toolbar" aria-orientation="horizontal" aria-labelledby="grp-${group.id}" data-roving data-orientation="horizontal">
-    ${controls}
-  </div>
-</section>`;
+  const pieces: string[] = [];
+  for (const group of OPERATION_GROUPS) {
+    if (group.operations.length === 0) { continue; }
+    if (pieces.length > 0) { pieces.push(boundaryHtml(group.id)); }
+    for (const op of group.operations) {
+      pieces.push(operationHtml(
+        op,
+        group.id,
+        body.unavailable[op.id] ?? null,
+        commandIdFor(op) === rovingKey,
+      ));
+    }
+  }
+  return `<div class="groups ops-flow" role="toolbar" aria-label="${escapeHtml(FLOW_LABEL)}" aria-orientation="horizontal" data-flow data-roving data-orientation="horizontal">
+    ${pieces.join('\n    ')}
+</div>`;
 }
 
 // sectionsGroupHtml draws one group as a section the reader opens.
@@ -167,6 +203,7 @@ function sectionsGroupHtml(
   const controls = group.operations
     .map((op) => operationHtml(
       op,
+      group.id,
       body.unavailable[op.id] ?? null,
       commandIdFor(op) === rovingKey,
     ))
@@ -212,12 +249,12 @@ function rovingKeyFor(body: OperationsBody, container: string[]): string | null 
 }
 
 // operationsBodyHtml composes the panel's body: the two rows naming what the
-// editor is acting on, then the operation groups in one of the two shapes.
+// editor is acting on, then the operations in one of the two shapes.
 //
 // The rows are the document's first two elements — siblings that precede every
-// group — so "above every group and never inside one" is a property of the
-// document's shape. A reader who has closed every section still has both facts
-// in front of them, because neither is inside a section to be closed.
+// operation — so "above the operations and never inside a group" is a property
+// of the document's shape. A reader who has closed every section still has both
+// facts in front of them, because neither is inside a section to be closed.
 export function operationsBodyHtml(body: OperationsBody): string {
   const selectors = body.selectors.map(selectorHtml).join('\n  ');
   const reachable = focusKeys(body);
@@ -237,22 +274,12 @@ ${groups}
 </div>`;
   }
 
-  // One roving stop per group, so Tab walks the groups and the arrow keys walk
-  // a group's buttons.
-  const groups = OPERATION_GROUPS
-    .map((group) => {
-      const own = group.operations
-        .map(commandIdFor)
-        .filter((command) => reachable.includes(command));
-      return buttonsGroupHtml(group, body, rovingKeyFor(body, own));
-    })
-    .join('\n');
+  // One roving stop for the whole flow, because the flow is one sequence: Tab
+  // reaches it once and the arrow keys walk every operation in it.
   return `<div class="selectors">
   ${selectors}
 </div>
-<div class="groups groups-buttons">
-${groups}
-</div>`;
+${buttonsFlowHtml(body, rovingKeyFor(body, reachable))}`;
 }
 
 // OperationsDocumentOptions carries the addresses the editor resolves for this

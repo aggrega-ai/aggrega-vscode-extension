@@ -60,10 +60,21 @@ export interface OperationDef {
 
 export interface OperationGroup {
   id: OperationGroupId;
-  // heading is what a reader sees above the group's entries.
+  // heading names the group. The section shape draws it as the row that opens
+  // the group; the flow shape draws no title at all, and the name is still what
+  // this description calls the group by.
   heading: string;
-  // separated draws a divider ahead of the group. It is a property of the group
-  // rather than of the rendering so both shapes separate the same one.
+  // separated marks a group whose operations differ in KIND from the rest, not
+  // merely one that follows another. It is why the publish group carries it and
+  // no other does: publishing changes what every consumer of a catalog
+  // resolves, while everything else writes to this machine.
+  //
+  // It is a property of the group rather than of the drawing, and the two
+  // shapes act on it differently because they have different room for it. The
+  // section shape draws a rule with a margin ahead of the marked group. The
+  // flow shape has no group box to put a border on: it marks EVERY boundary
+  // with a bar, so a difference in kind is not what that bar reports, and this
+  // field draws nothing there.
   separated?: boolean;
   operations: OperationDef[];
 }
@@ -86,6 +97,18 @@ export interface OperationGroup {
 // belongs in front of the reader before the click, not in an explanation after
 // it.
 //
+// Every label is the operation's NAME and nothing more. The explanation is on
+// the control's hover, where a reader who wants it can ask for it, so a label
+// that also explained itself would spend width on something already answered —
+// and width is what decides how many lines the panel costs.
+//
+// An entry that goes on to ask which entity, or which reference, to act on
+// carries no trailing ellipsis. Asking for the SUBJECT of a named operation is
+// what almost every entry here does, so marking it would mark most of the panel
+// and distinguish nothing. The one entry that keeps the mark is the cache, and
+// it is not the same act: pressing it names no operation at all, and what it
+// asks for is WHICH operation to run.
+//
 // Seeding a configuration is deliberately not an entry here. It belongs to the
 // welcome flow and the empty state, where it reads as a first step; on a row
 // beside the others it would read as a routine action.
@@ -96,7 +119,7 @@ export const OPERATION_GROUPS: OperationGroup[] = [
     operations: [
       {
         id: 'validate',
-        label: 'Validate active file',
+        label: 'Validate',
         detail: 'Validate the active YAML file via the language server',
         icon: 'check',
       },
@@ -114,13 +137,13 @@ export const OPERATION_GROUPS: OperationGroup[] = [
       },
       {
         id: 'preview',
-        label: 'Preview build',
+        label: 'Preview',
         detail: 'Render what a build would emit without writing it; findings land in the Problems panel',
         icon: 'eye',
       },
       {
         id: 'graph',
-        label: 'Show topology graph',
+        label: 'Graph',
         detail: 'Draw the topology the selected Release compiles to',
         icon: 'type-hierarchy',
         command: 'aggrega.graph.show',
@@ -151,19 +174,19 @@ export const OPERATION_GROUPS: OperationGroup[] = [
     operations: [
       {
         id: 'scaffold',
-        label: 'Draft entity…',
+        label: 'Draft entity',
         detail: 'Draft a starter document for an entity kind, opened in a new editor tab',
         icon: 'new-file',
       },
       {
         id: 'import',
-        label: 'Import…',
+        label: 'Import',
         detail: 'Import a foreign source into Aggrega',
         icon: 'arrow-into',
       },
       {
         id: 'inspect',
-        label: 'Inspect…',
+        label: 'Inspect',
         detail: 'Show what an entity in this workspace resolves to',
         icon: 'list-tree',
       },
@@ -176,19 +199,19 @@ export const OPERATION_GROUPS: OperationGroup[] = [
     operations: [
       {
         id: 'push',
-        label: 'Push…',
+        label: 'Push',
         detail: 'Bundle and publish a catalog entity in this workspace to a configured registry',
         icon: 'cloud-upload',
       },
       {
         id: 'sign',
-        label: 'Sign…',
+        label: 'Sign',
         detail: 'Attach a signature to an already-published artifact',
         icon: 'verified',
       },
       {
         id: 'deprecate',
-        label: 'Deprecate…',
+        label: 'Deprecate',
         detail: 'Attach a signed deprecation marker to an already-published artifact',
         icon: 'warning',
       },
@@ -200,7 +223,7 @@ export const OPERATION_GROUPS: OperationGroup[] = [
     operations: [
       {
         id: 'configShow',
-        label: 'Show effective config',
+        label: 'Show config',
         detail: 'Show the resolved configuration and the layer each setting came from',
         icon: 'settings-gear',
       },
@@ -235,13 +258,13 @@ export function allOperations(): OperationDef[] {
 // The two values name the visible difference rather than the arrangement, and
 // that is what a reader choosing between them on the settings screen needs: both
 // shapes are grouped, so a value naming the grouping would tell them nothing.
-// buttons draws each group as one row of buttons; sections draws each group as a
-// section the reader opens.
+// buttons draws every operation as a labelled button in one wrapping flow;
+// sections draws each group as a section the reader opens.
 export type OperationsLayout = 'buttons' | 'sections';
 
-// One row of buttons per group is the default: it is the shape in which every
-// operation is a labelled control the reader can see and reach without opening
-// anything, which is what this panel exists for.
+// Buttons is the default: it is the shape in which every operation is a labelled
+// control the reader can see and reach without opening anything, which is what
+// this panel exists for.
 export const DEFAULT_OPERATIONS_LAYOUT: OperationsLayout = 'buttons';
 
 // readLayout decides the shape from whatever the editor reports the setting to
