@@ -83,6 +83,55 @@ body {
   flex: 1 1 auto;
 }
 
+/* The caret that opens and closes a section, at the top right of it — last in
+   the heading row, which the title's own growth pushes it to the end of. */
+.step-toggle {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  color: inherit;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+/* 🔴 THE CARET'S DIRECTION IS DRAWN FROM THE CONTROL'S OWN EXPANSION STATE,
+   which is the same attribute a screen reader reads it from. Drawing it from a
+   class of its own would be a second record of one fact, and the failure would
+   be a caret pointing one way while the panel announced the other — visible to
+   one reader and not the other. Open points down at the explanation below it;
+   closed points along the heading, at prose that is not there. */
+.step-toggle::before {
+  content: '';
+  flex: none;
+  width: 0;
+  height: 0;
+  border-left: 0.32rem solid transparent;
+  border-right: 0.32rem solid transparent;
+  border-top: 0.4rem solid currentColor;
+}
+
+.step-toggle[aria-expanded="false"]::before {
+  border-top: 0.32rem solid transparent;
+  border-bottom: 0.32rem solid transparent;
+  border-left: 0.4rem solid currentColor;
+  border-right: 0;
+}
+
+.step-toggle:hover {
+  background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground));
+}
+
+.step-toggle:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 1px;
+}
+
 /* The standing in words, beside the mark. A glyph alone leaves its meaning to be
    guessed at, and is nothing at all to a reader using a screen reader. */
 .step-standing {
@@ -100,6 +149,13 @@ body {
 .step-met .step-standing {
   background: var(--vscode-testing-iconPassed, var(--vscode-charts-green));
   color: var(--vscode-editor-background);
+}
+
+/* The explanation, as one region so that one caret governs it. Hiding is
+   declared here as well as carried by the attribute, because a region given a
+   layout of its own would ignore the attribute and stay on screen. */
+.step-prose[hidden] {
+  display: none;
 }
 
 .step-summary {
@@ -145,12 +201,35 @@ body {
   margin-top: 1rem;
 }
 
+/* A closed section is its heading and its two ways forward, one under the
+   other. The gap the explanation used to occupy would otherwise be left behind
+   as a hole between them. */
+.step-prose[hidden] + .step-actions {
+  margin-top: 0.25rem;
+}
+
+/* 🔴 THE CHOICES ARE OUTLINED, AND THEY ARE THERE WITHOUT BEING HOVERED. A
+   filled box with no edge reads as a label rather than as something to press,
+   which is what an outline fixes. Nothing here reveals a control on hover, and
+   nothing may: this panel is a document the extension draws, so the rule that
+   holds a tree's row actions back until the pointer arrives has no purchase on
+   it, and a reader deciding between two ways through a step needs to see that
+   there are two before they go looking. Hover changes the fill only.
+
+   🔴 THE CHAIN ENDS IN A REAL COLOUR RATHER THAN IN ANOTHER VARIABLE, and that
+   is what makes the outline exist rather than merely be asked for. Where every
+   name in a chain is undefined the whole `border` shorthand is invalid at
+   computed-value time, so every longhand it sets falls back to its own initial
+   — and the initial border-style is `none`, which draws NOTHING. A theme
+   declaring none of these would therefore have silently had no outline at all,
+   which is precisely what this rule exists to provide. Terminating in the
+   foreground colour cannot fail that way. */
 .step-action {
   font-family: inherit;
   font-size: inherit;
   color: var(--vscode-button-secondaryForeground, var(--vscode-button-foreground));
   background: var(--vscode-button-secondaryBackground, var(--vscode-button-background));
-  border: none;
+  border: 1px solid var(--vscode-button-border, var(--vscode-widget-border, var(--vscode-panel-border, currentColor)));
   border-radius: 3px;
   padding: 0.45rem 0.9rem;
   cursor: pointer;
@@ -163,4 +242,16 @@ body {
 .step-action:focus-visible {
   outline: 1px solid var(--vscode-focusBorder);
   outline-offset: 2px;
+}
+
+/* A high-contrast theme leaves many backgrounds absent and separates controls
+   by border instead, so a control distinguished only by its background
+   disappears there. Both classes are named because the editor adds the dark
+   high-contrast class alongside the light one, and a rule written for one of
+   them would reach both by accident rather than by intent. */
+body.vscode-high-contrast .step-action,
+body.vscode-high-contrast .step-toggle,
+body.vscode-high-contrast-light .step-action,
+body.vscode-high-contrast-light .step-toggle {
+  border: 1px solid var(--vscode-contrastBorder, currentColor);
 }

@@ -36,9 +36,14 @@ import {
   USE_COMPILER_ON_PATH_COMMAND,
   WELCOME_PANEL_TITLE,
   panelControlCommands,
+  readCollapsedSteps,
   stepStandings,
 } from './get-started-steps';
-import { stepsHtml, welcomeDocumentHtml } from './welcome-render';
+import {
+  initiallyCollapsedStepIds,
+  stepsHtml,
+  welcomeDocumentHtml,
+} from './welcome-render';
 
 // This module is the whole editor-coupled boundary of the welcome panel. What
 // the panel MEANS — which conditions exist and when one is met — is in
@@ -109,6 +114,22 @@ export function activateGetStarted(
   // panel is open still leaves the next opening drawing the truth.
   let standings: Record<StepId, boolean> = stepStandings(NOTHING_MET);
 
+  // The sections the panel is currently arranged with closed.
+  //
+  // 🔴 IT IS DELIBERATELY NOT DERIVED FROM THE STANDINGS ABOVE, and it lives
+  // out here rather than inside the composition for two reasons that both bite.
+  // A composition that decided the arrangement from what is met would re-decide
+  // it on every refresh — and refreshes arrive when the compiler becomes
+  // answerable or the selection moves, neither of which the reader asked for —
+  // so a step satisfied while it was being read would fold up under the
+  // reader's cursor. And because a refresh replaces the whole list rather than
+  // patching it, that same re-decision would discard whatever the reader had
+  // toggled, springing a caret they pressed back on the next unrelated event.
+  //
+  // So it is read once, from the standings in hand at the moment the panel is
+  // created, and afterwards it moves only when the reader moves it.
+  let collapsed: StepId[] = [];
+
   // Two events can ask for a re-read while one is still in flight, because
   // reading the registry condition asks the compiler. Coalescing means the
   // panel settles on the last answer asked for rather than on whichever
@@ -121,7 +142,12 @@ export function activateGetStarted(
     // DIRECTIONS. A step whose condition has lapsed is composed as outstanding
     // again, because nothing here accumulates a previous mark — which is the
     // defect a panel drawn by this extension does not inherit.
-    panel?.webview.postMessage({ type: 'steps', html: stepsHtml(standings) });
+    //
+    // The arrangement is passed alongside rather than recomputed: the mark
+    // follows the condition, the arrangement follows the reader. Handing the
+    // reader's arrangement to the composition is also what keeps a re-drawing
+    // from painting the default shape first and correcting itself afterwards.
+    panel?.webview.postMessage({ type: 'steps', html: stepsHtml(standings, collapsed) });
   };
   const refresh = (): void => {
     if (inFlight) { again = true; return; }
@@ -138,6 +164,11 @@ export function activateGetStarted(
   // rather than from whatever was last computed: a reader who built their
   // configuration elsewhere would otherwise meet a panel telling them they have
   // nothing, for as long as the first read takes.
+  //
+  // Revealing a panel that is already there leaves its arrangement alone. The
+  // arrangement is decided when a panel is CREATED, and a reader pressing the
+  // command again is asking to be shown the panel they have, not to have it
+  // rearranged around them.
   const openPanel = async (): Promise<void> => {
     if (panel) {
       panel.reveal(vscode.ViewColumn.Active);
@@ -145,6 +176,10 @@ export function activateGetStarted(
       return;
     }
     await reread();
+    // Read here, from the standings just read, because this is the moment a
+    // panel comes into being — and it is the only place the arrangement is
+    // decided from a condition rather than from the reader.
+    collapsed = initiallyCollapsedStepIds(standings);
     panel = vscode.window.createWebviewPanel(
       'aggrega.welcome',
       WELCOME_PANEL_TITLE,
@@ -159,15 +194,31 @@ export function activateGetStarted(
     // reader may close and reopen the panel any number of times, and a handler
     // registered for the extension's whole lifetime would accumulate one dead
     // listener per closing — each holding the webview it can no longer reach.
-    const listener = panel.webview.onDidReceiveMessage(
-      (message: unknown) => { runPanelControl(message, deps.output); },
-    );
+    const listener = panel.webview.onDidReceiveMessage((message: unknown) => {
+      const named = typeof message === 'object' && message !== null
+        ? (message as { type?: unknown; collapsed?: unknown })
+        : null;
+      // The reader pressed a caret. The panel has already rearranged itself —
+      // it is the one place with a document to rearrange — and this records
+      // what it now shows, so the next re-composition is drawn in the shape the
+      // reader left rather than the shape the panel opened in.
+      if (named?.type === 'state') {
+        collapsed = readCollapsedSteps(named.collapsed);
+        return;
+      }
+      runPanelControl(message, deps.output);
+    });
     panel.onDidDispose(
       () => { listener.dispose(); panel = null; },
       null,
       context.subscriptions,
     );
-    panel.webview.html = welcomeHtml(panel.webview, context.extensionUri, standings);
+    panel.webview.html = welcomeHtml(
+      panel.webview,
+      context.extensionUri,
+      standings,
+      collapsed,
+    );
   };
 
   // Read once from what is true now, so a panel opened a moment later has the
@@ -223,6 +274,7 @@ function welcomeHtml(
   webview: vscode.Webview,
   extensionUri: vscode.Uri,
   standings: Record<StepId, boolean>,
+  collapsed: readonly StepId[],
 ): string {
   return welcomeDocumentHtml({
     nonce: makeNonce(),
@@ -234,6 +286,7 @@ function welcomeHtml(
     ).toString(),
     cspSource: webview.cspSource,
     standings,
+    collapsed,
   });
 }
 

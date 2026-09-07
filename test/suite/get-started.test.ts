@@ -20,6 +20,7 @@ import {
   WELCOME_GREETING,
   WELCOME_PANEL_TITLE,
   panelControlCommands,
+  readCollapsedSteps,
   stepMet,
   stepStandings,
   unmetStepIds,
@@ -28,8 +29,10 @@ import { escapeHtml } from '../../src/html';
 import {
   MET_LABEL,
   UNMET_LABEL,
+  initiallyCollapsedStepIds,
   inlineHtml,
   stepsHtml,
+  toggleLabel,
   welcomeDocumentHtml,
 } from '../../src/welcome-render';
 import {
@@ -83,14 +86,83 @@ function manifest(): {
 // the addresses the editor would have resolved standing in as plain strings.
 // The composition holds no editor types, which is what makes the panel a reader
 // meets assertable without an extension host.
-function renderedPanel(standings: Record<StepId, boolean>): string {
+//
+// The arrangement is a parameter of its own here for the same reason it is one
+// in the composition: it is not derivable from the standings beside it, so a
+// caller that wants a particular arrangement has to say so.
+function renderedPanel(
+  standings: Record<StepId, boolean>,
+  collapsed: readonly StepId[] = [],
+): string {
   return welcomeDocumentHtml({
     nonce: 'test-nonce',
     styleUri: 'vscode-resource://media/welcome.css',
     scriptUri: 'vscode-resource://media/welcome.js',
     cspSource: 'vscode-resource:',
     standings,
+    collapsed,
   });
+}
+
+// MIXED is a workspace where two conditions hold and two do not.
+//
+// 🔴 IT IS THE ONLY FIXTURE THAT CATCHES A WRONGLY ATTRIBUTED SECTION — the
+// arrangement being right in aggregate while the wrong sections carry it,
+// because a step read a neighbour's standing rather than its own. Over a
+// workspace where every condition is met, and over one where none is, every
+// step has the same standing, so a rule reading the wrong step's standing
+// returns exactly the right answer and both of those fixtures pass it.
+//
+// A WHOLESALE INVERSION IS A DIFFERENT AND WEAKER CASE, and worth stating
+// because it is easy to assume the mixed fixture is the only thing standing
+// between the panel and it. Negating the rule flips a uniform workspace's
+// answer from nothing-closed to everything-closed, so the two uniform fixtures
+// below catch an inversion on their own. What they cannot catch is the
+// attribution, which is why the mixed one is here as well and not instead.
+const MIXED = stepStandings({
+  workspaceAnchored: true,
+  compilerAnswering: false,
+  releaseSelected: true,
+  registryConfigured: false,
+});
+
+// MIXED_MET and MIXED_UNMET are the two halves of that workspace, spelled out
+// rather than recomputed from the same filter the subject under test uses — a
+// filter shared with the subject would move both sides of the comparison at
+// once and pass an inversion.
+const MIXED_MET: StepId[] = ['workspace', 'release'];
+const MIXED_UNMET: StepId[] = ['compiler', 'registry'];
+
+// expandedSteps and collapsedSteps report the sections a composed panel opens
+// and closes, read back out of the document rather than from what was asked
+// for. The caret's expansion state is what a screen reader is told, so it is
+// what is read.
+function expandedSteps(html: string): string[] {
+  return [...html.matchAll(/aria-expanded="true" aria-controls="[^"]*" aria-label="[^"]*" data-toggle="([^"]+)"/g)]
+    .map((m) => m[1]);
+}
+
+function collapsedSteps(html: string): string[] {
+  return [...html.matchAll(/aria-expanded="false" aria-controls="[^"]*" aria-label="[^"]*" data-toggle="([^"]+)"/g)]
+    .map((m) => m[1]);
+}
+
+// hiddenProse reports the sections whose explanation the document withholds.
+// Read separately from the caret above, because the two are what must agree:
+// a caret announcing a closed section over an explanation still on screen, or
+// the reverse, is the failure this pair catches.
+function hiddenProse(html: string): string[] {
+  return [...html.matchAll(/<div class="step-prose" id="step-prose-([^"]+)" hidden>/g)]
+    .map((m) => m[1]);
+}
+
+// sectionOf cuts one step's markup out of the composed list, so an assertion
+// about what a section contains cannot be satisfied by a neighbour.
+function sectionOf(html: string, id: StepId): string {
+  const opens = html.indexOf(`data-step="${id}"`);
+  assert.ok(opens >= 0, `the composed panel carries no ${id} section`);
+  const ends = html.indexOf('</section>', opens);
+  return html.slice(opens, ends);
 }
 
 // commandsInPanel collects the commands the panel's controls actually carry, as
@@ -142,9 +214,14 @@ describe('the welcome panel', () => {
   // step showing met. A panel this extension draws has no such constraint, and
   // these are the assertions that fail if anything ever accumulates a mark
   // rather than recomputing it.
+  //
+  // Every composition below is asked for with NOTHING closed, whatever the
+  // standings are, and that is deliberate: the mark is the subject here, and
+  // asking for the arrangement separately is what keeps these assertions from
+  // moving when the arrangement rules change.
   describe('a step follows its condition in both directions', () => {
     it('marks a step met when its condition holds', () => {
-      const html = stepsHtml(stepStandings(EVERYTHING_MET));
+      const html = stepsHtml(stepStandings(EVERYTHING_MET), []);
       for (const step of STEP_CONTENT) {
         assert.ok(
           html.includes(`class="step step-met" data-step="${step.id}"`),
@@ -159,11 +236,12 @@ describe('the welcome panel', () => {
       // that no longer do. Nothing between the two calls carries a mark
       // forward, which is the whole property: the second render is composed
       // from the second reading alone.
-      const held = stepsHtml(stepStandings(EVERYTHING_MET));
+      const held = stepsHtml(stepStandings(EVERYTHING_MET), []);
       assert.ok(held.includes('class="step step-met" data-step="compiler"'));
 
       const lapsed = stepsHtml(
         stepStandings({ ...EVERYTHING_MET, compilerAnswering: false }),
+        [],
       );
       assert.ok(
         lapsed.includes('class="step step-unmet" data-step="compiler"'),
@@ -179,14 +257,262 @@ describe('the welcome panel', () => {
     });
 
     it('says the standing in words as well as in a mark', () => {
-      const met = stepsHtml(stepStandings(EVERYTHING_MET));
-      const unmet = stepsHtml(stepStandings(NOTHING_MET));
+      const met = stepsHtml(stepStandings(EVERYTHING_MET), []);
+      const unmet = stepsHtml(stepStandings(NOTHING_MET), []);
       assert.ok(met.includes(MET_LABEL), 'a met step says so in words');
       assert.ok(unmet.includes(UNMET_LABEL), 'an outstanding step says so in words');
       assert.ok(
         !met.includes(UNMET_LABEL),
         'a panel with every condition met still reads as having outstanding work',
       );
+    });
+  });
+
+  // 🔴 THE ARRANGEMENT IS DECIDED ONCE AND THE MARK IS DECIDED EVERY TIME, AND
+  // THAT ASYMMETRY IS THE SUBJECT OF THIS WHOLE BLOCK.
+  //
+  // They are neighbours and they look like one behaviour, so collapsing them
+  // into one is the obvious simplification — and it is wrong in both
+  // directions. A mark held still stops reporting a condition that lapsed. An
+  // arrangement recomputed folds a step away under a reader who is in the
+  // middle of reading it, on an event they never initiated, and discards
+  // whatever they had toggled while it is at it.
+  describe('which sections a panel opens', () => {
+    it('closes the satisfied sections and leaves the outstanding ones open', () => {
+      const collapsed = initiallyCollapsedStepIds(MIXED);
+      assert.deepStrictEqual(
+        collapsed,
+        MIXED_MET,
+        'the sections a panel opens closed are the ones whose condition is already satisfied: the panel exists to show what is still needed',
+      );
+      assert.deepStrictEqual(
+        STEP_IDS.filter((id) => !collapsed.includes(id)),
+        MIXED_UNMET,
+        'an outstanding step opens closed, so the reader is shown a title where they needed an explanation',
+      );
+    });
+
+    // The inversion is one character away in the subject: negate the filter and
+    // the panel folds away every outstanding step and opens every satisfied
+    // one, which reads as deliberate, produces no error, and is the exact
+    // opposite of what the panel is for. The equality above already excludes
+    // it; this names it, and checks first that the fixture still has conditions
+    // on both sides — a fixture that drifted to uniform would go on passing
+    // while quietly testing less than it says.
+    it('does not open the outstanding sections closed, which is the inversion', () => {
+      const collapsed = initiallyCollapsedStepIds(MIXED);
+      assert.deepStrictEqual(
+        MIXED_UNMET,
+        STEP_IDS.filter((id) => !MIXED[id]),
+        'this fixture no longer has conditions on both sides, so it can no longer tell the rule from its inversion',
+      );
+      assert.notDeepStrictEqual(
+        collapsed,
+        MIXED_UNMET,
+        'the arrangement is inverted: the satisfied steps are open and the outstanding ones are folded away, so the panel hides exactly the work it exists to show',
+      );
+    });
+
+    it('opens every section for a reader who has satisfied nothing', () => {
+      assert.deepStrictEqual(initiallyCollapsedStepIds(stepStandings(NOTHING_MET)), []);
+    });
+
+    it('closes every section for a reader who configured everything elsewhere', () => {
+      assert.deepStrictEqual(
+        initiallyCollapsedStepIds(stepStandings(EVERYTHING_MET)),
+        [...STEP_IDS],
+        'a reader who has satisfied every condition is asked nothing, so the panel opens as four titles and their controls',
+      );
+    });
+
+    // 🔴 THE ASSERTION THAT FAILS IF THE ARRANGEMENT IS EVER RE-DERIVED INSIDE
+    // THE COMPOSITION. Every condition here is met and nothing is asked to be
+    // closed, and the composition must honour that rather than deciding for
+    // itself — because that is the state a reader is in the moment after they
+    // satisfy the last step while looking at it.
+    it('composes the arrangement it is given, not the one the standings imply', () => {
+      const html = stepsHtml(stepStandings(EVERYTHING_MET), []);
+      assert.deepStrictEqual(
+        collapsedSteps(html),
+        [],
+        'the composition closed a section nobody asked it to close, so it is deriving the arrangement from the standings — and a step satisfied while it was being read will fold up under the reader',
+      );
+      assert.deepStrictEqual(hiddenProse(html), []);
+      assert.deepStrictEqual(expandedSteps(html), [...STEP_IDS]);
+    });
+
+    it('composes a closure the reader asked for even where the step is outstanding', () => {
+      const html = stepsHtml(stepStandings(NOTHING_MET), ['compiler']);
+      assert.deepStrictEqual(
+        collapsedSteps(html),
+        ['compiler'],
+        'a reader who closes an outstanding section is entitled to have it stay closed',
+      );
+      assert.deepStrictEqual(hiddenProse(html), ['compiler']);
+    });
+
+    // 🔴 THE MARK MOVES AND THE ARRANGEMENT DOES NOT — the two halves in one
+    // assertion, over one section, across the moment the condition changes.
+    // It is the state a reader is in whenever they satisfy a step while its
+    // section is open, which is the ordinary way of satisfying one.
+    it('leaves a section open when its condition becomes satisfied under the reader', () => {
+      const before = stepsHtml(stepStandings(NOTHING_MET), []);
+      assert.ok(before.includes('class="step step-unmet" data-step="compiler"'));
+      assert.ok(expandedSteps(before).includes('compiler'));
+
+      // The same arrangement, re-composed from standings that now satisfy the
+      // step the reader is reading. The arrangement is passed unchanged because
+      // nothing the reader did changed it.
+      const after = stepsHtml(
+        stepStandings({ ...NOTHING_MET, compilerAnswering: true }),
+        [],
+      );
+      assert.ok(
+        after.includes('class="step step-met" data-step="compiler"'),
+        'the mark did not follow the condition: holding the arrangement still has held the mark still along with it, and those are two different things',
+      );
+      assert.ok(
+        expandedSteps(after).includes('compiler'),
+        'the section folded up when its condition became satisfied, under a reader who was reading it — the arrangement is following the standings instead of the reader',
+      );
+      assert.deepStrictEqual(hiddenProse(after), []);
+    });
+
+    // The whole point of recording what is CLOSED rather than what is open: a
+    // panel composed before anything was decided and a panel a reader has
+    // closed nothing in are the same panel.
+    it('treats an empty arrangement as every section open', () => {
+      assert.deepStrictEqual(
+        expandedSteps(stepsHtml(MIXED, [])),
+        [...STEP_IDS],
+      );
+    });
+  });
+
+  // A closed section is not a title. It keeps both ways forward and hides only
+  // the explanation, which is unusual enough that it is asserted rather than
+  // left to be preserved by whoever reads the layout next.
+  describe('what a closed section still shows', () => {
+    it('keeps both controls in a closed section', () => {
+      const html = stepsHtml(MIXED, initiallyCollapsedStepIds(MIXED));
+      for (const id of MIXED_MET) {
+        const section = sectionOf(html, id as StepId);
+        const step = STEP_CONTENT.find((s) => s.id === id);
+        assert.ok(step, `no content for ${id}`);
+        for (const action of step.actions) {
+          // The whole control, not merely the command it names: a closed
+          // section that carried the command in some other element would have
+          // nothing for the reader to press.
+          assert.ok(
+            section.includes(
+              `<button class="step-action" type="button" data-command="${escapeHtml(action.command)}">${escapeHtml(action.label)}</button>`,
+            ),
+            `the closed ${id} section dropped its "${action.label}" control; a closed section hides the explanation and keeps both ways forward`,
+          );
+        }
+      }
+    });
+
+    it('keeps the title and the standing in a closed section', () => {
+      const html = stepsHtml(MIXED, initiallyCollapsedStepIds(MIXED));
+      for (const id of MIXED_MET) {
+        const section = sectionOf(html, id as StepId);
+        const step = STEP_CONTENT.find((s) => s.id === id);
+        assert.ok(step);
+        assert.ok(section.includes(escapeHtml(step.title)), `the closed ${id} section has no title`);
+        assert.ok(section.includes(MET_LABEL), `the closed ${id} section no longer says its standing`);
+      }
+    });
+
+    it('withholds the explanation of a closed section and only that', () => {
+      const html = stepsHtml(MIXED, initiallyCollapsedStepIds(MIXED));
+      assert.deepStrictEqual(
+        hiddenProse(html).sort(),
+        [...MIXED_MET].sort(),
+        'the sections whose explanation is withheld are not the sections that are closed',
+      );
+    });
+  });
+
+  // The caret is a control, so it is reachable, named, and says which way it is
+  // pointing. None of that is optional and none of it is visible in a
+  // screenshot.
+  describe('the caret that opens a section', () => {
+    it('gives every section a caret that toggles it', () => {
+      const html = stepsHtml(MIXED, initiallyCollapsedStepIds(MIXED));
+      for (const id of STEP_IDS) {
+        assert.ok(
+          sectionOf(html, id).includes(`data-toggle="${id}"`),
+          `the ${id} section has no caret, so there is nothing to open or close it with`,
+        );
+      }
+    });
+
+    it('names every caret for a reader who cannot see it', () => {
+      const html = stepsHtml(MIXED, initiallyCollapsedStepIds(MIXED));
+      for (const step of STEP_CONTENT) {
+        assert.ok(
+          sectionOf(html, step.id).includes(`aria-label="${escapeHtml(toggleLabel(step.title))}"`),
+          `the ${step.id} caret is an unnamed control, which is announced as "button" and nothing else`,
+        );
+      }
+    });
+
+    // The caret's own state and the region's state are two attributes, and the
+    // stylesheet draws the caret's direction from the first of them — so this
+    // is the assertion that fails if they ever come apart.
+    it('points the way the section actually is', () => {
+      const html = stepsHtml(MIXED, initiallyCollapsedStepIds(MIXED));
+      assert.deepStrictEqual(collapsedSteps(html).sort(), [...MIXED_MET].sort());
+      assert.deepStrictEqual(expandedSteps(html).sort(), [...MIXED_UNMET].sort());
+      assert.deepStrictEqual(
+        collapsedSteps(html).sort(),
+        hiddenProse(html).sort(),
+        'a caret announces a state the explanation beside it does not have, so one reader is told the section is closed and another sees it open',
+      );
+    });
+
+    it('addresses the region it controls', () => {
+      const html = stepsHtml(MIXED, []);
+      for (const id of STEP_IDS) {
+        const section = sectionOf(html, id);
+        assert.ok(
+          section.includes(`aria-controls="step-prose-${id}"`),
+          `the ${id} caret does not say which region it governs`,
+        );
+        assert.ok(
+          section.includes(`id="step-prose-${id}"`),
+          `the ${id} caret names a region the document does not carry`,
+        );
+      }
+    });
+  });
+
+  // What the panel reports back is a payload from a document, so it is checked
+  // rather than trusted — and normalised, so one arrangement has one spelling.
+  describe('reading the arrangement a panel reports', () => {
+    it('keeps the sections that exist and drops the rest', () => {
+      assert.deepStrictEqual(
+        readCollapsedSteps(['registry', 'not-a-step', 'workspace']),
+        ['workspace', 'registry'],
+      );
+    });
+
+    it('answers nothing closed for anything that is not a list of sections', () => {
+      for (const value of [undefined, null, 'workspace', 42, {}, { collapsed: [] }]) {
+        assert.deepStrictEqual(readCollapsedSteps(value), [], `${JSON.stringify(value)} was read as an arrangement`);
+      }
+    });
+
+    it('answers in condition order however the panel ordered it', () => {
+      assert.deepStrictEqual(
+        readCollapsedSteps(['registry', 'compiler', 'workspace', 'release']),
+        [...STEP_IDS],
+      );
+    });
+
+    it('drops an entry that is not a string at all', () => {
+      assert.deepStrictEqual(readCollapsedSteps(['workspace', 7, null]), ['workspace']);
     });
   });
 
@@ -493,7 +819,7 @@ describe('the welcome panel', () => {
     });
 
     it('carries the step content through the markers it is written in', () => {
-      const html = stepsHtml(stepStandings(NOTHING_MET));
+      const html = stepsHtml(stepStandings(NOTHING_MET), []);
       assert.ok(html.includes('<code>.aggrega-config.yaml</code>'));
       assert.ok(html.includes('<strong>workspace root</strong>'));
     });

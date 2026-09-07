@@ -3,6 +3,7 @@
 
 import {
   STEP_CONTENT,
+  STEP_IDS,
   StepDetail,
   StepId,
   WELCOME_DESCRIPTION,
@@ -54,29 +55,83 @@ function detailHtml(block: StepDetail): string {
 export const MET_LABEL = 'Met';
 export const UNMET_LABEL = 'Outstanding';
 
-// stepsHtml composes the four steps against the standings given.
+// initiallyCollapsedStepIds decides which sections a panel opens closed: the
+// ones whose condition is already satisfied.
 //
-// It is called on every refresh with freshly recomputed standings, so a step
-// whose condition has lapsed is drawn as outstanding again. Nothing here
-// remembers a previous standing, which is what makes the mark reversible rather
-// than a one-way tick.
-export function stepsHtml(standings: Record<StepId, boolean>): string {
+// The panel's job is to show what is still needed. A satisfied step is context,
+// so it earns its title and its two ways forward and nothing more; an
+// outstanding one needs its explanation in front of the reader.
+//
+// 🔴 IT IS READ ONCE, WHEN THE PANEL IS CREATED, AND IT IS NOT A LIVE BINDING.
+// Its answer is held beside the panel and handed to the composition as its OWN
+// argument, separate from the standings — and that separation is the whole
+// mechanism, not a matter of taste. A step becoming satisfied while the reader
+// is reading it must not fold up under their cursor, and the panel is
+// re-composed on events the reader never initiated. So the standing is
+// recomputed on every composition and the arrangement is not recomputed at all.
+//
+// Closed rather than open is what the result names, matching the other panel
+// this extension draws: an empty answer is a panel with every section open,
+// which is the shape a reader who has satisfied nothing meets.
+export function initiallyCollapsedStepIds(standings: Record<StepId, boolean>): StepId[] {
+  return STEP_IDS.filter((id) => standings[id]);
+}
+
+// toggleLabel names one section's caret for a reader who reaches it without
+// seeing it.
+//
+// It names the REGION the caret governs and says nothing about the direction:
+// whether the region is open is carried by the control's own expansion state,
+// which is where a screen reader reads it from, and a name that also said
+// "expand" would be a second copy of that state — wrong half the time.
+export function toggleLabel(title: string): string {
+  return `Explanation: ${title}`;
+}
+
+// stepsHtml composes the four steps against the standings given, arranged as
+// the collapsed set given.
+//
+// THE TWO ARGUMENTS ARE SEPARATE AND NEITHER IS DERIVED FROM THE OTHER. The
+// standings are recomputed and passed afresh on every refresh, so a step whose
+// condition has lapsed is drawn as outstanding again and nothing here remembers
+// a previous standing — that is what makes the mark reversible rather than a
+// one-way tick. The arrangement arrives from the caller, which read it once when
+// the panel was created and has changed it only where the reader pressed a
+// caret. Deriving the arrangement from `met` here instead would look like the
+// same thing and would break both halves: every refresh would fold a
+// newly-satisfied step away under the reader, and every refresh would also
+// discard whatever the reader had toggled, because the composed list replaces
+// the previous one whole.
+export function stepsHtml(
+  standings: Record<StepId, boolean>,
+  collapsed: readonly StepId[],
+): string {
   return STEP_CONTENT.map((step) => {
     const met = standings[step.id];
+    const open = !collapsed.includes(step.id);
+    const proseId = `step-prose-${escapeHtml(step.id)}`;
     const controls = step.actions
       .map(
         (action) =>
           `<button class="step-action" type="button" data-command="${escapeHtml(action.command)}">${escapeHtml(action.label)}</button>`,
       )
       .join('');
+    // The prose is one region rather than two siblings so that one control
+    // governs it and one identifier addresses it. THE ACTIONS SIT OUTSIDE IT,
+    // and that is the shape rather than an accident: a closed section keeps both
+    // ways forward and hides only the explanation, because a reader who has
+    // understood a step still wants to act on it without reading it again.
     return `<section class="step ${met ? 'step-met' : 'step-unmet'}" data-step="${escapeHtml(step.id)}">
   <h2 class="step-head">
     <span class="step-mark" aria-hidden="true">${met ? '&check;' : '&#9675;'}</span>
     <span class="step-title">${escapeHtml(step.title)}</span>
     <span class="step-standing">${met ? MET_LABEL : UNMET_LABEL}</span>
+    <button class="step-toggle" type="button" aria-expanded="${open}" aria-controls="${proseId}" aria-label="${escapeHtml(toggleLabel(step.title))}" data-toggle="${escapeHtml(step.id)}"></button>
   </h2>
-  <p class="step-summary">${inlineHtml(step.summary)}</p>
-  <div class="step-detail">${step.detail.map(detailHtml).join('')}</div>
+  <div class="step-prose" id="${proseId}"${open ? '' : ' hidden'}>
+    <p class="step-summary">${inlineHtml(step.summary)}</p>
+    <div class="step-detail">${step.detail.map(detailHtml).join('')}</div>
+  </div>
   <div class="step-actions">${controls}</div>
 </section>`;
   }).join('\n');
@@ -91,6 +146,11 @@ export interface WelcomeDocumentOptions {
   scriptUri: string;
   cspSource: string;
   standings: Record<StepId, boolean>;
+  // collapsed names the sections the panel opens closed, which for a panel
+  // being created is what the standings read at that moment decide. It is
+  // carried separately from the standings above for the reason stepsHtml
+  // states, and the two must not be collapsed into one value.
+  collapsed: readonly StepId[];
 }
 
 // welcomeDocumentHtml composes the whole panel.
@@ -124,7 +184,7 @@ export function welcomeDocumentHtml(opts: WelcomeDocumentOptions): string {
   <main class="welcome">
     <h1 class="welcome-greeting">${escapeHtml(WELCOME_GREETING)}</h1>
     <p class="welcome-description">${escapeHtml(WELCOME_DESCRIPTION)}</p>
-    <div id="steps" class="steps">${stepsHtml(opts.standings)}</div>
+    <div id="steps" class="steps">${stepsHtml(opts.standings, opts.collapsed)}</div>
   </main>
   <script nonce="${opts.nonce}" src="${opts.scriptUri}"></script>
 </body>

@@ -150,6 +150,22 @@ export function unmetStepIds(facts: GetStartedFacts): StepId[] {
   return STEP_IDS.filter((id) => !stepMet(id, facts));
 }
 
+// readCollapsedSteps takes the sections a panel reports the reader has closed.
+//
+// The payload arrives from a document, so it is unknown by contract — anything
+// at all can be posted — and every entry is therefore checked against the
+// conditions that actually exist rather than trusted. An entry naming none of
+// them is dropped, and anything that is not a list of them at all reads as
+// nothing closed, which is the panel's open shape.
+//
+// The answer follows condition order rather than the order the payload happened
+// to arrive in, so one arrangement has one spelling however the reader reached
+// it.
+export function readCollapsedSteps(value: unknown): StepId[] {
+  if (!Array.isArray(value)) { return []; }
+  return STEP_IDS.filter((id) => value.includes(id));
+}
+
 // EVERYTHING_MET is the state of a reader who built their configuration
 // elsewhere and has just opened the editor on it. It is named rather than
 // spelled out at each use because it is the state the panel is measured

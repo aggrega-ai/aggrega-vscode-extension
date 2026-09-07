@@ -34,6 +34,18 @@ file dialog and leaves the step outstanding.
 rather than putting the same questions to everybody, so if you built your configuration from the
 command line and then opened the editor, every step arrives ticked.
 
+**Every step folds, and the panel opens showing what is still needed.** A caret at the top right of
+each step opens and closes it. A step whose condition is already satisfied opens folded away, and one
+that is not opens with its explanation in front of you — so the reading is about the work you still
+have rather than the work you have done. **A folded step keeps both its title and both its
+buttons**, and hides only the explanation: once you know what a step is for, you can still act on it
+without reading it again.
+
+The arrangement is decided when the panel is created and is yours after that. A step that becomes
+satisfied while you are reading it updates its mark and **stays open** — it does not fold away under
+your cursor — and a caret you press stays where you put it, however many times the panel refreshes
+around it. Closing and reopening the panel reads the conditions again and arranges itself afresh.
+
 **A step's mark follows its condition in both directions.** It is marked met when the condition
 becomes true, and marked outstanding again if the condition later lapses — a compiler that stops
 answering, a Release that is deselected. The panel reads what is true each time it refreshes rather
