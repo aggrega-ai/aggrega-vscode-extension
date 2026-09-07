@@ -148,37 +148,12 @@ body {
   padding: 0 0.6rem;
 }
 
-/* The mark between two groups: a thin vertical rule, inset so it reads as a
-   divider between controls rather than as a border around them.
-
-   The final fallback is the foreground colour rather than nothing. In the flow
-   shape this rule is the ONLY thing separating one group from the next, so a
-   theme that declares neither border colour would leave the groups
-   indistinguishable — whereas the section shape has its own headings to fall
-   back on. */
-.flow-bar {
-  flex: 0 0 auto;
-  width: 1px;
-  height: 1.1rem;
-  background: var(--vscode-panel-border, var(--vscode-widget-border, currentColor));
-}
-
-/* Set by the panel's script AFTER the browser has laid the flow out, and
-   reachable no other way: a boundary that landed at the start or the end of a
-   line needs no mark, because the line break is already the separation, and
-   where the break falls is not known until there is a width to break against.
-
-   IT HIDES THE INK AND KEEPS THE BOX. Taking the box away would give its width
-   back to the line, which can pull a later control up onto the previous one and
-   move the next boundary — so the suppression would change the layout it was
-   computed from, and could disagree with itself on the next measurement. The
-   box stays, the measurement is the same however many marks are suppressed, and
-   the cost is that a line beginning at a suppressed boundary starts one gap
-   further in. `visibility` also takes the mark out of the accessibility tree,
-   so a suppressed boundary is announced to nobody either. */
-.flow-bar[data-edge] {
-  visibility: hidden;
-}
+/* NOTHING IS DRAWN BETWEEN ONE GROUP AND THE NEXT. The flow is a sequence of
+   named buttons, and compactness is what the shape is for: a divider at every
+   adjacent pair spends a control's worth of width and a gap on each, on a
+   distinction a reader of named buttons does not need. The group order is what
+   carries the grouping here, and the section shape is where a group's
+   difference in KIND is drawn — it has a box to border. */
 
 .op {
   /* Never shrinks and never wraps inside itself, so a label is whole or the row
@@ -223,8 +198,8 @@ body {
    after it.
 
    It is drawn only here. The flow shape has no group box to put a border on,
-   and it marks every boundary rather than one, so the difference in kind is not
-   what a mark reports there. */
+   and it draws nothing between one group and the next, so a difference in kind
+   is not something it reports at all. */
 .groups-sections .group-separated {
   border-top: 1px solid var(--vscode-panel-border, var(--vscode-widget-border));
   margin-top: 0.5rem;

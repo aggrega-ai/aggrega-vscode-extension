@@ -85,9 +85,31 @@ function groupsInDocument(html: string): Array<[string, string[]]> {
   return runs;
 }
 
-// boundariesIn reports the group each boundary mark says it opens, in order.
-function boundariesIn(html: string): string[] {
-  return Array.from(html.matchAll(/class="flow-bar"[^>]*data-boundary="([^"]+)"/g)).map((m) => m[1]);
+// flowOf slices the flow's own container out of the document, so an assertion
+// about what the flow holds is made against the flow rather than against a
+// document that also carries the two rows above it.
+function flowOf(html: string): string {
+  const at = html.indexOf('<div class="groups ops-flow"');
+  assert.notStrictEqual(at, -1, 'the document draws no flow at all');
+  return html.slice(at);
+}
+
+// betweenTheButtonsOf reports what the flow draws that is NOT one of its
+// buttons: the flow's markup with the container's own tags and every complete
+// button removed, leaving whatever sat between them.
+//
+// This is the instrument the absence claim below rests on, and it is written as
+// a residue rather than as a search for a class name on purpose. A search finds
+// only what it was told to look for, so a divider re-introduced under a
+// different class, as a different element, or as a bare character would pass it;
+// a residue reports whatever is there. Buttons do not nest, so removing each
+// complete button cannot swallow anything that sat outside one.
+function betweenTheButtonsOf(html: string): string {
+  return flowOf(html)
+    .replace(/^<div\b[^>]*>/, '')
+    .replace(/<\/div>[\s\S]*$/, '')
+    .replace(/<button\b[\s\S]*?<\/button>/g, '')
+    .trim();
 }
 
 const BOTH: OperationsLayout[] = ['buttons', 'sections'];
@@ -129,8 +151,8 @@ describe('the Commands panel document', () => {
     );
     // A closed set over what the flow is built from, so a title cannot arrive
     // as some element the checks above do not name. The container, the
-    // controls, and the spans that are their icons, their labels and the
-    // boundary marks — and nothing else.
+    // controls, and the spans that are their icons, their labels and their
+    // reasons — and nothing else.
     //
     // Asserted this way rather than by searching for each group's name as
     // content, which cannot work: one group is called Build and so is one of
@@ -498,10 +520,11 @@ describe('what the panel owes a reader who is not using a pointer', () => {
   it('names the flow itself, and states each control\'s group on the control', () => {
     // The flow shape has no group box and no title, so there is nothing to hang
     // a per-group landmark on: the replacement is one named toolbar the reader
-    // is told they have entered, positioned within, and a boundary announced
-    // between one group and the next. Which group a control belongs to is a
-    // ruled property of the surface rather than a consequence of the drawing,
-    // so the control states it whether or not anything draws a box around it.
+    // is told they have entered and positioned within. Which group a control
+    // belongs to is a ruled property of the surface rather than a consequence
+    // of the drawing, so the control states it whether or not anything draws a
+    // box around it — which is what keeps membership readable in a shape that
+    // draws no grouping at all.
     const html = operationsBodyHtml(body({ layout: 'buttons' }));
     assert.ok(
       html.includes('role="toolbar" aria-label="Commands" aria-orientation="horizontal"'),
@@ -615,68 +638,45 @@ describe('how one group is separated from the next', () => {
     );
   });
 
-  it('marks EVERY boundary in the flow shape, once each, naming the group it opens', () => {
-    // In the flow there is no group box to border and no title to read, so
-    // separation stops being a property of the one group that differs in kind
-    // and becomes a property of every adjacent pair. One mark per boundary,
-    // which is one fewer than there are groups.
-    const html = operationsBodyHtml(body({ layout: 'buttons' }));
-    assert.strictEqual(
-      occurrences(html, /class="flow-bar"/),
-      OPERATION_GROUPS.length - 1,
-      'the flow draws a number of boundary marks other than one per boundary',
-    );
-    assert.deepStrictEqual(
-      boundariesIn(html),
-      OPERATION_GROUPS.slice(1).map((group) => group.id),
-      'the flow marks the wrong boundaries, or marks them out of order',
-    );
-    // No mark opens the first group: there is nothing before it to separate it
-    // from, so a mark there would sit against the panel's leading edge.
-    assert.ok(
-      !boundariesIn(html).includes(OPERATION_GROUPS[0].id),
-      'the flow opens with a boundary mark, which separates nothing',
-    );
-    // The kind-based divider draws nothing here, so the flag it reads is not
-    // silently doing two jobs.
-    assert.strictEqual(
-      occurrences(html, /group-separated/), 0,
-      'the flow still draws the kind-based divider as well as a mark per boundary',
-    );
-    // Each mark is a separator rather than a control: it takes no focus, it is
-    // not in the roving walk, and it is not one of the buttons counted
-    // elsewhere.
-    assert.strictEqual(
-      occurrences(html, /role="separator" aria-orientation="vertical"/),
-      OPERATION_GROUPS.length - 1,
-      'a boundary mark does not declare itself a vertical separator',
-    );
-    assert.strictEqual(
-      occurrences(html, /class="flow-bar"[^>]*data-focus-key/), 0,
-      'a boundary mark can hold the tab stop, which would strand the reader on a divider',
-    );
-  });
-
-  it('composes no verdict about which marks are drawn, because it cannot have one', () => {
-    // Whether a boundary falls mid-line or at a line edge is decided by where
-    // the flow wraps, and the composing side has no width to wrap against. So
-    // every mark is emitted unsuppressed and the panel's script decides after
-    // layout. A document that arrived with marks already suppressed would be
-    // guessing at a width it never sees — and it would be wrong at every other
-    // width.
+  it('draws NOTHING between one group and the next in the flow, at any width', () => {
+    // The flow separates its groups by the order they come in and by nothing
+    // drawn: compactness is what the shape is for, and a divider at every
+    // adjacent pair spends a control's worth of width and a gap on each. The
+    // group order still fixes the sequence, and each control still states the
+    // group it belongs to — asserted by the membership-and-order clause above.
+    //
+    // "AT ANY WIDTH" is a property of the composition rather than a range this
+    // can iterate: operationsBodyHtml takes no width, so there is one composed
+    // document and it is what every width is drawn from. What no test here can
+    // reach is the browser's own layout — but the flow now carries nothing for
+    // a layout to place between the buttons, which is the whole claim.
+    //
+    // THE INSTRUMENT IS betweenTheButtonsOf, a residue rather than a search:
+    // whatever the flow draws that is not one of its buttons comes back, under
+    // whatever class or element name it was written as.
     for (const focused of [null, 'aggrega.op.deprecate']) {
       const html = operationsBodyHtml(body({ layout: 'buttons', focused }));
       assert.strictEqual(
-        occurrences(html, /data-edge/), 0,
-        'the composed flow already suppresses a mark, which is a guess about the panel\'s width',
+        betweenTheButtonsOf(html), '',
+        'the flow draws something between its buttons',
       );
     }
-    // And the container the script has to find in order to reach that verdict
-    // is the one the flow declares.
+
     const html = operationsBodyHtml(body({ layout: 'buttons' }));
-    assert.ok(
-      /<div class="groups ops-flow"[^>]*data-flow/.test(html),
-      'the flow does not declare itself as the container the layout-time pass measures',
+    // A negative control on the instrument: the residue is taken from a flow
+    // that really does hold every button, so the empty result above measures
+    // what sits BETWEEN them rather than an empty flow.
+    assert.strictEqual(
+      occurrences(flowOf(html), /class="op"/),
+      allOperations().length,
+      'the flow holds a number of buttons other than all of them, so the residue measures the wrong document',
+    );
+    // And the kind-based divider is not quietly redrawn here instead. The flow
+    // has no group box to border, so the group model's flag draws nothing on
+    // this shape — while the section shape still draws it, asserted above.
+    assert.strictEqual(
+      occurrences(html, /group-separated/), 0,
+      'the flow draws the kind-based divider, which belongs to the shape that has a box',
     );
   });
 });

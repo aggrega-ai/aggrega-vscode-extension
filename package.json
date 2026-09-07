@@ -520,7 +520,7 @@
             "sections"
           ],
           "enumDescriptions": [
-            "Every operation is a labelled button in one flow that wraps, with a thin bar where one group ends and the next begins, so everything is visible without opening anything.",
+            "Every operation is a labelled button in one flow that wraps, with nothing drawn between one group and the next, so everything is visible without opening anything.",
             "Each group is a section you open, under its own title, so the panel shows as much as you keep open."
           ],
           "default": "buttons",

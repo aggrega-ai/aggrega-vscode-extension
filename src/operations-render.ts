@@ -102,24 +102,10 @@ function operationHtml(
 
 // groupClasses carries the divider ahead of a group whose operations differ in
 // kind, as a rule with a margin rather than as a row of characters standing in
-// for one. Only the section shape has a group box to draw it on; the flow shape
-// marks every boundary instead, and draws nothing from this.
+// for one. Only the section shape has a group box to draw it on: the flow draws
+// nothing between one group and the next, so it draws nothing from this either.
 function groupClasses(group: OperationGroup): string {
   return group.separated ? 'group group-separated' : 'group';
-}
-
-// boundaryHtml draws the mark between the last control of one group and the
-// first control of the next, named after the group it opens.
-//
-// IT CARRIES NO VERDICT ABOUT WHETHER IT IS DRAWN, and it cannot: whether a
-// boundary falls in the middle of a line or at the edge of one is decided by
-// where the flow wraps, and nothing here knows the panel's width. The document
-// therefore emits one mark per boundary, unconditionally, and the panel's own
-// script suppresses the ones that land at a line edge once the browser has laid
-// the flow out. A mark composed as suppressed, or omitted, would be a guess
-// about a width this side never sees.
-function boundaryHtml(opens: OperationGroupId): string {
-  return `<span class="flow-bar" role="separator" aria-orientation="vertical" data-boundary="${escapeHtml(opens)}"></span>`;
 }
 
 // OperationsBody is what the panel is drawn from: the shape, the two rows, which
@@ -148,8 +134,8 @@ export interface OperationsBody {
 const FLOW_LABEL = 'Commands';
 
 // buttonsFlowHtml draws every operation as one continuous sequence of buttons
-// that wraps over as many lines as the panel's width needs, with a mark at each
-// group boundary and NO GROUP TITLES AT ALL.
+// that wraps over as many lines as the panel's width needs, with NO GROUP
+// TITLES AT ALL and NOTHING DRAWN BETWEEN ONE GROUP AND THE NEXT.
 //
 // The buttons are siblings in one wrapping container rather than one row per
 // group, and that is the whole shape: a group's buttons cannot claim a line of
@@ -157,22 +143,23 @@ const FLOW_LABEL = 'Commands';
 // A row per group would spend a line on every group whether it needed one or
 // not, and a title line on top of that.
 //
+// The GROUPS still decide the order the buttons come in, and nothing here
+// draws them. Compactness is what this shape is for, and a divider between
+// every adjacent pair spends room on a distinction a reader of a flow of named
+// buttons does not need — so the order carries the grouping and the drawing
+// carries none of it. Which group a control belongs to is still stated on the
+// control, where it stays readable without being drawn.
+//
 // It is ONE toolbar with ONE tab stop: Tab reaches the flow once and the arrow
 // keys walk every operation in it, which is the contract a reader already has
 // from every tree in this container. A row per group would instead cost one
 // stop each.
-//
-// A group with no operations contributes no boundary mark. Two marks side by
-// side would draw a doubled bar, and a mark with no control beside it separates
-// nothing.
 function buttonsFlowHtml(
   body: OperationsBody,
   rovingKey: string | null,
 ): string {
   const pieces: string[] = [];
   for (const group of OPERATION_GROUPS) {
-    if (group.operations.length === 0) { continue; }
-    if (pieces.length > 0) { pieces.push(boundaryHtml(group.id)); }
     for (const op of group.operations) {
       pieces.push(operationHtml(
         op,

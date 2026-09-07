@@ -83,12 +83,14 @@ export interface OperationGroup {
   // no other does: publishing changes what every consumer of a catalog
   // resolves, while everything else writes to this machine.
   //
-  // It is a property of the group rather than of the drawing, and the two
-  // shapes act on it differently because they have different room for it. The
-  // section shape draws a rule with a margin ahead of the marked group. The
-  // flow shape has no group box to put a border on: it marks EVERY boundary
-  // with a bar, so a difference in kind is not what that bar reports, and this
-  // field draws nothing there.
+  // It is a property of the group rather than of the drawing, and only one of
+  // the two shapes has room to draw it. The section shape draws a rule with a
+  // margin ahead of the marked group, because it has a group box to put a
+  // border on. The flow shape has none, and draws nothing between one group and
+  // the next at all — so this field draws nothing there. It is not read as an
+  // absence: the flow is a compact sequence of named buttons whose order
+  // carries the grouping, and a divider on it would spend width on every
+  // adjacent pair in order to mark one difference in kind.
   separated?: boolean;
   operations: OperationDef[];
 }
