@@ -74,6 +74,11 @@ const ENTRY_ICON = 'cloud';
 // assertable without an extension host: a test reads back exactly the line an
 // author would see.
 export interface RegistryRow {
+  // host is the registry's identity, and it is the value every operation on
+  // this row is invoked with. It is carried as its own field rather than read
+  // back off the label: the label is a display string, and a later change to
+  // what a row reads would silently change what its operations act on.
+  host: string;
   // label is the host, because the host is the registry's identity.
   label: string;
   // description is the dimmed secondary line: the alias when there is one, the
@@ -156,11 +161,69 @@ export function rowForRegistry(entry: RegistryEntry): RegistryRow {
   if (credential) { lines.push(`credential: ${entry.authState}`); }
 
   return {
+    host: entry.host,
     label: entry.host,
     description: segments.join(' · '),
     tooltip: lines.join('\n'),
     icon: isDefault ? DEFAULT_ICON : ENTRY_ICON,
   };
+}
+
+// --- operations on a registry --------------------------------------------
+
+// REGISTRY_ROW_CONTEXT marks a row that names one configured registry, and it
+// is what the manifest targets its row entries with.
+//
+// Only an entry row carries it. The message rows — nothing anchored, nothing
+// configured, the enumeration failed — name no registry, so an operation on one
+// could only be invoked with no subject, and an invocation that cannot succeed
+// is not offered at all. Targeting the view instead of this value would put
+// every registry operation on those rows.
+export const REGISTRY_ROW_CONTEXT = 'aggrega.registry';
+
+// registrySubject reports the registry a node's operations act on, or null when
+// the node names none.
+//
+// It is the one place a row is turned into a subject, so no caller re-derives
+// it and no caller reads a display string in its place. A null answer is the
+// signal to invoke nothing: there is no registry to name, so there is no
+// invocation to compose.
+export function registrySubject(node: RegistryNode): string | null {
+  return node.kind === 'entry' ? node.row.host : null;
+}
+
+// registryAddArgs composes the registration of a new registry. The host is the
+// command's one required argument, passed verbatim — the command validates it
+// and reports on it, and a reading here would be a second answer to what a host
+// is.
+export function registryAddArgs(host: string): string[] {
+  return ['registry', 'add', host];
+}
+
+// registryUpdateAllArgs composes the index build over every configured
+// registry. The command takes an optional registry argument and indexes all of
+// them when none is given, so the whole-set form passes none.
+export function registryUpdateAllArgs(): string[] {
+  return ['registry', 'update'];
+}
+
+// registryUpdateOneArgs composes the index build for one registry, which is the
+// same command narrowed by its optional argument.
+export function registryUpdateOneArgs(host: string): string[] {
+  return ['registry', 'update', host];
+}
+
+// registryRemoveArgs composes the removal of one registry's entry, addressed by
+// its host.
+export function registryRemoveArgs(host: string): string[] {
+  return ['registry', 'remove', host];
+}
+
+// registryLogoutArgs composes the removal of one registry's stored credential.
+// The credential store is keyed by host, which is the same value the listing
+// reports the credential state against.
+export function registryLogoutArgs(host: string): string[] {
+  return ['logout', host];
 }
 
 // nodesForDocument shapes a whole structured document, preserving the order the

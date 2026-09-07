@@ -82,6 +82,18 @@
         {
           "command": "aggrega.server.lifecycleActions",
           "when": "false"
+        },
+        {
+          "command": "aggrega.registries.updateOne",
+          "when": "false"
+        },
+        {
+          "command": "aggrega.registries.remove",
+          "when": "false"
+        },
+        {
+          "command": "aggrega.registries.logout",
+          "when": "false"
         }
       ],
       "view/title": [
@@ -101,6 +113,16 @@
           "group": "navigation"
         },
         {
+          "command": "aggrega.registries.add",
+          "when": "view == aggrega.registries",
+          "group": "navigation"
+        },
+        {
+          "command": "aggrega.registries.update",
+          "when": "view == aggrega.registries",
+          "group": "navigation"
+        },
+        {
           "command": "aggrega.registries.refresh",
           "when": "view == aggrega.registries",
           "group": "navigation"
@@ -109,6 +131,28 @@
           "command": "aggrega.workspaceCatalog.refresh",
           "when": "view == aggrega.workspaceCatalog",
           "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "aggrega.registries.updateOne",
+          "when": "viewItem == aggrega.registry",
+          "group": "inline"
+        },
+        {
+          "command": "aggrega.registries.updateOne",
+          "when": "viewItem == aggrega.registry",
+          "group": "registry@1"
+        },
+        {
+          "command": "aggrega.registries.logout",
+          "when": "viewItem == aggrega.registry",
+          "group": "registry@2"
+        },
+        {
+          "command": "aggrega.registries.remove",
+          "when": "viewItem == aggrega.registry",
+          "group": "registry@3"
         }
       ]
     },
@@ -178,6 +222,36 @@
         "title": "Refresh registries",
         "category": "Aggrega",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "aggrega.registries.add",
+        "title": "Add registry",
+        "category": "Aggrega",
+        "icon": "$(add)"
+      },
+      {
+        "command": "aggrega.registries.update",
+        "title": "Update the searchable index",
+        "category": "Aggrega",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "aggrega.registries.updateOne",
+        "title": "Update the searchable index for this registry",
+        "category": "Aggrega",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "aggrega.registries.remove",
+        "title": "Remove registry",
+        "category": "Aggrega",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "aggrega.registries.logout",
+        "title": "Remove stored credential",
+        "category": "Aggrega",
+        "icon": "$(sign-out)"
       },
       {
         "command": "aggrega.workspaceCatalog.refresh",

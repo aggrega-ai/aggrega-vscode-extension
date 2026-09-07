@@ -8,7 +8,13 @@ import {
   RegistryListDoc,
   RegistryNode,
   RegistryRow,
+  registryAddArgs,
+  registryLogoutArgs,
   registryNodes,
+  registryRemoveArgs,
+  registrySubject,
+  registryUpdateAllArgs,
+  registryUpdateOneArgs,
   rowForRegistry,
 } from '../../src/registries-run';
 import { NO_ANCHORED_WORKSPACE_TREE_LABEL } from '../../src/workspace';
@@ -228,5 +234,121 @@ describe('rowForRegistry', () => {
       rowForRegistry({ host: 'a', trust: { signaturesRequired: false } })
         .description.includes('signatures optional'),
     );
+  });
+
+  it('carries the host as its own field, not only as the label a reader sees', () => {
+    // The subject an operation is invoked with is read from this field. Were it
+    // read back off the label, a later change to what a row displays would
+    // silently change what its operations act on.
+    const row = rowForRegistry({ host: 'a.example.test', name: 'alias', default: true });
+    assert.strictEqual(row.host, 'a.example.test');
+  });
+});
+
+describe('registrySubject', () => {
+  it('reports the registry an entry row names', async () => {
+    const h = harness('/ws', ok(MEASURED_DOCUMENT));
+    const nodes = await h.nodes();
+
+    assert.deepStrictEqual(nodes.map(registrySubject), [
+      'alpha.example.test',
+      'mid.example.test',
+      'zulu.example.test',
+    ]);
+  });
+
+  it('reports no subject for a row that names no registry, so no operation can be composed', async () => {
+    // The three message states in turn. Each is a real, reachable row, and an
+    // operation invoked on one could only be invoked with no subject — which is
+    // an invocation that cannot succeed, so none is offered.
+    const configuredNone = await harness('/ws', ok({ registries: [] })).nodes();
+    const failed = await harness('/ws', () => Promise.reject(new Error('boom'))).nodes();
+    const unanchored = await harness(null, ok(MEASURED_DOCUMENT)).nodes();
+
+    for (const nodes of [configuredNone, failed, unanchored]) {
+      assert.strictEqual(nodes.length, 1);
+      assert.strictEqual(nodes[0].kind, 'message');
+      assert.strictEqual(
+        registrySubject(nodes[0]), null,
+        'a message row must yield no subject',
+      );
+    }
+  });
+
+  it('yields a subject for every entry row and for no message row', async () => {
+    const mixed: RegistryNode[] = [
+      ...(await harness('/ws', ok(MEASURED_DOCUMENT)).nodes()),
+      { kind: 'message', label: EMPTY_LABEL },
+      { kind: 'message', label: FAILURE_LABEL, detail: 'detail' },
+    ];
+    const withSubject = mixed.filter((n) => registrySubject(n) !== null);
+
+    assert.strictEqual(withSubject.length, 3);
+    assert.ok(withSubject.every((n) => n.kind === 'entry'));
+  });
+});
+
+describe('the argument list each registry operation composes', () => {
+  // Each list is asserted against the command's own argument declaration, which
+  // is what decides whether an invocation can succeed. Composing one from the
+  // operation's name instead is how a button comes to be pressed with no
+  // subject.
+
+  it('names the host when registering a registry, which the command requires', () => {
+    // `registry add <host>` takes exactly one argument.
+    assert.deepStrictEqual(
+      registryAddArgs('registry.example.test'),
+      ['registry', 'add', 'registry.example.test'],
+    );
+  });
+
+  it('passes no argument when indexing every registry', () => {
+    // `registry update [<name|host>]` accepts at most one argument and indexes
+    // every configured registry when given none.
+    assert.deepStrictEqual(registryUpdateAllArgs(), ['registry', 'update']);
+  });
+
+  it('names the one registry when indexing just that one', () => {
+    assert.deepStrictEqual(
+      registryUpdateOneArgs('mid.example.test'),
+      ['registry', 'update', 'mid.example.test'],
+    );
+  });
+
+  it('names the registry when removing it, which the command requires', () => {
+    // `registry remove <name|host>` takes exactly one argument.
+    assert.deepStrictEqual(
+      registryRemoveArgs('mid.example.test'),
+      ['registry', 'remove', 'mid.example.test'],
+    );
+  });
+
+  it('names the registry when removing its stored credential', () => {
+    // `logout <registry>` takes exactly one argument, and the credential store
+    // is keyed by the same host the listing reports the credential state for.
+    assert.deepStrictEqual(
+      registryLogoutArgs('mid.example.test'),
+      ['logout', 'mid.example.test'],
+    );
+  });
+
+  it('composes a subject-bearing invocation for every row operation, from a row', async () => {
+    // The end-to-end shape the panel actually uses: a row, through the one
+    // extractor, into each argument list. This is the assertion that fails if a
+    // row ever stops carrying its subject.
+    const nodes = await harness('/ws', ok(MEASURED_DOCUMENT)).nodes();
+    const host = registrySubject(nodes[1]);
+    assert.ok(host);
+
+    for (const args of [
+      registryUpdateOneArgs(host),
+      registryRemoveArgs(host),
+      registryLogoutArgs(host),
+    ]) {
+      assert.ok(
+        args.includes('mid.example.test'),
+        `${args.join(' ')} was composed without the registry it acts on`,
+      );
+    }
   });
 });
