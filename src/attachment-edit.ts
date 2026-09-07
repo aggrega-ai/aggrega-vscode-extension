@@ -1,40 +1,36 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cognitio S.r.l.
 
+import { describeError } from './error-surfaces';
 import { convertPosition } from './translator';
 import { LspPosition, ServerEncoding } from './types';
 
-// The document-free half of committing an attachment: which place in an
-// Aggregate an attachment for a drawn node belongs to, and the text of the
-// entry that goes there once the compiler has reported where "there" is.
+// The document-free half of committing an attachment: what the attachment is
+// called locally, the coordinate the compiler's first question is asked with,
+// the readers for both its answers, and the text of the entry that goes
+// wherever those answers say.
 //
 // It reads no document, opens no file and calls no editor API, so every
 // decision it makes is exercisable on its own. graph-view.ts applies whatever
 // this produces through the editor's own edit machinery.
 //
-// THE DIVISION OF LABOUR IS THE POINT OF THIS FILE. The compiler answers where
-// an entry belongs in a particular document — which of the container path that
+// THE DIVISION OF LABOUR IS THE POINT OF THIS FILE, AND IT LEAVES NOTHING
+// STRUCTURAL ON THIS SIDE. The compiler answers which document an attachment
+// for a drawn node belongs in and the path to the container inside it, and then
+// answers where in that document such an entry goes — which of the path the
 // document already carries, the column its entries start at, the nesting step
 // its author uses, and the line its block reaches. Nothing here re-derives any
-// of that, and nothing here parses YAML: a position computed on this side would
-// be a second answer to a question the compiler already answers, free to
-// disagree with it on the document that matters.
+// of that, nothing here parses YAML, and nothing here spells a key an Aggregate
+// is written with. A path composed on this side would be a second answer to a
+// question the compiler already answers, and a component's enclosing scope and
+// a node's own identifier are composed with the same separator — so a path
+// assembled here would not fail where it disagreed: it would name keys nobody
+// authored, and the entry would be created under them.
 //
-// What this side supplies is the other half the request needs: the structural
-// path such an entry occupies in a document of this kind, and the entry's own
-// text. Both are statements about the shape of an Aggregate rather than about
-// any one file, which is why they can be made without reading one.
-
-// ATTACHMENT_KEY is the key an attachment goes under on a component, and
-// COMPONENTS_KEY and SPEC_KEY are the keys above it at the surface an author
-// writes components at directly.
-//
-// They are named rather than spelled inline because they are the whole of this
-// file's claim about an Aggregate's shape, and a claim worth keeping in one
-// place is worth being able to see at a glance.
-const SPEC_KEY = 'spec';
-const COMPONENTS_KEY = 'components';
-const ATTACHMENT_KEY = 'features';
+// What this side supplies is what the compiler was not asked about: the name
+// the attachment is written under, derived from the Feature's own name; the
+// refusal where that yields nothing or collides with a name already on the
+// node; and the entry's own text.
 
 // INSTANCE_NAME_PATTERN is the shape an attachment's instance name may take.
 // A name outside it is refused rather than reshaped: the name decides whether
@@ -47,30 +43,51 @@ const INSTANCE_NAME_PATTERN = /^[a-zA-Z0-9_-]+$/;
 // from the one composed here, so it is recognised in order to be refused.
 const ENTRY_SHAPE_SEQUENCE = 'sequence';
 
-// AttachmentSite is what the drawn graph knows about one node's authoring: the
-// document it was authored in, whether it was authored at the surface where
-// components sit directly, and the attachments it already carries.
+// AttachmentSite is what the drawn graph knows about one node: the id that
+// graph keys it under, and the attachments it already carries.
 //
 // It is built host-side from the compiled graph rather than accepted back from
-// the view, so a path the extension writes to is one the compiler reported and
-// never one the view supplied.
+// the view, so the node an edit is computed for is one the compiler drew and
+// never one the view named. It holds no document path and nothing about how the
+// node was authored: which document an attachment for it belongs in is an
+// answer, asked for by node id.
 export interface AttachmentSite {
   nodeId: string;
-  // Workspace-relative path of the Aggregate this node was authored in.
-  sourceFile: string;
-  // Whether this node was authored at the top-level components surface. The
-  // compiler reports it for exactly this purpose — pointing at the shape the
-  // author typed rather than at the scope name it generated.
-  authoredAtTopLevel: boolean;
   // The instance names already attached to this node, so a name that would
   // collide with one is refused before anything is written.
   attached: string[];
 }
 
-// Placement is where an attachment for one node belongs, or the reason no
-// placement can be stated for it.
-export type Placement =
-  | { readonly file: string; readonly container: string[]; readonly instanceName: string }
+// AttachmentContainerRequest is the coordinate the compiler is asked a node's
+// attachment container with: the id the drawn graph keys the node under, and
+// the Release whose graph that is.
+//
+// The whole request is those two, and that is why the shape is named here
+// rather than spelled at the call site: there is nothing else for this side to
+// supply, so a third field could only be something this side had composed.
+export interface AttachmentContainerRequest {
+  graphNode: string;
+  release: string;
+}
+
+// LocatedContainer is the compiler's answer about where an attachment for one
+// node belongs: the document it was authored in, and the structural path to the
+// container the attachment goes inside.
+//
+// The path is carried as the segments the answer arrived as, and is never
+// joined, split or read into. A component's enclosing scope and a node's own
+// identifier are composed with the same separator, so any joined form is
+// ambiguous the moment something tries to read structure back out of it —
+// handing the segments straight on leaves nothing to split.
+export interface LocatedContainer {
+  file: string;
+  container: string[];
+}
+
+// AttachmentName is the name an attachment for one node is written under, or
+// the reason it cannot be written at all.
+export type AttachmentName =
+  | { readonly instanceName: string }
   | { readonly refusal: string };
 
 // Insertion is the compiler's answer about one document: where the entry goes
@@ -115,36 +132,16 @@ export function instanceNameFor(featureName: string): string | null {
   return INSTANCE_NAME_PATTERN.test(withoutVersion) ? withoutVersion : null;
 }
 
-// placeAttachment states where an attachment for this node belongs, or refuses.
+// nameAttachment reports the name an attachment for this node is written
+// under, or the reason no attachment can be written for it.
 //
-// # WHY A NODE AUTHORED INSIDE A SUBSYSTEM IS REFUSED RATHER THAN GUESSED AT
-//
-// The drawn graph identifies a node topologically. For a component authored at
-// the top-level components surface that identity is the key the author wrote,
-// and the compiler says so directly — which is what makes the path below a
-// reading of the compiler's own answer rather than a rule this file invented.
-//
-// For a component authored inside a subsystem it is not. Recovering the keys
-// the author wrote would mean splitting a scope name on a separator this side
-// would have to know, and a component reached through an imported Aggregate is
-// named in a way that is not distinguishable from that split. A path assembled
-// on either guess addresses nothing in the document, and addressing nothing is
-// not a failure that shows: the answer would report the whole path as absent
-// and the entry would be written into keys nobody authored.
-//
-// So this refuses, and says why. A refusal costs a reader one edit they make
-// themselves; a guess writes into their file.
-export function placeAttachment(site: AttachmentSite, featureName: string): Placement {
-  if (!site.sourceFile) {
-    return { refusal: `The compiler reports no authoring file for ${site.nodeId}.` };
-  }
-  if (!site.authoredAtTopLevel) {
-    return {
-      refusal:
-        `${site.nodeId} is declared inside a subsystem. Add the attachment under that `
-        + `component's features: block in ${site.sourceFile}.`,
-    };
-  }
+// Both refusals are this side's own, and neither was asked of the compiler: the
+// local name is derived from the Feature's name, and the names already on the
+// node are read from the graph this panel drew. Nothing here says anything
+// about a document — where the entry goes is answered elsewhere, and that
+// answer is the same whether the component was authored at the top level or
+// inside a subsystem.
+export function nameAttachment(site: AttachmentSite, featureName: string): AttachmentName {
   const instanceName = instanceNameFor(featureName);
   if (instanceName === null) {
     return { refusal: `${featureName} has no name an attachment can be written under.` };
@@ -152,11 +149,41 @@ export function placeAttachment(site: AttachmentSite, featureName: string): Plac
   if (site.attached.indexOf(instanceName) >= 0) {
     return { refusal: `${site.nodeId} already carries an attachment named ${instanceName}.` };
   }
-  return {
-    file: site.sourceFile,
-    container: [SPEC_KEY, COMPONENTS_KEY, site.nodeId, ATTACHMENT_KEY],
-    instanceName,
-  };
+  return { instanceName };
+}
+
+// attachmentContainerRequest is the question asking which document an
+// attachment for this node belongs in, and where inside it.
+//
+// It is composed in one place so the request that goes on the wire is the
+// request this side can be held to — and so a field this side would have had to
+// invent cannot be added quietly. The node is addressed by the id the drawn
+// graph keys it under, which is what the canvas holds; there is deliberately no
+// name-addressed form, because a document's own name names an entity rather
+// than an instance of one and the same entity may be instantiated at several
+// places in one Aggregate.
+export function attachmentContainerRequest(
+  site: AttachmentSite,
+  release: string,
+): AttachmentContainerRequest {
+  return { graphNode: site.nodeId, release };
+}
+
+// readAttachmentContainer reads the answer about where an attachment belongs,
+// or reports that it arrived in a shape this side cannot pass on.
+//
+// The segments are checked for being segments and for nothing else. What they
+// spell is not this side's business: it has no rule to judge them against, and
+// a check written here would be that rule re-appearing in the one place this
+// whole request exists to keep it out of.
+export function readAttachmentContainer(value: unknown): LocatedContainer | null {
+  if (!isPlainObject(value)) { return null; }
+  if (typeof value.file !== 'string') { return null; }
+  const container = value.container;
+  if (!Array.isArray(container) || !container.every((s) => typeof s === 'string')) {
+    return null;
+  }
+  return { file: value.file, container: container as string[] };
 }
 
 // readInsertion reads the compiler's answer, or reports that it arrived in a
@@ -300,12 +327,36 @@ export function refusesEntryShape(insertion: Insertion): string {
   return '';
 }
 
-// attachmentSites reads what the drawn graph knows about every node's
-// authoring, so a later request addresses a document the compiler named.
+// ATTACH_REFUSAL_PREFIX opens the sentence a refused attach reports, so a
+// clause is introduced the same way wherever the refusal came from.
+const ATTACH_REFUSAL_PREFIX = 'Cannot attach: ';
+
+// attachRefusal is the sentence reported for a clause this side holds.
+export function attachRefusal(clause: string): string {
+  return ATTACH_REFUSAL_PREFIX + clause;
+}
+
+// attachFailureLine is the sentence reported for a request the compiler or the
+// transport declined.
+//
+// The clause is the declined request's own text and is never re-worded here.
+// Where the compiler declines to report a container for a node — an id no graph
+// carries, a node it records no document for, a component whose own block
+// cannot be named in the document it was authored in — it words the reason
+// itself, and that wording has a single home on its side precisely so two
+// callers reporting the same refusal cannot describe it differently. So this
+// reports what arrived.
+export function attachFailureLine(err: unknown): string {
+  return attachRefusal(describeError(err));
+}
+
+// attachmentSites reads what the drawn graph knows about every node, so an edit
+// is computed for a node the compiler drew rather than for one the view named.
 //
 // It is read from the compiled graph on the side that holds it, and the view is
-// never asked for any of it: a file path arriving back from the view would be a
-// path the extension writes to on the view's word.
+// never asked for any of it: a node id arriving back from the view is looked up
+// in this table before anything is asked about it, and the table belongs to the
+// render.
 export function attachmentSites(graph: unknown): Map<string, AttachmentSite> {
   const sites = new Map<string, AttachmentSite>();
   if (!isPlainObject(graph)) { return sites; }
@@ -318,13 +369,9 @@ export function attachmentSites(graph: unknown): Map<string, AttachmentSite> {
     : {};
 
   for (const nodeId of Object.keys(nodes)) {
-    const node = nodes[nodeId];
-    const safe = isPlainObject(node) ? node : {};
     const bucket = (mapping as Record<string, unknown>)[nodeId];
     sites.set(nodeId, {
       nodeId,
-      sourceFile: text(safe.source_file),
-      authoredAtTopLevel: safe.synthesized_subsystem === true,
       attached: isPlainObject(bucket) ? Object.keys(bucket) : [],
     });
   }

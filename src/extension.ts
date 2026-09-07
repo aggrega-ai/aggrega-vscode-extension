@@ -4,6 +4,7 @@
 import { execFile } from 'child_process';
 import * as path from 'path';
 import * as vscode from 'vscode';
+import type { AttachmentContainerRequest } from './attachment-edit';
 import { CancellationSignal } from './cancellation';
 import { Daemon, DaemonState } from './daemon';
 import { debounce } from './debounce';
@@ -412,6 +413,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         throw new Error('the Aggrega language server is not running');
       }
       return await daemon.request<unknown>('aggrega/attachCandidates', { labels });
+    },
+    // Which document an attachment for a drawn node belongs in, and the path to
+    // the container inside it. The request is composed where its answer is read
+    // and is sent exactly as composed, so the coordinate on the wire is the one
+    // that side can be held to.
+    //
+    // It is the compiler that answers, and that is the whole point of the
+    // request: how an Aggregate nests its components, and how a node reached
+    // through a sub-aggregate is identified, are its knowledge — and a copy of
+    // either here would agree until the document that mattered.
+    requestAttachmentContainer: async (request: AttachmentContainerRequest) => {
+      if (!daemon || daemon.getState() !== DaemonState.Running) {
+        throw new Error('the Aggrega language server is not running');
+      }
+      return await daemon.request<unknown>('aggrega/attachmentContainer', request);
     },
     // Where an entry under a named container belongs in one authored document.
     // The request reports a position and writes nothing; the view composes the

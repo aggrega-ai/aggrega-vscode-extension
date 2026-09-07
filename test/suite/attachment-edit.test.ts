@@ -2,19 +2,26 @@
 // Copyright 2026 Cognitio S.r.l.
 
 import * as assert from 'node:assert';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import {
   AttachmentSite,
   Insertion,
+  attachFailureLine,
+  attachRefusal,
+  attachmentContainerRequest,
   attachmentEntryLines,
   attachmentSites,
   composeInsertionText,
   insertionEncoding,
   insertionPositionInDocument,
   instanceNameFor,
-  placeAttachment,
+  nameAttachment,
+  readAttachmentContainer,
   readInsertion,
   refusesEntryShape,
 } from '../../src/attachment-edit';
+import { ERR_ENTITY_NOT_RESOLVABLE } from '../../src/types';
 
 // The two documents the compiler's own locating tests are written against: one
 // where the attachments block has to be created, one where it has to be
@@ -72,10 +79,18 @@ function applyAt(source: string, line: number, character: number, text: string):
 function site(over: Partial<AttachmentSite> = {}): AttachmentSite {
   return {
     nodeId: 'web',
-    sourceFile: 'aggregates/web.yaml',
-    authoredAtTopLevel: true,
     attached: [],
     ...over,
+  };
+}
+
+// A refusal envelope as the transport delivers one: the numeric code is what
+// tells a compiler refusal from anything else the extension throws, and the
+// message is the compiler's own wording for the refusal.
+function refusalEnvelope(reason: string): unknown {
+  return {
+    code: ERR_ENTITY_NOT_RESOLVABLE,
+    message: `no container is reported for ledger on the compiled graph of releases/dev.yaml: ${reason}`,
   };
 }
 
@@ -100,46 +115,147 @@ describe('instanceNameFor', () => {
   });
 });
 
-describe('placeAttachment', () => {
-  it('states where an attachment goes for a component authored at the top level', () => {
-    const placed = placeAttachment(site(), 'observability/prometheus-scrape');
-    assert.deepStrictEqual(placed, {
-      file: 'aggregates/web.yaml',
-      container: ['spec', 'components', 'web', 'features'],
-      instanceName: 'prometheus-scrape',
-    });
+describe('nameAttachment', () => {
+  it('reports the name the attachment is written under and nothing about a document', () => {
+    // The keys are asserted rather than only the name: a file or a container
+    // path coming back here is this side composing a structural claim about an
+    // Aggregate again, which is the whole thing asking the compiler removed.
+    const named = nameAttachment(site(), 'observability/prometheus-scrape');
+    assert.deepStrictEqual(named, { instanceName: 'prometheus-scrape' });
+    assert.deepStrictEqual(Object.keys(named), ['instanceName']);
   });
 
-  it('REFUSES a component authored inside a subsystem instead of guessing its keys', () => {
-    // Recovering the keys the author wrote would mean splitting a scope name on
-    // a separator this side would have to know, and a component reached through
-    // an imported Aggregate is named in a way that split cannot be told from. A
-    // path built on either guess addresses nothing — and addressing nothing does
-    // not fail: the answer would report the whole path as absent and the entry
-    // would be created under keys nobody authored.
-    const placed = placeAttachment(site({ authoredAtTopLevel: false }), 'observability/scrape');
-    assert.ok('refusal' in placed);
-    assert.ok(placed.refusal.includes('subsystem'));
-    // The refusal names the file, so the reader can make the edit themselves.
-    assert.ok(placed.refusal.includes('aggregates/web.yaml'));
+  it('names a component authored inside a subsystem exactly as it names any other', () => {
+    // The site carries no notion of how the node was authored, so there is
+    // nothing here to refuse on. Where the entry goes is asked of the compiler
+    // and is the same question for both authoring shapes.
+    const named = nameAttachment(site({ nodeId: 'finance.ledger' }), 'observability/scrape');
+    assert.deepStrictEqual(named, { instanceName: 'scrape' });
   });
 
   it('refuses a name already attached, which would be a second key of the same name', () => {
-    const placed = placeAttachment(site({ attached: ['prometheus-scrape'] }),
+    const named = nameAttachment(site({ attached: ['prometheus-scrape'] }),
       'observability/prometheus-scrape');
-    assert.ok('refusal' in placed);
-    assert.ok(placed.refusal.includes('prometheus-scrape'));
-  });
-
-  it('refuses when the compiler named no authoring file for the node', () => {
-    const placed = placeAttachment(site({ sourceFile: '' }), 'observability/scrape');
-    assert.ok('refusal' in placed);
+    assert.ok('refusal' in named);
+    assert.ok(named.refusal.includes('prometheus-scrape'));
   });
 
   it('refuses a Feature whose name yields nothing an attachment can be written under', () => {
-    const placed = placeAttachment(site(), 'observability/');
-    assert.ok('refusal' in placed);
+    const named = nameAttachment(site(), 'observability/');
+    assert.ok('refusal' in named);
   });
+});
+
+describe('attachmentContainerRequest', () => {
+  it('carries the node id and the Release, and nothing composed on this side', () => {
+    const request = attachmentContainerRequest(site({ nodeId: 'finance.ledger' }),
+      'releases/dev.yaml');
+    assert.deepStrictEqual(request, { graphNode: 'finance.ledger', release: 'releases/dev.yaml' });
+    // Named field by field, because a third key could only be something this
+    // side had invented: the document, or a path into it.
+    assert.deepStrictEqual(Object.keys(request).sort(), ['graphNode', 'release']);
+  });
+});
+
+describe('readAttachmentContainer', () => {
+  it('hands on the segments of a nested answer exactly as they arrived', () => {
+    // A component authored two subsystems deep. The segments are longer than
+    // anything this side ever composed, they repeat a key between levels, and
+    // one of them carries a dot — which is precisely why a joined path could
+    // not be read back into parts.
+    const wire = {
+      node: 'finance.ledger',
+      file: 'aggregates/finance.yaml',
+      container: ['spec', 'subsystems', 'finance', 'subsystems', 'ledger.core',
+        'components', 'ledger', 'features'],
+    };
+    const located = readAttachmentContainer(wire);
+    assert.ok(located !== null);
+    assert.strictEqual(located.file, 'aggregates/finance.yaml');
+    assert.deepStrictEqual(located.container, wire.container);
+  });
+
+  it('hands on a top-level answer the same way, with nothing special-cased', () => {
+    const located = readAttachmentContainer({
+      node: 'web',
+      file: 'aggregates/web.yaml',
+      container: ['spec', 'components', 'web', 'features'],
+    });
+    assert.ok(located !== null);
+    assert.deepStrictEqual(located.container, ['spec', 'components', 'web', 'features']);
+  });
+
+  it('refuses an answer whose document or path is not in a shape it can pass on', () => {
+    const whole = {
+      node: 'web',
+      file: 'aggregates/web.yaml',
+      container: ['spec', 'components', 'web', 'features'],
+    };
+    assert.strictEqual(readAttachmentContainer({ ...whole, file: 7 }), null);
+    assert.strictEqual(readAttachmentContainer({ ...whole, container: 'spec.components' }), null);
+    assert.strictEqual(readAttachmentContainer({ ...whole, container: ['spec', 4] }), null);
+    assert.strictEqual(readAttachmentContainer({ node: 'web' }), null);
+    assert.strictEqual(readAttachmentContainer(null), null);
+    assert.strictEqual(readAttachmentContainer('a container'), null);
+    assert.strictEqual(readAttachmentContainer([]), null);
+  });
+});
+
+describe('attachFailureLine', () => {
+  // The three reasons the compiler declines to report a container, in its own
+  // words. They are quoted rather than paraphrased because the point of the
+  // assertion is that this side adds no wording of its own: a second wording
+  // for one refusal is exactly what a single home for it prevents.
+  const REASONS = [
+    'the compiled graph carries no node with that id; node ids are the graph\'s own keys, and a '
+    + 'node contributed by a sub-aggregate carries a qualified id',
+    'the graph records no document for that node, and where an attachment belongs is a fact '
+    + 'about a document',
+    'the node\'s own block cannot be named in the document it was authored in, so there is no '
+    + 'container for an attachment to go inside',
+  ];
+
+  for (const reason of REASONS) {
+    it(`reports the reason the response carried: ${reason.slice(0, 40)}…`, () => {
+      const line = attachFailureLine(refusalEnvelope(reason));
+      assert.ok(line.includes(reason), `the reason was not reported: ${line}`);
+      // And the node the refusal was about, which the compiler names too.
+      assert.ok(line.includes('ledger'));
+    });
+  }
+
+  it('reports a transport failure by the same rule, with no wording of its own', () => {
+    assert.strictEqual(
+      attachFailureLine(new Error('the Aggrega language server is not running')),
+      attachRefusal('the Aggrega language server is not running'),
+    );
+  });
+});
+
+describe('no container path is composed on this side', () => {
+  // The keys an Aggregate spells its components and their attachments with.
+  // This side used to compose a path out of them; asking the compiler where an
+  // attachment belongs is what removed that, and this is what fails if one
+  // comes back. It is deliberately a reading of the source: the composition
+  // could return anywhere in either file, and no signature would change.
+  //
+  // Only the quoted spellings are looked for, so prose about an Aggregate's
+  // shape is unaffected — which also means a comment that quotes a key trips
+  // this, and should be reworded rather than the check loosened.
+  const CONTAINER_KEYS = ['spec', 'subsystems', 'components', 'features'];
+  const FILES = ['src/attachment-edit.ts', 'src/graph-view.ts'];
+
+  for (const rel of FILES) {
+    it(`spells no Aggregate container key in ${rel}`, () => {
+      const source = fs.readFileSync(path.join(__dirname, '..', '..', '..', rel), 'utf8');
+      for (const key of CONTAINER_KEYS) {
+        for (const quoted of [`'${key}'`, `"${key}"`]) {
+          assert.ok(!source.includes(quoted),
+            `${rel} spells ${quoted}: a container path is being composed here again`);
+        }
+      }
+    });
+  }
 });
 
 describe('readInsertion', () => {
@@ -394,6 +510,11 @@ describe('the edit an answer produces, applied to the document it was computed o
 });
 
 describe('attachmentSites', () => {
+  // The payload carries each node's authoring file and whether its enclosing
+  // scope was one normalization generated. Both are left in this fixture on
+  // purpose: the assertions below are what shows they are not picked up, since
+  // reading either would be this side forming its own idea of where a
+  // component was written.
   const graph = {
     spec: {
       nodes: {
@@ -412,30 +533,29 @@ describe('attachmentSites', () => {
     },
   };
 
-  it('reads each node\'s authoring file and where it was authored', () => {
+  it('reads the names already attached to each node the graph carries', () => {
     const sites = attachmentSites(graph);
     assert.deepStrictEqual(sites.get('web'), {
       nodeId: 'web',
-      sourceFile: 'aggregates/web.yaml',
-      authoredAtTopLevel: true,
       attached: ['metrics'],
     });
+    // A node authored inside a subsystem is read exactly like any other: how it
+    // was authored decides nothing here, because where an attachment for it
+    // goes is not answered here.
     assert.deepStrictEqual(sites.get('ledger'), {
       nodeId: 'ledger',
-      sourceFile: 'aggregates/finance.yaml',
-      authoredAtTopLevel: false,
       attached: [],
     });
   });
 
-  it('keeps names and a path per node and no authored value', () => {
+  it('keeps a name per node and no authored value, and no document path either', () => {
     // The panel's payload is redacted before it crosses into the view; this
     // table is kept on the other side, so it holds nothing that redaction
-    // removes.
+    // removes. It also holds no file: the document an attachment belongs in is
+    // the compiler's answer, so a path held here would be a second one.
     const site = attachmentSites(graph).get('web');
     assert.ok(site !== undefined);
-    assert.deepStrictEqual(Object.keys(site).sort(),
-      ['attached', 'authoredAtTopLevel', 'nodeId', 'sourceFile']);
+    assert.deepStrictEqual(Object.keys(site).sort(), ['attached', 'nodeId']);
     assert.deepStrictEqual(site.attached, ['metrics']);
   });
 
@@ -446,14 +566,13 @@ describe('attachmentSites', () => {
     assert.strictEqual(attachmentSites({ spec: { nodes: 'some' } }).size, 0);
   });
 
-  it('reports a node the compiler sent no authoring file for, rather than dropping it', () => {
+  it('reports a node carrying nothing, rather than dropping it', () => {
     // Dropping it would be indistinguishable from the node not being in the
-    // graph, and the two are told apart by different sentences.
+    // graph, and the two are told apart by different sentences: a node with no
+    // attachments can take one, and a node the graph does not carry cannot.
     const sites = attachmentSites({ spec: { nodes: { orphan: {} } } });
     assert.deepStrictEqual(sites.get('orphan'), {
       nodeId: 'orphan',
-      sourceFile: '',
-      authoredAtTopLevel: false,
       attached: [],
     });
   });

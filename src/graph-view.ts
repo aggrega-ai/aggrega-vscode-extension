@@ -6,12 +6,17 @@ import * as vscode from 'vscode';
 import { GraphRedactor, createGraphRedactor } from './graph-payload';
 import { makeGraphMessageHandler } from './graph-messages';
 import {
+  AttachmentContainerRequest,
   AttachmentSite,
+  attachFailureLine,
+  attachRefusal,
+  attachmentContainerRequest,
   attachmentEntryLines,
   attachmentSites,
   composeInsertionText,
   insertionPositionInDocument,
-  placeAttachment,
+  nameAttachment,
+  readAttachmentContainer,
   readInsertion,
   refusesEntryShape,
 } from './attachment-edit';
@@ -55,6 +60,16 @@ export interface GraphDeps extends RendersOnReady {
   // question — while naming a node instead would have the graph rebuilt in
   // order to look labels back up that the canvas is already displaying.
   requestAttachCandidates(labels: Record<string, string>): Promise<unknown>;
+  // requestAttachmentContainer reports which document an attachment for one
+  // drawn node belongs in, and the structural path to the container inside it.
+  //
+  // THE SUBJECT IS A GRAPH NODE AND THE RELEASE ITS GRAPH WAS BUILT FROM, which
+  // is what the canvas holds and is why the question is answerable from one.
+  // The whole request is composed where its answer is read, and is passed on the
+  // wire exactly as composed — this side supplies a coordinate and nothing
+  // structural, because how an Aggregate nests its components is the compiler's
+  // knowledge and a second copy of it here would be free to disagree.
+  requestAttachmentContainer(request: AttachmentContainerRequest): Promise<unknown>;
   // requestInsertionPoint reports where a new entry under the named container
   // belongs in one authored document.
   //
@@ -175,10 +190,20 @@ export function activateGraphView(context: vscode.ExtensionContext, deps: GraphD
               const site = shownSites.get(nodeId);
               if (!site) {
                 void postAttachOutcome(panel, nodeId,
-                  `The drawn graph carries no authoring file for ${nodeId}.`, false);
+                  `${nodeId} is not on the graph this panel drew.`, false);
                 return;
               }
-              void attachFeature(panel, deps, site, featureName);
+              // The Release asked about is the one this panel's graph was drawn
+              // from, not whatever is selected now: the node ids and the
+              // attachments the click was made against came from that render,
+              // and asking about a different Release would answer about a
+              // different graph.
+              if (!shownRelease) {
+                void postAttachOutcome(panel, nodeId,
+                  'This panel is not showing a Release yet.', false);
+                return;
+              }
+              void attachFeature(panel, deps, site, featureName, shownRelease);
             },
           }),
           null,
@@ -326,7 +351,7 @@ async function postAttachCandidates(
 //
 // # THE COMPILER SAYS WHERE; THIS SIDE WRITES
 //
-// The request that follows is read-only and reports a position. Everything that
+// The requests that follow are read-only and report places. Everything that
 // touches the document happens here, through the editor's own edit machinery,
 // and that routing is the requirement rather than a convenience: an edit
 // applied through the document model joins the undo history, lands on the
@@ -342,15 +367,27 @@ async function postAttachCandidates(
 // what re-renders this graph. Saving on the reader's behalf would take a
 // decision that is theirs, and re-validating from here would be a second
 // trigger for something the ordinary edit path already does.
+//
+// # TWO QUESTIONS, AND NEITHER ANSWER IS COMPOSED HERE
+//
+// The first asks which document the attachment belongs in and the path to the
+// container inside it, addressed by the node id the drawn graph carries and the
+// Release that graph was built from. The second asks where in that document
+// such an entry goes. The first answer is handed to the second exactly as it
+// arrived, segment for segment — which is what makes a component authored
+// inside a subsystem commit by the same path as one authored at the top level,
+// with neither depending on this side knowing how an Aggregate spells its
+// nesting.
 async function attachFeature(
   panel: vscode.WebviewPanel,
   deps: GraphDeps,
   site: AttachmentSite,
   featureName: string,
+  release: string,
 ): Promise<void> {
-  const placement = placeAttachment(site, featureName);
-  if ('refusal' in placement) {
-    void postAttachOutcome(panel, site.nodeId, placement.refusal, false);
+  const named = nameAttachment(site, featureName);
+  if ('refusal' in named) {
+    void postAttachOutcome(panel, site.nodeId, named.refusal, false);
     return;
   }
 
@@ -361,16 +398,30 @@ async function attachFeature(
   }
 
   try {
-    const answer = await deps.requestInsertionPoint(placement.file, placement.container);
+    const located = readAttachmentContainer(
+      await deps.requestAttachmentContainer(attachmentContainerRequest(site, release)),
+    );
+    if (located === null) {
+      void postAttachOutcome(panel, site.nodeId, attachRefusal(
+        'the compiler\'s answer about which document this belongs in is in a shape this cannot '
+        + 'apply.'), false);
+      return;
+    }
+
+    // The document and the container path both come from that answer, and both
+    // are passed on untouched. Reading either one back into parts is the guess
+    // this request exists to remove.
+    const answer = await deps.requestInsertionPoint(located.file, located.container);
     const insertion = readInsertion(answer);
     if (insertion === null) {
-      void postAttachOutcome(panel, site.nodeId,
-        'The compiler\'s answer about where this belongs is in a shape this cannot apply.', false);
+      void postAttachOutcome(panel, site.nodeId, attachRefusal(
+        'the compiler\'s answer about where in that document this belongs is in a shape this '
+        + 'cannot apply.'), false);
       return;
     }
     const shapeRefusal = refusesEntryShape(insertion);
     if (shapeRefusal) {
-      void postAttachOutcome(panel, site.nodeId, `Cannot attach: ${shapeRefusal}`, false);
+      void postAttachOutcome(panel, site.nodeId, attachRefusal(shapeRefusal), false);
       return;
     }
     // The answer names the document workspace-relative, as every other
@@ -388,15 +439,15 @@ async function attachFeature(
     // rather than an error anybody sees.
     const at = insertionPositionInDocument(doc.getText(), insertion);
     if (at === null) {
-      void postAttachOutcome(panel, site.nodeId,
-        `Cannot attach: the position is reported in ${insertion.positionEncoding || 'unstated'} `
-        + 'units, which this cannot convert from.', false);
+      void postAttachOutcome(panel, site.nodeId, attachRefusal(
+        `the position is reported in ${insertion.positionEncoding || 'unstated'} units, which `
+        + 'this cannot convert from.'), false);
       return;
     }
 
     const text = composeInsertionText(
       insertion,
-      attachmentEntryLines(placement.instanceName, featureName, insertion.indentStep),
+      attachmentEntryLines(named.instanceName, featureName, insertion.indentStep),
     );
 
     const edit = new vscode.WorkspaceEdit();
@@ -418,14 +469,15 @@ async function attachFeature(
       ? ''
       : ' The document exhibits no nesting to measure, so a default indentation was used.';
     deps.output.appendLine(
-      `attached ${featureName} to ${site.nodeId} as ${placement.instanceName} in ${insertion.file}`,
+      `attached ${featureName} to ${site.nodeId} as ${named.instanceName} in ${insertion.file}`,
     );
     void postAttachOutcome(panel, site.nodeId,
-      `Attached ${featureName} to ${site.nodeId} as ${placement.instanceName}.${note}`, true);
+      `Attached ${featureName} to ${site.nodeId} as ${named.instanceName}.${note}`, true);
   } catch (err) {
-    const message = describeError(err);
-    deps.output.appendLine(`attaching ${featureName} to ${site.nodeId} failed: ${message}`);
-    void postAttachOutcome(panel, site.nodeId, `Cannot attach: ${message}`, false);
+    deps.output.appendLine(
+      `attaching ${featureName} to ${site.nodeId} failed: ${describeError(err)}`,
+    );
+    void postAttachOutcome(panel, site.nodeId, attachFailureLine(err), false);
   }
 }
 
