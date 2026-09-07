@@ -11,6 +11,7 @@ import {
   EVERYTHING_MET,
   GET_STARTED_SHOW_SETTING,
   NOTHING_MET,
+  PANEL_SETTING_CONTROLS,
   SHOW_COMMAND,
   SHOW_COMMAND_TITLE,
   STEP_CONTENT,
@@ -29,6 +30,7 @@ import { escapeHtml } from '../../src/html';
 import {
   MET_LABEL,
   UNMET_LABEL,
+  dismissHtml,
   initiallyCollapsedStepIds,
   inlineHtml,
   stepsHtml,
@@ -67,7 +69,12 @@ function manifest(): {
   views: ViewEntry[];
   commands: CommandEntry[];
   palette: MenuEntry[];
-  properties: Record<string, { type?: unknown; default?: unknown; scope?: unknown }>;
+  properties: Record<string, {
+    type?: unknown;
+    default?: unknown;
+    scope?: unknown;
+    description?: unknown;
+  }>;
   viewsWelcome: unknown[];
 } {
   const pkg = JSON.parse(fs.readFileSync(MANIFEST, 'utf8'));
@@ -90,9 +97,13 @@ function manifest(): {
 // The arrangement is a parameter of its own here for the same reason it is one
 // in the composition: it is not derivable from the standings beside it, so a
 // caller that wants a particular arrangement has to say so.
+//
+// opensWithEditor defaults to the preference's own default, so a caller that
+// says nothing about it composes the panel a reader meets on a fresh profile.
 function renderedPanel(
   standings: Record<StepId, boolean>,
   collapsed: readonly StepId[] = [],
+  opensWithEditor = true,
 ): string {
   return welcomeDocumentHtml({
     nonce: 'test-nonce',
@@ -101,8 +112,21 @@ function renderedPanel(
     cspSource: 'vscode-resource:',
     standings,
     collapsed,
+    opensWithEditor,
   });
 }
+
+// RETIRED_UNMET_WORD is the word the unmet standing used to read, kept here as
+// the subject of an absence assertion rather than as a value anything composes.
+//
+// 🔴 IT IS SPELLED OUT SO THE ABSENCE CAN BE ASSERTED AT ALL. The word also
+// means *excellent* in English, so on a list of standings it can read as praise
+// for the step rather than as work left for the reader — and the glyph beside
+// the word is hidden from assistive technology, which makes the word the only
+// channel a reader using a screen reader gets. A search of the sources is what
+// establishes that it is gone from the code; this is what establishes that it
+// cannot come back through the composition without something failing.
+const RETIRED_UNMET_WORD = 'Outstanding';
 
 // MIXED is a workspace where two conditions hold and two do not.
 //
@@ -181,7 +205,7 @@ describe('the welcome panel', () => {
       });
     });
 
-    it('reports every condition outstanding for a reader who has just installed it', () => {
+    it('reports every condition still to do for a reader who has just installed it', () => {
       assert.deepStrictEqual(unmetStepIds(NOTHING_MET), [...STEP_IDS]);
     });
 
@@ -228,10 +252,10 @@ describe('the welcome panel', () => {
           `${step.id} is not marked met though its condition holds`,
         );
       }
-      assert.ok(!html.includes('step-unmet'), 'a step is outstanding with every condition met');
+      assert.ok(!html.includes('step-unmet'), 'a step is still to do with every condition met');
     });
 
-    it('marks a step outstanding again when its condition lapses', () => {
+    it('marks a step still to do again when its condition lapses', () => {
       // The same step, read from facts that satisfied it and then from facts
       // that no longer do. Nothing between the two calls carries a mark
       // forward, which is the whole property: the second render is composed
@@ -260,11 +284,91 @@ describe('the welcome panel', () => {
       const met = stepsHtml(stepStandings(EVERYTHING_MET), []);
       const unmet = stepsHtml(stepStandings(NOTHING_MET), []);
       assert.ok(met.includes(MET_LABEL), 'a met step says so in words');
-      assert.ok(unmet.includes(UNMET_LABEL), 'an outstanding step says so in words');
+      assert.ok(unmet.includes(UNMET_LABEL), 'a step still to do says so in words');
       assert.ok(
         !met.includes(UNMET_LABEL),
-        'a panel with every condition met still reads as having outstanding work',
+        'a panel with every condition met still reads as having work left',
       );
+    });
+
+    // 🔴 THE WORD FOR AN UNMET STEP IS THE ONLY CHANNEL A SCREEN READER GETS,
+    // WHICH IS WHY IT IS ASSERTED RATHER THAN LEFT TO THE CONSTANT.
+    //
+    // The mark beside it is drawn `aria-hidden`, deliberately — it is a glyph
+    // repeating what the word already says — so a reader using a screen reader
+    // is told the standing by this word and by nothing else. That makes an
+    // ambiguous word a defect rather than a preference, and the retired one was
+    // ambiguous in the worst direction: it also means *excellent*, so it could
+    // read as praise for the step rather than as a job for the reader.
+    it('names an unmet step as work to do, in a word that cannot read as praise', () => {
+      assert.strictEqual(
+        UNMET_LABEL,
+        'To do',
+        'the unmet standing is the only channel a screen reader has for what a step needs, so it names the job plainly',
+      );
+      assert.strictEqual(MET_LABEL, 'Met');
+      assert.notStrictEqual(
+        UNMET_LABEL,
+        RETIRED_UNMET_WORD,
+        'the retired word is back on the badge, and it reads as praise for the step to exactly the reader who has only the word',
+      );
+    });
+
+    // 🔴 THE MARK IS HIDDEN FROM ASSISTIVE TECHNOLOGY, WHICH IS THE PREMISE THE
+    // ASSERTION ABOVE RESTS ON — so it is asserted rather than assumed. If the
+    // glyph ever stopped being hidden the word would no longer be the only
+    // channel, and the reasoning for the word would need re-deciding rather
+    // than silently ceasing to apply.
+    it('draws the glyph as decoration, so the word carries the standing alone', () => {
+      const html = stepsHtml(MIXED, []);
+      assert.ok(
+        html.includes('<span class="step-mark" aria-hidden="true">'),
+        'the mark is announced as well as drawn, so the standing now reaches a screen reader twice and the word is no longer its only channel',
+      );
+    });
+
+    // An absence claim with its instrument named: the composition itself. A
+    // search of the sources is the other half and is not something an assertion
+    // can do; this half is the one that fails if the word returns through a
+    // constant, a label or a piece of step prose.
+    it('composes no panel carrying the retired unmet word, in either standing', () => {
+      for (const standings of [EVERYTHING_MET, NOTHING_MET]) {
+        for (const opensWithEditor of [true, false]) {
+          const html = renderedPanel(stepStandings(standings), [], opensWithEditor);
+          assert.ok(
+            !html.includes(RETIRED_UNMET_WORD),
+            `the composed panel carries "${RETIRED_UNMET_WORD}"`,
+          );
+          assert.ok(
+            !html.toLowerCase().includes(RETIRED_UNMET_WORD.toLowerCase()),
+            `the composed panel carries "${RETIRED_UNMET_WORD}" in some other case`,
+          );
+        }
+      }
+    });
+
+    // 🔴 THE SECOND SURFACE, AND MISSING IT IS THE LIKELY FAILURE. The badge is
+    // one place the standings are named; the settings screen's own description
+    // of the panel is the other, and it names them in lowercase prose where no
+    // assertion about the composed document reaches it.
+    it('describes the standings in the settings screen in the words the badge uses', () => {
+      const description = String(
+        manifest().properties[GET_STARTED_SHOW_SETTING].description ?? '',
+      );
+      assert.ok(description.length > 0, 'the preference carries no description at all');
+      assert.ok(
+        !description.toLowerCase().includes(RETIRED_UNMET_WORD.toLowerCase()),
+        'the settings screen still describes an unmet step with the retired word, so the two surfaces name one standing two ways',
+      );
+      assert.ok(
+        description.toLowerCase().includes(UNMET_LABEL.toLowerCase()),
+        `the settings screen does not name the unmet standing as "${UNMET_LABEL}", which is what the badge reads`,
+      );
+      // 🔴 The met word is deliberately NOT asserted the same way. It is three
+      // letters and a substring of ordinary words — a check for it would pass on
+      // "metadata" and prove nothing, which is worse than no check because it
+      // reads as one. The unmet word is the one that moved and the one whose
+      // spelling is distinctive enough to look for.
     });
   });
 
@@ -278,7 +382,7 @@ describe('the welcome panel', () => {
   // middle of reading it, on an event they never initiated, and discards
   // whatever they had toggled while it is at it.
   describe('which sections a panel opens', () => {
-    it('closes the satisfied sections and leaves the outstanding ones open', () => {
+    it('closes the satisfied sections and leaves the ones still to do open', () => {
       const collapsed = initiallyCollapsedStepIds(MIXED);
       assert.deepStrictEqual(
         collapsed,
@@ -288,18 +392,18 @@ describe('the welcome panel', () => {
       assert.deepStrictEqual(
         STEP_IDS.filter((id) => !collapsed.includes(id)),
         MIXED_UNMET,
-        'an outstanding step opens closed, so the reader is shown a title where they needed an explanation',
+        'a step still to do opens closed, so the reader is shown a title where they needed an explanation',
       );
     });
 
     // The inversion is one character away in the subject: negate the filter and
-    // the panel folds away every outstanding step and opens every satisfied
+    // the panel folds away every step still to do and opens every satisfied
     // one, which reads as deliberate, produces no error, and is the exact
     // opposite of what the panel is for. The equality above already excludes
     // it; this names it, and checks first that the fixture still has conditions
     // on both sides — a fixture that drifted to uniform would go on passing
     // while quietly testing less than it says.
-    it('does not open the outstanding sections closed, which is the inversion', () => {
+    it('does not open the still-to-do sections closed, which is the inversion', () => {
       const collapsed = initiallyCollapsedStepIds(MIXED);
       assert.deepStrictEqual(
         MIXED_UNMET,
@@ -309,7 +413,7 @@ describe('the welcome panel', () => {
       assert.notDeepStrictEqual(
         collapsed,
         MIXED_UNMET,
-        'the arrangement is inverted: the satisfied steps are open and the outstanding ones are folded away, so the panel hides exactly the work it exists to show',
+        'the arrangement is inverted: the satisfied steps are open and the ones still to do are folded away, so the panel hides exactly the work it exists to show',
       );
     });
 
@@ -341,12 +445,12 @@ describe('the welcome panel', () => {
       assert.deepStrictEqual(expandedSteps(html), [...STEP_IDS]);
     });
 
-    it('composes a closure the reader asked for even where the step is outstanding', () => {
+    it('composes a closure the reader asked for even where the step is still to do', () => {
       const html = stepsHtml(stepStandings(NOTHING_MET), ['compiler']);
       assert.deepStrictEqual(
         collapsedSteps(html),
         ['compiler'],
-        'a reader who closes an outstanding section is entitled to have it stay closed',
+        'a reader who closes a section still to do is entitled to have it stay closed',
       );
       assert.deepStrictEqual(hiddenProse(html), ['compiler']);
     });
@@ -385,6 +489,92 @@ describe('the welcome panel', () => {
       assert.deepStrictEqual(
         expandedSteps(stepsHtml(MIXED, [])),
         [...STEP_IDS],
+      );
+    });
+
+    // 🔴 THE ARRANGEMENT AND THE MARKS AGREE WHEN BOTH COME FROM ONE READING —
+    // ASSERTED OVER A MIXED WORKSPACE, WHICH IS THE ONLY FIXTURE THAT CAN TELL.
+    //
+    // This is the composed end-to-end shape rather than the two halves checked
+    // apart: the derivation is asserted above and the composition is asserted
+    // above, and both pass while the panel still folds the wrong sections if
+    // the two are wired to each other crosswise. Over a uniform workspace they
+    // cannot be told apart — every step has the same standing, so a rule
+    // reading a neighbour's returns the right answer — which is why this runs
+    // over a fixture with conditions on both sides.
+    it('folds exactly the satisfied sections when the arrangement is read from the same standings', () => {
+      const html = stepsHtml(MIXED, initiallyCollapsedStepIds(MIXED));
+      assert.deepStrictEqual(
+        collapsedSteps(html).sort(),
+        [...MIXED_MET].sort(),
+        'the folded sections are not the satisfied ones, so a step is carrying a neighbour\'s standing',
+      );
+      assert.deepStrictEqual(
+        expandedSteps(html).sort(),
+        [...MIXED_UNMET].sort(),
+        'the open sections are not the ones still to do, so the panel is not opening on the work it exists to show',
+      );
+      assert.deepStrictEqual(
+        hiddenProse(html).sort(),
+        [...MIXED_MET].sort(),
+        'the withheld explanations are not the satisfied steps\'',
+      );
+      // And the marks agree with the folds, per step, over the same reading.
+      for (const id of MIXED_MET) {
+        assert.ok(
+          html.includes(`class="step step-met" data-step="${id}"`),
+          `${id} is folded but not marked met, so the fold and the mark disagree about one step`,
+        );
+      }
+      for (const id of MIXED_UNMET) {
+        assert.ok(
+          html.includes(`class="step step-unmet" data-step="${id}"`),
+          `${id} is open but marked met, so the fold and the mark disagree about one step`,
+        );
+      }
+    });
+
+    // 🔴 THE ARRANGEMENT IS A PURE FUNCTION OF THE READING IT IS GIVEN, AND THAT
+    // IS WHY *WHEN* THE READING IS TAKEN DECIDES WHETHER THE PANEL IS RIGHT.
+    //
+    // This is the assertion that names the defect the opening moment exists to
+    // avoid, at the only level a test here can reach it. A reading taken before
+    // the four conditions are established is honestly all-false, and the
+    // arrangement derived from it is empty — permanently, because the
+    // arrangement is deliberately not live. So a panel created from such a
+    // reading opens every section, and then the marks correct themselves on the
+    // next refresh while the folds cannot. A reader who had satisfied
+    // everything would meet four ticked steps with every explanation showing.
+    //
+    // ⚠️ WHAT THIS DOES NOT PROVE, STATED SO THE GREEN IS NOT READ AS WIDER
+    // THAN IT IS: that the extension takes its reading at a settled moment.
+    // That wiring lives in the module that holds the editor types, which no
+    // test in this container can load. Only a person opening a cold window can
+    // see it, and the operator's walk is where that is recorded.
+    it('derives an empty arrangement from an unsettled reading, whatever the facts later are', () => {
+      const unsettled = stepStandings(NOTHING_MET);
+      assert.deepStrictEqual(
+        initiallyCollapsedStepIds(unsettled),
+        [],
+        'an all-false reading no longer yields an empty arrangement, so the reasoning for when the reading is taken no longer holds and must be re-decided rather than assumed',
+      );
+      // The shape a reader who has satisfied everything would meet if the panel
+      // were created from that reading: every mark corrected, every section
+      // still open.
+      const drawnFromUnsettled = stepsHtml(
+        stepStandings(EVERYTHING_MET),
+        initiallyCollapsedStepIds(unsettled),
+      );
+      assert.deepStrictEqual(
+        collapsedSteps(drawnFromUnsettled),
+        [],
+        'the composition folded a section the arrangement did not name, which would hide this defect rather than fix it',
+      );
+      // And the arrangement the same reader is entitled to, from a settled one.
+      assert.deepStrictEqual(
+        initiallyCollapsedStepIds(stepStandings(EVERYTHING_MET)),
+        [...STEP_IDS],
+        'a settled all-met reading no longer folds every section',
       );
     });
   });
@@ -690,7 +880,7 @@ describe('the welcome panel', () => {
 
     // One step per condition, in condition order, and nothing else. A fifth
     // step would be an entry in a checklist that no fact ever checks off, so it
-    // would read as outstanding work forever.
+    // would read as work to do forever.
     it('carries one step per condition, in condition order', () => {
       assert.deepStrictEqual(
         STEP_CONTENT.map((s) => s.id),
@@ -748,13 +938,123 @@ describe('the welcome panel', () => {
     // equality in both directions, because a guard that admitted more than the
     // panel offers would be the interesting failure and a subset check would
     // pass it.
-    it('admits exactly the commands its own controls carry', () => {
-      const drawn = [...new Set(commandsInPanel(renderedPanel(stepStandings(NOTHING_MET))))].sort();
+    // 🔴 THE UNION ACROSS BOTH STANDINGS OF THE FOOT CONTROL, NOT ONE OF THEM.
+    // The panel draws one of two controls at its foot according to the
+    // preference, so no single composition carries every command the guard must
+    // admit — and a subset check in either direction would pass a guard that
+    // had been widened by hand to admit something no control can carry. Set
+    // equality over the union keeps the property the guard exists for: what a
+    // press can reach is exactly what the panel is able to draw.
+    it('admits exactly the commands its own controls can carry, in either standing', () => {
+      const opening = commandsInPanel(renderedPanel(stepStandings(NOTHING_MET), [], true));
+      const withheld = commandsInPanel(renderedPanel(stepStandings(NOTHING_MET), [], false));
+      const drawn = [...new Set([...opening, ...withheld])].sort();
       const admitted = [...new Set(panelControlCommands())].sort();
       assert.deepStrictEqual(
         admitted,
         drawn,
         'the guard on a press and the controls the panel draws have come apart',
+      );
+      // And each standing genuinely draws a different one, so the union above
+      // is a union of two things rather than the same set twice.
+      assert.notDeepStrictEqual(
+        [...new Set(opening)].sort(),
+        [...new Set(withheld)].sort(),
+        'both standings of the foot control draw the same command, so this fixture can no longer tell the two apart',
+      );
+    });
+
+    // 🔴 THE ONE DECISION THAT BELONGS TO NO STEP, AT THE FOOT AND OUTSIDE THE
+    // STEP LIST — which is the placement that lets it exist at all. The steps
+    // are the conditions and nothing else, so a control belonging to none of
+    // them has nowhere to sit AMONG them; the foot of the page is not among
+    // them, and that is what this asserts rather than the styling.
+    it('carries the panel\'s own switch at its foot, outside the step list', () => {
+      const html = renderedPanel(MIXED);
+      const stepsAt = html.indexOf('<div id="steps"');
+      const dismissAt = html.indexOf('<div id="dismiss"');
+      assert.ok(stepsAt >= 0, 'the panel carries no step list');
+      assert.ok(dismissAt >= 0, 'the panel carries no control at its foot at all');
+      assert.ok(
+        dismissAt > stepsAt,
+        'the foot control is composed before the step list, so it is not at the foot',
+      );
+      assert.ok(
+        !html.slice(stepsAt, dismissAt).includes('dismiss-action'),
+        'the foot control sits inside the step list, which is the placement the steps-are-the-conditions rule forbids',
+      );
+      assert.ok(
+        html.includes('id="dismiss" class="welcome-dismiss"'),
+        'the foot control has no region of its own, so it cannot be re-composed when the preference moves without the step list being re-drawn with it',
+      );
+    });
+
+    // 🔴 THE CONTROL IS COMPOSED FROM THE PREFERENCE, WHICH IS WHAT MAKES IT THE
+    // SAME SWITCH AS THE SETTINGS SCREEN'S RATHER THAN A SECOND ONE BESIDE IT.
+    // Each standing offers the command that moves the preference the other way,
+    // so the words and the effect cannot come apart — and a reader who turned
+    // the panel off elsewhere meets a control already reflecting that.
+    it('offers the switch in the direction the preference is not already in', () => {
+      const opening = dismissHtml(true);
+      const withheld = dismissHtml(false);
+      assert.ok(
+        opening.includes(`data-command="${DISMISS_COMMAND}"`),
+        'a panel that opens with the editor does not offer to stop doing so',
+      );
+      assert.ok(
+        !opening.includes(`data-command="${SHOW_COMMAND}"`),
+        'a panel that already opens with the editor offers to make it open, which is a control with nothing to do',
+      );
+      assert.ok(
+        withheld.includes(`data-command="${SHOW_COMMAND}"`),
+        'a panel the reader turned off does not offer the way back from where they are reading it',
+      );
+      assert.ok(
+        !withheld.includes(`data-command="${DISMISS_COMMAND}"`),
+        'a panel already withheld offers to withhold it again',
+      );
+      // The words follow the command rather than being written beside it, so a
+      // control cannot say one thing and do another.
+      const [stop, start] = PANEL_SETTING_CONTROLS;
+      assert.ok(opening.includes(escapeHtml(stop.label)), 'the control does not carry its own words');
+      assert.ok(withheld.includes(escapeHtml(start.label)), 'the control does not carry its own words');
+      assert.notStrictEqual(stop.label, start.label);
+      assert.notStrictEqual(stop.command, start.command);
+    });
+
+    // The foot control is a press like any other in this panel, so it goes
+    // through the same guard — and the commands it names are palette commands
+    // the manifest already declares, which is what keeps the two directions one
+    // capability rather than two.
+    it('reaches the panel switch through the same declared commands the palette uses', () => {
+      const declared = new Set(manifest().commands.map((c) => String(c.command)));
+      for (const control of PANEL_SETTING_CONTROLS) {
+        assert.ok(
+          declared.has(control.command),
+          `the foot control names ${control.command}, which the manifest does not declare, so pressing it derives no activation event and does nothing`,
+        );
+        assert.ok(
+          panelControlCommands().includes(control.command),
+          `the host refuses ${control.command}, so the foot control is drawn and cannot be pressed`,
+        );
+      }
+      assert.deepStrictEqual(
+        PANEL_SETTING_CONTROLS.map((c) => c.command),
+        [DISMISS_COMMAND, SHOW_COMMAND],
+        'the foot control no longer runs the two commands the palette runs, so the panel and the palette are two switches rather than one',
+      );
+    });
+
+    // 🔴 NOTHING ELSE BECAME REACHABLE. The guard was widened by exactly the two
+    // commands the foot control declares and by nothing else, asserted against
+    // the step-derived set rather than against a remembered count.
+    it('widened what a press may reach by the foot control alone', () => {
+      const stepCommands = STEP_CONTENT.flatMap((s) => s.actions.map((a) => a.command));
+      const admitted = panelControlCommands();
+      assert.deepStrictEqual(
+        admitted,
+        [...stepCommands, ...PANEL_SETTING_CONTROLS.map((c) => c.command)],
+        'the guard admits something that is neither a step\'s way through nor the panel\'s own switch',
       );
     });
 

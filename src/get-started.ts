@@ -28,7 +28,6 @@ import {
   GET_STARTED_SHOW_SETTING,
   GetStartedFacts,
   LOCATE_COMPILER_COMMAND,
-  NOTHING_MET,
   SEED_NAMED_REGISTRY_COMMAND,
   SEED_REGISTRY_COMMAND,
   SHOW_COMMAND,
@@ -40,6 +39,7 @@ import {
   stepStandings,
 } from './get-started-steps';
 import {
+  dismissHtml,
   initiallyCollapsedStepIds,
   stepsHtml,
   welcomeDocumentHtml,
@@ -52,7 +52,7 @@ import {
 // facts, drawing them into the panel, running the controls, and opening it.
 //
 // THE PANEL IS AGGREGA'S OWN, IN ITS OWN TAB, AND IT IS DRAWN BY THIS CODE.
-// That is what lets a step go back to outstanding when its condition lapses:
+// That is what lets a step go back to still-to-do when its condition lapses:
 // every refresh re-composes the list from freshly read facts, so a mark follows
 // its condition in both directions rather than only ticking forward.
 //
@@ -100,6 +100,33 @@ export interface GetStartedDeps extends RendersOnReady {
 // reaches readiness never — and its met workspace condition would go
 // unpublished, telling exactly the reader on the compiler step that they had
 // not even got that far.
+//
+// 🔴 THE CALL HANDED BACK ALSO PERFORMS THE PANEL'S FIRST OPENING, ON ITS FIRST
+// INVOCATION, AND THAT IS THE WHOLE REASON THE ARRANGEMENT IS RIGHT. The
+// arrangement a panel opens in is decided from the conditions read when it is
+// created, so the first creation has to happen at a moment those conditions are
+// final — and the only such moment is the one this call is made from, after the
+// open folders have been evaluated, the language server has settled into
+// whatever state it reaches, and the Release selection has been restored.
+//
+// Opening the panel from inside this function instead reads all four conditions
+// before any of them has been established: the workspace root is assigned
+// during the caller's own evaluation, the language server does not exist yet,
+// and the selection is restored after it starts. A panel created there is
+// created from four honestly-false readings, so its arrangement is empty and a
+// reader who has satisfied everything meets a fully expanded panel. The marks
+// then correct themselves on the next refresh and the arrangement cannot,
+// because the arrangement is deliberately not live.
+//
+// 🔴 READINESS IS THE WRONG MOMENT FOR THIS, THOUGH IT LOOKS LIKE THE RIGHT
+// ONE, AND IT IS WRONG TWICE. It rises inside the language server's own start,
+// which is before the Release selection is restored, so a Release about to be
+// selected would be frozen as still-to-do. And it never rises at all for a
+// workspace that is anchored whose compiler will not start — a reader who HAS
+// satisfied a step — so their satisfied step would open expanded, which is the
+// defect the arrangement exists to remove, arriving from the other direction.
+// The caller's own settling point is true of every branch, including the two
+// that start no language server and the one where starting failed.
 export function activateGetStarted(
   context: vscode.ExtensionContext,
   deps: GetStartedDeps,
@@ -109,14 +136,18 @@ export function activateGetStarted(
   // nothing to draw into.
   let panel: vscode.WebviewPanel | null = null;
 
-  // The standings the panel is currently drawn from. Held so the panel can be
-  // opened from what is already known, and so a refresh that arrives while no
-  // panel is open still leaves the next opening drawing the truth.
-  let standings: Record<StepId, boolean> = stepStandings(NOTHING_MET);
+  // 🔴 NO STANDINGS ARE HELD HERE, AND THE ABSENCE IS THE MECHANISM. Every path
+  // that draws the panel or decides its arrangement reads the four conditions
+  // for itself and uses the answer it got, so there is no shared field for a
+  // second read — landing later, from an event nobody here initiated — to
+  // overwrite between one path's read and its use of it. A held field is what
+  // makes an arrangement's correctness depend on which of two concurrent reads
+  // finished last, and reads genuinely do overlap: the registry condition is a
+  // question put to the compiler.
 
   // The sections the panel is currently arranged with closed.
   //
-  // 🔴 IT IS DELIBERATELY NOT DERIVED FROM THE STANDINGS ABOVE, and it lives
+  // 🔴 IT IS DELIBERATELY NOT DERIVED FROM THE STANDINGS, and it lives
   // out here rather than inside the composition for two reasons that both bite.
   // A composition that decided the arrangement from what is met would re-decide
   // it on every refresh — and refreshes arrive when the compiler becomes
@@ -136,10 +167,21 @@ export function activateGetStarted(
   // subprocess happened to finish last.
   let inFlight = false;
   let again = false;
-  const reread = async (): Promise<void> => {
-    standings = stepStandings(await readFacts(deps));
+  // reread answers with the standings IT read.
+  //
+  // 🔴 THE ANSWER IS WHAT A CALLER DECIDING AN ARRANGEMENT USES, and it is
+  // returned rather than recorded for exactly that reason. Two reads can be in
+  // flight at once — reading the registry condition asks the compiler, and the
+  // panel-opening paths read directly rather than through the coalescer — so a
+  // recorded reading would name whichever read landed last, which is not
+  // necessarily the one a given caller awaited. An arrangement decided from a
+  // recorded reading would therefore be decided from another read's answer,
+  // intermittently and invisibly. Decided from the returned value it is decided
+  // from the reading the caller actually took, whatever else lands around it.
+  const reread = async (): Promise<Record<StepId, boolean>> => {
+    const read = stepStandings(await readFacts(deps));
     // 🔴 THE LIST IS RE-COMPOSED FROM THE STANDINGS JUST READ, IN BOTH
-    // DIRECTIONS. A step whose condition has lapsed is composed as outstanding
+    // DIRECTIONS. A step whose condition has lapsed is composed as still to do
     // again, because nothing here accumulates a previous mark — which is the
     // defect a panel drawn by this extension does not inherit.
     //
@@ -147,7 +189,8 @@ export function activateGetStarted(
     // follows the condition, the arrangement follows the reader. Handing the
     // reader's arrangement to the composition is also what keeps a re-drawing
     // from painting the default shape first and correcting itself afterwards.
-    panel?.webview.postMessage({ type: 'steps', html: stepsHtml(standings, collapsed) });
+    panel?.webview.postMessage({ type: 'steps', html: stepsHtml(read, collapsed) });
+    return read;
   };
   const refresh = (): void => {
     if (inFlight) { again = true; return; }
@@ -160,26 +203,20 @@ export function activateGetStarted(
     });
   };
 
-  // openPanel draws the panel from the standings read at the moment it opens,
-  // rather than from whatever was last computed: a reader who built their
-  // configuration elsewhere would otherwise meet a panel telling them they have
-  // nothing, for as long as the first read takes.
+  // createPanel brings the panel into being, arranged from the standings it is
+  // handed.
   //
-  // Revealing a panel that is already there leaves its arrangement alone. The
-  // arrangement is decided when a panel is CREATED, and a reader pressing the
-  // command again is asking to be shown the panel they have, not to have it
-  // rearranged around them.
-  const openPanel = async (): Promise<void> => {
-    if (panel) {
-      panel.reveal(vscode.ViewColumn.Active);
-      refresh();
-      return;
-    }
-    await reread();
-    // Read here, from the standings just read, because this is the moment a
-    // panel comes into being — and it is the only place the arrangement is
-    // decided from a condition rather than from the reader.
-    collapsed = initiallyCollapsedStepIds(standings);
+  // It is separate from the two paths that reach it — a reader asking for the
+  // panel, and the first settled reading of the conditions — because both have
+  // to arrange it from a reading of their own and neither may take a second one:
+  // a second read costs another question to the compiler and reintroduces
+  // exactly the ambiguity about which answer decided the arrangement. So each
+  // path reads once and hands its answer here.
+  //
+  // This is the only place the arrangement is decided from a condition rather
+  // than from the reader.
+  const createPanel = (read: Record<StepId, boolean>): void => {
+    collapsed = initiallyCollapsedStepIds(read);
     panel = vscode.window.createWebviewPanel(
       'aggrega.welcome',
       WELCOME_PANEL_TITLE,
@@ -216,25 +253,74 @@ export function activateGetStarted(
     panel.webview.html = welcomeHtml(
       panel.webview,
       context.extensionUri,
-      standings,
+      read,
       collapsed,
+      opensWithEditor(),
     );
   };
 
-  // Read once from what is true now, so a panel opened a moment later has the
-  // answer in hand.
-  refresh();
-  // And again whenever the compiler becomes answerable, or the selection moves.
-  // Only the rising edge of readiness is announced, which is the extension's
-  // one rule about that signal: a step keeps its standing while the language
-  // server restarts rather than flickering to unmet and back.
+  // openPanel is what a reader asking for the panel reaches.
+  //
+  // It draws from the standings read at the moment it opens, rather than from
+  // whatever was last computed: a reader who built their configuration
+  // elsewhere would otherwise meet a panel telling them they have nothing, for
+  // as long as the first read takes.
+  //
+  // Revealing a panel that is already there leaves its arrangement alone. The
+  // arrangement is decided when a panel is CREATED, and a reader pressing the
+  // command again is asking to be shown the panel they have, not to have it
+  // rearranged around them.
+  const openPanel = async (): Promise<void> => {
+    if (panel) {
+      panel.reveal(vscode.ViewColumn.Active);
+      refresh();
+      return;
+    }
+    createPanel(await reread());
+  };
+
+  // settle is where the panel opens by itself, from the first reading of the
+  // four conditions taken at a moment all of them are established.
+  //
+  // Three outcomes, and each reads the conditions exactly as much as it needs.
+  // A panel the reader already asked for before this point is refreshed and
+  // left arranged as it is — the same rule the reveal path follows, and through
+  // the coalescer rather than around it, since there is a panel to draw into. A
+  // reader who has said not to open it gets no panel and no reading, because
+  // nothing would draw the answer. Otherwise the panel is created from one
+  // reading taken here, which is the case the whole arrangement rule exists for.
+  const settle = async (): Promise<void> => {
+    if (panel !== null) { refresh(); return; }
+    // What the preference gates is whether the panel OPENS BY ITSELF, not
+    // whether it exists — the command that brings it back is in the palette
+    // either way, which is what makes the dismissal safe to offer at all.
+    if (!opensWithEditor()) { return; }
+    createPanel(await reread());
+  };
+
+  // Whenever the compiler becomes answerable, or the selection moves. Only the
+  // rising edge of readiness is announced, which is the extension's one rule
+  // about that signal: a step keeps its standing while the language server
+  // restarts rather than flickering to unmet and back.
   deps.onReady(refresh);
   deps.onSelectionChange(refresh);
 
-  // Opened where the reader has not said otherwise. This is what the preference
-  // gates: whether the panel opens, not whether it exists — the command that
-  // brings it back is in the palette either way.
-  void openIfWanted(openPanel);
+  // The control at the panel's foot is composed from the preference, so it is
+  // re-composed whenever the preference moves — and that is what makes it the
+  // same switch as the settings screen's rather than one sitting beside it. The
+  // reader may move it from either place: the control writes through the
+  // editor's own configuration, which raises this event, and so does the
+  // settings screen. Narrowed to the one key, so an unrelated preference does
+  // not redraw it.
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration((event) => {
+      if (!event.affectsConfiguration(GET_STARTED_SHOW_SETTING)) { return; }
+      panel?.webview.postMessage({
+        type: 'dismiss',
+        html: dismissHtml(opensWithEditor()),
+      });
+    }),
+  );
 
   context.subscriptions.push(
     vscode.commands.registerCommand(SHOW_COMMAND, () => bringBack(openPanel)),
@@ -248,7 +334,26 @@ export function activateGetStarted(
     vscode.commands.registerCommand(SEED_NAMED_REGISTRY_COMMAND, () => seedNamedRegistry(deps, refresh)),
   );
 
-  return refresh;
+  // 🔴 THE FIRST INVOCATION SETTLES AND OPENS; EVERY LATER ONE IS AN ORDINARY
+  // REFRESH. The caller invokes this at the end of each evaluation of the open
+  // folders, so the first invocation is the one moment in a window's life at
+  // which all four conditions are established for the first time — and that is
+  // the moment a panel has to be created in for its arrangement to be right.
+  //
+  // Only the first, because a later evaluation — a folder added, a language
+  // server started by hand — finds a reader who may be looking at the panel.
+  // Re-opening it there would put a tab in front of them that they closed, and
+  // re-arranging it would fold a step away under their cursor. So the later
+  // invocations move the marks and nothing else, which is what they did before.
+  let settled = false;
+  return (): void => {
+    if (settled) {
+      refresh();
+      return;
+    }
+    settled = true;
+    void settle();
+  };
 }
 
 // runPanelControl runs the command a press in the welcome panel names.
@@ -275,6 +380,7 @@ function welcomeHtml(
   extensionUri: vscode.Uri,
   standings: Record<StepId, boolean>,
   collapsed: readonly StepId[],
+  opensWithEditor: boolean,
 ): string {
   return welcomeDocumentHtml({
     nonce: makeNonce(),
@@ -287,6 +393,7 @@ function welcomeHtml(
     cspSource: webview.cspSource,
     standings,
     collapsed,
+    opensWithEditor,
   });
 }
 
@@ -333,16 +440,24 @@ async function hasConfiguredRegistry(deps: GetStartedDeps): Promise<boolean> {
   }
 }
 
-// openIfWanted opens the panel unless the reader has turned it off.
+// opensWithEditor reads the preference that decides whether the panel opens by
+// itself.
 //
-// The preference is read rather than assumed, and what it gates is whether the
-// panel OPENS BY ITSELF — not whether it exists. A reader who dismissed it
-// still finds the way back in the command palette, which is why the dismissal
-// is safe to offer at all.
-async function openIfWanted(openPanel: () => Promise<void>): Promise<void> {
+// 🔴 IT IS THE ONE READER OF THAT PREFERENCE, AND EVERYTHING THAT DEPENDS ON IT
+// GOES THROUGH HERE — whether to open the panel at all, and which way round to
+// compose the control at its foot. That is what makes the control synced with
+// the settings screen rather than a second switch beside it: there is one place
+// the answer is read and one place it is written, so the two surfaces cannot
+// come to disagree. A control holding its own copy would be a second record of
+// one fact, and the failure would be a panel offering to turn something off
+// that is already off.
+//
+// Anything other than true reads as false, including a value that is not a
+// boolean at all: a preference nobody can parse is not an instruction to open a
+// tab unasked.
+function opensWithEditor(): boolean {
   const [section, key] = splitSetting(GET_STARTED_SHOW_SETTING);
-  if (vscode.workspace.getConfiguration(section).get<boolean>(key) !== true) { return; }
-  await openPanel();
+  return vscode.workspace.getConfiguration(section).get<boolean>(key) === true;
 }
 
 // bringBack turns the panel back on and opens it. It is the way back from the

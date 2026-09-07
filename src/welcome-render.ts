@@ -9,6 +9,7 @@ import {
   WELCOME_DESCRIPTION,
   WELCOME_GREETING,
   WELCOME_PANEL_TITLE,
+  panelSettingControl,
 } from './get-started-steps';
 import { escapeHtml } from './html';
 
@@ -52,15 +53,22 @@ function detailHtml(block: StepDetail): string {
 // the glyph alone: a reader using a screen reader is told the standing, and a
 // tick with no words beside it is the kind of mark whose meaning has to be
 // guessed at.
+//
+// 🔴 THE UNMET WORD NAMES A JOB FOR THE READER AND NOTHING ELSE, and that rules
+// out one obvious-looking choice. "Outstanding" also means excellent, so on a
+// list of standings it can read as praise for the step rather than as work left
+// — and the glyph beside it is hidden from assistive technology, so this word is
+// the only channel a reader using a screen reader gets. Spoken aloud, the
+// ambiguity is the whole of the problem.
 export const MET_LABEL = 'Met';
-export const UNMET_LABEL = 'Outstanding';
+export const UNMET_LABEL = 'To do';
 
 // initiallyCollapsedStepIds decides which sections a panel opens closed: the
 // ones whose condition is already satisfied.
 //
 // The panel's job is to show what is still needed. A satisfied step is context,
-// so it earns its title and its two ways forward and nothing more; an
-// outstanding one needs its explanation in front of the reader.
+// so it earns its title and its two ways forward and nothing more; one still to
+// do needs its explanation in front of the reader.
 //
 // 🔴 IT IS READ ONCE, WHEN THE PANEL IS CREATED, AND IT IS NOT A LIVE BINDING.
 // Its answer is held beside the panel and handed to the composition as its OWN
@@ -93,7 +101,7 @@ export function toggleLabel(title: string): string {
 //
 // THE TWO ARGUMENTS ARE SEPARATE AND NEITHER IS DERIVED FROM THE OTHER. The
 // standings are recomputed and passed afresh on every refresh, so a step whose
-// condition has lapsed is drawn as outstanding again and nothing here remembers
+// condition has lapsed is drawn as still to do again and nothing here remembers
 // a previous standing — that is what makes the mark reversible rather than a
 // one-way tick. The arrangement arrives from the caller, which read it once when
 // the panel was created and has changed it only where the reader pressed a
@@ -137,6 +145,23 @@ export function stepsHtml(
   }).join('\n');
 }
 
+// dismissHtml composes the control at the foot that decides whether the panel
+// opens with the editor.
+//
+// IT SITS OUTSIDE THE STEP LIST, and that placement is the whole reason it can
+// exist at all: the steps are the conditions and nothing else, so a control
+// belonging to none of them has nowhere to sit AMONG them — but the foot of the
+// page is not among them. It is drawn as its own region so that one control
+// governs one decision, and so the region can be re-composed on its own when
+// the preference moves without the step list being re-drawn around it.
+//
+// The words and the command both come from the declaration keyed on the
+// preference, so the control cannot offer to do one thing and run another.
+export function dismissHtml(opensWithEditor: boolean): string {
+  const control = panelSettingControl(opensWithEditor);
+  return `<button class="dismiss-action" type="button" data-command="${escapeHtml(control.command)}">${escapeHtml(control.label)}</button>`;
+}
+
 // WelcomeDocumentOptions carries the addresses the editor resolves for a panel's
 // own resources. They are plain strings so this module keeps no editor types,
 // and the caller passes what the webview gave it.
@@ -151,6 +176,11 @@ export interface WelcomeDocumentOptions {
   // carried separately from the standings above for the reason stepsHtml
   // states, and the two must not be collapsed into one value.
   collapsed: readonly StepId[];
+  // opensWithEditor is the preference as it stands, which is what the foot
+  // control is composed from. It is passed in rather than read here because
+  // this module holds no editor types, and it is a live reading rather than a
+  // remembered one for the reason dismissHtml states.
+  opensWithEditor: boolean;
 }
 
 // welcomeDocumentHtml composes the whole panel.
@@ -185,6 +215,7 @@ export function welcomeDocumentHtml(opts: WelcomeDocumentOptions): string {
     <h1 class="welcome-greeting">${escapeHtml(WELCOME_GREETING)}</h1>
     <p class="welcome-description">${escapeHtml(WELCOME_DESCRIPTION)}</p>
     <div id="steps" class="steps">${stepsHtml(opts.standings, opts.collapsed)}</div>
+    <div id="dismiss" class="welcome-dismiss">${dismissHtml(opts.opensWithEditor)}</div>
   </main>
   <script nonce="${opts.nonce}" src="${opts.scriptUri}"></script>
 </body>

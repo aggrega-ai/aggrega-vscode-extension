@@ -224,7 +224,12 @@ body {
    declaring none of these would therefore have silently had no outline at all,
    which is precisely what this rule exists to provide. Terminating in the
    foreground colour cannot fail that way. */
-.step-action {
+/* The control at the foot names both kinds here rather than declaring its own
+   copy of the rule: the outline reasoning above applies to it identically, and a
+   second declaration would be a second place the fallback chain could be
+   shortened by somebody who only read one of them. */
+.step-action,
+.dismiss-action {
   font-family: inherit;
   font-size: inherit;
   color: var(--vscode-button-secondaryForeground, var(--vscode-button-foreground));
@@ -235,13 +240,27 @@ body {
   cursor: pointer;
 }
 
-.step-action:hover {
+.step-action:hover,
+.dismiss-action:hover {
   background: var(--vscode-button-secondaryHoverBackground, var(--vscode-button-hoverBackground));
 }
 
-.step-action:focus-visible {
+.step-action:focus-visible,
+.dismiss-action:focus-visible {
   outline: 1px solid var(--vscode-focusBorder);
   outline-offset: 2px;
+}
+
+/* The one decision that is not about a step, at the foot of the page and
+   centred — the position the editor's own welcome puts the same kind of switch
+   in, so a reader looking for it looks where they already look. It is centred
+   rather than aligned with the steps because it belongs to the panel rather
+   than to the list: sharing the list's left edge would read as a fifth entry
+   in it. */
+.welcome-dismiss {
+  display: flex;
+  justify-content: center;
+  margin-top: 2.5rem;
 }
 
 /* A high-contrast theme leaves many backgrounds absent and separates controls
@@ -250,8 +269,10 @@ body {
    high-contrast class alongside the light one, and a rule written for one of
    them would reach both by accident rather than by intent. */
 body.vscode-high-contrast .step-action,
+body.vscode-high-contrast .dismiss-action,
 body.vscode-high-contrast .step-toggle,
 body.vscode-high-contrast-light .step-action,
+body.vscode-high-contrast-light .dismiss-action,
 body.vscode-high-contrast-light .step-toggle {
   border: 1px solid var(--vscode-contrastBorder, currentColor);
 }

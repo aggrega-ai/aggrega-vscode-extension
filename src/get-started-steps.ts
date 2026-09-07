@@ -133,7 +133,7 @@ export function stepMet(id: StepId, facts: GetStartedFacts): boolean {
 //
 // It is recomputed from the facts on every refresh rather than accumulated, and
 // that is what makes a standing REVERSIBLE: a condition that lapses is read as
-// unmet on the next refresh and the step goes back to outstanding. Nothing here
+// unmet on the next refresh and the step goes back to still-to-do. Nothing here
 // remembers that a step was once met, because a checklist that only ticks
 // forward tells a reader they have something they have since lost.
 export function stepStandings(facts: GetStartedFacts): Record<StepId, boolean> {
@@ -145,7 +145,7 @@ export function stepStandings(facts: GetStartedFacts): Record<StepId, boolean> {
   };
 }
 
-// unmetStepIds lists the conditions still outstanding, in list order.
+// unmetStepIds lists the conditions still to do, in list order.
 export function unmetStepIds(facts: GetStartedFacts): StepId[] {
   return STEP_IDS.filter((id) => !stepMet(id, facts));
 }
@@ -211,16 +211,18 @@ export const SHOW_COMMAND = 'aggrega.getStarted.show';
 // assertion requires it to stay reachable there.
 export const SHOW_COMMAND_TITLE = 'Aggrega: Get started';
 
-// DISMISS_COMMAND_TITLE is how the dismissal is named in the command palette,
-// and it is in the palette because the panel has no slot for it.
+// DISMISS_COMMAND_TITLE is how the dismissal is named in the command palette.
 //
-// The steps are the conditions and nothing else, so a control belonging to none
-// of them has nowhere to sit among them; the panel's own heading and
-// description are the product's, not a place for a control. The palette is
-// where a reader looks to find out whether a capability exists at all, and a
-// command withheld from it does not read as unavailable but as absent — which
-// is what a reader would then conclude about turning this panel off. It sits
-// beside the way back, so both directions are found in the same place.
+// It is in the palette because the palette is where a reader looks to find out
+// whether a capability exists at all, and a command withheld from it does not
+// read as unavailable but as absent — which is what a reader would then
+// conclude about turning this panel off. It sits beside the way back, so both
+// directions are found in the same place.
+//
+// The panel carries the same switch at its foot. That is not a second door to
+// the same room: the palette entry is how the capability is FOUND, and the foot
+// control is how it is reached from where the panel is being read. Both run
+// this one command, so neither can come to mean something the other does not.
 export const DISMISS_COMMAND_TITLE = 'Aggrega: Stop opening the welcome panel';
 
 // DISMISSED_CONFIRMATION is what the reader is told once the panel is put away.
@@ -426,14 +428,50 @@ export const STEP_CONTENT: readonly StepContent[] = [
   },
 ];
 
+// PANEL_SETTING_CONTROLS is the foot control in its two standings: the words on
+// it and the command pressing it runs, one entry for a panel that opens with
+// the editor and one for a panel that does not.
+//
+// 🔴 THE CONTROL IS COMPOSED FROM THE PREFERENCE AND HOLDS NO STATE OF ITS OWN.
+// It reads and writes the one preference that already decides whether the panel
+// opens, so turning the panel off in the settings screen and reopening it shows
+// the control already reflecting that, and pressing the control changes what
+// the settings screen shows. A control keeping its own answer beside the
+// preference would be two records of one fact, and the failure would be a
+// switch at the foot of the panel disagreeing with the switch in the settings
+// screen — each correct about itself.
+//
+// The words say what pressing will do rather than what the state is, because
+// the state is what the reader can already infer from the offer: a panel that
+// can be stopped from opening is one that opens.
+export const PANEL_SETTING_CONTROLS: readonly [StepAction, StepAction] = [
+  { label: 'Stop opening this panel with the editor', command: DISMISS_COMMAND },
+  { label: 'Open this panel with the editor', command: SHOW_COMMAND },
+];
+
+// panelSettingControl picks the standing the preference is currently in.
+export function panelSettingControl(opensWithEditor: boolean): StepAction {
+  return opensWithEditor ? PANEL_SETTING_CONTROLS[0] : PANEL_SETTING_CONTROLS[1];
+}
+
 // panelControlCommands is what a press in the panel is allowed to run.
 //
-// It is DERIVED from the step content rather than listed a second time, so a
-// control cannot exist that the guard does not admit, and the guard cannot
+// It is DERIVED from the panel's own content rather than listed a second time,
+// so a control cannot exist that the guard does not admit, and the guard cannot
 // admit one no control offers. The panel forwards a press by the command it
 // names, and the host checks the name against this before running anything —
 // so what the panel can reach stays exactly what it draws, whatever a page it
 // is showing might later be persuaded to send.
+//
+// It reads TWO declarations because the panel draws two kinds of control: a
+// step's two ways through, and the one at the foot that decides whether the
+// panel opens. Both standings of the foot control are admitted, because which
+// one is drawn depends on the preference and the guard is asked before the
+// composition is consulted. Deriving from the declarations rather than from a
+// composed document is what keeps that from widening the guard by hand.
 export function panelControlCommands(): string[] {
-  return STEP_CONTENT.flatMap((step) => step.actions.map((action) => action.command));
+  return [
+    ...STEP_CONTENT.flatMap((step) => step.actions.map((action) => action.command)),
+    ...PANEL_SETTING_CONTROLS.map((control) => control.command),
+  ];
 }

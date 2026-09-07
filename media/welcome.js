@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cognitio S.r.l.
 
-// The welcome panel's script. It swaps in the step list the extension composed,
+// The welcome panel's script. It swaps in the fragments the extension composed,
 // opens and closes a section, and forwards a press; it composes no markup of its
 // own, because the layout has one home and it is not this file.
 (function () {
   const vscode = acquireVsCodeApi();
+  const panel = document.querySelector('main.welcome');
   const steps = document.getElementById('steps');
+  const dismiss = document.getElementById('dismiss');
 
   // remember tells the extension which sections are closed, so the next list it
   // composes arrives already in the shape the reader left rather than in the
@@ -53,7 +55,15 @@
   // in, so a control does here exactly what the same command does anywhere else
   // in the extension. A caret names no command and is answered first, so it can
   // never be mistaken for one.
-  steps.addEventListener('click', (event) => {
+  //
+  // THE LISTENER IS ON THE PANEL RATHER THAN ON EITHER FRAGMENT, and that is
+  // what lets the extension replace a fragment without the presses inside it
+  // going dead. The panel draws two regions whose content it swaps — the step
+  // list and the control at its foot — and a listener bound to a region is lost
+  // with the first replacement of that region. Bound to their common ancestor,
+  // which is never replaced, one rule covers every control the panel draws
+  // including any region added later.
+  panel.addEventListener('click', (event) => {
     const toggle = event.target.closest('[data-toggle]');
     if (toggle) { toggleStep(toggle); return; }
     const control = event.target.closest('[data-command]');
@@ -61,14 +71,25 @@
     vscode.postMessage({ type: 'run', command: control.dataset.command });
   });
 
-  // The extension re-composes the list whenever a condition may have moved, in
-  // either direction, and posts it here. Replacing the fragment is all this does
-  // — a step that has stopped being met arrives already drawn as outstanding,
-  // and every section arrives already open or closed as the reader left it,
-  // because the extension composed it from the arrangement this file reported.
+  // The extension re-composes a region whenever what it draws may have moved and
+  // posts it here, naming which region it composed. Replacing the fragment is all
+  // this does — a step that has stopped being met arrives already drawn as to do,
+  // every section arrives already open or closed as the reader left it, and the
+  // foot control arrives already saying what pressing it would now do, because
+  // the extension composed each from the reading it had just taken.
+  //
+  // The two regions are posted separately because they move on different events:
+  // a condition changing re-draws the steps and leaves the foot alone, and the
+  // preference changing does the reverse.
+  //
+  // Each region is named in its own branch rather than looked up in a table
+  // keyed by the message. A table indexed by an arriving name answers for every
+  // name on the object's prototype as well as the two intended, so a message
+  // naming one of those would resolve to something that is not a region at all.
   window.addEventListener('message', (event) => {
     const message = event.data;
-    if (!message || message.type !== 'steps') { return; }
-    steps.innerHTML = message.html;
+    if (!message) { return; }
+    if (message.type === 'steps') { steps.innerHTML = message.html; return; }
+    if (message.type === 'dismiss') { dismiss.innerHTML = message.html; }
   });
 })();
