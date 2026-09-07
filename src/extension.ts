@@ -107,6 +107,7 @@ import { activateLint, LintRunner } from './lint';
 import { activateGraphView, GraphView } from './graph-view';
 import { activateCatalogViews } from './catalog-views';
 import { activateGetStarted } from './get-started';
+import { activatePluginsView } from './plugins-view';
 import { activateRegistriesView } from './registries-view';
 import { activateWorkspaceCatalogView } from './workspace-catalog-view';
 import { CatalogIndexDoc } from './workspace-catalog-run';
@@ -429,11 +430,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     output: outputChannel,
   });
 
-  // The plugins tree and published-catalog search are CLI-backed (plugin list
-  // -o json, search -o json), so they need no language server — but they do
-  // need the anchored root the CLI runs in, which is not known when they are
-  // registered, so they render from the readiness signal like every other view.
+  // The published-catalog search is CLI-backed (search -o json), so it needs no
+  // language server — but it does need the anchored root the CLI runs in, read
+  // when a reader runs a search rather than when the command is registered.
   activateCatalogViews(context, {
+    getWorkspaceRoot: () => workspaceRootForCommands,
+    getBinaryPath: () => getSettings().binaryPath,
+    output: outputChannel,
+  });
+
+  // The plugins tree is CLI-backed (plugin list -o json), as is every operation
+  // it offers: no wire method carries any of them. The anchored root is not known
+  // when the tree is registered, so it renders from the readiness signal like
+  // every other view.
+  activatePluginsView(context, {
     getWorkspaceRoot: () => workspaceRootForCommands,
     getBinaryPath: () => getSettings().binaryPath,
     onReady: ready.onReady,

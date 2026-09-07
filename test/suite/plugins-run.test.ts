@@ -3,16 +3,27 @@
 
 import * as assert from 'node:assert';
 import {
+  ATTACHABLE_PLUGIN_TYPES,
   CONFIGURED_GROUP_LABEL,
   EMBEDDED_GROUP_LABEL,
   FAILURE_LABEL,
+  GOVERNANCE_ROLES,
+  PLUGIN_CONFIG_ENTRY_ROW_CONTEXT,
+  PLUGIN_ROW_CONTEXT,
   PluginEntry,
+  PluginEntryNode,
   PluginListDoc,
   PluginNode,
   PluginRow,
   isNoteworthyReadiness,
   nodesForDocument,
+  pluginAddArgs,
+  pluginGenCatalogArgs,
   pluginNodes,
+  pluginRemovalConfigTarget,
+  pluginRemovalSubject,
+  pluginRemoveArgs,
+  pluginRowContext,
   rowForPlugin,
 } from '../../src/plugins-run';
 import { NO_ANCHORED_WORKSPACE_TREE_LABEL } from '../../src/workspace';
@@ -54,7 +65,8 @@ function ok(doc: PluginListDoc): () => Promise<{ doc: PluginListDoc; stderr: str
 }
 
 function groupsOf(nodes: PluginNode[]): Array<{ label: string; rows: PluginRow[] }> {
-  return nodes.flatMap((n) => (n.kind === 'group' ? [{ label: n.label, rows: n.rows }] : []));
+  return nodes.flatMap((n) =>
+    n.kind === 'group' ? [{ label: n.label, rows: n.entries.map((e) => e.row) }] : []);
 }
 
 // --- fixtures ------------------------------------------------------------
@@ -311,5 +323,293 @@ describe('plugins-run: the run', () => {
     const h = harness('/w', ok({ embedded: [GOVERNANCE_GUEST] }));
     await h.nodes();
     assert.deepStrictEqual(h.log.lines, []);
+  });
+});
+
+// --- what a row hands an operation --------------------------------------
+//
+// A configured CLI attachment the product resolved is not captured above but
+// assembled from the emitter's own field mapping: the type is the guest's
+// describe() self-report, the version comes from its metadata, origin carries the
+// install-time pin, and a resolved pin that still matches reads ready.
+const CONFIGURED_CLI: PluginEntry = {
+  uri: 'oci://hub.aggrega.ai/plugin/cli/example:1.0.0',
+  type: 'cli',
+  version: '1.0.0',
+  origin: 'pinned 000000000000...',
+  readiness: 'ready',
+};
+
+function entriesOf(nodes: PluginNode[]): PluginEntryNode[] {
+  return nodes.flatMap((n) => (n.kind === 'group' ? n.entries : []));
+}
+
+function entryFor(entry: PluginEntry, group: 'embedded' | 'configured'): PluginEntryNode {
+  const nodes = nodesForDocument(group === 'embedded' ? { embedded: [entry] } : { configured: [entry] });
+  const found = entriesOf(nodes);
+  assert.strictEqual(found.length, 1, 'the fixture produced no single entry node');
+  return found[0];
+}
+
+describe('plugins-run: which group a plugin came from', () => {
+  it('every plugin carries its own group, so expanding one loses nothing', () => {
+    // The group decides what can be done to a plugin, so it has to survive the
+    // step from the listing to the row. Reading it back off a heading's label
+    // would tie an operation to a display string.
+    const nodes = nodesForDocument({
+      embedded: [GOVERNANCE_GUEST, PROVIDER_GUEST],
+      configured: [CONFIGURED_PROVIDER],
+    });
+    assert.deepStrictEqual(
+      entriesOf(nodes).map((e) => e.group),
+      ['embedded', 'embedded', 'configured'],
+    );
+  });
+
+  it('the group a node names is the group its heading names', () => {
+    const groups = nodesForDocument({}).flatMap((n) => (n.kind === 'group' ? [n] : []));
+    assert.deepStrictEqual(groups.map((g) => g.group), ['embedded', 'configured']);
+    assert.deepStrictEqual(groups.map((g) => g.label), [
+      EMBEDDED_GROUP_LABEL,
+      CONFIGURED_GROUP_LABEL,
+    ]);
+  });
+});
+
+describe('plugins-run: the subject a row hands an operation', () => {
+  it('a configured plugin hands over the type and the reference the product reported', () => {
+    // Both come from the row's own fields. Neither is recovered from the label,
+    // which is shortened, nor from the description, which joins several facts
+    // into one string.
+    assert.deepStrictEqual(pluginRemovalSubject(entryFor(CONFIGURED_PROVIDER, 'configured')), {
+      type: 'provider',
+      reference: 'provider/helm',
+    });
+  });
+
+  it('the reference is the full identity, not the shortened label', () => {
+    const node = entryFor(CONFIGURED_CLI, 'configured');
+    assert.strictEqual(node.row.label, 'example:1.0.0');
+    assert.strictEqual(
+      pluginRemovalSubject(node)?.reference,
+      'oci://hub.aggrega.ai/plugin/cli/example:1.0.0',
+    );
+  });
+
+  it('a plugin built into the compiler hands over nothing', () => {
+    // It is no configuration entry, so there is nothing a removal could edit.
+    const node = entryFor(PROVIDER_GUEST, 'embedded');
+    assert.strictEqual(pluginRemovalSubject(node), null);
+    assert.strictEqual(pluginRowContext(node), PLUGIN_ROW_CONTEXT);
+  });
+
+  it('a configured plugin nothing answered for hands over nothing', () => {
+    // The product reports no type for an entry it could not resolve or describe,
+    // and a removal needs one. Offering it would compose an invocation missing an
+    // argument the command requires.
+    const node = entryFor(UNRESOLVED_BINDING, 'configured');
+    assert.strictEqual(node.row.type, '');
+    assert.strictEqual(pluginRemovalSubject(node), null);
+    assert.strictEqual(pluginRowContext(node), PLUGIN_ROW_CONTEXT);
+  });
+
+  it('only an addressable configured plugin carries the value the removal is bound to', () => {
+    assert.strictEqual(
+      pluginRowContext(entryFor(CONFIGURED_PROVIDER, 'configured')),
+      PLUGIN_CONFIG_ENTRY_ROW_CONTEXT,
+    );
+  });
+
+  it('a group heading and a message row carry no value at all', () => {
+    const nodes = nodesForDocument({ configured: [CONFIGURED_PROVIDER] });
+    const heading = nodes.find((n) => n.kind === 'group');
+    assert.ok(heading);
+    assert.strictEqual(pluginRowContext(heading), null);
+    assert.strictEqual(
+      pluginRowContext({ kind: 'message', label: FAILURE_LABEL, detail: 'boom' }),
+      null,
+    );
+    assert.strictEqual(
+      pluginRowContext({ kind: 'message', label: NO_ANCHORED_WORKSPACE_TREE_LABEL }),
+      null,
+    );
+  });
+
+  it('the value a row carries and the subject it hands over answer one question', () => {
+    // Both read the same condition, so a row the manifest binds an operation to
+    // can always supply that operation's subject, and one it does not bind can
+    // never be made to.
+    const nodes = nodesForDocument({
+      embedded: [PROVIDER_GUEST],
+      configured: [CONFIGURED_PROVIDER, UNRESOLVED_BINDING, CONFIGURED_CLI],
+    });
+    for (const node of entriesOf(nodes)) {
+      const bound = pluginRowContext(node) === PLUGIN_CONFIG_ENTRY_ROW_CONTEXT;
+      assert.strictEqual(
+        pluginRemovalSubject(node) !== null,
+        bound,
+        `${node.row.reference} is bound=${bound} but its subject disagrees`,
+      );
+    }
+  });
+});
+
+describe('plugins-run: which configuration file a removal writes', () => {
+  it('a command plugin is removed from the configuration shared across workspaces', () => {
+    assert.ok(
+      pluginRemovalConfigTarget('cli').includes('every workspace'),
+      pluginRemovalConfigTarget('cli'),
+    );
+  });
+
+  it('every other type is removed from this project’s own configuration', () => {
+    for (const type of ['provider', 'governance', 'linter', 'importer']) {
+      assert.ok(
+        pluginRemovalConfigTarget(type).includes("project's workspace"),
+        `${type}: ${pluginRemovalConfigTarget(type)}`,
+      );
+    }
+  });
+});
+
+// --- the arguments each operation composes -------------------------------
+
+describe('plugins-run: composing a removal', () => {
+  it('passes the type and the reference through in the command’s own order', () => {
+    assert.deepStrictEqual(
+      pluginRemoveArgs('provider', 'oci://hub.aggrega.ai/plugin/provider/helm:1.0.0'),
+      ['plugin', 'remove', 'provider', 'oci://hub.aggrega.ai/plugin/provider/helm:1.0.0'],
+    );
+  });
+
+  it('translates no type, whatever the type is', () => {
+    // The listing reports a type and the removal accepts one, in the product's
+    // own vocabulary on both sides. A mapping here would be a second copy of a
+    // set the compiler owns, and it would rot silently.
+    for (const type of ['provider', 'governance', 'linter', 'importer', 'cli']) {
+      assert.strictEqual(pluginRemoveArgs(type, 'x/y')[2], type);
+    }
+  });
+
+  it('refuses without a reference, so no removal runs with nothing to match', () => {
+    assert.throws(() => pluginRemoveArgs('linter', ''), /takes a reference/);
+    assert.throws(() => pluginRemoveArgs('linter', '   '), /takes a reference/);
+  });
+
+  it('refuses without a type', () => {
+    assert.throws(() => pluginRemoveArgs('', 'x/y'), /takes the plugin's type/);
+  });
+});
+
+describe('plugins-run: composing an attachment', () => {
+  it('a socket type composes the type and the search term and nothing else', () => {
+    assert.deepStrictEqual(
+      pluginAddArgs({ type: 'linter', query: 'publishing' }),
+      ['plugin', 'add', 'linter', 'publishing'],
+    );
+  });
+
+  it('a provider binding carries the capability it serves', () => {
+    assert.deepStrictEqual(
+      pluginAddArgs({ type: 'provider', query: 'helm', capability: 'helm' }),
+      ['plugin', 'add', 'provider', 'helm', '--capability', 'helm'],
+    );
+  });
+
+  it('a governance attachment carries the role it is bound at', () => {
+    assert.deepStrictEqual(
+      pluginAddArgs({ type: 'governance', query: 'cel', role: 'ir-verdict' }),
+      ['plugin', 'add', 'governance', 'cel', '--role', 'ir-verdict'],
+    );
+  });
+
+  it('refuses a provider binding with no capability, which the command requires', () => {
+    assert.throws(() => pluginAddArgs({ type: 'provider', query: 'helm' }), /capability/);
+  });
+
+  it('refuses a governance attachment with no role, which the command requires', () => {
+    assert.throws(() => pluginAddArgs({ type: 'governance', query: 'cel' }), /role/);
+  });
+
+  it('refuses a capability or a role on a type that does not accept one', () => {
+    // The command treats either as a usage error, so composing one builds an
+    // invocation that cannot succeed.
+    assert.throws(
+      () => pluginAddArgs({ type: 'linter', query: 'publishing', capability: 'helm' }),
+      /only to the provider type/,
+    );
+    assert.throws(
+      () => pluginAddArgs({ type: 'linter', query: 'publishing', role: 'ir-verdict' }),
+      /only to the governance type/,
+    );
+  });
+
+  it('refuses with no search term and with no type', () => {
+    assert.throws(() => pluginAddArgs({ type: 'linter', query: '' }), /a name to search/);
+    assert.throws(() => pluginAddArgs({ type: '', query: 'publishing' }), /takes the plugin's type/);
+  });
+
+  it('offers no type the extension cannot see an invocation through', () => {
+    // A command plugin's install confirms its declared capabilities at a
+    // terminal, and there is none behind a button. Accepting the grant instead is
+    // the reader's decision, not this surface's, so the type is not offered.
+    assert.ok(!ATTACHABLE_PLUGIN_TYPES.includes('cli'));
+    assert.deepStrictEqual([...ATTACHABLE_PLUGIN_TYPES], [
+      'provider',
+      'governance',
+      'linter',
+      'importer',
+    ]);
+  });
+
+  it('every role it offers composes an attachment', () => {
+    for (const role of GOVERNANCE_ROLES) {
+      assert.deepStrictEqual(
+        pluginAddArgs({ type: 'governance', query: 'cel', role }),
+        ['plugin', 'add', 'governance', 'cel', '--role', role],
+      );
+    }
+  });
+});
+
+describe('plugins-run: composing a catalog generation', () => {
+  it('selecting every built-in guest names the mode and both required paths', () => {
+    assert.deepStrictEqual(
+      pluginGenCatalogArgs({ kind: 'embedded' }, '/w/catalog', '/w/overlays'),
+      ['plugin', 'gen-catalog', '--from-embedded', '--output-dir', '/w/catalog', '--overlay', '/w/overlays'],
+    );
+  });
+
+  it('selecting one artifact names that artifact instead of the built-in mode', () => {
+    const args = pluginGenCatalogArgs(
+      { kind: 'artifact', artifactPath: '/w/build/guest.wasm' },
+      '/w/catalog',
+      '/w/overlay.yaml',
+    );
+    assert.deepStrictEqual(args, [
+      'plugin', 'gen-catalog',
+      '--plugin', '/w/build/guest.wasm',
+      '--output-dir', '/w/catalog',
+      '--overlay', '/w/overlay.yaml',
+    ]);
+    assert.ok(!args.includes('--from-embedded'), 'the two modes are mutually exclusive');
+  });
+
+  it('refuses without either path, both of which the command requires', () => {
+    assert.throws(
+      () => pluginGenCatalogArgs({ kind: 'embedded' }, '', '/w/overlays'),
+      /the directory to write/,
+    );
+    assert.throws(
+      () => pluginGenCatalogArgs({ kind: 'embedded' }, '/w/catalog', ''),
+      /the authored overlay/,
+    );
+  });
+
+  it('refuses an artifact selection naming no artifact', () => {
+    assert.throws(
+      () => pluginGenCatalogArgs({ kind: 'artifact', artifactPath: '' }, '/w/c', '/w/o'),
+      /the path of the artifact/,
+    );
   });
 });

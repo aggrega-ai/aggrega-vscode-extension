@@ -110,6 +110,10 @@
         {
           "command": "aggrega.workspaceCatalog.push",
           "when": "false"
+        },
+        {
+          "command": "aggrega.plugins.remove",
+          "when": "false"
         }
       ],
       "view/title": [
@@ -126,6 +130,16 @@
         {
           "command": "aggrega.catalog.searchPublished",
           "when": "view == aggrega.workspaceCatalog",
+          "group": "navigation"
+        },
+        {
+          "command": "aggrega.plugins.add",
+          "when": "view == aggrega.plugins",
+          "group": "navigation"
+        },
+        {
+          "command": "aggrega.plugins.genCatalog",
+          "when": "view == aggrega.plugins",
           "group": "navigation"
         },
         {
@@ -199,6 +213,11 @@
           "command": "aggrega.workspaceCatalog.push",
           "when": "viewItem == aggrega.catalogEntity.document",
           "group": "catalogEntityPublish@1"
+        },
+        {
+          "command": "aggrega.plugins.remove",
+          "when": "viewItem == aggrega.plugin.configEntry",
+          "group": "plugin@1"
         }
       ]
     },
@@ -262,6 +281,24 @@
         "title": "Refresh plugins",
         "category": "Aggrega",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "aggrega.plugins.add",
+        "title": "Add plugin",
+        "category": "Aggrega",
+        "icon": "$(add)"
+      },
+      {
+        "command": "aggrega.plugins.genCatalog",
+        "title": "Generate Plugin entities",
+        "category": "Aggrega",
+        "icon": "$(export)"
+      },
+      {
+        "command": "aggrega.plugins.remove",
+        "title": "Remove plugin",
+        "category": "Aggrega",
+        "icon": "$(trash)"
       },
       {
         "command": "aggrega.registries.refresh",

@@ -17,75 +17,19 @@ import {
 } from './catalog-search-run';
 import { runCliJson } from './cli-json';
 import { describeError } from './error-surfaces';
-import { PluginListDoc, PluginNode, pluginNodes } from './plugins-run';
-import { RendersOnReady } from './readiness';
 import { NO_ANCHORED_WORKSPACE_MESSAGE } from './workspace';
 
-// CatalogDeps supplies the live state the plugins tree and the published-catalog
-// search need: the anchored workspace root (the CLI runs there), the configured
-// binary path, and the shared output channel for the product's own report.
-export interface CatalogDeps extends RendersOnReady {
+// CatalogDeps supplies the live state the published-catalog search needs: the
+// anchored workspace root (the CLI runs there), the configured binary path, and
+// the shared output channel for the product's own report.
+//
+// It needs no readiness signal. A search runs when a reader asks for it and
+// checks the anchored root then, rather than rendering something now that a later
+// signal would have to supersede.
+export interface CatalogDeps {
   getWorkspaceRoot(): string | null;
   getBinaryPath(): string;
   output: vscode.OutputChannel;
-}
-
-// --- plugins tree -------------------------------------------------------
-
-// PluginsTreeProvider renders the plugins the compiler can see as a two-group
-// tree in the Aggrega activity-bar container.
-//
-// This module is the whole editor-coupled boundary of the surface: it maps an
-// already-shaped row onto a tree item and delegates every decision to
-// pluginNodes, which depends on no editor type and is therefore directly
-// testable. Each expansion of the root re-runs the command, so a refresh is a
-// change event.
-class PluginsTreeProvider implements vscode.TreeDataProvider<PluginNode> {
-  private readonly changed = new vscode.EventEmitter<void>();
-  readonly onDidChangeTreeData = this.changed.event;
-
-  constructor(private readonly deps: CatalogDeps) {}
-
-  refresh(): void {
-    this.changed.fire();
-  }
-
-  getTreeItem(node: PluginNode): vscode.TreeItem {
-    if (node.kind === 'message') {
-      const item = new vscode.TreeItem(node.label, vscode.TreeItemCollapsibleState.None);
-      if (node.detail) {
-        item.tooltip = node.detail;
-      }
-      return item;
-    }
-    if (node.kind === 'group') {
-      const item = new vscode.TreeItem(
-        `${node.label} (${node.rows.length})`,
-        vscode.TreeItemCollapsibleState.Expanded,
-      );
-      item.iconPath = new vscode.ThemeIcon('extensions');
-      return item;
-    }
-    const item = new vscode.TreeItem(node.row.label, vscode.TreeItemCollapsibleState.None);
-    item.description = node.row.description;
-    item.tooltip = node.row.tooltip;
-    item.iconPath = new vscode.ThemeIcon(node.row.icon);
-    return item;
-  }
-
-  async getChildren(node?: PluginNode): Promise<PluginNode[]> {
-    if (node) {
-      return node.kind === 'group'
-        ? node.rows.map((row) => ({ kind: 'entry' as const, row }))
-        : [];
-    }
-    return pluginNodes({
-      getWorkspaceRoot: this.deps.getWorkspaceRoot,
-      runPluginListJson: () =>
-        runCliJson<PluginListDoc>(this.deps, ['plugin', 'list', '-o', 'json']),
-      log: { appendLine: (text) => this.deps.output.appendLine(text) },
-    });
-  }
 }
 
 // --- published-catalog search ------------------------------------------
@@ -274,19 +218,10 @@ async function offerMatches(rows: CatalogRow[]): Promise<void> {
   void vscode.window.showInformationMessage(`Aggrega: copied ${pick.uri}`);
 }
 
-// activateCatalogViews registers the plugins tree, its refresh command, and the
-// published-catalog search command. View and command ids mirror package.json.
+// activateCatalogViews registers the published-catalog search command. Command
+// ids mirror package.json.
 export function activateCatalogViews(context: vscode.ExtensionContext, deps: CatalogDeps): void {
-  const plugins = new PluginsTreeProvider(deps);
-  // The tree is registered before the workspace root is known, so its first
-  // render reports honestly that there is no anchored workspace. Re-asking when
-  // the compiler becomes answerable is what supersedes that row without the
-  // reader doing anything; the refresh command stays an override a reader may
-  // press, rather than the way to obtain correct data the first time.
-  deps.onReady(() => plugins.refresh());
   context.subscriptions.push(
-    vscode.window.registerTreeDataProvider('aggrega.plugins', plugins),
-    vscode.commands.registerCommand('aggrega.plugins.refresh', () => plugins.refresh()),
     vscode.commands.registerCommand('aggrega.catalog.searchPublished', () => {
       void searchPublished(deps).then(undefined, (err) => {
         // Forensic catch: a rejection from the filter list or the clipboard
