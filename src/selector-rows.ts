@@ -74,8 +74,16 @@ export function workspaceRow(
   return {
     ...base,
     value: path.basename(anchoredRoot),
+    // The closing sentence promises a CHOICE, not a change, and the distinction
+    // is what makes it true in every case. A click opens what the editor can
+    // work in together with the way to make another folder available — so the
+    // sentence holds with one folder as much as with several, which is why this
+    // function needs no count of them. Promising to switch would be a promise
+    // this row cannot keep for the reader who has exactly one, and a row that
+    // advertises an action and then declines it is worse than one that says
+    // nothing.
     tooltip:
-      `Aggrega workspace: ${anchoredRoot}\nThe Releases on offer are the ones inside this folder.${opened}\nClick to switch the anchored folder.`,
+      `Aggrega workspace: ${anchoredRoot}\nThe Releases on offer are the ones inside this folder.${opened}\nClick to choose which folder the editor works in.`,
   };
 }
 

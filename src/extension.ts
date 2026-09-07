@@ -108,6 +108,7 @@ import { activateLint, LintRunner } from './lint';
 import { activateGraphView, GraphView } from './graph-view';
 import { activateCatalogViews } from './catalog-views';
 import { activateGetStarted } from './get-started';
+import { CHOOSE_WORKSPACE_COMMAND } from './get-started-steps';
 import { activatePluginsView } from './plugins-view';
 import { activateRegistriesView } from './registries-view';
 import { activateWorkspaceCatalogView } from './workspace-catalog-view';
@@ -121,7 +122,7 @@ import { buildValidateParams } from './validate-request';
 import { SELECT_RELEASE_COMMAND, activateReleaseStatus, ReleaseStatus } from './release-status';
 import {
   STATE_KEY,
-  buildPickerItems,
+  anchorOffers,
   classifyActivation,
   readSavedAnchor,
 } from './anchor-picker';
@@ -834,31 +835,62 @@ function revalidateOpenDocuments(): void {
   }
 }
 
+// registerSwitchAnchorCommand wires what the workspace row opens when clicked.
+//
+// IT ALWAYS OPENS A CHOICE WHERE THERE IS A WORKSPACE TO CHOOSE WITHIN, and
+// that is the whole shape of it. A click is the reader asking which folder the
+// editor works in; answering by declining leaves them unable to tell the
+// command ran at all, which is the same reason the Release selection offers a
+// sole candidate rather than taking it silently. So there is no count below
+// which this reports instead of offering.
+//
+// The one state it answers with a sentence is the one it can settle without
+// measuring anything: no folder is open, so there is nothing to search through
+// and nothing to add. The wording is the shared one every surface uses for that
+// state, because a reader meeting it through two commands must not be told two
+// different things.
+//
+// 🔴 IT DELIBERATELY DOES NOT ASK HOW MANY FOLDERS ARE ATTACHED BEFORE
+// OFFERING, AND THAT IS THE DEFECT IT EXISTS TO NOT HAVE. Attached folders and
+// the folders in the workspace Aggrega would recognise are DIFFERENT
+// POPULATIONS: a workspace can have nothing attached and still hold a folder
+// that would attach if it were added. A message about the first spoken as
+// though it settled the second is true of a variable and false of the reader's
+// situation. The widening offer measures the second population, and reports on
+// it from there.
 function registerSwitchAnchorCommand(context: vscode.ExtensionContext): void {
   context.subscriptions.push(vscode.commands.registerCommand(SWITCH_ANCHOR_COMMAND, async () => {
-    const anchored = currentAnchored;
-    if (anchored.length === 0) {
-      void vscode.window.showInformationMessage('Aggrega: no anchored folders in this workspace.');
+    if ((vscode.workspace.workspaceFolders ?? []).length === 0) {
+      void vscode.window.showInformationMessage(NO_ANCHORED_WORKSPACE_MESSAGE);
       return;
     }
-    if (anchored.length === 1) {
-      void vscode.window.showInformationMessage('Aggrega: only one anchored folder; nothing to switch to.');
-      return;
-    }
-    const items = buildPickerItems(anchored).map(i => ({
-      label: i.label,
-      description: i.description,
-      detail: i.detail,
-      anchored: i.anchored,
+    const offers = anchorOffers(currentAnchored).map(o => ({
+      label: o.label,
+      description: o.description,
+      detail: o.detail,
+      offer: o,
     }));
-    const choice = await vscode.window.showQuickPick(items, {
-      placeHolder: 'Aggrega: choose which folder the daemon attaches to',
+    const choice = await vscode.window.showQuickPick(offers, {
+      placeHolder: 'Aggrega: choose which folder the editor works in',
       matchOnDescription: true,
       matchOnDetail: true,
     });
     if (!choice) { return; }
+    if (choice.offer.kind === 'widen') {
+      // The widening is the welcome panel's own step, reached through its
+      // command rather than reimplemented: finding the folders Aggrega
+      // recognises and adding one has a single home, and this is a second way
+      // in rather than a second copy. It also owns the sentence for finding
+      // none, which is the only place that answer can honestly be given —
+      // nothing here has measured that population.
+      await vscode.commands.executeCommand(CHOOSE_WORKSPACE_COMMAND);
+      return;
+    }
     if (!extensionContext) { return; }
-    await ensureDaemonAt(extensionContext, choice.anchored);
+    // Choosing the folder already attached lands on ensureDaemonAt's own
+    // no-op guard and returns before anything is stopped, so a reader
+    // confirming where they already are does not pay for a restart.
+    await ensureDaemonAt(extensionContext, choice.offer.anchored);
   }));
 }
 

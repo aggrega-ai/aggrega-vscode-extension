@@ -7,12 +7,15 @@ import * as os from 'os';
 import * as path from 'path';
 import {
   STATE_KEY,
+  WIDEN_ANCHOR_OFFER_DETAIL,
   WorkspaceStateLike,
+  anchorOffers,
   buildPickerItems,
   classifyActivation,
   isSavedAnchorValid,
   readSavedAnchor,
   activeFolderLabel,
+  widenAnchorOfferLabel,
 } from '../../src/anchor-picker';
 import { findAllAnchoredFolders, AnchoredFolder, FolderLike } from '../../src/workspace';
 
@@ -217,6 +220,127 @@ describe('buildPickerItems', () => {
     assert.strictEqual(items[0].label, 'web (foo)');
     assert.strictEqual(items[1].label, 'web (bar)');
     assert.strictEqual(items[2].label, 'lone');
+  });
+});
+
+describe('what the workspace row offers when clicked', () => {
+  it('offers the sole attached folder rather than declining to show a choice', () => {
+    // The defect this replaces was a row whose tooltip promised an action and
+    // whose handler then refused it for exactly this case. One candidate is
+    // still a choice the reader asked to see.
+    const a = fakeAnchor('/ws/foo', '/ws/foo/.aggrega-config.yaml');
+    const offers = anchorOffers([a]);
+    assert.ok(
+      offers.some(o => o.kind === 'anchored'),
+      'the attached folder is not offered, so the reader cannot see where they are',
+    );
+    assert.strictEqual(offers.filter(o => o.kind === 'anchored').length, 1);
+  });
+
+  it('offers the route to widening alongside what is attached, in one list', () => {
+    const a = fakeAnchor('/ws/foo', '/ws/foo/.aggrega-config.yaml');
+    const offers = anchorOffers([a]);
+    const widen = offers.filter(o => o.kind === 'widen');
+    assert.strictEqual(widen.length, 1, 'exactly one way to reach the widening');
+    assert.strictEqual(widen[0].detail, WIDEN_ANCHOR_OFFER_DETAIL);
+    assert.strictEqual(
+      offers[offers.length - 1].kind, 'widen',
+      'the widening comes after what is already available, which is what a reader reads first',
+    );
+  });
+
+  it('still offers the widening when nothing is attached, because the workspace may still hold one', () => {
+    // Attached folders and the folders in the workspace Aggrega would recognise
+    // are different populations. Nothing attached says nothing about the second,
+    // so this is the case that must not become a dead end.
+    const offers = anchorOffers([]);
+    assert.deepStrictEqual(offers.map(o => o.kind), ['widen']);
+  });
+
+  it('says "another" only when there is already one to be another of', () => {
+    const a = fakeAnchor('/ws/foo', '/ws/foo/.aggrega-config.yaml');
+    assert.ok(!widenAnchorOfferLabel(0).includes('another'));
+    assert.ok(widenAnchorOfferLabel(1).includes('another'));
+    assert.strictEqual(
+      anchorOffers([a]).find(o => o.kind === 'widen')?.label,
+      widenAnchorOfferLabel(1),
+      'the composed offer and the label rule are one answer',
+    );
+  });
+
+  it('shapes the attached entries through the one home for that shaping', () => {
+    // Not a second rendering of a folder: the activation prompt and this offer
+    // must disambiguate colliding basenames identically, so the offer composes
+    // buildPickerItems rather than repeating it.
+    const a = fakeAnchor('/projects/foo/web', '/projects/foo/web/.aggrega-config.yaml');
+    const b = fakeAnchor('/projects/bar/web', '/projects/bar/web/aggregate.yaml');
+    const offers = anchorOffers([a, b]);
+    const shaped = buildPickerItems([a, b]);
+    assert.deepStrictEqual(
+      offers.filter(o => o.kind === 'anchored').map(o => ({
+        label: o.label, description: o.description, detail: o.detail,
+      })),
+      shaped.map(i => ({ label: i.label, description: i.description, detail: i.detail })),
+    );
+  });
+
+  it('carries the folder to attach to on the entry that names it', () => {
+    // The caller dispatches on kind and then attaches; an entry that named no
+    // folder would make the widening indistinguishable from a folder choice.
+    const a = fakeAnchor('/ws/foo', '/ws/foo/.aggrega-config.yaml');
+    const offer = anchorOffers([a]).find(o => o.kind === 'anchored');
+    assert.ok(offer && offer.kind === 'anchored');
+    assert.strictEqual(offer.anchored.anchorPath, '/ws/foo/.aggrega-config.yaml');
+  });
+
+  it('hands back the attached folder under the identity the no-op guard compares on', () => {
+    // The expensive behaviour this protects: attaching stops the running
+    // language server and restarts it at the chosen root. Choosing the folder
+    // already attached must therefore reach the guard that returns early, and
+    // that guard compares folder paths — so the offer has to carry the SAME
+    // path the active folder is held under. A composition that re-resolved or
+    // normalised the path would leave the comparison failing silently, and the
+    // only symptom would be a restart every time a reader confirmed where they
+    // already were.
+    //
+    // The comparison is restated here deliberately rather than shared: what is
+    // under test is that the offer preserves the identity the guard needs, so
+    // reading the guard's own expression from the same place would make the
+    // assertion vacuous.
+    const a = fakeAnchor('/ws/foo', '/ws/foo/.aggrega-config.yaml');
+    const b = fakeAnchor('/ws/bar', '/ws/bar/release.yaml');
+    const anchored = [a, b];
+    // Attachment selects its target from this same list, which is what makes
+    // the active folder one of the entries rather than a copy of one.
+    const active = anchored[0];
+
+    const offered = anchorOffers(anchored)
+      .filter(o => o.kind === 'anchored')
+      .map(o => (o.kind === 'anchored' ? o.anchored : null)!);
+
+    const targetRoot = offered[0].folder.uri.fsPath;
+    assert.strictEqual(
+      active.folder.uri.fsPath === targetRoot, true,
+      'choosing the attached folder would restart the language server for nothing',
+    );
+    assert.strictEqual(
+      active.folder.uri.fsPath === offered[1].folder.uri.fsPath, false,
+      'choosing a different folder must NOT be mistaken for a no-op',
+    );
+  });
+
+  it('names no internal population in anything the reader reads', () => {
+    const a = fakeAnchor('/ws/foo', '/ws/foo/.aggrega-config.yaml');
+    for (const offers of [anchorOffers([]), anchorOffers([a])]) {
+      for (const o of offers) {
+        for (const text of [o.label, o.detail]) {
+          assert.ok(
+            !/anchored/i.test(text),
+            `"${text}" describes a variable rather than the reader's situation`,
+          );
+        }
+      }
+    }
   });
 });
 

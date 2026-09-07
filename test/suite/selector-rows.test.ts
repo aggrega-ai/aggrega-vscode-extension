@@ -80,6 +80,23 @@ describe('the workspace row', () => {
     assert.strictEqual(row.value, 'none anchored');
     assert.ok(row.tooltip.includes('no anchored workspace'));
   });
+
+  it('promises a choice rather than a change, so the promise holds with one folder', () => {
+    // The row is drawn without knowing how many folders are attached, so any
+    // promise it makes has to be true of every count. A click opens what is
+    // available together with the way to make another folder available, which
+    // "switch" would misdescribe for the reader who has exactly one — and a row
+    // that advertises an action and then declines it is the defect this closes.
+    const row = workspaceRow(ANCHORED, OPENED_INSIDE);
+    assert.ok(
+      row.tooltip.includes('Click to choose which folder the editor works in.'),
+      'the row does not say what clicking it does',
+    );
+    assert.ok(
+      !/click to switch/i.test(row.tooltip),
+      'a promise to switch cannot be kept for a reader with one folder',
+    );
+  });
 });
 
 describe('the Release row', () => {

@@ -113,6 +113,69 @@ export function buildPickerItems<F extends FolderLike>(
   });
 }
 
+// WIDEN_ANCHOR_OFFER_DETAIL explains, on the offer's second line, what
+// choosing it does — that the folder is one already inside the open workspace,
+// and that taking it adds it rather than opening something elsewhere.
+export const WIDEN_ANCHOR_OFFER_DETAIL =
+  'Looks through the folders you have open for one Aggrega recognises, and adds it.';
+
+// widenAnchorOfferLabel is the offer's label, and it is graded on whether
+// anything is attached yet: "another" is true only when there is already one to
+// be another of. The word is the difference between an accurate offer and one
+// that implies a folder the reader does not have.
+export function widenAnchorOfferLabel(anchoredCount: number): string {
+  return anchoredCount === 0
+    ? 'Choose a folder Aggrega recognises…'
+    : 'Choose another folder Aggrega recognises…';
+}
+
+// AnchorOffer is one entry in what the workspace row opens when clicked: either
+// a folder that is attached now, or the way to make another one available.
+//
+// THE TWO ARE ONE LIST RATHER THAN TWO STEPS, and that is the point. A reader
+// clicking the row is asking which folder the editor works in and whether they
+// can change it; the honest answer is the folders available now together with
+// how to make another available. Putting the second behind a prior choice would
+// be a choice before the choice, which is the shape the row is being kept away
+// from.
+//
+// The kind is carried rather than inferred from a missing field, so a caller
+// dispatching on it cannot silently treat a widening offer as a folder to
+// attach to.
+export type AnchorOffer<F extends FolderLike = FolderLike> =
+  | ({ kind: 'anchored' } & PickerItem<F>)
+  | { kind: 'widen'; label: string; description: string; detail: string };
+
+// anchorOffers composes what the workspace row offers: every attached folder,
+// then the route to widening.
+//
+// The folder entries are not shaped here — buildPickerItems above stays their
+// one home, so the basename disambiguation cannot come to differ between the
+// activation prompt and this offer. What this adds is the trailing entry and
+// the order.
+//
+// A SOLE ATTACHED FOLDER IS STILL OFFERED RATHER THAN THE OFFER BEING DECLINED.
+// This is the reader asking which folder the editor works in, and answering a
+// request to choose by refusing to show the choice leaves them unable to tell
+// that anything ran — the same reason the Release selection offers its sole
+// candidate. It is also why the workspace row's tooltip needs no count: the
+// click always opens a choice, so its promise holds however many folders are
+// attached.
+export function anchorOffers<F extends FolderLike>(
+  anchored: readonly AnchoredFolder<F>[],
+): AnchorOffer<F>[] {
+  const offers: AnchorOffer<F>[] = buildPickerItems(anchored).map(
+    (item) => ({ kind: 'anchored' as const, ...item }),
+  );
+  offers.push({
+    kind: 'widen',
+    label: widenAnchorOfferLabel(anchored.length),
+    description: '',
+    detail: WIDEN_ANCHOR_OFFER_DETAIL,
+  });
+  return offers;
+}
+
 // activeFolderLabel renders the status-bar text for an attached
 // daemon when the workspace has 2+ anchored folders. With one or
 // zero anchored, callers should display the existing single-folder

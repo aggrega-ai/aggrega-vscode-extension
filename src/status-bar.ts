@@ -122,7 +122,11 @@ export function createPendingChoiceStatusBar(
     STATUS_BAR_PRIORITY,
   );
   item.text = 'Aggrega: Choose folder…';
-  item.tooltip = 'Multiple Aggrega-anchored folders found. Click to choose which folder the daemon attaches to.';
+  // The wording matches the workspace row's tooltip and the picker's own
+  // placeholder, because all three describe the one picker this command opens.
+  // A reader who reaches it from the status bar and a reader who reaches it from
+  // the row must not be told two different things about the same choice.
+  item.tooltip = 'Multiple Aggrega-anchored folders found. Click to choose which folder the editor works in.';
   item.command = 'aggrega.workspace.switchAnchor';
   context.subscriptions.push(item);
   item.show();
