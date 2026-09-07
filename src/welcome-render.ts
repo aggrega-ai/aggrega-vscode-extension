@@ -9,6 +9,7 @@ import {
   WELCOME_GREETING,
   WELCOME_PANEL_TITLE,
 } from './get-started-steps';
+import { escapeHtml } from './html';
 
 // This module composes the welcome panel's document and holds no editor types,
 // so what a reader is shown is assertable without an extension host — the
@@ -20,17 +21,6 @@ import {
 // same markup a second time — would put one layout in two languages, and the
 // copy is what drifts. The script this composes for is a dozen lines that swap
 // in a fragment and forward a press.
-
-// escapeHtml renders arbitrary text as text. It runs before any inline marker
-// is interpreted, which is the ordering that makes the step content unable to
-// introduce markup of its own however it is later edited.
-export function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
 
 // inlineHtml applies the three inline markers the step content is written in —
 // a code span, bold, and italic — and no others.

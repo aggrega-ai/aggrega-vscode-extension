@@ -9,29 +9,36 @@ import {
   EntitySubject,
   OperationId,
   OperationsLayout,
-  OperationsNode,
   ReleaseScopedVerb,
+  SurfaceFacts,
+  allOperations,
   cacheConfirmation,
   catalogUploadArgs,
   commandIdFor,
   deprecateArgs,
   importArgs,
   inspectableSubjects,
-  operationsTopLevel,
-  operationsUnder,
   publishableSubjects,
   releaseScopedArgs,
   signArgs,
+  unavailableReason,
 } from './operation-groups';
 import { CancellationSignal } from './cancellation';
 import { reportOutcome, runCli, runWatchableCli } from './cli-operation';
+import { makeNonce } from './html';
 import { outcomeOf } from './operation-outcome';
 import { openDocument } from './open-document';
+import {
+  OperationsBody,
+  operationsBodyHtml,
+  operationsDocumentHtml,
+} from './operations-render';
+import { panelControlCommand } from './panel-control';
 import { withCancellableProgress } from './progress';
 import { SelectionState } from './release-selection';
 import { RendersOnReady } from './readiness';
 import { EXTENSION_ID, SETTINGS_COMMAND, extensionSettingsQuery } from './settings';
-import { SelectorRow, selectorRows } from './selector-rows';
+import { selectorRows } from './selector-rows';
 import {
   BuildPreviewResponse,
   BuildResponse,
@@ -167,101 +174,173 @@ export interface OperationDeps extends RendersOnReady {
   onLayoutChange(listener: () => void): void;
 }
 
-// OperationsRow is what the tree holds: the two selector rows that name what
-// the editor is acting on, then the grouped operations that act on it.
+// PanelState is what the panel's own script remembers between one drawing and
+// the next: which groups the reader has closed, which control they were on, and
+// how far they had scrolled.
 //
-// A selector row is kept as its own variant rather than folded into the node
-// model, because the two rows are a different kind of thing from an operation:
-// they report what the editor is acting on, and every operation below them acts
-// on it. They sit above the groups in both shapes for that reason.
-type OperationsRow = SelectorRow | OperationsNode;
-
-function isSelectorRow(row: OperationsRow): row is SelectorRow {
-  return 'key' in row;
+// The editor deallocates a hidden view's document and recreates it when the view
+// becomes visible again, and it also writes this payload into a memento — so it
+// survives a window reload, not merely a hide. The panel keeps its context
+// rather than being retained in memory, and this is what makes that free of
+// cost to the reader.
+interface PanelState {
+  collapsed: string[];
+  focused: string | null;
+  scrollTop: number;
 }
 
-// SEPARATOR_LABEL draws the divider ahead of the publish group. It is a row of
-// its own because a tree has no other way to put space between two groups, and
-// the separation is load-bearing: the operations below it change what every
-// consumer of a catalog resolves, while everything above writes to this machine.
-const SEPARATOR_LABEL = '───────────';
+const NO_PANEL_STATE: PanelState = { collapsed: [], focused: null, scrollTop: 0 };
 
-// OperationsTreeProvider backs the Operations view in the Aggrega activity-bar
+// readPanelState takes whatever the editor hands back for this view. It is
+// unknown by contract — a memento written by an earlier version of this panel,
+// or by a hand-edited storage file, arrives here too — so every field is checked
+// rather than trusted, and anything unreadable draws the default shape.
+function readPanelState(stored: unknown): PanelState {
+  if (typeof stored !== 'object' || stored === null) { return NO_PANEL_STATE; }
+  const held = stored as { collapsed?: unknown; focused?: unknown; scrollTop?: unknown };
+  return {
+    collapsed: Array.isArray(held.collapsed)
+      ? held.collapsed.filter((id): id is string => typeof id === 'string')
+      : [],
+    focused: typeof held.focused === 'string' ? held.focused : null,
+    scrollTop: typeof held.scrollTop === 'number' ? held.scrollTop : 0,
+  };
+}
+
+// OperationsViewProvider backs the Operations view in the Aggrega activity-bar
 // container: the two selector rows first, then the operation groups in one of
 // two shapes.
 //
-// The shape and the selector rows both change under the panel, so the provider
-// emits change events. The facts the rows render — the anchored folder and the
-// selected Release — and the shape are all read through the getters their owners
-// already expose rather than copied here, so nothing on the panel can come to
-// disagree with the value a request actually carries.
-class OperationsTreeProvider implements vscode.TreeDataProvider<OperationsRow> {
-  private readonly changed = new vscode.EventEmitter<void>();
-  readonly onDidChangeTreeData = this.changed.event;
+// The view is a document this extension draws rather than a tree, because the
+// default shape is one row of buttons per group and a tree row cannot be several
+// buttons — a row carries one whole-row command and no markup. What that costs
+// is that the focus order, the arrow-key navigation, the expansion state and the
+// theming are this panel's to get right rather than the editor's; what it buys
+// is the shape the panel exists for.
+//
+// The shape, the two rows and which entries can run all change under the panel,
+// so it is re-composed on each of those events. The facts it draws are read
+// through the getters their owners already expose rather than copied here, so
+// nothing on the panel can come to disagree with the value a request actually
+// carries.
+class OperationsViewProvider implements vscode.WebviewViewProvider {
+  private view: vscode.WebviewView | null = null;
 
-  constructor(private readonly deps: OperationDeps) {}
+  // The reader's place, mirrored from the panel's script. The script owns it —
+  // its own recording is what the editor persists — and this copy exists for one
+  // purpose: composing a re-drawing already in the shape the reader left, which
+  // is the half that removes the flicker. Restoring after the fact always paints
+  // the default first.
+  private state: PanelState = NO_PANEL_STATE;
+
+  constructor(
+    private readonly extensionUri: vscode.Uri,
+    private readonly deps: OperationDeps,
+  ) {}
+
+  resolveWebviewView(
+    view: vscode.WebviewView,
+    context: vscode.WebviewViewResolveContext,
+  ): void {
+    this.view = view;
+    this.state = readPanelState(context.state);
+    view.webview.options = {
+      enableScripts: true,
+      localResourceRoots: [vscode.Uri.joinPath(this.extensionUri, 'media')],
+    };
+    view.onDidDispose(() => { this.view = null; });
+    view.webview.onDidReceiveMessage((message: unknown) => this.receive(message));
+    view.webview.html = operationsDocumentHtml({
+      nonce: makeNonce(),
+      styleUri: this.resource(view.webview, 'operations.css'),
+      // The icon font is a third-party asset placed under media/vendor/ by the
+      // build rather than carried in this repository, so it is addressed one
+      // directory deeper. The stylesheet names the font file beside itself, and
+      // both sit under the one resource root below.
+      codiconUri: this.resource(view.webview, 'vendor', 'codicon.css'),
+      scriptUri: this.resource(view.webview, 'operations.js'),
+      cspSource: view.webview.cspSource,
+      ...this.body(),
+    });
+  }
 
   refresh(): void {
-    this.changed.fire();
+    // Nothing is composed for a panel that is not there. A view whose document
+    // the editor has deallocated composes afresh when it comes back, from state
+    // read at that moment, so a refresh in between has nothing to carry.
+    if (this.view === null) { return; }
+    void this.view.webview.postMessage({
+      type: 'panel',
+      html: operationsBodyHtml(this.body()),
+      scrollTop: this.state.scrollTop,
+    });
   }
 
-  getTreeItem(row: OperationsRow): vscode.TreeItem {
-    if (isSelectorRow(row)) {
-      const item = new vscode.TreeItem(row.label, vscode.TreeItemCollapsibleState.None);
-      item.description = row.value;
-      item.tooltip = row.tooltip;
-      item.iconPath = new vscode.ThemeIcon(row.icon);
-      item.command = { command: row.command, title: row.label };
-      item.contextValue = `aggrega.selector.${row.key}`;
-      return item;
+  private body(): OperationsBody {
+    const facts: SurfaceFacts = {
+      workspaceAnchored: this.deps.getWorkspaceRoot() !== null,
+      releaseSelected: this.deps.selectedRelease() !== null,
+    };
+    const unavailable: Partial<Record<OperationId, string | null>> = {};
+    for (const op of allOperations()) {
+      unavailable[op.id] = unavailableReason(op.id, facts);
     }
-    switch (row.kind) {
-      case 'separator': {
-        const item = new vscode.TreeItem(SEPARATOR_LABEL, vscode.TreeItemCollapsibleState.None);
-        item.contextValue = 'aggrega.separator';
-        return item;
-      }
-      case 'heading': {
-        const item = new vscode.TreeItem(row.group.heading, vscode.TreeItemCollapsibleState.None);
-        item.contextValue = `aggrega.group.${row.group.id}`;
-        return item;
-      }
-      case 'group': {
-        const item = new vscode.TreeItem(
-          row.group.heading,
-          vscode.TreeItemCollapsibleState.Expanded,
-        );
-        item.contextValue = `aggrega.group.${row.group.id}`;
-        return item;
-      }
-      case 'operation': {
-        const item = new vscode.TreeItem(row.op.label, vscode.TreeItemCollapsibleState.None);
-        item.tooltip = row.op.detail;
-        item.iconPath = new vscode.ThemeIcon(row.op.icon);
-        item.command = { command: commandIdFor(row.op), title: row.op.label };
-        item.contextValue = `aggrega.op.${row.op.id}`;
-        return item;
-      }
-    }
+    return {
+      // Read on every composition rather than captured, so changing the setting
+      // redraws the open panel in the other shape with nothing to restart.
+      layout: this.deps.layout(),
+      selectors: selectorRows(
+        this.deps.getAnchoredWorkspaceRoot(),
+        this.deps.getWorkspaceRoot(),
+        this.deps.selectionState(),
+      ),
+      unavailable,
+      collapsed: this.state.collapsed,
+      focused: this.state.focused,
+    };
   }
 
-  getChildren(row?: OperationsRow): OperationsRow[] {
-    if (row === undefined) {
-      return [
-        ...selectorRows(
-          this.deps.getAnchoredWorkspaceRoot(),
-          this.deps.getWorkspaceRoot(),
-          this.deps.selectionState(),
-        ),
-        // Read on every render rather than captured, so changing the setting
-        // redraws the open panel in the other shape with nothing to restart.
-        ...operationsTopLevel(this.deps.layout()),
-      ];
+  private receive(message: unknown): void {
+    const named = typeof message === 'object' && message !== null
+      ? (message as { type?: unknown })
+      : null;
+    if (named?.type === 'state') {
+      this.state = readPanelState(message);
+      return;
     }
-    if (!isSelectorRow(row) && row.kind === 'group') {
-      return operationsUnder(row.group);
-    }
-    return [];
+    const command = panelControlCommand(
+      message,
+      this.offeredCommands(),
+      'operations',
+      this.deps.output,
+    );
+    if (command === null) { return; }
+    void vscode.commands.executeCommand(command);
+  }
+
+  // offeredCommands is what a press on this panel is allowed to run.
+  //
+  // It is DERIVED from the operation surface and from the two rows themselves
+  // rather than listed a second time, so a control cannot exist that this does
+  // not admit, and this cannot admit one no control offers. The rows are asked
+  // for their commands rather than the commands being named here, because a list
+  // here would be a second statement of what the rows carry.
+  private offeredCommands(): string[] {
+    const rows = selectorRows(
+      this.deps.getAnchoredWorkspaceRoot(),
+      this.deps.getWorkspaceRoot(),
+      this.deps.selectionState(),
+    );
+    return [
+      ...allOperations().map(commandIdFor),
+      ...rows.map((row) => row.command),
+    ];
+  }
+
+  private resource(webview: vscode.Webview, ...segments: string[]): string {
+    return webview
+      .asWebviewUri(vscode.Uri.joinPath(this.extensionUri, 'media', ...segments))
+      .toString();
   }
 }
 
@@ -278,11 +357,19 @@ export function activateOperations(
   context: vscode.ExtensionContext,
   deps: OperationDeps,
 ): OperationsView {
-  const provider = new OperationsTreeProvider(deps);
+  const provider = new OperationsViewProvider(context.extensionUri, deps);
   context.subscriptions.push(
-    vscode.window.registerTreeDataProvider('aggrega.operations', provider),
+    // The panel's context is NOT retained while the view is hidden. The editor
+    // deallocates the document of a view the reader has collapsed or navigated
+    // away from, and recreates it on return — which costs a reload where a tree
+    // costs a redraw, and is the right trade against holding a document in
+    // memory for a panel nobody is looking at. What the reader would otherwise
+    // lose is carried by the state the panel records instead.
+    vscode.window.registerWebviewViewProvider('aggrega.operations', provider, {
+      webviewOptions: { retainContextWhenHidden: false },
+    }),
   );
-  // The rows take the readiness signal as a dependency like every other
+  // The panel takes the readiness signal as a dependency like every other
   // surface: the anchored folder is reported by the language server, so it is
   // not known when this view is registered and drawn.
   deps.onReady(() => provider.refresh());

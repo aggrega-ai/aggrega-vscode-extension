@@ -15,7 +15,8 @@ import {
   CacheOperation,
   DEPRECATION_SEVERITIES,
   OPERATION_GROUPS,
-  OperationsNode,
+  OPERATION_REQUIREMENTS,
+  OperationId,
   allOperations,
   cacheConfirmation,
   catalogUploadArgs,
@@ -23,15 +24,17 @@ import {
   deprecateArgs,
   importArgs,
   inspectableSubjects,
-  operationsTopLevel,
-  operationsUnder,
   publishableSubjects,
   readLayout,
   releaseScopedArgs,
   signArgs,
+  unavailableReason,
 } from '../../src/operation-groups';
-import { selectorRows } from '../../src/selector-rows';
+import {
+  NO_RELEASE_SELECTED_CONTROL_REASON,
+} from '../../src/release-selection';
 import { CatalogIndexEntity } from '../../src/workspace-catalog-run';
+import { NO_ANCHORED_WORKSPACE_CONTROL_REASON } from '../../src/workspace';
 
 function entity(over: Partial<CatalogIndexEntity>): CatalogIndexEntity {
   return {
@@ -44,10 +47,6 @@ function entity(over: Partial<CatalogIndexEntity>): CatalogIndexEntity {
     origin: 'workspace',
     ...over,
   };
-}
-
-function operationsOf(nodes: OperationsNode[]): string[] {
-  return nodes.filter((n) => n.kind === 'operation').map((n) => n.op.id);
 }
 
 describe('the operation surface, grouped by what a reader came to do', () => {
@@ -137,10 +136,16 @@ describe('the surface the manifest actually contributes', () => {
   // about the file the editor loads and not about a copy the compiler made.
   interface Manifest {
     contributes: {
-      views: { aggrega: Array<{ id: string; name: string }> };
+      views: { aggrega: Array<{ id: string; name: string; type?: string }> };
       menus: { 'view/title': Array<{ command: string; when: string }> };
       commands: Array<{ command: string; title: string }>;
-      configuration: { properties: Record<string, { enum?: string[]; default?: unknown }> };
+      configuration: {
+        properties: Record<string, {
+          enum?: string[];
+          enumDescriptions?: string[];
+          default?: unknown;
+        }>;
+      };
     };
   }
 
@@ -210,11 +215,51 @@ describe('the surface the manifest actually contributes', () => {
     assert.deepStrictEqual(stranded, []);
   });
 
-  it('offers the two shapes the surface knows how to draw, and defaults to the grouped one', () => {
+  it('offers the two shapes the surface knows how to draw, and defaults to buttons', () => {
     const layout = manifest.contributes.configuration.properties['aggrega.operations.layout'];
     assert.ok(layout, 'the panel shape is not a setting');
-    assert.deepStrictEqual(layout.enum, ['grouped', 'collapsible']);
-    assert.strictEqual(readLayout(layout.default), 'grouped');
+    assert.deepStrictEqual(layout.enum, ['buttons', 'sections']);
+    // Read through readLayout rather than compared to a literal, so the
+    // manifest's default and the shape the surface actually draws for it cannot
+    // come apart: a default the surface does not recognise would draw the panel
+    // this assertion claims and still be wrong.
+    assert.strictEqual(readLayout(layout.default), 'buttons');
+    assert.strictEqual(layout.default, 'buttons');
+  });
+
+  it('says what a reader will see for each shape, on the shape itself', () => {
+    // A reader chooses on the settings screen, where the only thing in front of
+    // them is these two lines. One description per value, each naming what is
+    // drawn rather than how the operations are arranged — both shapes are
+    // grouped, so a description naming the grouping would tell them nothing.
+    const layout = manifest.contributes.configuration.properties['aggrega.operations.layout'];
+    assert.ok(layout.enum, 'the shape offers no values');
+    assert.strictEqual(
+      layout.enumDescriptions?.length,
+      layout.enum.length,
+      'a value with no description leaves a reader choosing blind',
+    );
+    for (const description of layout.enumDescriptions ?? []) {
+      assert.ok(description.trim() !== '', 'a shape describes itself as nothing');
+    }
+  });
+
+  it('declares the operations panel as a document it draws, and the other three as trees', () => {
+    // The panel's default shape is one row of buttons per group, and a tree row
+    // carries one whole-row command and no markup — so it cannot be several
+    // buttons. This one view is therefore drawn by the extension. The other
+    // three are data lists with per-row identity, which is what a tree is for,
+    // and converting them would cost list type-ahead, row context menus and
+    // native selection for nothing.
+    const typeOf = Object.fromEntries(
+      manifest.contributes.views.aggrega.map((v) => [v.id, v.type ?? 'tree']),
+    );
+    assert.deepStrictEqual(typeOf, {
+      'aggrega.operations': 'webview',
+      'aggrega.registries': 'tree',
+      'aggrega.workspaceCatalog': 'tree',
+      'aggrega.plugins': 'tree',
+    });
   });
 });
 
@@ -445,125 +490,146 @@ describe('a destructive cache operation names its scope before it runs', () => {
 });
 
 describe('the two shapes the panel is drawn in', () => {
-  it('defaults to the grouped shape, and reads only the one alternative spelling', () => {
-    assert.strictEqual(readLayout(undefined), 'grouped');
-    assert.strictEqual(readLayout('grouped'), 'grouped');
-    assert.strictEqual(readLayout('collapsible'), 'collapsible');
-    assert.strictEqual(readLayout('Collapsible'), 'grouped', 'an unreadable value draws the panel, not nothing');
-    assert.strictEqual(readLayout(7), 'grouped');
-  });
-
-  it('shows every operation at once in the grouped shape', () => {
-    assert.deepStrictEqual(
-      operationsOf(operationsTopLevel('grouped')),
-      allOperations().map((op) => op.id),
+  it('defaults to buttons, and reads only the one alternative spelling', () => {
+    assert.strictEqual(readLayout(undefined), 'buttons');
+    assert.strictEqual(readLayout('buttons'), 'buttons');
+    assert.strictEqual(readLayout('sections'), 'sections');
+    assert.strictEqual(
+      readLayout('Sections'), 'buttons',
+      'an unreadable value draws the panel, not nothing',
     );
+    assert.strictEqual(readLayout(7), 'buttons');
   });
 
-  it('shows one row per group in the collapsible shape, and nothing else at that level', () => {
-    const top = operationsTopLevel('collapsible');
-    assert.deepStrictEqual(
-      top.filter((n) => n.kind === 'group').map((n) => n.group.id),
-      OPERATION_GROUPS.map((g) => g.id),
-    );
-    assert.deepStrictEqual(operationsOf(top), [], 'an operation is reached by opening its group');
-  });
-
-  it('carries the same operations in the same order whichever shape is drawn', () => {
-    const grouped = operationsOf(operationsTopLevel('grouped'));
-    const collapsible = operationsTopLevel('collapsible')
-      .filter((n) => n.kind === 'group')
-      .flatMap((n) => operationsOf(operationsUnder(n.group)));
-    assert.deepStrictEqual(
-      collapsible, grouped,
-      'the shape changes how a group is drawn, never which operations exist',
-    );
-  });
-
-  it('separates the publish group in both shapes', () => {
-    for (const layout of ['grouped', 'collapsible'] as const) {
-      const nodes = operationsTopLevel(layout);
-      const separators = nodes
-        .map((n, i) => (n.kind === 'separator' ? i : -1))
-        .filter((i) => i !== -1);
-      assert.strictEqual(separators.length, 1, `${layout} draws ${separators.length} separators`);
-      const next = nodes[separators[0] + 1];
-      const groupId = next.kind === 'group' ? next.group.id
-        : next.kind === 'heading' ? next.group.id : null;
-      assert.strictEqual(groupId, 'publish', `${layout} separates the wrong group`);
+  it('draws the panel for a value it has never heard of, rather than drawing nothing', () => {
+    // The values a reader can choose changed, and a settings file written
+    // before that change still holds one of the old ones. Nothing migrates it,
+    // and nothing needs to: an unrecognised value reads as the default, so such
+    // a file draws the default panel. This is asserted against the values the
+    // surface no longer knows because that is the case a reader will actually
+    // meet, and it is the reason no migration is owed.
+    for (const stale of ['grouped', 'collapsible', '', 'BUTTONS', null]) {
+      assert.strictEqual(
+        readLayout(stale), 'buttons',
+        `${JSON.stringify(stale)} must draw the default panel rather than nothing`,
+      );
     }
-  });
-
-  it('heads every group in the grouped shape', () => {
-    assert.deepStrictEqual(
-      operationsTopLevel('grouped').filter((n) => n.kind === 'heading').map((n) => n.group.id),
-      OPERATION_GROUPS.map((g) => g.id),
-    );
   });
 });
 
-describe('the two rows naming the subject sit outside every collapsible', () => {
-  // A reader who collapses a group to reduce clutter must not lose the two
-  // facts that say what any action would apply to: which folder is anchored,
-  // and which Release is selected. A reader who cannot see the selected Release
-  // cannot safely press anything.
-  //
-  // 🔴 What this block proves is the half that is mechanically provable without
-  // an extension host: no selector row is reachable BELOW a group, so
-  // collapsing a group can hide neither row. The other half — that the pair is
-  // emitted at the root, ahead of the groups — is composed in the tree
-  // provider, which imports editor types and cannot be constructed here. That
-  // half is read from the provider and confirmed at the editor.
-
-  const NO_ANSWER_YET = { kind: 'unknown' } as const;
-
-  it('models a selector row and an operation node as disjoint shapes', () => {
-    // The discriminant is asserted rather than assumed. Re-rolling the
-    // provider's own predicate here would be a second copy of it, agreeing
-    // until the day either moved, so the two shapes are compared directly.
-    const rows = selectorRows(null, null, NO_ANSWER_YET);
-    assert.ok(
-      rows.length > 0,
-      'no selector row was produced, so every absence asserted below measures nothing',
+describe('what an entry needs before it can run', () => {
+  it('decides a requirement for every operation, and for no name that is not one', () => {
+    // The map is total over the operation ids, which is what stops a new
+    // operation arriving with no decision made about it. Both directions are
+    // asserted: a missing entry would leave an operation ungated, and a
+    // left-over entry would be a decision about something that no longer
+    // exists.
+    assert.deepStrictEqual(
+      Object.keys(OPERATION_REQUIREMENTS).sort(),
+      allOperations().map((op) => op.id).sort(),
     );
-    for (const row of rows) {
-      assert.ok('key' in row, `the ${row.label} row is identified by its key`);
-      assert.ok(!('kind' in row), `the ${row.label} row is not a node of the operation model`);
+  });
+
+  it('reads each requirement off the guard the operation\'s own handler applies', () => {
+    // Established by reading the handlers rather than inferred from the entry:
+    // the five Release-scoped operations check the anchored folder and then the
+    // selection; the five command-line-backed ones check the folder they run
+    // in; and the five language-server-backed ones that take no subject check
+    // neither, so nothing this panel can observe stops them.
+    assert.deepStrictEqual(OPERATION_REQUIREMENTS, {
+      validate: 'none',
+      lint: 'workspace',
+      build: 'release',
+      preview: 'release',
+      graph: 'release',
+      pull: 'release',
+      acquire: 'release',
+      scaffold: 'none',
+      import: 'workspace',
+      inspect: 'none',
+      push: 'workspace',
+      sign: 'workspace',
+      deprecate: 'workspace',
+      configShow: 'none',
+      cache: 'none',
+    });
+  });
+
+  it('reports no reason for anything once a folder is anchored and a Release chosen', () => {
+    const ready = { workspaceAnchored: true, releaseSelected: true };
+    for (const op of allOperations()) {
+      assert.strictEqual(
+        unavailableReason(op.id, ready), null,
+        `${op.id} is refused in the state where every requirement is met`,
+      );
     }
   });
 
-  it('opens a group onto its own operations and nothing else, in either shape', () => {
-    for (const group of OPERATION_GROUPS) {
-      const children = operationsUnder(group);
-      // A negative control per group: a group that yielded nothing would make
-      // the two absences below true for a reason that has nothing to do with
-      // the rule they are asserting.
+  it('names the anchored folder ahead of the selection, because the handlers check it first', () => {
+    // An operation with neither would be told about the folder first if it were
+    // pressed, so the control says the same thing the invocation would rather
+    // than sending the reader after a Release in a window that has nowhere to
+    // run one.
+    const nothing = { workspaceAnchored: false, releaseSelected: false };
+    assert.strictEqual(
+      unavailableReason('build', nothing),
+      NO_ANCHORED_WORKSPACE_CONTROL_REASON,
+    );
+    assert.strictEqual(
+      unavailableReason('lint', nothing),
+      NO_ANCHORED_WORKSPACE_CONTROL_REASON,
+    );
+  });
+
+  it('asks for a Release only from the operations that act on one', () => {
+    const anchored = { workspaceAnchored: true, releaseSelected: false };
+    const asked = allOperations()
+      .map((op) => op.id)
+      .filter((id) => unavailableReason(id, anchored) === NO_RELEASE_SELECTED_CONTROL_REASON);
+    assert.deepStrictEqual(asked, ['build', 'preview', 'graph', 'pull', 'acquire']);
+  });
+
+  it('leaves the entries no observable fact gates without a reason at all', () => {
+    // A control drawn as unavailable for a reason nothing on the panel can
+    // evaluate would be a guess presented as a fact — so an operation this
+    // panel cannot observe a blocker for carries no unavailable state in any
+    // combination of the facts it can observe.
+    const unconditional = allOperations()
+      .map((op) => op.id)
+      .filter((id) => OPERATION_REQUIREMENTS[id] === 'none');
+    assert.ok(
+      unconditional.length > 0,
+      'no operation is unconditional, so the absences below measure nothing',
+    );
+    const combinations = [
+      { workspaceAnchored: false, releaseSelected: false },
+      { workspaceAnchored: false, releaseSelected: true },
+      { workspaceAnchored: true, releaseSelected: false },
+      { workspaceAnchored: true, releaseSelected: true },
+    ];
+    for (const id of unconditional as OperationId[]) {
+      for (const facts of combinations) {
+        assert.strictEqual(
+          unavailableReason(id, facts), null,
+          `${id} is refused in a state its own handler does not check`,
+        );
+      }
+    }
+  });
+
+  it('gives a reason that tells the reader what to do, not what went wrong', () => {
+    // Read beside a control the reader can already see is unavailable: what
+    // they cannot see is what would make it run. Both are the renderings held
+    // beside the states they describe, so a control and a notification about
+    // one state cannot come to say different things.
+    for (const reason of [
+      NO_ANCHORED_WORKSPACE_CONTROL_REASON,
+      NO_RELEASE_SELECTED_CONTROL_REASON,
+    ]) {
+      assert.ok(reason.trim().endsWith('.'), `${reason} is not a sentence`);
       assert.ok(
-        children.length > 0,
-        `${group.id} opens onto nothing, so the absences below measure the group rather than the rule`,
-      );
-      assert.deepStrictEqual(
-        children.filter((n) => n.kind !== 'operation').map((n) => n.kind),
-        [],
-        `${group.id} opens onto something that is not one of its operations`,
-      );
-      assert.deepStrictEqual(
-        children.filter((n) => 'key' in n),
-        [],
-        `${group.id} carries a selector row among its children, where collapsing the group would hide it`,
-      );
-    }
-  });
-
-  it('emits no selector row among the operation rows either shape draws', () => {
-    // The rows are contributed once, by the provider, above everything the
-    // shape produces. A shape emitting one of its own would be a second copy of
-    // the pair, and the copy is what would go stale.
-    for (const layout of ['grouped', 'collapsible'] as const) {
-      assert.deepStrictEqual(
-        operationsTopLevel(layout).filter((n) => 'key' in n),
-        [],
-        `the ${layout} shape emits a selector row of its own`,
+        !reason.startsWith('Aggrega'),
+        `${reason} carries the product prefix a notification needs and a control does not`,
       );
     }
   });

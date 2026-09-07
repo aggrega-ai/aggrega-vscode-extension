@@ -8,6 +8,8 @@ import * as vscode from 'vscode';
 
 import { runCliJson } from './cli-json';
 import { runCliProcess } from './cli-run';
+import { makeNonce } from './html';
+import { panelControlCommand } from './panel-control';
 import { RendersOnReady } from './readiness';
 import { RegistryListDoc } from './registries-run';
 import { DEFAULT_SETTINGS, SERVER_CONFIG_SECTION } from './settings';
@@ -198,26 +200,20 @@ export function activateGetStarted(
   return refresh;
 }
 
-// runPanelControl runs the command a press in the panel names.
+// runPanelControl runs the command a press in the welcome panel names.
 //
-// The name is checked against the commands the panel's own content offers
-// before anything is run. The panel is this extension's own document under a
-// content policy that admits only its own script, so this is not a defence
-// against a page that has been tampered with — it is the guarantee that the
-// panel's reach stays exactly what it draws, so a control cannot be made to
-// invoke something the reader was never offered.
+// Deciding whether to act on a press is panel-control.ts's, shared with the
+// other document this extension draws; what is left here is the invocation,
+// which is where the editor is.
 function runPanelControl(message: unknown, output: vscode.OutputChannel): void {
-  const named = typeof message === 'object' && message !== null
-    ? (message as { type?: unknown; command?: unknown })
-    : null;
-  if (!named || named.type !== 'run' || typeof named.command !== 'string') { return; }
-  if (!panelControlCommands().includes(named.command)) {
-    output.appendLine(
-      `get started: the panel asked for ${named.command}, which none of its controls offers.`,
-    );
-    return;
-  }
-  void vscode.commands.executeCommand(named.command);
+  const command = panelControlCommand(
+    message,
+    panelControlCommands(),
+    'get started',
+    output,
+  );
+  if (command === null) { return; }
+  void vscode.commands.executeCommand(command);
 }
 
 // welcomeHtml resolves this installation's own panel resources and composes the
@@ -239,19 +235,6 @@ function welcomeHtml(
     cspSource: webview.cspSource,
     standings,
   });
-}
-
-// makeNonce returns a random token for the content policy's script allowlist.
-// Math.random is sufficient for it — the nonce is not a security boundary on
-// its own; the policy's source restriction and the local-only resource root
-// are.
-function makeNonce(): string {
-  let text = '';
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  for (let i = 0; i < 32; i++) {
-    text += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return text;
 }
 
 // readFacts reads the four conditions from the parts of the extension that

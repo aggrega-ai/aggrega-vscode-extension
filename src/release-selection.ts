@@ -28,6 +28,16 @@ export type SelectionState =
   | { kind: 'none'; reason: string }
   | { kind: 'unknown' };
 
+// NO_RELEASE_SELECTED_CONTROL_REASON is the reason a control that acts on a
+// Release gives for being unavailable while none is selected.
+//
+// It sits here, beside the state it describes, rather than beside the control:
+// several controls need a Release, and a wording written per control would drift
+// the moment one of them was reworded. It is an instruction rather than an
+// account of the state, because it is read beside a control the reader can
+// already see is unavailable — what they cannot see is what to do about it.
+export const NO_RELEASE_SELECTED_CONTROL_REASON = 'Select a Release first.';
+
 // ReleaseSelectionDeps supplies the workspace root, the two language-server
 // queries the selection is built from, and the editor surfaces it drives.
 // Injecting them keeps the selection rule testable without the editor: a test

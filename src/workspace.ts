@@ -33,6 +33,18 @@ export const NO_ANCHORED_WORKSPACE_MESSAGE =
 // already written rather than invent another.
 export const NO_ANCHORED_WORKSPACE_TREE_LABEL = 'No anchored workspace.';
 
+// NO_ANCHORED_WORKSPACE_CONTROL_REASON is the same state again, as the reason a
+// control that needs an anchored folder gives for being unavailable.
+//
+// It is the shortest of the three because of where it is read: beside a control
+// the reader is looking at, which already tells them the control cannot run. So
+// it carries only what they cannot see — what to do to make it run — and drops
+// both the product prefix a notification needs and the account of the state a
+// row needs. It lives here with its two siblings for the reason they live
+// together: one state, and a surface that grows a rendering for it should find
+// the wording already written rather than invent another.
+export const NO_ANCHORED_WORKSPACE_CONTROL_REASON = 'Anchor a workspace folder first.';
+
 // AGGREGA_DIR and ACTIVE_RELEASE_MARKER_BASENAME name the workspace's
 // .aggrega/ directory and the active-release marker inside it. Both have their
 // one definition here — the directory is a workspace anchor this module already

@@ -1,0 +1,302 @@
+/* SPDX-License-Identifier: Apache-2.0
+   Copyright 2026 Cognitio S.r.l. */
+
+/* The panel draws in the editor's own colours and font throughout, so it reads
+   as part of the editor a reader has themed rather than as a page pasted into
+   it. Every colour comes from a token and none is written as a literal: the
+   editor sets these properties on this document and re-applies them on every
+   theme change, so a literal would be the one thing on the panel that stopped
+   following the theme.
+
+   The ground is the side bar's, not the editor's. This panel sits in the
+   activity-bar container beside three trees, and an editor ground here would
+   read as a page dropped into the sidebar. */
+
+body {
+  color: var(--vscode-sideBar-foreground, var(--vscode-foreground));
+  background: var(--vscode-sideBar-background);
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+  padding: 0;
+  margin: 0;
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  /* The panel is as narrow as the reader drags it. Allowing the containers to
+     shrink below their content is what lets a row wrap rather than force the
+     document wider than the view. */
+  min-width: 0;
+  padding: 0.4rem 0 1rem;
+}
+
+/* --- the two rows naming what the panel is acting on --------------------- */
+
+/* They are the document's first two elements, above every group, so a reader
+   who has closed every section still has both facts in front of them. */
+.selectors {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.selector {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  text-align: left;
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  border-radius: 3px;
+  padding: 0.25rem 0.6rem;
+  cursor: pointer;
+}
+
+.selector-head {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.selector-label {
+  flex: 0 0 auto;
+  font-weight: 600;
+}
+
+/* The value is what the row exists to report, so it takes the room that is
+   left and is never clipped in favour of the field name beside it. */
+.selector-value {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* The explanation is drawn inside the row rather than left to a hover. The
+   workspace row's is load-bearing — it names the anchored folder and, when they
+   differ, the folder that was opened — and a reader should not have to hover to
+   learn which folder the offered Releases come from. */
+.selector-detail {
+  display: flex;
+  flex-direction: column;
+  padding-left: 1.4rem;
+  color: var(--vscode-descriptionForeground);
+  font-size: 0.9em;
+  line-height: 1.4;
+}
+
+.selector-line {
+  overflow-wrap: anywhere;
+}
+
+.selector:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.selector:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
+}
+
+/* --- what both shapes share --------------------------------------------- */
+
+.groups {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* The divider ahead of the publish group, as a rule with a margin. The
+   operations below it change what every consumer of a catalog resolves, while
+   everything above writes to this machine, and that difference belongs in front
+   of the reader before the press rather than in an explanation after it. */
+.group-separated {
+  border-top: 1px solid var(--vscode-panel-border, var(--vscode-widget-border));
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+}
+
+/* A control that cannot run keeps its place in the row. Removing one would move
+   the others under the reader's pointer as the state changes; dimming it leaves
+   the geometry alone and says the control is there but not now. */
+.op[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* The reason a control cannot run is announced rather than drawn, because a
+   label that grows a sentence is a row that reflows. It reaches a reader using a
+   screen reader through the control's own description, and everyone else through
+   the control's hover. */
+.op-reason {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.codicon {
+  flex: 0 0 auto;
+  font-size: 16px;
+}
+
+/* --- one row of buttons per group ---------------------------------------- */
+
+.groups-buttons {
+  gap: 0.65rem;
+  padding: 0 0.6rem;
+}
+
+.group-heading {
+  margin: 0 0 0.3rem;
+  font-size: 0.85em;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--vscode-descriptionForeground);
+}
+
+/* A narrow panel WRAPS. Scrolling sideways would hide operations behind a
+   gesture with no affordance, in a panel whose whole premise is that everything
+   is visible at once; shrinking would truncate a label at exactly the width
+   where the reader most needs to read it. Wrapping turns one row into two,
+   which is the vertical shape the reader already knows how to read. */
+.group-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.op {
+  /* Never shrinks and never wraps inside itself, so a label is whole or the row
+     wraps — never a label broken across two lines. */
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  white-space: nowrap;
+  font-family: inherit;
+  font-size: inherit;
+  color: var(--vscode-button-secondaryForeground, var(--vscode-button-foreground));
+  background: var(--vscode-button-secondaryBackground, var(--vscode-button-background));
+  border: 1px solid transparent;
+  border-radius: 3px;
+  padding: 0.25rem 0.55rem;
+  cursor: pointer;
+}
+
+.op:not([disabled]):hover {
+  background: var(--vscode-button-secondaryHoverBackground, var(--vscode-button-hoverBackground));
+}
+
+.op:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 1px;
+}
+
+/* --- a section per group ------------------------------------------------- */
+
+/* The metrics are the editor's own tree metrics, so a section reads as the
+   trees beside it in the same container: a row the height of a tree row, and a
+   child indented by one level. */
+.groups-sections .group {
+  display: block;
+}
+
+.groups-sections .op,
+.section-head {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  min-width: 0;
+  height: 22px;
+  text-align: left;
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 0;
+  padding: 0 0.6rem;
+  white-space: nowrap;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.section-title {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.groups-sections .op-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* One level of indent under the heading, matching a tree's child indent. */
+.groups-sections .op {
+  padding-left: 1.5rem;
+}
+
+.groups-sections .op:not([disabled]):hover,
+.section-head:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.groups-sections .op:focus-visible,
+.section-head:focus-visible {
+  background: var(--vscode-list-focusBackground);
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
+}
+
+.groups-sections .op:active,
+.section-head:active {
+  background: var(--vscode-list-activeSelectionBackground);
+  color: var(--vscode-list-activeSelectionForeground, inherit);
+}
+
+.groups-sections .group-separated {
+  margin-left: 0;
+  margin-right: 0;
+}
+
+/* --- high contrast ------------------------------------------------------- */
+
+/* A high-contrast theme deliberately leaves many backgrounds absent and
+   separates controls by border instead — so a control distinguished only by its
+   background disappears there. Every control declares a visible border under
+   those themes, which is the one part of the theming that is not free.
+
+   Both classes are named because the editor adds the dark high-contrast class
+   alongside the light one, and a rule written for only one of them would apply
+   to both by accident rather than by intent. */
+body.vscode-high-contrast .op,
+body.vscode-high-contrast .selector,
+body.vscode-high-contrast .section-head,
+body.vscode-high-contrast-light .op,
+body.vscode-high-contrast-light .selector,
+body.vscode-high-contrast-light .section-head {
+  border: 1px solid var(--vscode-contrastBorder, currentColor);
+}
+
+body.vscode-high-contrast .op:focus-visible,
+body.vscode-high-contrast .selector:focus-visible,
+body.vscode-high-contrast .section-head:focus-visible,
+body.vscode-high-contrast-light .op:focus-visible,
+body.vscode-high-contrast-light .selector:focus-visible,
+body.vscode-high-contrast-light .section-head:focus-visible {
+  border-color: var(--vscode-contrastActiveBorder, var(--vscode-focusBorder));
+}

@@ -24,10 +24,10 @@ import {
   stepStandings,
   unmetStepIds,
 } from '../../src/get-started-steps';
+import { escapeHtml } from '../../src/html';
 import {
   MET_LABEL,
   UNMET_LABEL,
-  escapeHtml,
   inlineHtml,
   stepsHtml,
   welcomeDocumentHtml,

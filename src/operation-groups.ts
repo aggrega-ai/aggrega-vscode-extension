@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cognitio S.r.l.
 
+import { NO_RELEASE_SELECTED_CONTROL_REASON } from './release-selection';
 import { CatalogIndexEntity } from './workspace-catalog-run';
+import { NO_ANCHORED_WORKSPACE_CONTROL_REASON } from './workspace';
 
 // This module is the one description of the operation surface: which operations
 // exist, which group each sits in, and the argument list each composes.
@@ -229,55 +231,102 @@ export function allOperations(): OperationDef[] {
 
 // OperationsLayout selects how a group is drawn. It changes the shape of the
 // panel and never which operations exist or what they do.
-export type OperationsLayout = 'grouped' | 'collapsible';
-
-export const DEFAULT_OPERATIONS_LAYOUT: OperationsLayout = 'grouped';
-
-// OperationsNode is the abstract row both shapes render. Modelling the rows here
-// rather than in the tree provider is what lets one description drive two
-// renderings: the shape decides which nodes are produced, not what a node means.
-export type OperationsNode =
-  | { kind: 'separator' }
-  | { kind: 'heading'; group: OperationGroup }
-  | { kind: 'group'; group: OperationGroup }
-  | { kind: 'operation'; op: OperationDef };
-
-// operationsTopLevel reports the rows below the selector rows, for a shape.
 //
-// Grouped draws a heading followed by its entries, all at one level, so every
-// operation is visible without expanding anything. Collapsible draws one row per
-// group, which the reader opens. Both walk the same groups in the same order and
-// separate the same group.
-export function operationsTopLevel(layout: OperationsLayout): OperationsNode[] {
-  const nodes: OperationsNode[] = [];
-  for (const group of OPERATION_GROUPS) {
-    if (group.separated) {
-      nodes.push({ kind: 'separator' });
-    }
-    if (layout === 'collapsible') {
-      nodes.push({ kind: 'group', group });
-      continue;
-    }
-    nodes.push({ kind: 'heading', group });
-    for (const op of group.operations) {
-      nodes.push({ kind: 'operation', op });
-    }
-  }
-  return nodes;
-}
+// The two values name the visible difference rather than the arrangement, and
+// that is what a reader choosing between them on the settings screen needs: both
+// shapes are grouped, so a value naming the grouping would tell them nothing.
+// buttons draws each group as one row of buttons; sections draws each group as a
+// section the reader opens.
+export type OperationsLayout = 'buttons' | 'sections';
 
-// operationsUnder reports a collapsible group's children. The grouped shape
-// expands nothing, so it never asks.
-export function operationsUnder(group: OperationGroup): OperationsNode[] {
-  return group.operations.map((op) => ({ kind: 'operation', op }) as OperationsNode);
-}
+// One row of buttons per group is the default: it is the shape in which every
+// operation is a labelled control the reader can see and reach without opening
+// anything, which is what this panel exists for.
+export const DEFAULT_OPERATIONS_LAYOUT: OperationsLayout = 'buttons';
 
 // readLayout decides the shape from whatever the editor reports the setting to
 // be. Anything other than the one alternative spelling reads as the default, so
 // a hand-edited settings file carrying a value this cannot understand draws the
 // panel rather than drawing nothing.
 export function readLayout(configured: unknown): OperationsLayout {
-  return configured === 'collapsible' ? 'collapsible' : DEFAULT_OPERATIONS_LAYOUT;
+  return configured === 'sections' ? 'sections' : DEFAULT_OPERATIONS_LAYOUT;
+}
+
+// --- what an entry needs before it can run -------------------------------
+
+// OperationRequirement names what has to be true before an entry's invocation
+// can get as far as the compiler.
+//
+// 'release' implies 'workspace': an operation scoped to a Release runs the
+// compiler in the anchored folder as well, so it needs both.
+//
+// 'none' is not a claim that the invocation always succeeds. It says this panel
+// cannot observe what would stop it — the language server being unanswerable, or
+// no YAML file being open — and a control drawn as unavailable for a reason
+// nothing on the panel can evaluate would be a guess presented as a fact.
+export type OperationRequirement = 'none' | 'workspace' | 'release';
+
+// OPERATION_REQUIREMENTS states, per operation, what its invocation needs.
+//
+// It is a total map over the operation ids rather than a field on the entries,
+// so a new operation cannot be added without deciding what it needs — the
+// compiler refuses an incomplete map. Each value is read off the guard the
+// operation's own handler applies before it composes anything, so the panel
+// draws a control as unavailable exactly when pressing it would report that
+// same condition back.
+export const OPERATION_REQUIREMENTS: Record<OperationId, OperationRequirement> = {
+  // Validated through the language server against the active editor, wherever
+  // it sits. Neither the anchored folder nor the selection gates it.
+  validate: 'none',
+  // The linter walks the catalog, so it runs in the anchored folder.
+  lint: 'workspace',
+  build: 'release',
+  preview: 'release',
+  graph: 'release',
+  pull: 'release',
+  acquire: 'release',
+  // Drafting asks the language server for a starter document and writes
+  // nothing, so it needs no folder to run in.
+  scaffold: 'none',
+  import: 'workspace',
+  // An inspection is addressed by identity and resolves through the language
+  // server's own view of the workspace.
+  inspect: 'none',
+  push: 'workspace',
+  sign: 'workspace',
+  deprecate: 'workspace',
+  configShow: 'none',
+  cache: 'none',
+};
+
+// SurfaceFacts is what the panel knows about its own subject at the moment it
+// is drawn: whether a folder is anchored, and whether a Release is selected.
+//
+// Both are read from the getters their owners expose rather than recorded here,
+// so a control's availability cannot come to disagree with what an invocation
+// would actually find.
+export interface SurfaceFacts {
+  workspaceAnchored: boolean;
+  releaseSelected: boolean;
+}
+
+// unavailableReason reports why an operation cannot run, or null where nothing
+// this panel can observe would stop it.
+//
+// The anchored folder is reported ahead of the selection because that is the
+// order the handlers check in: an operation with neither would report the folder
+// first, so the control says the same thing the invocation would.
+export function unavailableReason(
+  id: OperationId,
+  facts: SurfaceFacts,
+): string | null {
+  const requirement = OPERATION_REQUIREMENTS[id];
+  if (requirement === 'none') { return null; }
+  if (!facts.workspaceAnchored) { return NO_ANCHORED_WORKSPACE_CONTROL_REASON; }
+  if (requirement === 'release' && !facts.releaseSelected) {
+    return NO_RELEASE_SELECTED_CONTROL_REASON;
+  }
+  return null;
 }
 
 // --- the arguments each entry composes -----------------------------------
