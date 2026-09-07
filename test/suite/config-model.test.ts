@@ -232,12 +232,16 @@ describe('how far a change to a setting would reach', () => {
   });
 });
 
+// Every assertion in this block is about the shape that gives each setting its
+// own block, which is why each names that shape explicitly rather than relying
+// on whichever shape happens to be the default. The default is the reader's to
+// change, so an assertion that took it would be asserting a preference.
 describe('the configuration document as a reader sees it', () => {
   it('draws the setting path, the label, the description and the source', () => {
     const html = configPanelBodyHtml(configPanelModel(SCHEMA, {
       layers: ['/ws/.aggrega-config.yaml'],
       settings: [{ field: 'offline', value: 'true', source: '/ws/.aggrega-config.yaml' }],
-    }));
+    }), 'expanded');
     assert.ok(html.includes('offline'), 'the setting path is not drawn');
     assert.ok(html.includes('whether the build contacts a registry'), 'the schema\'s description is not drawn');
     assert.ok(html.includes('In force: true'), 'the value in force is not drawn');
@@ -246,7 +250,7 @@ describe('the configuration document as a reader sees it', () => {
   });
 
   it('draws the machine-wide warning only on the settings that carry one', () => {
-    const html = configPanelBodyHtml(configPanelModel(SCHEMA, null));
+    const html = configPanelBodyHtml(configPanelModel(SCHEMA, null), 'expanded');
     const warnings = Array.from(html.matchAll(/class="config-reach"/g)).length;
     assert.ok(warnings > 0, 'no machine-wide setting is marked, and the fixture carries two');
     // A note on every row would train a reader to stop reading them.
@@ -263,14 +267,17 @@ describe('the configuration document as a reader sees it', () => {
       properties: {
         risky: { type: 'string', description: '<script>alert(1)</script> & "quoted"', default: '' },
       },
-    }, null));
+    }, null), 'expanded');
     assert.ok(!html.includes('<script>'), 'a description reached the document as markup');
     assert.ok(html.includes('&lt;script&gt;'), 'the description was not rendered as text');
     assert.ok(html.includes('&amp;'), 'an ampersand was not rendered as text');
   });
 
   it('says so when no file contributed, rather than drawing an empty list', () => {
-    const html = configPanelBodyHtml(configPanelModel(SCHEMA, { layers: [], settings: [] }));
+    const html = configPanelBodyHtml(
+      configPanelModel(SCHEMA, { layers: [], settings: [] }),
+      'expanded',
+    );
     assert.match(html, /No configuration file contributed/);
   });
 });

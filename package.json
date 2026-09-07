@@ -411,7 +411,7 @@
       },
       {
         "command": "aggrega.config.open",
-        "title": "Configuration",
+        "title": "Show config",
         "category": "Aggrega",
         "icon": "$(settings-gear)"
       },

@@ -253,7 +253,7 @@ export const OPERATION_GROUPS: OperationGroup[] = [
     operations: [
       {
         id: 'configShow',
-        label: 'Configuration',
+        label: 'Show config',
         detail: 'Every setting the schema declares, with the value in force and where it came from',
         icon: 'settings-gear',
         // The configuration surface contributes its own command, so the entry

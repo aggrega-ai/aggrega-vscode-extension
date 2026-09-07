@@ -117,6 +117,110 @@ body {
   color: var(--vscode-descriptionForeground);
 }
 
+/* The control that changes how the settings are drawn. It sits between what the
+   page can report and the settings themselves, so it is separated from both. */
+.config-switch {
+  margin: 0 0 1.5rem;
+}
+
+.config-switch-control {
+  color: var(--vscode-textLink-foreground);
+}
+
+.config-switch-control:hover,
+.config-switch-control:focus {
+  color: var(--vscode-textLink-activeForeground);
+}
+
+/* The table. Every setting is one row, so the width is spent on the columns a
+   reader compares down rather than on prose — the schema's own sentence about a
+   setting is behind the affordance in the last column. */
+.config-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+}
+
+.config-table caption {
+  text-align: left;
+  color: var(--vscode-descriptionForeground);
+  margin: 0 0 0.5rem;
+}
+
+.config-table th {
+  text-align: left;
+  font-weight: 600;
+  padding: 0.4rem 0.5rem;
+  border-bottom: 1px solid var(--vscode-panel-border);
+  /* The header stays put while a reader scrolls a long table, so a column's
+     meaning is readable at every row rather than only at the top. */
+  position: sticky;
+  top: 0;
+  background: var(--vscode-editor-background);
+}
+
+.config-table td {
+  padding: 0.4rem 0.5rem;
+  border-bottom: 1px solid var(--vscode-panel-border);
+  vertical-align: top;
+}
+
+.config-cell-path code,
+.config-cell-value {
+  font-family: var(--vscode-editor-font-family);
+}
+
+.config-cell-source,
+.config-cell-takes {
+  color: var(--vscode-descriptionForeground);
+}
+
+/* The affordance carrying a setting's own description: a small circle a reader
+   presses or hovers. It draws as a circle rather than as a word so the column
+   costs the table almost no width. */
+.config-info > summary {
+  list-style: none;
+  cursor: help;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.15rem;
+  height: 1.15rem;
+  border-radius: 50%;
+  border: 1px solid var(--vscode-panel-border);
+  color: var(--vscode-descriptionForeground);
+  font-style: italic;
+  font-size: 0.85rem;
+}
+
+.config-info > summary::-webkit-details-marker {
+  display: none;
+}
+
+.config-info > summary:focus {
+  outline: 1px solid var(--vscode-focusBorder);
+}
+
+/* Once opened, the description needs room the cell does not have, so it is
+   given a readable measure of its own. */
+.config-info > .config-description {
+  min-width: 18rem;
+  max-width: 24rem;
+  margin: 0.4rem 0 0;
+}
+
+/* Text carried for a reader using a screen reader and drawn for nobody else. It
+   is removed from the drawing without being removed from the document, which is
+   what keeps it announced. */
+.config-offscreen {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
 /* A setting whose change would reach every project on the machine says so in
    place. It is drawn only where the product has something to say about the
    reach, so the note keeps its weight instead of appearing on every row. */

@@ -200,7 +200,7 @@ export function readEffectiveConfiguration(payload: unknown): EffectiveConfigura
   return { layers, settings };
 }
 
-// describeProvenance renders a provenance for a reader.
+// describeProvenance renders a provenance as a sentence.
 //
 // The unattributed case names the gap in the reader's terms rather than leaving
 // the cell blank: a blank reads as a surface that failed to fill it, and this is
@@ -216,4 +216,84 @@ export function describeProvenance(provenance: Provenance): string {
     default:
       return 'not reported — the configuration report does not cover this setting';
   }
+}
+
+// sourceLabel renders a provenance in the space one cell of a row gives it.
+//
+// It is a SECOND PRESENTATION of the same union rather than a second
+// classification, and the distinction is what makes it acceptable: the four
+// cases are decided once, in provenanceOf, and both this and describeProvenance
+// render what that decided. Neither may add a case, drop one, or disagree about
+// which is which — a shorter sentence is all that differs.
+//
+// The unattributed case says so in words here too. A blank cell in a column
+// headed for the source reads as a surface that failed to fill it, where the
+// fact is that the report does not reach this setting.
+export function sourceLabel(provenance: Provenance): string {
+  switch (provenance.kind) {
+    case 'file':
+      return provenance.path;
+    case 'environment':
+      return `environment: ${provenance.variable}`;
+    case 'defaults':
+      return 'built-in default';
+    default:
+      return 'not reported';
+  }
+}
+
+// EffectiveValue is what actually applies to a setting now, with the standing of
+// that answer carried alongside it rather than folded into a string.
+//
+// The three cases are held apart because the surface must not present the second
+// as the first. A value the report carried is a reading the compiler took; a
+// declared default is what the schema says the value falls back to, which the
+// compiler never reported for this setting. Rendering them identically would
+// assert a reading nobody made.
+export type EffectiveValue =
+  | { readonly kind: 'reported'; readonly value: string }
+  | { readonly kind: 'declared-default'; readonly value: unknown }
+  | { readonly kind: 'none' };
+
+// effectiveValue decides what applies to a setting, for every presentation.
+//
+// This is the ONE home of that decision. Both the per-setting view and the table
+// read it, so the two cannot come to disagree about whether a setting's shown
+// value is a reading or a fallback — which is the disagreement that would matter,
+// because only one of the two answers is something the compiler said.
+export function effectiveValue(row: ConfigRow): EffectiveValue {
+  if (row.value !== undefined) { return { kind: 'reported', value: row.value }; }
+  if (row.control.hasDefault) { return { kind: 'declared-default', value: row.control.defaultValue }; }
+  return { kind: 'none' };
+}
+
+// setValue is the value a reader themselves put in force, or nothing.
+//
+// 🔴 A BUILT-IN DEFAULT IS NOT SOMETHING THE READER SET, so a setting the report
+// attributes to the defaults yields nothing here, exactly as an unattributed one
+// does. The emptiness is the information: it says this setting is untouched.
+// Filling it with the default would make every setting look configured and leave
+// a reader unable to find the ones they had actually changed.
+export function setValue(row: ConfigRow): string | undefined {
+  if (row.value === undefined) { return undefined; }
+  const kind = row.provenance.kind;
+  if (kind === 'file' || kind === 'environment') { return row.value; }
+  return undefined;
+}
+
+// everyRow yields every drawn row, at every group depth.
+//
+// It is the row set a presentation draws, and it is deliberately the MODEL's own
+// rows rather than a re-walk of the schema's controls. The two are different
+// sets — a list of entries is one row naming the fields an entry has, because
+// there is no entry yet to draw a field of — and the coverage sentence is
+// composed from the model's count. A presentation drawing the other set would
+// make that sentence false of itself while leaving it true of the other, so both
+// read from here.
+export function everyRow(model: ConfigPanelModel): ConfigRow[] {
+  const fromSection = (section: ConfigSectionRows): ConfigRow[] => [
+    ...section.rows,
+    ...section.sections.flatMap(fromSection),
+  ];
+  return [...model.rows, ...model.sections.flatMap(fromSection)];
 }

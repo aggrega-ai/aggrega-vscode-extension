@@ -2,8 +2,13 @@
 // Copyright 2026 Cognitio S.r.l.
 
 import * as vscode from 'vscode';
-import { configDocumentHtml } from './config-render';
-import { configPanelModel, readEffectiveConfiguration } from './config-model';
+import {
+  ConfigPresentation,
+  PRESENTATION_MEMENTO_KEY,
+  PRESENTATION_TOGGLE_COMMAND,
+  configDocumentHtml,
+} from './config-render';
+import { ConfigPanelModel, configPanelModel, readEffectiveConfiguration } from './config-model';
 import { makeNonce } from './html';
 
 // This module is the whole editor-coupled boundary of the configuration surface:
@@ -20,6 +25,9 @@ import { makeNonce } from './html';
 // configuration schema under. It is the schema's own file stem, which is the
 // vocabulary the schema request takes.
 export const CONFIG_SCHEMA_KIND = 'aggrega-config';
+
+// DEFAULT_PRESENTATION is the shape a reader who has never chosen gets.
+const DEFAULT_PRESENTATION: ConfigPresentation = 'table';
 
 // ConfigPanelDeps are the two questions this surface asks and the channel a
 // failure is reported through.
@@ -56,6 +64,29 @@ export function activateConfigPanel(
   deps: ConfigPanelDeps,
 ): void {
   let panel: vscode.WebviewPanel | null = null;
+  // The model last drawn is held so that changing presentation redraws the
+  // configuration the reader is looking at rather than asking the compiler
+  // again. A reader who asked to change how the page is shaped did not ask for
+  // its values to move, and re-asking could answer differently — which would
+  // read as the switch having changed a setting.
+  let drawn: ConfigPanelModel | null = null;
+
+  const presentation = (): ConfigPresentation => {
+    const stored = context.globalState.get<string>(PRESENTATION_MEMENTO_KEY);
+    return stored === 'table' || stored === 'expanded' ? stored : DEFAULT_PRESENTATION;
+  };
+
+  const compose = (target: vscode.WebviewPanel, model: ConfigPanelModel): void => {
+    target.webview.html = configDocumentHtml({
+      model,
+      presentation: presentation(),
+      nonce: makeNonce(),
+      styleUri: target.webview
+        .asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'media', 'config.css'))
+        .toString(),
+      cspSource: target.webview.cspSource,
+    });
+  };
 
   const draw = async (target: vscode.WebviewPanel): Promise<void> => {
     // The schema is the surface: without it there is nothing to draw, so a
@@ -77,17 +108,28 @@ export function activateConfigPanel(
       );
     }
 
-    target.webview.html = configDocumentHtml({
-      model: configPanelModel(schema, effective),
-      nonce: makeNonce(),
-      styleUri: target.webview
-        .asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'media', 'config.css'))
-        .toString(),
-      cspSource: target.webview.cspSource,
-    });
+    drawn = configPanelModel(schema, effective);
+    compose(target, drawn);
   };
 
   context.subscriptions.push(
+    // Changing presentation is a control on the document rather than a
+    // capability of the extension, so it is registered — a link in the document
+    // can only reach a registered command — and deliberately not contributed to
+    // the editor's command index. What that index answers is whether a
+    // capability exists at all, and an entry there would offer to reshape a
+    // panel that may not be open, which is an entry whose invocation cannot
+    // succeed.
+    vscode.commands.registerCommand(PRESENTATION_TOGGLE_COMMAND, async () => {
+      const next: ConfigPresentation = presentation() === 'table' ? 'expanded' : 'table';
+      await context.globalState.update(PRESENTATION_MEMENTO_KEY, next);
+      if (!panel) { return; }
+      // Where a model has been drawn, the same one is recomposed in the new
+      // shape. Where none has — the panel exists but its first draw failed —
+      // the questions are asked, because there is nothing to recompose.
+      if (drawn) { compose(panel, drawn); return; }
+      await draw(panel);
+    }),
     vscode.commands.registerCommand('aggrega.config.open', async () => {
       if (panel) {
         panel.reveal(vscode.ViewColumn.Active);
@@ -101,16 +143,25 @@ export function activateConfigPanel(
         'Aggrega configuration',
         vscode.ViewColumn.Active,
         {
-          // The document runs no script: it reports, and nothing on it is
-          // pressed. Leaving scripts disabled is what makes that structural
-          // rather than a property of the markup as it stands today.
+          // The document runs no script: it reports, and its one control is a
+          // link the editor resolves rather than something the page handles.
+          // Leaving scripts disabled is what makes that structural rather than a
+          // property of the markup as it stands today.
           enableScripts: false,
+          // The one command the document may reach is named rather than command
+          // links being allowed wholesale. The narrower form costs nothing and
+          // means a link added to this document later cannot run anything
+          // without the allowance being widened deliberately.
+          enableCommandUris: [PRESENTATION_TOGGLE_COMMAND],
           retainContextWhenHidden: true,
           localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')],
         },
       );
       panel = created;
-      created.onDidDispose(() => { panel = null; }, null, context.subscriptions);
+      created.onDidDispose(() => {
+        panel = null;
+        drawn = null;
+      }, null, context.subscriptions);
       try {
         await draw(created);
       } catch (err) {
