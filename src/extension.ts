@@ -457,8 +457,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // later attaches to.
   activateWorkspaceCatalogView(context, {
     getWorkspaceRoot: () => workspaceRootForCommands,
+    getBinaryPath: () => getSettings().binaryPath,
     isLanguageServerRunning,
     requestCatalogIndex,
+    entityDefinition: requestEntityDefinition,
     onReady: ready.onReady,
     output: outputChannel,
   });

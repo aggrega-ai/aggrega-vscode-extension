@@ -121,6 +121,27 @@ export interface WorkspaceEntityRow {
   // label is the name the author declared, because that is how the entity is
   // referred to everywhere else.
   label: string;
+  // name is the identity, and it is the value an inspection is invoked with.
+  //
+  // It carries the same string the label does, and it is a field of its own
+  // rather than a second reading of that one: the label is a display string and
+  // this is an invocation subject. Those are separate jobs, and a later change
+  // to what a row reads would otherwise silently change what its operations act
+  // on, with nothing failing.
+  name: string;
+  // entityPath is the workspace-relative path of the document that declares
+  // this entity, and it is the value a path-taking operation is invoked with. It
+  // is empty for an entity the workspace holds no document for.
+  //
+  // Relative rather than absolute, because the invocation runs in the workspace
+  // root: the relative form resolves there, and it is the path the reader
+  // recognizes in the command line the run reports.
+  //
+  // It is carried separately from openPath even though both answer to the same
+  // document, because they are consumed in different terms — one is a path an
+  // editor opens, the other an argument a command takes — and each is correct
+  // only in its own form.
+  entityPath: string;
   // description is the dimmed secondary line: where the entity came from when
   // that is worth saying, then the labels the author declared, as key=value.
   // Labels get this slot rather than the description text because a label is
@@ -198,6 +219,14 @@ export function rowForEntity(
   const labels = labelSegments(entity.labels);
   const fromWorkspace = entity.origin === ENTITY_ORIGIN_WORKSPACE;
   const originLabel = entity.origin === ENTITY_ORIGIN_CATALOG ? CATALOG_ORIGIN_LABEL : '';
+  // A document is what both the open target and every path-taking operation
+  // need, and having one takes BOTH a workspace origin and a path to go with
+  // it. The origin alone is not enough: an empty path joined onto the workspace
+  // root yields the root itself, so reading the origin by itself would hand a
+  // reader a row offering to open — and to publish, lint or check — the whole
+  // workspace directory. The two facts are therefore read together, once, and
+  // everything that depends on having a document reads the answer.
+  const hasDocument = fromWorkspace && entity.file !== '';
 
   const lines = [`kind: ${entity.kind}`, `name: ${entity.name}`];
   if (entity.apiVersion) { lines.push(`apiVersion: ${entity.apiVersion}`); }
@@ -223,11 +252,13 @@ export function rowForEntity(
 
   return {
     label: entity.name,
+    name: entity.name,
+    entityPath: hasDocument ? entity.file : '',
     description,
     originLabel,
     tooltip: lines.join('\n'),
     icon: fromWorkspace ? ENTITY_ICON : CATALOG_ENTITY_ICON,
-    openPath: fromWorkspace ? path.join(workspaceRoot, entity.file) : null,
+    openPath: hasDocument ? path.join(workspaceRoot, entity.file) : null,
   };
 }
 

@@ -7,6 +7,19 @@ import {
   WorkspaceCatalogNode,
   workspaceCatalogNodes,
 } from './workspace-catalog-run';
+import {
+  catalogEntityName,
+  catalogEntityPath,
+  catalogLintArgs,
+  catalogRowContext,
+  catalogUploadArgs,
+  catalogValidateArgs,
+} from './catalog-entity-operations';
+import { CancellationSignal } from './cancellation';
+import { CliOperationDeps, reportOutcome, runWatchableCli } from './cli-operation';
+import { outcomeOf } from './operation-outcome';
+import { openDocument } from './open-document';
+import { withCancellableProgress } from './progress';
 import { RendersOnReady } from './readiness';
 
 // KIND_GROUP_ICON is the theme-icon id on a kind heading. The heading also
@@ -21,12 +34,22 @@ const OPEN_COMMAND_TITLE = 'Open the entity file';
 
 // WorkspaceCatalogDeps supplies the live state the workspace-catalog tree
 // needs: the anchored root the reported paths resolve against, whether the
-// language server is running, the request itself, and the shared output channel
-// that carries failure detail.
-export interface WorkspaceCatalogDeps extends RendersOnReady {
+// language server is running, the index request itself, the resolution request
+// one row asks for, and the shared output channel that carries failure detail.
+//
+// The two transports both appear here because the operations on this panel are
+// split across them, and which one an operation takes is a property of the
+// compiler rather than a choice this surface makes: an inspection is answered by
+// the language server, while publishing and the two checks are command-line
+// backed. A reader pressing an entry is not told which, and does not need to be.
+export interface WorkspaceCatalogDeps extends RendersOnReady, CliOperationDeps {
   getWorkspaceRoot(): string | null;
+  getBinaryPath(): string;
   isLanguageServerRunning(): boolean;
   requestCatalogIndex(): Promise<CatalogIndexDoc>;
+  // entityDefinition asks the language server what one entity resolves to,
+  // addressed by the name it resolves under.
+  entityDefinition(name: string, signal?: CancellationSignal): Promise<unknown>;
   output: vscode.OutputChannel;
 }
 
@@ -71,6 +94,15 @@ class WorkspaceCatalogTreeProvider implements vscode.TreeDataProvider<WorkspaceC
     item.description = node.row.description;
     item.tooltip = node.row.tooltip;
     item.iconPath = new vscode.ThemeIcon(node.row.icon);
+    // Only a row naming an entity carries the value the row operations are
+    // bound to, and which value it carries decides which of them appear. The
+    // kind headings and the message rows above name no entity — a heading names
+    // a kind and a message says why there is nothing to name — so both return
+    // before this line and the operations do not appear on them at all.
+    const context = catalogRowContext(node);
+    if (context !== null) {
+      item.contextValue = context;
+    }
     // A row with nothing to open carries neither affordance rather than one
     // that cannot do anything: a click that silently does nothing teaches the
     // reader that rows in this panel are unreliable, which costs the rows that
@@ -109,8 +141,46 @@ class WorkspaceCatalogTreeProvider implements vscode.TreeDataProvider<WorkspaceC
   }
 }
 
-// activateWorkspaceCatalogView registers the workspace-catalog tree and its
-// refresh command. View and command ids mirror package.json.
+// onPath and onName invoke a row-scoped operation against the subject the
+// pressed row supplies.
+//
+// The subject is read through the one extractor for it rather than off anything
+// the row displays, and a row that supplies none produces nothing: the handler
+// returns having invoked nothing. The manifest already keeps each entry off the
+// rows that cannot supply its subject, so these are the second of two guards
+// rather than the only one — and they are the ones that hold if a later binding
+// is written more loosely than the ones here.
+//
+// There are two because the operations on this panel take two different
+// subjects. A path-taking operation is unavailable on a row the workspace holds
+// no document for, while an identity-taking one is answerable on every entity
+// row, so folding them into one extractor would have to pick one of those two
+// rules and would apply it to operations the other governs.
+async function onPath(
+  node: WorkspaceCatalogNode | undefined,
+  act: (entityPath: string) => Promise<void>,
+): Promise<void> {
+  const entityPath = node ? catalogEntityPath(node) : null;
+  if (!entityPath) {
+    return;
+  }
+  await act(entityPath);
+}
+
+async function onName(
+  node: WorkspaceCatalogNode | undefined,
+  act: (name: string) => Promise<void>,
+): Promise<void> {
+  const name = node ? catalogEntityName(node) : null;
+  if (!name) {
+    return;
+  }
+  await act(name);
+}
+
+// activateWorkspaceCatalogView registers the workspace-catalog tree, its refresh
+// command, and the operations that act on one entity it lists. View and command
+// ids mirror package.json.
 export function activateWorkspaceCatalogView(
   context: vscode.ExtensionContext,
   deps: WorkspaceCatalogDeps,
@@ -126,5 +196,82 @@ export function activateWorkspaceCatalogView(
   context.subscriptions.push(
     vscode.window.registerTreeDataProvider('aggrega.workspaceCatalog', catalog),
     vscode.commands.registerCommand('aggrega.workspaceCatalog.refresh', () => catalog.refresh()),
+
+    // The inspection is the one operation here every entity row offers, because
+    // it is the only one addressed by identity: an entity resolves under its
+    // name whether or not this workspace holds the document that declares it.
+    // It reads and changes nothing, which is why it is also the entry given the
+    // inline slot — the row affordance a reader reaches without opening a menu.
+    vscode.commands.registerCommand(
+      'aggrega.workspaceCatalog.inspect',
+      (node?: WorkspaceCatalogNode) => onName(node, async (name) => {
+        try {
+          const result = await withCancellableProgress(
+            `Aggrega: inspecting ${name}`,
+            (signal) => deps.entityDefinition(name, signal),
+          );
+          await openDocument(JSON.stringify(result, null, 2), 'json');
+        } catch (err) {
+          await reportOutcome(deps, 'The inspection', outcomeOf(err), true);
+        }
+      }),
+    ),
+
+    // The two checks answer "what is wrong with this entity", and each has a
+    // pathless form addressing the whole catalog. Bound to a row they address
+    // that row, so the path is always given: the wider question is a different
+    // one, and it is already offered where it belongs.
+    vscode.commands.registerCommand(
+      'aggrega.workspaceCatalog.validate',
+      (node?: WorkspaceCatalogNode) => onPath(node, (entityPath) =>
+        runWatchableCli(
+          deps,
+          `Aggrega: checking ${entityPath}`,
+          'The check',
+          catalogValidateArgs(entityPath),
+          `checked ${entityPath}.`,
+        )),
+    ),
+
+    vscode.commands.registerCommand(
+      'aggrega.workspaceCatalog.lint',
+      (node?: WorkspaceCatalogNode) => onPath(node, (entityPath) =>
+        runWatchableCli(
+          deps,
+          `Aggrega: checking the publishing conventions for ${entityPath}`,
+          'The conventions check',
+          catalogLintArgs(entityPath),
+          `checked the publishing conventions for ${entityPath}.`,
+        )),
+    ),
+
+    // Publishing confirms first, and the confirmation names what the change
+    // reaches. It is the one operation on this panel that changes something
+    // outside this machine, and a row carries no heading to say so ahead of the
+    // press — so what separates it from the checks beside it is put in front of
+    // the reader before anything happens rather than explained afterwards.
+    vscode.commands.registerCommand(
+      'aggrega.workspaceCatalog.push',
+      (node?: WorkspaceCatalogNode) => onPath(node, async (entityPath) => {
+        const consented = await vscode.window.showWarningMessage(
+          `Publish ${entityPath} to a registry?`,
+          {
+            modal: true,
+            detail: 'The entity is bundled and pushed under its own declared version, and anyone '
+              + 'pulling that version from that registry resolves what is published here. The '
+              + 'checks beside this entry change nothing outside this machine; this one does.',
+          },
+          'Publish',
+        );
+        if (consented !== 'Publish') { return; }
+        await runWatchableCli(
+          deps,
+          `Aggrega: publishing ${entityPath}`,
+          'The publication',
+          catalogUploadArgs(entityPath),
+          `published ${entityPath}. Anyone pulling it from that registry now resolves this version.`,
+        );
+      }),
+    ),
   );
 }

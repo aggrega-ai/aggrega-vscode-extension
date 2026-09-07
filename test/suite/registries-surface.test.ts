@@ -58,6 +58,15 @@ function rowEntries(): MenuEntry[] {
   return manifest.contributes.menus['view/item/context'] ?? [];
 }
 
+// registryRowEntries narrows to the entries this panel contributes. Every panel
+// that offers a row operation adds to the one shared block, so a check on how
+// THIS panel binds its rows has to select its own entries: read whole, the block
+// answers for every panel at once, and the answer another panel is entitled to
+// give would read here as this one having bound a row wrongly.
+function registryRowEntries(): MenuEntry[] {
+  return rowEntries().filter((m) => m.command.startsWith('aggrega.registries.'));
+}
+
 describe('the operations the registries panel contributes', () => {
   it('keeps the refresh command in the title bar, where it already was', () => {
     const refresh = titleBarEntries().find((m) => m.command === 'aggrega.registries.refresh');
@@ -120,7 +129,7 @@ describe('the operations the registries panel contributes', () => {
     // rows. Targeting the view instead would put every one of them on "No
     // registries configured." and on the failure row, where pressing one could
     // only invoke it with no subject.
-    for (const entry of rowEntries()) {
+    for (const entry of registryRowEntries()) {
       assert.strictEqual(
         entry.when, REGISTRY_ROW,
         `${entry.command} is bound by "${entry.when}", which reaches rows that name no registry`,
@@ -133,7 +142,10 @@ describe('the operations the registries panel contributes', () => {
     // places; asserting they agree is what keeps a rename from silently
     // unbinding every row operation.
     assert.strictEqual(REGISTRY_ROW_CONTEXT, 'aggrega.registry');
-    assert.ok(rowEntries().length > 0, 'the panel contributes no row operations at all');
+    assert.ok(
+      registryRowEntries().length > 0,
+      'the panel contributes no row operations at all',
+    );
   });
 
   it('keeps a row operation out of the command palette, where it would have no row', () => {

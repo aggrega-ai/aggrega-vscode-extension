@@ -26,6 +26,7 @@ import {
 import { CancellationSignal } from './cancellation';
 import { reportOutcome, runCli, runWatchableCli } from './cli-operation';
 import { outcomeOf } from './operation-outcome';
+import { openDocument } from './open-document';
 import { withCancellableProgress } from './progress';
 import { SelectionState } from './release-selection';
 import { RendersOnReady } from './readiness';
@@ -893,17 +894,6 @@ async function runDeprecate(deps: OperationDeps): Promise<void> {
 }
 
 // --- the language-server-backed entries ----------------------------------
-
-// openDocument puts text in front of the reader in an unsaved buffer.
-//
-// Nothing is written to disk: the buffer is where the author reads, edits or
-// discards it, and the moment a new document reaches disk stays with them. It is
-// also what keeps these entries from ending in silence — every one of them ends
-// in a document the reader can see.
-async function openDocument(content: string, language: string): Promise<void> {
-  const doc = await vscode.workspace.openTextDocument({ content, language });
-  await vscode.window.showTextDocument(doc, { preview: false });
-}
 
 // reportDaemonFailure surfaces a failed request through the channels the
 // extension already has for one, then logs it. The compiler's own message is

@@ -94,12 +94,33 @@
         {
           "command": "aggrega.registries.logout",
           "when": "false"
+        },
+        {
+          "command": "aggrega.workspaceCatalog.inspect",
+          "when": "false"
+        },
+        {
+          "command": "aggrega.workspaceCatalog.validate",
+          "when": "false"
+        },
+        {
+          "command": "aggrega.workspaceCatalog.lint",
+          "when": "false"
+        },
+        {
+          "command": "aggrega.workspaceCatalog.push",
+          "when": "false"
         }
       ],
       "view/title": [
         {
           "command": "aggrega.settings.open",
           "when": "view == aggrega.operations",
+          "group": "navigation"
+        },
+        {
+          "command": "aggrega.op.scaffold",
+          "when": "view == aggrega.workspaceCatalog",
           "group": "navigation"
         },
         {
@@ -153,6 +174,31 @@
           "command": "aggrega.registries.remove",
           "when": "viewItem == aggrega.registry",
           "group": "registry@3"
+        },
+        {
+          "command": "aggrega.workspaceCatalog.inspect",
+          "when": "viewItem == aggrega.catalogEntity.document || viewItem == aggrega.catalogEntity.noDocument",
+          "group": "inline"
+        },
+        {
+          "command": "aggrega.workspaceCatalog.inspect",
+          "when": "viewItem == aggrega.catalogEntity.document || viewItem == aggrega.catalogEntity.noDocument",
+          "group": "catalogEntity@1"
+        },
+        {
+          "command": "aggrega.workspaceCatalog.validate",
+          "when": "viewItem == aggrega.catalogEntity.document",
+          "group": "catalogEntity@2"
+        },
+        {
+          "command": "aggrega.workspaceCatalog.lint",
+          "when": "viewItem == aggrega.catalogEntity.document",
+          "group": "catalogEntity@3"
+        },
+        {
+          "command": "aggrega.workspaceCatalog.push",
+          "when": "viewItem == aggrega.catalogEntity.document",
+          "group": "catalogEntityPublish@1"
         }
       ]
     },
@@ -258,6 +304,30 @@
         "title": "Refresh workspace catalog",
         "category": "Aggrega",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "aggrega.workspaceCatalog.inspect",
+        "title": "Inspect this entity",
+        "category": "Aggrega",
+        "icon": "$(list-tree)"
+      },
+      {
+        "command": "aggrega.workspaceCatalog.validate",
+        "title": "Validate this entity",
+        "category": "Aggrega",
+        "icon": "$(check)"
+      },
+      {
+        "command": "aggrega.workspaceCatalog.lint",
+        "title": "Lint this entity",
+        "category": "Aggrega",
+        "icon": "$(search)"
+      },
+      {
+        "command": "aggrega.workspaceCatalog.push",
+        "title": "Publish this entity",
+        "category": "Aggrega",
+        "icon": "$(cloud-upload)"
       },
       {
         "command": "aggrega.op.validate",

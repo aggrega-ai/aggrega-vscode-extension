@@ -291,8 +291,10 @@ export function readLayout(configured: unknown): OperationsLayout {
 // withSubject is where that rule is enforced, once. Every composition that takes
 // a subject routes through it, so a bare invocation cannot be assembled by any
 // path — including a path written later by someone who has not read this
-// paragraph.
-function withSubject(verb: string, subject: string, what: string): string[] {
+// paragraph. It is exported for that reason: a composition living in another
+// module still routes through this one guard rather than restating it, and a
+// restatement would agree with this until the day one of the two was changed.
+export function withSubject(verb: string, subject: string, what: string): string[] {
   const trimmed = subject.trim();
   if (trimmed === '') {
     throw new Error(`aggrega ${verb} takes ${what}, and none was given`);
