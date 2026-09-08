@@ -187,6 +187,17 @@ export interface ServerInitMetadata {
   workspaceMarker?: string;
 }
 
+// DaemonCodeDescription mirrors the protocol's code-description structure: a
+// reference to open for more information about a diagnostic.
+//
+// It is spelled the way the protocol spells it, both here and on the wire,
+// because it IS the protocol's field rather than one of this daemon's own — a
+// client that knows the protocol and nothing about this compiler renders it, and
+// that is the whole reason the field was used instead of a bespoke one.
+export interface DaemonCodeDescription {
+  href: string;
+}
+
 // DaemonDiagnostic mirrors the daemon's per-file Diagnostic wire
 // shape from aggrega/validate and aggrega/diagnostics. Line and
 // column are 1-based per the daemon's LSP-aligned convention;
@@ -196,6 +207,32 @@ export interface DaemonDiagnostic {
   column: number;
   severity: string;
   message: string;
+  // code is the machine-matchable identifier of what the entry reports,
+  // independent of message, so a client recognises a finding without matching
+  // prose. Which kind of identifier it is follows from source: on the
+  // document-validation layer it is the code a failing condition is registered
+  // under, and on the build and conventions layers it is the class of a render
+  // advisory or the identity of a conventions rule.
+  //
+  // Optional: an entry whose failure names nothing registered carries no code at
+  // all, which is a fact about the entry rather than a gap. Distinguish that from
+  // a code present with no shortCode beside it — the second is a code that
+  // resolves to nothing further, and the two are not the same answer.
+  code?: string;
+  // shortCode is the quotable identifier of the condition the entry reports — the
+  // letter E and four digits — which is the one a reader can search for or paste
+  // into a report. It travels beside code rather than instead of it, because code
+  // is what a program matches on and this is what a person looks up.
+  //
+  // Optional, and present only where a registered halting condition underlies the
+  // entry. A render advisory's class and a conventions rule's identity are not
+  // registered conditions, so entries reporting those carry code alone.
+  shortCode?: string;
+  // codeDescription is where the condition is explained. It is present exactly
+  // when shortCode is, so a client never has a reference for an entry it cannot
+  // look up — which is what keeps a "learn more" affordance from being offered as
+  // a link to nothing.
+  codeDescription?: DaemonCodeDescription;
   // source names the compiler layer that raised the diagnostic — the
   // layer that validates the authored documents, or the layer that runs
   // the build's analysis while inspecting a graph. The extension groups

@@ -23,6 +23,73 @@ export interface ConvertedShape {
   // free string rather than a fixed set because the compiler decides which
   // layers exist; the extension only groups by the answer.
   source: string;
+  // code and shortCode are the compiler's two identifiers for what the entry
+  // reports: the one a program matches on, and the one a reader quotes. Both are
+  // carried through unchanged.
+  //
+  // Both are optional and their absence is meaningful rather than incidental, so
+  // neither is defaulted here: an entry with no code names nothing registered,
+  // and an entry with a code and no quotable one names something that resolves no
+  // further. A default would erase the difference the daemon went to trouble to
+  // express.
+  code?: string;
+  shortCode?: string;
+  // codeHref is where the condition is explained, as the daemon's
+  // code-description structure supplied it. Present only alongside shortCode.
+  codeHref?: string;
+}
+
+// EditorCode is what an editor diagnostic carries in its code slot: nothing, a
+// bare identifier, or an identifier the editor renders as a link to where the
+// condition is explained.
+//
+// The link-bearing form is what turns a code in the Problems panel into
+// something a reader can act on. The bare form is a code they can still copy but
+// cannot follow, and undefined is an entry that names nothing to copy at all.
+export type EditorCode =
+  | undefined
+  | string
+  | { value: string; target: string };
+
+// editorCodeForShape decides which of the three the shape earns, and is where
+// that decision lives for every publish path.
+//
+// It is a pure function rather than part of the editor-coupled construction
+// because the decision is the interesting half and the construction is one
+// assignment. What a reader ends up able to DO with a diagnostic follows from
+// this, so this is what a test asserts against.
+//
+// The rules, in the order they are checked:
+//
+//   - No code at all: the entry names nothing registered, so the slot is empty.
+//     An editor then shows the message and the source and nothing else, which is
+//     exactly what it showed before any of these fields existed.
+//   - A quotable code with somewhere to read about it: the slot carries the
+//     QUOTABLE code and the address, so the panel shows the identifier a reader
+//     would search for and offers to open the explanation. The machine-matchable
+//     code stays on the wire for whatever matches on it; what goes on screen is
+//     the one a person can use.
+//   - A code with no quotable form: the slot carries that code and no address.
+//     A render advisory's class and a conventions rule's identity are real
+//     identifiers a reader can copy, and neither is explained on the page the
+//     address resolves to — so offering to open it would be offering a link that
+//     lands somewhere not describing their problem.
+// The parameter is the whole shape rather than the three identifier fields on
+// their own. A parameter type carrying only optional fields is one TypeScript
+// refuses an argument for unless the two have some property in common, so a
+// narrower signature would reject the lint finding shape — which has none of the
+// three, and legitimately so, since its code is the rule that fired.
+export function editorCodeForShape(shape: ConvertedShape): EditorCode {
+  if (shape.shortCode && shape.codeHref) {
+    return { value: shape.shortCode, target: shape.codeHref };
+  }
+  if (shape.shortCode) {
+    return shape.shortCode;
+  }
+  if (shape.code) {
+    return shape.code;
+  }
+  return undefined;
 }
 
 // shapeForDaemonDiagnostic produces the pure conversion shape. The
@@ -39,7 +106,7 @@ export function shapeForDaemonDiagnostic(d: DaemonDiagnostic): ConvertedShape {
     d.end_line > 0 &&
     typeof d.end_column === 'number' &&
     d.end_column > 0;
-  return {
+  const shape: ConvertedShape = {
     startLine: line,
     startChar: character,
     endLine: hasEnd ? zeroBasedFromOneBased(d.end_line!) : line,
@@ -48,6 +115,22 @@ export function shapeForDaemonDiagnostic(d: DaemonDiagnostic): ConvertedShape {
     message: d.message,
     source: sourceForDaemonDiagnostic(d),
   };
+  // Each identifier key is set only when the daemon sent it, so an absent key
+  // stays absent on the shape. Assigning undefined instead would put the key
+  // there carrying nothing, which reads to anything inspecting the shape as a
+  // value the daemon supplied — and the difference between "no code" and "a code
+  // that resolves no further" is the distinction these fields exist to carry.
+  if (typeof d.code === 'string' && d.code.length > 0) {
+    shape.code = d.code;
+  }
+  if (typeof d.shortCode === 'string' && d.shortCode.length > 0) {
+    shape.shortCode = d.shortCode;
+  }
+  const href = d.codeDescription?.href;
+  if (typeof href === 'string' && href.length > 0) {
+    shape.codeHref = href;
+  }
+  return shape;
 }
 
 // DIAGNOSTIC_SOURCE_FALLBACK is the source a diagnostic is filed under when the

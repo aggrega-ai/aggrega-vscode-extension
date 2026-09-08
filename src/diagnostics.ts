@@ -6,6 +6,7 @@ import { DaemonDiagnostic } from './types';
 import {
   ConvertedShape,
   SeverityToken,
+  editorCodeForShape,
   groupDiagnosticsBySource,
   shapeForDaemonDiagnostic,
 } from './diagnostics-shape';
@@ -164,6 +165,18 @@ function diagnosticFromLintShape(shape: LintFindingShape): vscode.Diagnostic {
 // through, so the position and severity translation happens in one place
 // whichever surface produced the shape. ConvertedShape and LintFindingShape
 // are structurally compatible in the fields read here.
+//
+// The code slot is filled from the shape's identifiers through the shared
+// decision, which is where what a reader can DO with a code is decided. Where the
+// entry names a registered condition the slot carries the quotable code together
+// with the address that condition is explained at, which is what makes the code in
+// the Problems panel a link the reader can follow; where it names a class of
+// finding the slot carries that identifier alone, with nothing to follow; and
+// where it names nothing the slot is left unset, so the diagnostic is exactly the
+// one this extension published before any of these fields existed.
+//
+// A lint finding overwrites the slot with its rule id afterwards, which is
+// deliberate rather than an oversight — see diagnosticFromLintShape.
 function diagnosticFromShape(shape: ConvertedShape | LintFindingShape): vscode.Diagnostic {
   const range = new vscode.Range(
     new vscode.Position(shape.startLine, shape.startChar),
@@ -171,6 +184,12 @@ function diagnosticFromShape(shape: ConvertedShape | LintFindingShape): vscode.D
   );
   const diag = new vscode.Diagnostic(range, shape.message, vscSeverityFromToken(shape.severity));
   diag.source = shape.source;
+  const code = editorCodeForShape(shape);
+  if (typeof code === 'string') {
+    diag.code = code;
+  } else if (code) {
+    diag.code = { value: code.value, target: vscode.Uri.parse(code.target) };
+  }
   return diag;
 }
 

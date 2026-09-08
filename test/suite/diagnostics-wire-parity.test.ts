@@ -3,6 +3,7 @@
 
 import * as assert from 'node:assert';
 import {
+  editorCodeForShape,
   groupDiagnosticsBySource,
   shapeForDaemonDiagnostic,
   sourceForDaemonDiagnostic,
@@ -37,9 +38,14 @@ import {
 // Every other field of both frames, and the render frame's message in full, are
 // byte-for-byte as they arrived.
 //
-// Both frames carry a `code` the client's own wire type does not model. That is
-// deliberate in the fixture: an unmodelled field must be carried harmlessly
-// rather than break the reading, and pinning it here is what keeps that true.
+// Both frames carry a `code` and neither carries the two identifier keys that
+// travel beside it now — the quotable code and the reference to where the
+// condition is explained. That is a property of the capture rather than of the
+// wire: these bytes came off a daemon whose diagnostics carried the one key, and
+// they are kept as captured. What they therefore pin is the case the client will
+// keep meeting in the field, which is a daemon older than the client reading it:
+// the code is read, and the absent keys leave the reader with a code and no link
+// rather than with a link to nowhere.
 const RENDER_LAYER_FRAME = {
   line: 1,
   column: 1,
@@ -107,12 +113,44 @@ describe('daemon diagnostic wire parity', () => {
     assert.strictEqual(shape.message, RENDER_LAYER_FRAME.message);
   });
 
-  it('carries a captured frame through even though its code is unmodelled', () => {
-    // The wire carries a machine-matchable code the client's type does not
-    // declare. Reading must ignore it rather than fail on it, so that the
-    // daemon can name a finding's class before the client has a use for it.
+  it('reads a captured frame code and offers nothing to follow', () => {
+    // A frame from a daemon that sent the machine-matchable code and nothing
+    // beside it. The code is read; the two keys that would make it followable
+    // are absent, and the absence has to survive the conversion rather than
+    // becoming an empty value — a reference present and empty is what a client
+    // would render as a link to nowhere.
     const shape = shapeForDaemonDiagnostic(RENDER_LAYER_FRAME);
     assert.strictEqual(shape.message, RENDER_LAYER_FRAME.message);
-    assert.ok(!('code' in shape), 'the converted shape models no code today');
+    assert.strictEqual(shape.code, RENDER_LAYER_FRAME.code);
+    assert.ok(!('shortCode' in shape), 'a frame that sent no quotable code must carry no such key');
+    assert.ok(!('codeHref' in shape), 'a frame that sent no reference must carry no such key');
+
+    // And the decision a publish makes from it: a bare identifier the reader can
+    // copy, never a link. Asserting the type as well as the value is what
+    // separates "a code" from "a code with somewhere to go".
+    const code = editorCodeForShape(shape);
+    assert.strictEqual(typeof code, 'string', 'a code with no reference must not become a link');
+    assert.strictEqual(code, RENDER_LAYER_FRAME.code);
+  });
+
+  it('reads both identifier keys and the reference when a frame carries them', () => {
+    // The same captured frame with the keys a current daemon adds, so the pair of
+    // cases differs in exactly the fields under test and in nothing else.
+    const shape = shapeForDaemonDiagnostic({
+      ...VALIDATION_LAYER_FRAME,
+      shortCode: 'E0164',
+      codeDescription: { href: 'https://aggrega.example/docs/errors#codes' },
+    });
+
+    assert.strictEqual(shape.code, VALIDATION_LAYER_FRAME.code);
+    assert.strictEqual(shape.shortCode, 'E0164');
+    assert.strictEqual(shape.codeHref, 'https://aggrega.example/docs/errors#codes');
+
+    // The affordance: the slot carries the QUOTABLE code, which is the one a
+    // reader searches for, together with the address to open.
+    assert.deepStrictEqual(editorCodeForShape(shape), {
+      value: 'E0164',
+      target: 'https://aggrega.example/docs/errors#codes',
+    });
   });
 });

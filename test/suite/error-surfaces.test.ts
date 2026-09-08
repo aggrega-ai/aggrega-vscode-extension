@@ -2,9 +2,14 @@
 // Copyright 2026 Cognitio S.r.l.
 
 import * as assert from 'node:assert';
-import { ConvertedShape } from '../../src/diagnostics-shape';
+import {
+  ConvertedShape,
+  editorCodeForShape,
+  shapeForDaemonDiagnostic,
+} from '../../src/diagnostics-shape';
 import { handleDaemonError, resetSessionDedup } from '../../src/error-surfaces';
 import {
+  DaemonDiagnostic,
   ERR_ENTITY_NOT_RESOLVABLE,
   ERR_FILE_NOT_VALIDATED,
   ERR_LOCKFILE_ABSENT,
@@ -381,5 +386,97 @@ describe('handleDaemonError', () => {
     // resolution time, a second emission suppresses.
     const recorded = f.toastDebounce.get(ERR_LOCKFILE_ABSENT);
     assert.strictEqual(recorded, 1_000_000 + 10 * 1000);
+  });
+});
+
+// What a reader can DO with a diagnostic's identifiers.
+//
+// This is the half a wire assertion cannot reach. That the daemon sends a
+// quotable code and a reference says nothing about whether anybody can act on
+// them: what decides that is the value the extension puts in the editor's code
+// slot, because an editor renders that slot's link form as a followable link and
+// its bare form as text. So these cases assert the slot, per case, including the
+// case where it must stay empty.
+describe('the identifier affordance a diagnostic earns', () => {
+  // The three cases the compiler can produce, built as wire frames rather than as
+  // shapes, so the conversion is inside what is being tested.
+  const CODED: DaemonDiagnostic = {
+    line: 4, column: 7, severity: 'error',
+    message: 'parameter port: expected integer, got string',
+    source: 'aggrega',
+    code: 'resolver/parameter-contract-violation',
+    shortCode: 'E0164',
+    codeDescription: { href: 'https://aggrega.example/docs/errors/sentinels/#codes' },
+  };
+
+  const CODED_BUT_UNMAPPED: DaemonDiagnostic = {
+    line: 1, column: 1, severity: 'warning',
+    message: 'target does not fully support one field',
+    source: 'aggrega-build',
+    code: 'unsupported-field',
+  };
+
+  const UNCODED: DaemonDiagnostic = {
+    line: 1, column: 1, severity: 'error',
+    message: 'yaml: line 3: did not find expected node content',
+    source: 'aggrega',
+  };
+
+  it('offers a followable identifier for a condition that resolves', () => {
+    const code = editorCodeForShape(shapeForDaemonDiagnostic(CODED));
+
+    // The whole affordance in one assertion: the exact object an editor turns
+    // into a link, carrying the code a reader would search for. Asserted as a
+    // whole value rather than field by field, so a slot that grew or lost a key
+    // fails here.
+    assert.deepStrictEqual(code, {
+      value: 'E0164',
+      target: 'https://aggrega.example/docs/errors/sentinels/#codes',
+    });
+
+    // And the machine-matchable code is still on the shape for whatever matches
+    // on it — the quotable one was added beside it, not in place of it.
+    assert.strictEqual(
+      shapeForDaemonDiagnostic(CODED).code,
+      'resolver/parameter-contract-violation',
+    );
+  });
+
+  it('offers a copyable identifier and no link for a code that resolves no further', () => {
+    const code = editorCodeForShape(shapeForDaemonDiagnostic(CODED_BUT_UNMAPPED));
+
+    // A string and not an object: the reader can copy the class of the finding
+    // and is offered nothing to open, because there is nothing that describes it.
+    assert.strictEqual(code, 'unsupported-field');
+    assert.strictEqual(typeof code, 'string');
+  });
+
+  it('offers nothing at all for a diagnostic that names no condition', () => {
+    const shape = shapeForDaemonDiagnostic(UNCODED);
+
+    // Undefined rather than an empty string. An editor given an empty code slot
+    // renders an empty identifier beside the message; given none it renders the
+    // message alone, which is what this extension showed before any identifier
+    // travelled at all.
+    assert.strictEqual(editorCodeForShape(shape), undefined);
+
+    // Byte-identical to what the conversion produced before the identifiers
+    // existed: the exact key set, so a key present carrying undefined fails here.
+    // Three absence checks would each pass on a shape that had grown a fourth
+    // identifier nobody decided about.
+    assert.deepStrictEqual(Object.keys(shape).sort(), [
+      'endChar', 'endLine', 'message', 'severity', 'source', 'startChar', 'startLine',
+    ]);
+  });
+
+  it('tells a code that resolves to nothing apart from no code at all', () => {
+    // The distinction the daemon went to trouble to express, asserted as a
+    // distinction rather than as two separate facts. Without this the two cases
+    // above could both be satisfied by an implementation that collapsed them.
+    const unmapped = editorCodeForShape(shapeForDaemonDiagnostic(CODED_BUT_UNMAPPED));
+    const uncoded = editorCodeForShape(shapeForDaemonDiagnostic(UNCODED));
+    assert.notStrictEqual(unmapped, uncoded);
+    assert.ok(unmapped !== undefined, 'a code that resolves no further is still a code');
+    assert.strictEqual(uncoded, undefined);
   });
 });
