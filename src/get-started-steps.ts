@@ -263,16 +263,37 @@ export interface StepContent {
 
 // STEP_CONTENT is the words each step carries, in condition order.
 //
-// Inline emphasis and code spans are written in the two markers the panel
-// renders — a pair of asterisks, and backticks — and nothing else. The renderer
-// escapes first and applies exactly those two, so this text can never introduce
-// markup of its own.
+// Inline emphasis and code spans are written in the three markers the panel
+// renders — a pair of asterisks, a single asterisk, and backticks — and nothing
+// else. The renderer escapes first and applies exactly those three, so this text
+// can never introduce markup of its own.
+//
+// THE CONFIGURATION WORDING IS THE PRODUCT DOCUMENTATION'S OWN, AND THE FULLER
+// MODEL IS POINTED AT RATHER THAN RESTATED. The two files a project needs — one
+// at the project root and one on the machine — are described here in the words
+// the product's configuration reference uses, because two surfaces describing
+// one model in different words teaches a reader to distrust both. The mechanisms
+// beyond those two files were built for projects large enough to need them: more
+// than one configuration file inside one project, a list that extends an outer
+// file's rather than replacing it, a file a pipeline owns, the further ways a
+// root is recognised, and what a relative path in a configuration file resolves
+// against. They are named here and explained there, so a reader who has the
+// problem one of them solves can find it and a reader who does not is not taught
+// it first.
+//
+// WHAT EARNS THE MACHINE-WIDE FILE IS MACHINE-WIDE TOOLING, NOT CREDENTIALS, and
+// the plausible version of that claim is wrong: a registry password and a signing
+// identity token are never fields in either configuration file, so "the machine
+// file exists so credentials need not be committed" is not the reason and must
+// not be written back in. What belongs there is the registries and their
+// signature trust policy, the compiled-module store's size, and the installed
+// command extensions — the settings that are the same wherever the reader works.
 export const STEP_CONTENT: readonly StepContent[] = [
   {
     id: 'workspace',
     title: 'A workspace Aggrega recognises',
     summary:
-      'Aggrega looks for a `.aggrega-config.yaml` carrying a `workspace:` block, an `.aggrega` directory, or an `aggregate`, `release` or `manifest` YAML file — starting at the folder you opened and climbing from there.',
+      'Aggrega reads one file at your project root — `.aggrega-config.yaml`, carrying a `workspace:` block — and climbs to find it, starting at the folder you opened.',
     detail: [
       {
         paragraph:
@@ -280,22 +301,25 @@ export const STEP_CONTENT: readonly StepContent[] = [
       },
       {
         paragraph:
-          'Aggrega finds that folder by climbing. Starting at the folder you opened it looks upward for any of:',
+          'Aggrega\'s own configuration is **two files, and most projects need nothing else**:',
       },
       {
         bullets: [
-          'a `.aggrega-config.yaml` carrying a top-level `workspace:` block,',
-          'an `.aggrega` directory,',
-          'an `aggregate`, `release` or `manifest` YAML file.',
+          '**One file in your project**, named `.aggrega-config.yaml`, sitting at the project root. Its `workspace:` block is what marks the directory as the project root, and a project that vendors no catalog content still writes the block empty — `workspace: {}` — because the block\'s presence is the marker.',
+          '**One file on your machine**, at `~/.config/aggrega/config.yaml`. It holds settings that belong to the machine rather than to any one project — the registries you pull from and the signature trust policy for each, how large the compiled-module store may grow, and any command-extension plugin you have installed. It loads automatically when it is there, and nothing breaks when it is not.',
         ],
       },
       {
         paragraph:
-          'A `.aggrega-config.yaml` **without** a `workspace:` block does not anchor a root. Settings can live in a configuration file anywhere, and a file that only carries settings must not turn every directory above it into a project root.',
+          'Between the two files, your project\'s file wins. Marking the root with a `workspace:` block is the explicit choice and the one to prefer; a project that has never declared one can still be recognised by other markers, so a folder can be a workspace root without carrying that file at all.',
       },
       {
         paragraph:
           'Because discovery climbs rather than descends, the root may legitimately sit *above* the folder you opened. The **Workspace** row at the top of the Commands panel always names the folder that was actually anchored, so when it differs from what you opened you can see why.',
+      },
+      {
+        paragraph:
+          'That is the whole model for one project on one machine. Everything else exists for projects that outgrow it — more than one configuration file inside one project, a list that extends what an outer file declared rather than replacing it, a configuration file your pipeline owns, the other ways a project root is recognised, and what a relative path written in a configuration file points at. Aggrega\'s own configuration reference carries every one of them, and `aggrega config show --origin` names where each setting in force right now came from: a configuration file, an environment variable, or the built-in default.',
       },
       {
         paragraph:
@@ -414,7 +438,11 @@ export const STEP_CONTENT: readonly StepContent[] = [
       },
       {
         paragraph:
-          '**Seed the official hub** registers the public hub together with its signature trust policy, using the compiler\'s own seeding — so what you get here and what you would get from the command line are the same configuration. Seeding declines rather than replacing a configuration that is already there, and says which file it found; replacing one is something you ask for explicitly at the command line.',
+          'A registry belongs in the file on your machine rather than in your project\'s: the registries you pull from are the same wherever you are working, so declaring them once is the point. **Secrets are not configuration** — a registry password and a signing identity token are never fields in either file, and are supplied by environment variable or flag at the moment they are needed.',
+      },
+      {
+        paragraph:
+          '**Seed the official hub** registers the public hub together with its signature trust policy, using the compiler\'s own seeding — so what you get here and what you would get from the command line are the same configuration. It writes the file on your machine rather than one in your project. Seeding declines rather than replacing a configuration that is already there, and says which file it found; replacing one is something you ask for explicitly at the command line.',
       },
       {
         paragraph:

@@ -59,6 +59,97 @@ const EXTENSION_ROOT = path.resolve(__dirname, '../../..');
 // those happened rather than passing quietly either way.
 const PRODUCT_README = path.resolve(__dirname, '../../../../aggrega-docs/README.md');
 
+// PRODUCT_CONFIGURATION_PAGE is the product's own account of how configuration
+// is layered, and it is the ORACLE the panel's configuration wording is checked
+// against for the same reason PRODUCT_README is the oracle for the product
+// description: it is a copy this extension does not own and cannot move. It sits
+// outside this repository, so the assertion that reads it says which of the two
+// checkouts happened rather than passing quietly either way.
+const PRODUCT_CONFIGURATION_PAGE = path.resolve(
+  __dirname,
+  '../../../../aggrega-docs/language-reference/cli/configuration.md',
+);
+
+// CONFIGURATION_FILE_LOCATIONS are the two places Aggrega's own configuration
+// lives, and they are the one thing on these surfaces a reader will TYPE — so a
+// stale one is worse than no sentence at all.
+//
+// They are literals here rather than the extension's own constant for the same
+// reason the phrases below are: the check has to be able to disagree with this
+// extension. The project file does have one home in the sources, and reading it
+// from there would prove the two agree while proving nothing about whether
+// either is what the product documents.
+//
+// The panel's list and the settings screen's both read THESE two rather than
+// spelling either path a second time. Both lists are checked against the
+// product's reference, so sharing the paths blinds nothing: an invented location
+// fails on both surfaces instead of one.
+const CONFIGURATION_FILE_LOCATIONS: readonly string[] = [
+  '.aggrega-config.yaml',
+  '~/.config/aggrega/config.yaml',
+];
+
+// SIMPLE_CASE_PHRASES are the load-bearing phrases the panel must carry about
+// where configuration lives, WRITTEN OUT HERE AS LITERALS.
+//
+// 🔴 THEY ARE LITERALS ON PURPOSE, AND IMPORTING THE PANEL'S OWN CONSTANT WOULD
+// DESTROY THE CHECK. A comparison whose two sides both read the step content
+// moves both sides at once and passes any paraphrase — the same blindness the
+// product description is guarded against. So these are transcribed from the
+// product's configuration reference and held here, where an edit to the panel
+// cannot reach them.
+//
+// Two assertions read them and they catch different things. One asserts the
+// composed panel carries each phrase, which fails when the panel drops, trims or
+// re-words one. The other asserts the product's own reference carries each
+// phrase, which is the only one that can catch a paraphrase written HERE — a
+// phrase this list invented would satisfy the first assertion forever.
+const SIMPLE_CASE_PHRASES: readonly string[] = [
+  ...CONFIGURATION_FILE_LOCATIONS,
+  'two files, and most projects need nothing else',
+  'because the block\'s presence is the marker',
+  'the explicit choice and the one to prefer',
+  'settings that belong to the machine rather than to any one project',
+  'the registries you pull from and the signature trust policy for each',
+  'how large the compiled-module store may grow',
+  'and any command-extension plugin you have installed',
+  'It loads automatically when it is there, and nothing breaks when it is not',
+  'your project\'s file wins',
+  'Secrets are not configuration',
+  'never fields in either file',
+];
+
+// BEYOND_THE_SIMPLE_CASE is what a reader meeting Aggrega for the first time
+// must NOT be taught on this surface. Each entry is a mechanism built for a
+// project large enough to need it, and the panel names that such mechanisms
+// exist and points at the reference rather than explaining any of them.
+//
+// The last two are wrong LOCATIONS for the file on the machine rather than
+// mechanisms. They are here because a location is the one thing on this surface
+// a reader will type, so a stale one is worse than no sentence at all.
+const BEYOND_THE_SIMPLE_CASE: readonly string[] = [
+  '<code>.aggrega</code>',
+  'catalog_dirs_append',
+  '.aggrega-config-append-ci.yaml',
+  'resolved against the directory of the file that declared it',
+  '/etc/aggrega',
+  '~/.aggrega/config.yaml',
+];
+
+// REFUTED_CREDENTIAL_RATIONALE matches the plausible-and-wrong reason for the
+// file on the machine: that it exists so credentials need not sit in a file the
+// project commits. Credentials are not in either configuration file at all —
+// they are supplied by environment variable or flag when they are needed — so
+// the rationale is false, and it reads well enough to be written back in.
+//
+// ⚠️ IT IS A TOKEN CHECK AND NOT A READING. It matches the vocabulary that
+// rationale is written in and cannot judge a sentence that means the same thing
+// in other words; the phrase asserted PRESENT above is what makes the claim
+// self-contradicting for a reader. Both are needed and neither replaces the
+// other.
+const REFUTED_CREDENTIAL_RATIONALE =
+  /(so|keeps?|keeping|rather than)[^.]*\b(credentials?|passwords?|secrets?|tokens?)\b[^.]*\b(out of|committed|shared|checked in|in the repository)\b/i;
+
 interface ViewEntry { id?: unknown; name?: unknown; when?: unknown }
 interface CommandEntry { command?: unknown; title?: unknown }
 interface MenuEntry { command?: unknown; when?: unknown }
@@ -1170,6 +1261,114 @@ describe('the welcome panel', () => {
           `the candidate search would not reach ${part}, so a folder anchored only by it is offered to nobody`,
         );
       }
+    });
+  });
+
+  // The panel is where many readers meet Aggrega's configuration for the first
+  // time, and what they need there is the case that covers nearly every project:
+  // one file at the project root, one on the machine. The mechanisms built for
+  // larger projects are named and pointed at, never explained here — a reader
+  // taught the general case first has to understand five mechanisms to create
+  // one file.
+  describe('the configuration the panel teaches', () => {
+    it('carries every load-bearing phrase about where configuration lives', () => {
+      const html = renderedPanel(stepStandings(NOTHING_MET));
+      const missing = SIMPLE_CASE_PHRASES.filter((phrase) => !html.includes(phrase));
+      assert.deepStrictEqual(
+        missing,
+        [],
+        `the panel no longer tells a reader where configuration lives: ${missing.join(' | ')}`,
+      );
+    });
+
+    // 🔴 THE ONLY ASSERTION THAT CAN CATCH A PARAPHRASE WRITTEN IN THIS FILE.
+    // The list above and the panel could drift together into wording the product
+    // does not use, and every other check here would still pass; this compares
+    // the list against a copy the extension does not own.
+    //
+    // Case is ignored deliberately: the panel places some of these phrases
+    // mid-sentence, so a leading capital follows the panel's grammar rather than
+    // the reference's, and that difference is not a paraphrase.
+    //
+    // 🔴 THE REFERENCE IS HARD-WRAPPED PROSE, SO ITS LINE BREAKS ARE COLLAPSED
+    // BEFORE THE COMPARISON. Without that, a phrase the reference carries word
+    // for word is reported as invented purely because a line ended in the middle
+    // of it — the check would then be measuring where the reference happens to
+    // wrap rather than what it says. The panel's side needs no such treatment:
+    // each block of its text is one string, so no phrase there spans a break.
+    it('takes those phrases from the product\'s own configuration reference', function () {
+      if (!fs.existsSync(PRODUCT_CONFIGURATION_PAGE)) {
+        // Checked out without the documentation beside it. Reported as pending
+        // rather than passed: a silent skip would read as the anchor holding.
+        this.skip();
+        return;
+      }
+      const page = fs.readFileSync(PRODUCT_CONFIGURATION_PAGE, 'utf8')
+        .replace(/\s+/g, ' ')
+        .toLowerCase();
+      const invented = SIMPLE_CASE_PHRASES.filter(
+        (phrase) => !page.includes(phrase.toLowerCase()),
+      );
+      assert.deepStrictEqual(
+        invented,
+        [],
+        `these phrases are not the product's own words, so the panel and the reference now describe one model two ways: ${invented.join(' | ')}`,
+      );
+    });
+
+    it('teaches none of the mechanisms built for larger projects', () => {
+      const html = renderedPanel(stepStandings(NOTHING_MET));
+      const taught = BEYOND_THE_SIMPLE_CASE.filter((phrase) => html.includes(phrase));
+      assert.deepStrictEqual(
+        taught,
+        [],
+        `the panel puts a mechanism for larger projects, or a wrong file location, in front of a first-time reader: ${taught.join(' | ')}`,
+      );
+    });
+
+    // 🔴 THE SETTINGS SCREEN IS THE OTHER SURFACE A READER MEETS WITHOUT OPENING
+    // ANY DOCUMENTATION, and the whole `aggrega.` block there reads as though it
+    // were Aggrega's own configuration. So the setting a reader is most likely to
+    // open draws the line and names both files. Two things are pinned: that the
+    // description names each location, and that each location is one the product
+    // documents — a description naming a path the product does not use would
+    // otherwise satisfy the first check forever, and a reader will type it.
+    it('names both configuration files in the settings description a reader opens', function () {
+      const description = String(manifest().properties['aggrega.server.binaryPath']?.description ?? '');
+      const unnamed = CONFIGURATION_FILE_LOCATIONS.filter((where) => !description.includes(where));
+      assert.deepStrictEqual(
+        unnamed,
+        [],
+        `the settings screen does not say where Aggrega's own configuration lives, so a reader who never opens the welcome panel cannot act: ${unnamed.join(' | ')}`,
+      );
+
+      if (!fs.existsSync(PRODUCT_CONFIGURATION_PAGE)) {
+        this.skip();
+        return;
+      }
+      const page = fs.readFileSync(PRODUCT_CONFIGURATION_PAGE, 'utf8');
+      const undocumented = CONFIGURATION_FILE_LOCATIONS.filter((where) => !page.includes(where));
+      assert.deepStrictEqual(
+        undocumented,
+        [],
+        `these locations are not the ones the product documents, so this surface would have a reader type a path that is wrong: ${undocumented.join(' | ')}`,
+      );
+    });
+
+    // What earns the file on the machine is machine-wide tooling — the
+    // registries and their trust policy, the compiled-module store's size, the
+    // installed command extensions. Not credentials: those are in neither file.
+    it('does not explain the file on the machine as somewhere to keep credentials', () => {
+      const html = renderedPanel(stepStandings(NOTHING_MET));
+      // The matched text alone, never the match object: a failing comparison
+      // against the object prints the whole composed document with it, which
+      // buries the one sentence the reader of the failure needs.
+      const found = REFUTED_CREDENTIAL_RATIONALE.exec(html)?.[0] ?? null;
+      assert.strictEqual(
+        found,
+        null,
+        `the panel explains the machine's configuration file as a place credentials go, which is false — they are fields in neither file: ${found ?? ''}`,
+      );
     });
   });
 

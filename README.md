@@ -6,7 +6,7 @@ Language support for Aggrega YAML — validation, navigation, hover, and complet
 
 - Visual Studio Code 1.85 or newer.
 - `aggrega` binary on `PATH`, or its absolute path set in the `aggrega.server.binaryPath` setting.
-- A folder Aggrega recognises as a workspace root, at or above the folder you open. Discovery climbs from the opened folder looking for a `.aggrega-config.yaml` carrying a top-level `workspace:` block, an `.aggrega` directory, or an `aggregate`, `release` or `manifest` YAML file. A `.aggrega-config.yaml` **without** a `workspace:` block does not anchor one — settings can live in a configuration file anywhere, and a bare one must not turn every directory above it into a workspace root.
+- A folder Aggrega recognises as a workspace root, at or above the folder you open. Aggrega reads one file at your project root — `.aggrega-config.yaml`, carrying a `workspace:` block — and climbs from the opened folder to find it. Marking the root with a `workspace:` block is the explicit choice and the one to prefer; a project that has never declared one can still be recognised by other markers, which Aggrega's own configuration reference covers along with everything else configuration can do in a larger project.
 
 You do not have to arrange any of that by hand: see [The welcome panel](#the-welcome-panel).
 
