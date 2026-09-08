@@ -399,7 +399,7 @@ describe('the Commands panel document', () => {
     // with itself whatever the table said.
     const ruled = [
       'Validate', 'Lint', 'Build', 'Preview', 'Graph',
-      'Pull', 'Acquire inputs',
+      'Pull',
       'Draft entity', 'Import', 'Inspect',
       'Push', 'Sign', 'Deprecate',
       'Show config', 'Cache…',
@@ -1389,7 +1389,7 @@ describe('a control that offers its choices beside itself', () => {
     // gaining one is a diff in this file.
     const unchanged: OperationId[] = [
       'validate', 'lint', 'build', 'preview', 'graph',
-      'pull', 'acquire',
+      'pull',
       'import',
       'sign', 'deprecate',
       'configShow',

@@ -81,7 +81,7 @@ describe('the operation surface, grouped by what a reader came to do', () => {
     );
     assert.deepStrictEqual(membership, {
       build: ['validate', 'lint', 'build', 'preview', 'graph'],
-      dependencies: ['pull', 'acquire'],
+      dependencies: ['pull'],
       author: ['scaffold', 'import', 'inspect'],
       publish: ['push', 'sign', 'deprecate'],
       config: ['configShow', 'cache'],
@@ -422,11 +422,23 @@ describe('the surface the manifest actually contributes', () => {
   });
 
   it('puts every contributed operation command on the panel, so none is stranded', () => {
-    const onPanel = new Set(allOperations().map(commandIdFor));
-    const stranded = manifest.contributes.commands
+    const contributed = manifest.contributes.commands
       .map((c) => c.command)
-      .filter((c) => c.startsWith('aggrega.op.') && !onPanel.has(c));
-    assert.deepStrictEqual(stranded, []);
+      .filter((c) => c.startsWith('aggrega.op.'));
+    // A negative control on the census, because the assertion below is an
+    // absence: a filter that matched nothing would report the same empty list
+    // as a manifest with nothing stranded, so the zero would be a claim about
+    // the census rather than a measurement of the file.
+    assert.ok(
+      contributed.includes('aggrega.op.build'),
+      'the census sees no contributed operation command it certainly should, so its zeros mean nothing',
+    );
+    const onPanel = new Set(allOperations().map(commandIdFor));
+    assert.deepStrictEqual(
+      contributed.filter((c) => !onPanel.has(c)),
+      [],
+      'the manifest contributes an operation command no entry on the panel runs, so it draws in the command palette and finds nothing when pressed',
+    );
   });
 
   it('offers the two shapes the surface knows how to draw, and defaults to buttons', () => {
@@ -478,17 +490,10 @@ describe('the surface the manifest actually contributes', () => {
 });
 
 describe('the argument list each entry composes', () => {
-  it('scopes a pull to the selected Release', () => {
+  it('scopes a pull to the selected Release, which the command marks required', () => {
     assert.deepStrictEqual(
       releaseScopedArgs('pull', 'releases/production.yaml'),
       ['pull', '--release', 'releases/production.yaml'],
-    );
-  });
-
-  it('scopes an acquisition to the selected Release, which the command marks required', () => {
-    assert.deepStrictEqual(
-      releaseScopedArgs('acquire', 'releases/production.yaml'),
-      ['acquire', '--release', 'releases/production.yaml'],
     );
   });
 
@@ -558,7 +563,7 @@ describe('an entry whose invocation cannot succeed is refused before it is built
     ['a deprecation with no reference', () => deprecateArgs('', 'warning', 'why')],
     ['an import with no source', () => importArgs('')],
     ['a pull with no Release', () => releaseScopedArgs('pull', '')],
-    ['an acquisition with no Release', () => releaseScopedArgs('acquire', '  ')],
+    ['a pull with a whitespace Release', () => releaseScopedArgs('pull', '  ')],
   ];
 
   for (const [what, compose] of bare) {
@@ -758,7 +763,6 @@ describe('what an entry needs before it can run', () => {
       preview: 'release',
       graph: 'release',
       pull: 'release',
-      acquire: 'release',
       scaffold: 'none',
       import: 'workspace',
       inspect: 'none',
@@ -829,7 +833,7 @@ describe('what an entry needs before it can run', () => {
     const asked = allOperations()
       .map((op) => op.id)
       .filter((id) => unavailableReason(id, anchored) === NO_RELEASE_SELECTED_CONTROL_REASON);
-    assert.deepStrictEqual(asked, ['build', 'preview', 'graph', 'pull', 'acquire']);
+    assert.deepStrictEqual(asked, ['build', 'preview', 'graph', 'pull']);
   });
 
   it('leaves the entries no observable fact gates without a reason at all', () => {

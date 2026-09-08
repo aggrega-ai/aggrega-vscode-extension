@@ -384,7 +384,7 @@ export const STEP_CONTENT: readonly StepContent[] = [
       },
       {
         paragraph:
-          'So most of what this extension does acts on one Release rather than on the workspace in general: validation, building, previewing a build, the topology graph, pulling dependencies and acquiring inputs all need to know which one you mean. The editor asks once and remembers, rather than asking at every command.',
+          'So most of what this extension does acts on one Release rather than on the workspace in general: validation, building, previewing a build, the topology graph and pulling dependencies all need to know which one you mean. The editor asks once and remembers, rather than asking at every command.',
       },
       {
         paragraph:

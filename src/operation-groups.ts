@@ -25,7 +25,6 @@ export type OperationId =
   | 'preview'
   | 'graph'
   | 'pull'
-  | 'acquire'
   | 'scaffold'
   | 'import'
   | 'inspect'
@@ -189,12 +188,6 @@ export const OPERATION_GROUPS: OperationGroup[] = [
         label: 'Pull',
         detail: 'Pull remote dependencies into the workspace',
         icon: 'cloud-download',
-      },
-      {
-        id: 'acquire',
-        label: 'Acquire inputs',
-        detail: "Pin the external inputs the selected Release's render consumes, and record them in its lockfile",
-        icon: 'pinned',
       },
     ],
   },
@@ -394,7 +387,6 @@ export const OPERATION_REQUIREMENTS: Record<OperationId, OperationRequirement> =
   preview: 'release',
   graph: 'release',
   pull: 'release',
-  acquire: 'release',
   // Drafting asks the language server for a starter document and writes
   // nothing, so it needs no folder to run in.
   scaffold: 'none',
@@ -476,9 +468,9 @@ export function withSubject(verb: string, subject: string, what: string): string
 // the selected Release. It is a closed set rather than a string so a verb that
 // has moved to the language server cannot be routed here by a caller that has
 // not noticed.
-export type ReleaseScopedVerb = 'pull' | 'acquire';
+export type ReleaseScopedVerb = 'pull';
 
-// releaseScopedArgs builds `aggrega <verb> --release <path>`. Both verbs mark
+// releaseScopedArgs builds `aggrega <verb> --release <path>`. The verb marks
 // --release required, so the bare verb is a usage error; the path is
 // workspace-relative and the subprocess runs in the workspace root, so it
 // resolves there.

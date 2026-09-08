@@ -368,12 +368,6 @@
         "icon": "$(cloud-download)"
       },
       {
-        "command": "aggrega.op.acquire",
-        "title": "Acquire inputs",
-        "category": "Aggrega",
-        "icon": "$(pinned)"
-      },
-      {
         "command": "aggrega.op.scaffold",
         "title": "Draft entity…",
         "category": "Aggrega",

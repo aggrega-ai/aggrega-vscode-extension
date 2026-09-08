@@ -572,7 +572,6 @@ export function activateOperations(
   // each is registered by the surface whose subject it acts on, and a wrapper
   // here would be a second command that only forwards.
   reg('pull', () => { void runReleaseScoped(deps, 'pull'); });
-  reg('acquire', () => { void runReleaseScoped(deps, 'acquire'); });
   // Drafting an entity offers the kinds the COMPILER answers for, and holds no
   // list of them: the set belongs to the compiler, so what a reader is offered
   // is asked for and follows the running binary. A list held here would be a
@@ -595,15 +594,14 @@ export function activateOperations(
 // runReleaseScoped runs a CLI-backed command that requires a --release
 // argument: it invokes `aggrega <verb> --release <path>` on the selected
 // Release. Running the bare verb would fail — the CLI marks --release required
-// on both verbs routed through here.
+// on the verb routed through here.
 //
 // The path is workspace-relative and the subprocess runs in the workspace root,
 // so it resolves there.
 //
-// Both verbs read the one selected Release rather than prompting for their own:
-// prompting per operation would let a pull and an acquisition act on two
-// different Releases in the same session.
-// Both reach registries, so both are watched and can be stopped.
+// It reads the one selected Release rather than prompting for its own, so what
+// runs is the Release the panel names and a reader is not asked twice about the
+// same choice. It reaches registries, so it is watched and can be stopped.
 async function runReleaseScoped(deps: OperationDeps, verb: ReleaseScopedVerb): Promise<void> {
   if (!deps.getWorkspaceRoot()) {
     void vscode.window.showInformationMessage(NO_ANCHORED_WORKSPACE_MESSAGE);
@@ -614,18 +612,13 @@ async function runReleaseScoped(deps: OperationDeps, verb: ReleaseScopedVerb): P
     deps.requireSelectedRelease();
     return;
   }
-  const [title, what, detail] = verb === 'pull'
-    ? [
-      `Aggrega: pulling dependencies for ${release}`,
-      'The pull',
-      `resolved the dependencies of ${release} and wrote its lockfile.`,
-    ]
-    : [
-      `Aggrega: acquiring inputs for ${release}`,
-      'The acquisition',
-      `pinned the external inputs ${release} renders with, and recorded them in its lockfile.`,
-    ];
-  await runWatchableCli(deps, title, what, releaseScopedArgs(verb, release), detail);
+  await runWatchableCli(
+    deps,
+    `Aggrega: pulling dependencies for ${release}`,
+    'The pull',
+    releaseScopedArgs(verb, release),
+    `resolved the dependencies of ${release} and wrote its lockfile, recording the external inputs it renders with.`,
+  );
 }
 
 // runBuild compiles a Release and writes the artifacts it renders.
