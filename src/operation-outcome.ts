@@ -2,10 +2,13 @@
 // Copyright 2026 Cognitio S.r.l.
 
 import { CANCELLED_BY_READER, isCancellation } from './cancellation';
+import { describeError } from './error-surfaces';
 
-// This module decides what a reader is told when an operation ends. It depends
-// on no editor type, so the sentence each of the three endings produces is read
-// back by a test exactly as an author would see it.
+// This module decides what a reader is told when an operation ends. It reaches
+// no editor type at runtime, so the sentence each of the three endings produces
+// is read back by a test exactly as an author would see it. The one module it
+// imports for the failure text names the editor in type position only, which
+// compiles away.
 //
 // Every command ends here. That is the whole rule: an operation that finishes,
 // one the reader stops, and one that fails each produce a line, so no command
@@ -38,13 +41,22 @@ export type OperationOutcome =
 // The return type names only the two endings a thrown value can be, so a caller
 // that has ruled out one is left holding the other rather than a completion
 // that cannot have happened.
+//
+// 🔴 THE FAILURE TEXT IS PRODUCED BY describeError AND IS NOT DERIVED HERE. That
+// is the extension's one home for rendering a thrown value as a line, and a
+// reading of its own beside it would be a second implementation of the same job
+// — one that agrees for everything the extension itself throws and diverges for
+// the shape the language server rejects with, which is an envelope object rather
+// than an error. That divergence loses the compiler's whole diagnostic instead
+// of re-wording it, and nothing fails while the two agree, which is exactly why
+// the derivation lives in one place.
 export function outcomeOf(
   err: unknown,
 ): Extract<OperationOutcome, { kind: 'cancelled' } | { kind: 'failed' }> {
   if (isCancellation(err)) {
     return { kind: 'cancelled' };
   }
-  return { kind: 'failed', message: err instanceof Error ? err.message : String(err) };
+  return { kind: 'failed', message: describeError(err) };
 }
 
 // terminalLine renders the sentence one ended operation leaves behind.

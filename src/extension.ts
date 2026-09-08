@@ -6,6 +6,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import type { AttachmentContainerRequest } from './attachment-edit';
 import { CancellationSignal } from './cancellation';
+import type { ConfigInitParams, ConfigInitResult } from './config-seeding';
 import { Daemon, DaemonState } from './daemon';
 import { debounce } from './debounce';
 import {
@@ -525,6 +526,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     reanchor: () => reactivate(context),
     onReady: ready.onReady,
     onSelectionChange: (listener) => releaseSelection?.onChange(listener),
+    seedConfiguration: requestConfigInit,
     output: outputChannel,
   });
 
@@ -1797,6 +1799,32 @@ async function requestCacheClear(): Promise<CacheClearResponse> {
     throw new Error('the Aggrega language server is not running');
   }
   return await daemon.request<CacheClearResponse>('aggrega/cacheClear', {});
+}
+
+// requestConfigInit asks the language server to seed a working configuration by
+// registering a registry and its signature trust policy. It writes, and it is
+// sent for the same reason every other writing request is: a caller that sent it
+// has asked for the configuration to be seeded, exactly as a caller sending a
+// build has asked for artifacts.
+//
+// The answer says what was seeded and where, including whether the file it wrote
+// is the one every project on this machine resolves through — so the surface that
+// offered the operation can tell the reader the reach of what just changed
+// instead of inferring it from a choice the request did not make.
+//
+// It carries no cancellation, and that is read off what the compiler does rather
+// than assumed: the shared operation behind the request takes none, and the
+// handler checks for a stopped caller only after its operation has returned. A
+// stop sent here would stop this client waiting and not the work, so none is
+// offered.
+//
+// Throws when the server is not running, so a caller reports that state rather
+// than presenting a seeding that never ran as one that found nothing to do.
+async function requestConfigInit(params: ConfigInitParams): Promise<ConfigInitResult> {
+  if (!daemon || daemon.getState() !== DaemonState.Running) {
+    throw new Error('the Aggrega language server is not running');
+  }
+  return await daemon.request<ConfigInitResult>('aggrega/configInit', params);
 }
 
 async function handleCacheMiss<T>(method: string, params: unknown, doc: vscode.TextDocument): Promise<T | null> {

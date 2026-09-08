@@ -1,18 +1,24 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cognitio S.r.l.
 
-import { spawn } from 'child_process';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as vscode from 'vscode';
 
 import { runCliJson } from './cli-json';
-import { runCliProcess } from './cli-run';
+import { reportOutcome } from './cli-operation';
 import { makeNonce } from './html';
 import { panelControlCommand } from './panel-control';
 import { RendersOnReady } from './readiness';
 import { RegistryListDoc } from './registries-run';
 import { DEFAULT_SETTINGS, SERVER_CONFIG_SECTION } from './settings';
+import {
+  ConfigInitParams,
+  ConfigInitResult,
+  SEEDING_SUBJECT,
+  runSeeding,
+  seedingOpeningLine,
+} from './config-seeding';
 import {
   ANCHOR_CANDIDATE_GLOB,
   CONFIG_FILENAME,
@@ -87,6 +93,15 @@ export interface GetStartedDeps extends RendersOnReady {
   // state the compiler step is for there is nothing listening.
   reanchor(): Promise<void>;
   onSelectionChange(listener: () => void): void;
+  // seedConfiguration asks the language server to seed a working configuration
+  // by registering a registry and its signature trust policy.
+  //
+  // It is a dependency rather than something this module reaches for itself
+  // because the language server is held by the surface that starts it, and
+  // because passing it in is what lets the whole seeding decision — the request
+  // sent, the ending reached, and the sentence a reader is left with — be read
+  // back without an editor or a compiler.
+  seedConfiguration(params: ConfigInitParams): Promise<ConfigInitResult>;
   output: vscode.OutputChannel;
 }
 
@@ -676,45 +691,39 @@ async function draftRelease(): Promise<void> {
 // seedRegistry registers a registry and its signature trust policy through the
 // compiler's own seeding, so what a reader gets from this control and what they
 // would get from the command line are the same configuration.
+//
+// 🔴 NOTHING OFFERS TO INTERRUPT IT, AND THAT IS THE DECISION RATHER THAN AN
+// OMISSION. The work reaches the registry to read the trust policy it advertises,
+// which is the reading under which an operation is watched and stoppable — but
+// there is nothing here to interrupt: the shared operation behind the request
+// takes no cancellation, and the request handler checks for a stopped caller only
+// after its operation has returned. A stop offered here would stop the editor
+// waiting and not the work, and presenting that as a stop would break the rule
+// that stopping means the compiler stopped.
+//
+// So the channel is told what is being done, and the ending lands under it with a
+// notification. That is what the rule against a silent success asks for, and it
+// is what a reader gets from every other operation the compiler cannot interrupt.
+//
+// 🔴 THE CONDITIONS ARE RE-READ WHATEVER THE ENDING WAS, and that is deliberate
+// rather than incidental. A seeding that was refused may still have changed what
+// this machine resolves through — the work is the compiler's and it is not this
+// surface's to say how far it got — and the panel's marks follow their conditions
+// in both directions. So re-reading is what keeps the panel describing the world
+// rather than describing the press.
+//
+// Nothing about the ending is worded here. The ending carries the compiler's own
+// text where the compiler produced it, including the refusal that says an
+// existing configuration was left untouched and names the file it found.
 async function seedRegistry(
   deps: GetStartedDeps,
   refresh: () => void,
   host: string | null,
 ): Promise<void> {
-  const args = host === null
-    ? ['config', 'init']
-    : ['config', 'init', '--registry', host];
-  const root = deps.getWorkspaceRoot();
-  const bin = deps.getBinaryPath();
-  const what = `aggrega ${args.join(' ')}`;
-  deps.output.appendLine(`$ ${what}`);
-  let code: number | null;
-  try {
-    code = await runCliProcess({
-      spawn: () => spawn(bin, args, { cwd: root ?? undefined }),
-      append: (text) => deps.output.append(text),
-      appendLine: (text) => deps.output.appendLine(text),
-    }, what);
-  } catch (err) {
-    void vscode.window.showErrorMessage(`Aggrega: ${messageOf(err)}`);
-    return;
-  }
-  // A non-zero status is the compiler declining, and its own message — which
-  // says what it declined and what to do about it, including that an existing
-  // configuration is not overwritten — is already on the channel. It is not
-  // re-worded here; the channel is named instead.
-  if (code !== 0) {
-    void vscode.window.showErrorMessage(
-      `Aggrega: ${what} exited with status ${code ?? 'unknown'} — see the Aggrega output channel.`,
-    );
-    return;
-  }
+  deps.output.appendLine(seedingOpeningLine(host));
+  const outcome = await runSeeding(deps, host);
   refresh();
-  void vscode.window.showInformationMessage(
-    host === null
-      ? 'Aggrega: the official hub is configured, with its signature trust policy.'
-      : `Aggrega: ${host} is configured, with its signature trust policy.`,
-  );
+  await reportOutcome(deps, SEEDING_SUBJECT, outcome, true);
 }
 
 // seedNamedRegistry seeds a registry the reader names, which is the path for an

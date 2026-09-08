@@ -1455,3 +1455,76 @@ describe('the welcome panel', () => {
     });
   });
 });
+
+// LAUNCH_FACILITY matches the ways a module creates a child process: the two
+// calls that start one, and the import that makes either reachable.
+//
+// It is a global pattern because the claim below is a COUNT and not a presence.
+// A module that launches twice and is cleaned up once satisfies any "does it
+// still contain one" reading, so a presence test cannot express the claim.
+const LAUNCH_FACILITY =
+  /\bspawn\s*\(|\bexecFile\s*\(|from\s+['"]child_process['"]|require\(\s*['"]child_process['"]/g;
+
+function launchFacilityCount(relativePath: string): number {
+  const source = fs.readFileSync(path.join(EXTENSION_ROOT, relativePath), 'utf8');
+  return (source.match(LAUNCH_FACILITY) ?? []).length;
+}
+
+describe('the welcome panel seeds a configuration without starting a process', () => {
+  it('fires on a module that does launch, so a zero below is an absence and not a broken pattern', () => {
+    // 🔴 THE POSITIVE CONTROL, AND IT IS THE HALF THAT MAKES THE ZERO MEAN
+    // ANYTHING. A pattern that has stopped matching reports every module clean.
+    // The control is a module the extension deliberately still launches from, so
+    // it is on the same side of the claim as the subject and moves independently
+    // of it.
+    assert.ok(
+      launchFacilityCount('src/cli-json.ts') > 0,
+      'the pattern no longer matches a module that provably launches, so it can no longer '
+      + 'detect one that does — every assertion below would pass vacuously',
+    );
+  });
+
+  it('creates no child process anywhere in the panel\'s own module', () => {
+    // The panel's seeding asks the language server, so this module needs no way
+    // to start a process — the facility is absent rather than merely unused.
+    //
+    // 🔴 WHAT THIS DOES NOT CLAIM, said here so a green is not read as more than
+    // it is: the panel reads the configured registries through a helper that does
+    // start a process, and that is a different operation reached by a different
+    // route. What is asserted is that this module holds no launch of its own — so
+    // the seeding either goes through the injected request or does not happen at
+    // all, since the type requires that dependency and nothing else here can
+    // reach a compiler.
+    assert.strictEqual(
+      launchFacilityCount('src/get-started.ts'),
+      0,
+      'the welcome panel starts a process again, so two execution paths reach the compiler',
+    );
+  });
+
+  it('gives the seeding decision no way to reach a process at all', () => {
+    // The module that owns the seeding imports one thing, and it cannot start
+    // anything: the classification of an ending. Read as the whole import list
+    // rather than as an absence, so a module added to it has to be looked at
+    // — including one that could reach a process, and one that would carry the
+    // editor in, which is what keeps this decision readable without a host.
+    const source = fs.readFileSync(path.join(EXTENSION_ROOT, 'src/config-seeding.ts'), 'utf8');
+    const imported = [...source.matchAll(/from\s+'([^']+)'/g)].map((m) => m[1]);
+    assert.deepStrictEqual(imported.sort(), ['./operation-outcome']);
+    assert.strictEqual(launchFacilityCount('src/config-seeding.ts'), 0);
+  });
+
+  it('sends the seeding to the language server under the compiler\'s own method name', () => {
+    // The method is the compiler's identifier, so it is read from the surface
+    // that sends it rather than restated as a constant this side owns — a
+    // constant would agree on the day it was written and be the only thing
+    // consulted afterwards.
+    const source = fs.readFileSync(path.join(EXTENSION_ROOT, 'src/extension.ts'), 'utf8');
+    const sends = (source.match(/'aggrega\/configInit'/g) ?? []).length;
+    assert.strictEqual(
+      sends,
+      1,
+      'the seeding request is sent from exactly one place, or the panel has two routes to it',
+    );
+  });
+});

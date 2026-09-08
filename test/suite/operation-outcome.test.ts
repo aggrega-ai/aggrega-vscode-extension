@@ -62,6 +62,27 @@ describe('a thrown value is classified by type, not by wording', () => {
   it('reads a thrown non-error', () => {
     assert.deepStrictEqual(outcomeOf('plain string'), { kind: 'failed', message: 'plain string' });
   });
+
+  it('carries a language-server refusal\'s own diagnostic, which is not an error object', () => {
+    // 🔴 THE SHAPE THIS EXISTS FOR. A refused request rejects with the raw
+    // JSON-RPC error member — a plain object with a numeric code — so a reading
+    // that asks whether the thrown value is an error sees no message and falls
+    // back to stringifying it, which yields "[object Object]" and loses the
+    // compiler's whole diagnostic. That is not a re-wording, it is total loss,
+    // and it is worse than the wrapper sentence the extension refuses to write.
+    //
+    // The expectation is an equality against a literal written here, not a
+    // reading built from the extension's own rendering: a comparison whose two
+    // sides both came from the implementation moves both at once and accepts
+    // anything.
+    const compilerText = 'config init: /home/reader/.config/aggrega/config.yaml already exists '
+      + 'and was left untouched; send force to write it anyway';
+    const outcome = outcomeOf({ code: -32602, message: compilerText });
+    assert.deepStrictEqual(outcome, {
+      kind: 'failed',
+      message: `code=-32602 ${compilerText}`,
+    });
+  });
 });
 
 describe('a finding count is reported, including when it is zero', () => {
