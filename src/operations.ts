@@ -31,6 +31,7 @@ import {
   subjectMenuOptions,
 } from './operation-menus';
 import { EntityKind, readEntityKinds } from './entity-kinds';
+import { dialsTurnedOn } from './build-dials';
 import { CancellationSignal } from './cancellation';
 import { reportOutcome, runCli, runWatchableCli } from './cli-operation';
 import { makeNonce } from './html';
@@ -110,7 +111,12 @@ export interface OperationDeps extends RendersOnReady {
   // The signal is how a reader stops it. It reaches the language server as the
   // cancellation of the request this call was sent as, so stopping it stops the
   // compiler rather than only stopping the editor waiting for an answer.
-  build(release: string, signal?: CancellationSignal): Promise<BuildResponse>;
+  //
+  // dials names the adjustments the reader turned on beside the Build button,
+  // and it travels as data rather than as a shape this side composes: what the
+  // request carries for a given set is decided in one place, so a set recorded
+  // by the panel and the parameters a build runs with cannot come to disagree.
+  build(release: string, dials: readonly string[], signal?: CancellationSignal): Promise<BuildResponse>;
   // previewBuild renders a Release the way a build does and reports what a
   // build would emit, without emitting any of it. It is supplied rather than
   // spawned here because it is language-server-backed: the findings that carry
@@ -121,6 +127,15 @@ export interface OperationDeps extends RendersOnReady {
   //
   // The signal is how a reader stops it, on the same terms as the build beside
   // it.
+  //
+  // 🔴 IT TAKES NO ADJUSTMENTS, AND THE ABSENCE IS THE GUARANTEE. Resolving
+  // dependencies writes the lockfile, and this request reports what a build
+  // would write while writing none of it — so the two cannot both be honoured,
+  // and the compiler refuses the pairing. With no parameter for one to arrive
+  // through there is nothing for this call to forward and nothing for a later
+  // change to forward by accident, which is a stronger bound than remembering
+  // not to: a reader would otherwise meet a refusal for a combination they
+  // never authored and cannot see.
   previewBuild(release: string, signal?: CancellationSignal): Promise<BuildPreviewResponse>;
   // reportDaemonError routes a failed request's error envelope to the per-code
   // surfaces the extension already has for it — a diagnostic on the document
@@ -258,6 +273,23 @@ class OperationsViewProvider implements vscode.WebviewViewProvider {
   // name another entity shares cannot resolve to the wrong one.
   private offered = new Map<OperationId, EntitySubject[]>();
 
+  // The adjustments the reader has turned on beside a button, for this session
+  // only.
+  //
+  // 🔴 IT IS HELD HERE AND WRITTEN NOWHERE. It is not a declared preference —
+  // an adjustment to the next build is not a setting about how the tool
+  // behaves, and putting it on the settings screen would leave a reader unable
+  // to tell the two apart — and it is deliberately absent from the state this
+  // panel persists. An adjustment that survived a window reload would hand a
+  // reader a registry reach and a lockfile write on a build days later, with
+  // nothing in front of them saying they had asked for it.
+  //
+  // Held on this side rather than only in the document because the editor
+  // deallocates a hidden view's document: this is what lets the panel be
+  // composed already carrying the reader's setting when it comes back, rather
+  // than drawing the default and correcting itself.
+  private dialsOn: string[] = [];
+
   constructor(
     private readonly extensionUri: vscode.Uri,
     private readonly deps: OperationDeps,
@@ -322,15 +354,39 @@ class OperationsViewProvider implements vscode.WebviewViewProvider {
       unavailable,
       collapsed: this.state.collapsed,
       focused: this.state.focused,
+      dials: this.dialsOn,
     };
+  }
+
+  // dialState reports the adjustments a press of an adjustable button carries.
+  //
+  // Read at the moment of the press rather than captured when the handler was
+  // registered, so the build runs with what the panel currently shows — and
+  // narrowed through the one description of which adjustments exist, so a value
+  // recorded by an earlier drawing cannot reach a request.
+  dialState(): string[] {
+    return dialsTurnedOn(this.dialsOn);
   }
 
   private receive(message: unknown): void {
     const named = typeof message === 'object' && message !== null
-      ? (message as { type?: unknown; command?: unknown })
+      ? (message as { type?: unknown; command?: unknown; set?: unknown })
       : null;
     if (named?.type === 'state') {
       this.state = readPanelState(message);
+      return;
+    }
+    // An adjustment the reader turned beside a button. It arrives on a message
+    // of its own rather than folded into the state above, and that separation
+    // is what keeps it out of the memento: the state message is the one this
+    // panel persists, so an adjustment carried on it would survive a window
+    // reload and change a later build with nothing saying why.
+    //
+    // Narrowed through the one description of which adjustments exist, so a
+    // document drawn by an earlier version of this extension cannot record a
+    // value no request reads.
+    if (named?.type === 'dials' && Array.isArray(named.set)) {
+      this.dialsOn = dialsTurnedOn(named.set);
       return;
     }
     // A menu whose options are the workspace's asks for them when it opens. The
@@ -503,7 +559,12 @@ export function activateOperations(
 
   reg('validate', () => { void deps.validateActiveDocument(); });
   reg('lint', () => { void deps.runLint(); });
-  reg('build', () => { void runBuild(deps); });
+  // The build carries whatever the reader adjusted beside its button. Read at
+  // the press rather than held here, so a build runs with what the panel
+  // currently shows — and an invocation from the editor's own command index
+  // carries the same set, because the panel is where that set lives whether or
+  // not the press came from it.
+  reg('build', () => { void runBuild(deps, provider.dialState()); });
   reg('preview', () => { void runPreview(deps); });
   // The topology graph contributes its own command, so nothing is registered for
   // it here: the group entry points at that command rather than at a second one
@@ -582,7 +643,12 @@ async function runReleaseScoped(deps: OperationDeps, verb: ReleaseScopedVerb): P
 // diagnostic path, so nothing here handles them; the advisories that carry no
 // position ride back on the answer and are written to this channel, which is the
 // only surface that can show them.
-async function runBuild(deps: OperationDeps): Promise<void> {
+//
+// dials names the adjustments the reader turned beside the button. They are
+// passed through as data rather than composed here: what a given set carries on
+// the wire is decided in one place, so what the panel shows and what the build
+// actually runs with cannot come to disagree.
+async function runBuild(deps: OperationDeps, dials: readonly string[]): Promise<void> {
   const root = deps.getWorkspaceRoot();
   if (!root) {
     void vscode.window.showInformationMessage(NO_ANCHORED_WORKSPACE_MESSAGE);
@@ -602,7 +668,7 @@ async function runBuild(deps: OperationDeps): Promise<void> {
   try {
     result = await withCancellableProgress(
       `Aggrega: building ${release}`,
-      (signal) => deps.build(release, signal),
+      (signal) => deps.build(release, dials, signal),
     );
   } catch (err) {
     const outcome = outcomeOf(err);

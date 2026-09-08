@@ -5,6 +5,7 @@ import { execFile } from 'child_process';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import type { AttachmentContainerRequest } from './attachment-edit';
+import { buildParams, buildPreviewParams } from './build-dials';
 import { CancellationSignal } from './cancellation';
 import type { RegistrySearchParams, SearchDoc } from './catalog-search-run';
 import type { ConfigInitParams, ConfigInitResult } from './config-seeding';
@@ -1624,6 +1625,14 @@ async function requestActiveRelease(): Promise<ActiveReleaseResponse> {
 //
 // Throws when the server is not running, so a caller reports that state rather
 // than presenting an empty preview as a Release that renders nothing.
+//
+// 🔴 IT CARRIES THE RELEASE AND NOTHING ELSE, and the composition is annotated
+// with the type that says so — so a parameter added here is a compile error
+// rather than something a reviewer has to notice. The reason it matters is that
+// this request writes nothing while resolving dependencies writes the lockfile:
+// the two cannot both be honoured, and the compiler refuses the pairing. A build
+// adjustment leaking into this call would put a refusal in front of a reader for
+// a combination they never authored and cannot see.
 async function requestBuildPreview(
   release: string,
   signal?: CancellationSignal,
@@ -1631,7 +1640,11 @@ async function requestBuildPreview(
   if (!daemon || daemon.getState() !== DaemonState.Running) {
     throw new Error('the Aggrega language server is not running');
   }
-  return await daemon.request<BuildPreviewResponse>('aggrega/buildPreview', { release }, signal);
+  return await daemon.request<BuildPreviewResponse>(
+    'aggrega/buildPreview',
+    buildPreviewParams(release),
+    signal,
+  );
 }
 
 // requestBuild asks the language server to build the given Release and write
@@ -1648,14 +1661,26 @@ async function requestBuildPreview(
 //
 // Throws when the server is not running, so a caller reports that state rather
 // than presenting a build that never ran as one that produced nothing.
+//
+// dials names the adjustments the reader turned beside the Build button. What a
+// given set carries on the wire is composed in one place rather than here, so
+// the panel that shows a setting and the request that acts on it read one
+// description — and the parameter is carried at both its values, so a request
+// says what the reader chose rather than leaving the off case indistinguishable
+// from a client that does not know about it.
 async function requestBuild(
   release: string,
+  dials: readonly string[],
   signal?: CancellationSignal,
 ): Promise<BuildResponse> {
   if (!daemon || daemon.getState() !== DaemonState.Running) {
     throw new Error('the Aggrega language server is not running');
   }
-  return await daemon.request<BuildResponse>('aggrega/build', { release }, signal);
+  return await daemon.request<BuildResponse>(
+    'aggrega/build',
+    buildParams(release, dials),
+    signal,
+  );
 }
 
 // requestCatalogIndex asks the language server for the open workspace's entity

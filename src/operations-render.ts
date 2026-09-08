@@ -10,7 +10,14 @@ import {
   OperationsLayout,
   commandIdFor,
 } from './operation-groups';
-import { MenuOption, OperationMenu, menuFor } from './operation-menus';
+import {
+  MenuControlId,
+  MenuDial,
+  MenuOption,
+  OperationMenu,
+  dialsControlId,
+  menuFor,
+} from './operation-menus';
 import { escapeHtml } from './html';
 import { SelectorRow } from './selector-rows';
 
@@ -43,6 +50,15 @@ import { SelectorRow } from './selector-rows';
 // what decides the panel's height. Each menu names the command it belongs to
 // and each control points at its menu, so the pairing is stated in the document
 // rather than inferred from where the markup sits.
+//
+// AN OPERATION THAT CAN BE ADJUSTED BEFORE IT RUNS GETS A SECOND CONTROL BESIDE
+// ITS OWN, and never a menu on its own button. A control carrying a menu answers
+// a press by opening it instead of running, so adjustments hung off the button
+// would take the button's press away — and the whole design is that pressing
+// Build gets a build with the current settings, with no dialog and no choice in
+// the way. The caret is therefore a control of its own, drawn immediately after
+// the button in both shapes and in the roving walk, carrying no command because
+// nothing it does reaches the compiler.
 
 // PANEL_TITLE is the document's title. The view's own name comes from the
 // manifest; this is what a reader's assistive technology announces for the
@@ -129,10 +145,71 @@ function operationHtml(
 }
 
 // menuId names the region a control's menu occupies. It is derived from the
-// operation rather than recorded, so the control's reference and the menu's own
+// control rather than recorded, so the control's reference and the menu's own
 // identifier cannot disagree.
-function menuId(id: OperationId): string {
+function menuId(id: MenuControlId): string {
   return `menu-${id}`;
+}
+
+// dialsCaretHtml draws the control that opens one operation's adjustments,
+// BESIDE that operation's own button.
+//
+// 🔴 IT IS A SECOND CONTROL RATHER THAN A MENU ON THE FIRST, AND THAT IS FORCED
+// RATHER THAN CHOSEN. A control carrying a menu answers a press by opening it
+// instead of running, so hanging the adjustments off the operation's own button
+// would stop that operation running at all — and the whole design is that a
+// reader presses Build and gets a build, with nothing in the way. Splitting the
+// two gives the button back its press and puts the adjustments where a reader
+// can see them without learning that they exist.
+//
+// It carries NO command. Nothing it does reaches the compiler: it opens and
+// closes a region of this document, so a command on it would be a second route
+// to an operation it does not run. It carries no group either — it is an adjunct
+// of one control rather than a member of the operation surface, and stating a
+// group on it would put a non-operation into the surface's own membership.
+//
+// It takes a place in the roving walk, so a reader who cannot use a pointer
+// reaches the adjustments with the same arrow keys they reach every other
+// control with, rather than by a gesture of its own.
+function dialsCaretHtml(op: OperationDef, focused: boolean, open: number): string {
+  const control = dialsControlId(op.id);
+  // The name says which button's adjustments these are, because the caret draws
+  // no word of its own and a reader meeting it by keyboard is told only what it
+  // is called. It also says how many are on, since a reader who has left one on
+  // and pressed something else has no other way to be reminded of it.
+  const label = open === 0
+    ? `${op.label} adjustments`
+    : `${op.label} adjustments, ${open} on`;
+  return `<button class="op-caret" type="button" tabindex="${focused ? '0' : '-1'}" data-dials="${escapeHtml(op.id)}" data-focus-key="${escapeHtml(control)}" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}" aria-haspopup="menu" aria-expanded="false" aria-controls="${menuId(control)}">
+      <span class="codicon codicon-chevron-down" aria-hidden="true"></span>
+    </button>`;
+}
+
+// dialsFor reports the adjustments an operation offers, or null where it offers
+// none. Read through the one menu description, so a control cannot come to draw
+// a caret for adjustments that description does not hold.
+function dialsFor(id: OperationId): MenuDial[] | null {
+  const menu = menuFor(dialsControlId(id));
+  return menu !== null && menu.kind === 'dials' ? menu.dials : null;
+}
+
+// dialsDrawnFor reports the caret an operation is drawn with, or the empty
+// string where it has none.
+//
+// It is withheld from a control that cannot run, on exactly the terms a menu is:
+// a disabled button cannot be pressed, so adjustments to it would be settings
+// for a press the reader cannot make.
+function dialsDrawnFor(
+  op: OperationDef,
+  body: OperationsBody,
+  rovingKey: string | null,
+): string {
+  if ((body.unavailable[op.id] ?? null) !== null) { return ''; }
+  const dials = dialsFor(op.id);
+  if (dials === null) { return ''; }
+  const control = dialsControlId(op.id);
+  const on = dials.filter((dial) => body.dials.includes(dial.value)).length;
+  return `\n    ${dialsCaretHtml(op, control === rovingKey, on)}`;
 }
 
 // menuOptionHtml draws one choice.
@@ -158,6 +235,49 @@ function menuOptionHtml(option: MenuOption): string {
     </button>`;
 }
 
+// menuDialHtml draws one setting.
+//
+// 🔴 IT CARRIES NO `data-option`, AND THE ABSENCE IS LOAD-BEARING RATHER THAN
+// incidental. A press on a choice closes the menu and runs the operation; a
+// press on a setting must do neither — the menu stays open so a reader can turn
+// a second one, and nothing runs until they press the button beside it. The two
+// therefore carry different attributes, so the panel's script tells them apart
+// by reading the document rather than by remembering which menu it is in.
+//
+// It is announced as a setting with a state rather than as a choice, so a reader
+// who cannot see the mark is told whether it is on — which for a choice is not a
+// question that exists.
+function menuDialHtml(dial: MenuDial, on: boolean): string {
+  const hint = `${dial.label} — ${dial.detail}`;
+  return `<button class="op-menu-dial" type="button" role="menuitemcheckbox" aria-checked="${on}" tabindex="-1" data-dial="${escapeHtml(dial.value)}" title="${escapeHtml(hint)}">
+      <span class="codicon codicon-${on ? 'check' : 'blank'}" aria-hidden="true"></span>
+      <span class="op-menu-dial-text">
+        <span class="op-menu-label">${escapeHtml(dial.label)}</span>
+        <span class="op-menu-detail">${escapeHtml(dial.detail)}</span>
+      </span>
+    </button>`;
+}
+
+// dialsMenuHtml draws one control's adjustments, closed.
+//
+// It carries NO command, unlike every other menu here, and that is the same
+// property the caret has: nothing in it runs anything. A command on the menu is
+// what makes a choice reach an operation, so a menu whose entries are settings
+// must not name one — the settings reach the compiler on the next press of the
+// button beside it, as parameters of that one request.
+//
+// It carries no status line either. A status line says what a menu is waiting
+// for or how far a reader's typing has narrowed it; this menu waits for nothing
+// and holds a set small enough to read whole.
+function dialsMenuHtml(id: MenuControlId, menu: Extract<OperationMenu, { kind: 'dials' }>, on: string[]): string {
+  const entries = menu.dials
+    .map((dial) => menuDialHtml(dial, on.includes(dial.value)))
+    .join('\n    ');
+  return `<div class="op-menu op-menu-dials" id="${menuId(id)}" role="menu" aria-label="${escapeHtml(menu.label)}" hidden data-menu="${escapeHtml(id)}" data-menu-dials>
+    ${entries}
+  </div>`;
+}
+
 // menuHtml draws one control's menu, closed.
 //
 // It is composed hidden rather than merely unpainted, so a closed menu leaves
@@ -177,7 +297,16 @@ function menuOptionHtml(option: MenuOption): string {
 // the menu; and it is a live region, so what replaces it is announced rather
 // than silently swapped in. It is hidden when it has nothing to say, because a
 // choice announced with no text is worse than no choice at all.
-function menuHtml(id: OperationId, command: string, menu: OperationMenu): string {
+//
+// The parameter admits the two kinds whose entries are CHOICES and refuses the
+// kind whose entries are settings, so a settings menu drawn through here is a
+// compile error rather than a menu that would carry a command and run something
+// when a reader adjusted it.
+function menuHtml(
+  id: OperationId,
+  command: string,
+  menu: Exclude<OperationMenu, { kind: 'dials' }>,
+): string {
   const waiting = menu.kind === 'fetched' ? menu.pending : '';
   const status = `<div class="op-menu-status" role="menuitem" aria-disabled="true" aria-live="polite" data-menu-status${waiting === '' ? ' hidden' : ''}>${escapeHtml(waiting)}</div>`;
   const options = menu.kind === 'fixed'
@@ -207,14 +336,28 @@ function menuHtml(id: OperationId, command: string, menu: OperationMenu): string
 //
 // The layer is drawn in both shapes. Which shape the panel is in decides how a
 // group is drawn and never what a control does when pressed.
+//
+// An operation's own menu and its adjustments are emitted from THIS ONE WALK, in
+// that order, so the layer holds exactly the menus the pass over the controls
+// drew a reference for — the same guarantee the operation menus already had,
+// extended rather than duplicated.
 function menusHtml(body: OperationsBody): string {
   const pieces: string[] = [];
   for (const group of OPERATION_GROUPS) {
     for (const op of group.operations) {
       if ((body.unavailable[op.id] ?? null) !== null) { continue; }
       const menu = menuFor(op.id);
-      if (menu === null) { continue; }
-      pieces.push(menuHtml(op.id, commandIdFor(op), menu));
+      // The kind whose entries are settings is never registered against an
+      // operation's own id — a control in that map opens its menu instead of
+      // running — so meeting one here would mean the Build button had stopped
+      // building, and it is skipped rather than drawn.
+      if (menu !== null && menu.kind !== 'dials') {
+        pieces.push(menuHtml(op.id, commandIdFor(op), menu));
+      }
+      const dials = menuFor(dialsControlId(op.id));
+      if (dials !== null && dials.kind === 'dials') {
+        pieces.push(dialsMenuHtml(dialsControlId(op.id), dials, body.dials));
+      }
     }
   }
   if (pieces.length === 0) { return ''; }
@@ -246,6 +389,15 @@ export interface OperationsBody {
   // default shape: a reader who has closed nothing, and a document composed
   // before any state was recorded, draw the same panel.
   collapsed: string[];
+  // dials names the adjustments the reader has turned ON.
+  //
+  // On rather than off is the recorded state, for the same reason closed rather
+  // than open is above and with the same consequence: an empty list is the
+  // default shape, so a reader who has adjusted nothing and a document composed
+  // before anything was recorded draw the same panel — and that default is the
+  // command line's own, which is what keeps the two surfaces performing one
+  // operation.
+  dials: string[];
   // focused is the control the reader was on, by its focus key, or null. The
   // roving tab stop is composed onto it, so a re-composition and a window
   // reload both return the reader to where they were rather than to the start.
@@ -285,12 +437,16 @@ function buttonsFlowHtml(
   const pieces: string[] = [];
   for (const group of OPERATION_GROUPS) {
     for (const op of group.operations) {
+      // The caret is appended to the operation's own piece rather than pushed as
+      // one of its own, so the two are adjacent in the flow by construction: a
+      // control and the adjustments to it cannot be separated by the wrapping,
+      // because there is nothing between them to wrap at.
       pieces.push(operationHtml(
         op,
         group.id,
         body.unavailable[op.id] ?? null,
         commandIdFor(op) === rovingKey,
-      ));
+      ) + dialsDrawnFor(op, body, rovingKey));
     }
   }
   return `<div class="groups ops-flow" role="toolbar" aria-label="${escapeHtml(FLOW_LABEL)}" aria-orientation="horizontal" data-flow data-roving data-orientation="horizontal">
@@ -317,7 +473,7 @@ function sectionsGroupHtml(
       group.id,
       body.unavailable[op.id] ?? null,
       commandIdFor(op) === rovingKey,
-    ))
+    ) + dialsDrawnFor(op, body, rovingKey))
     .join('\n    ');
   return `<section class="${groupClasses(group)}" role="group" aria-labelledby="grp-${group.id}" data-group="${group.id}">
   <button class="section-head" type="button" id="grp-${group.id}" aria-expanded="${open}" aria-controls="sec-${group.id}" tabindex="${toggleKey === rovingKey ? '0' : '-1'}" data-toggle="${group.id}" data-focus-key="${toggleKey}">
@@ -343,6 +499,12 @@ function focusKeys(body: OperationsBody): string[] {
     for (const op of group.operations) {
       if ((body.unavailable[op.id] ?? null) !== null) { continue; }
       keys.push(commandIdFor(op));
+      // The caret follows its own button in the walk, so the arrow keys reach
+      // the adjustments to a control immediately after the control itself —
+      // which is where a reader looking for them would try next. It is placed
+      // from the same walk that draws it, so the stop cannot land on a caret the
+      // document does not carry.
+      if (dialsFor(op.id) !== null) { keys.push(dialsControlId(op.id)); }
     }
   }
   return keys;

@@ -42,6 +42,7 @@ function body(over: Partial<OperationsBody> = {}): OperationsBody {
     unavailable: {},
     collapsed: [],
     focused: null,
+    dials: [],
     ...over,
   };
 }
@@ -200,19 +201,115 @@ const MENUS_RULED: Array<{
 // cannot drift from the list it counts.
 const MENU_OPTIONS_DRAWN = MENUS_RULED.reduce((total, menu) => total + menu.values.length, 0);
 
+// DIALS_RULED is the set of buttons that carry a CARET beside them opening
+// adjustments to the next press, with the words a reader reads.
+//
+// 🔴 A SEPARATE LIST FROM THE ONE ABOVE, BECAUSE THESE ARE NOT CHOICES. A choice
+// answers the question its operation was going to ask and the menu closes; a
+// setting is carried into the next press and the menu stays open. They therefore
+// differ in what the document has to carry — a settings menu names no command,
+// and each entry reports whether it is on — so folding them into one list would
+// mean asserting each row against fields the other kind has no answer for.
+//
+// Written out literally, and NOT read back from the description the composer
+// reads, for the reason stated on the list above: a comparison whose two sides
+// come from one table agrees with itself whatever that table says.
+//
+// 🔴 THE HOLDER IS THE OPERATION AND THE CONTROL IS A DIFFERENT ID, and both are
+// stated because the difference is the whole design. A control that carries a
+// menu opens it instead of running, so adjustments registered against `build`
+// would stop the Build button building.
+const DIALS_RULED: Array<{
+  holder: OperationId;
+  control: string;
+  label: string;
+  caretName: string;
+  values: string[];
+  labels: string[];
+  details: string[];
+}> = [
+  {
+    holder: 'build',
+    control: 'dials-build',
+    label: 'Adjustments for the next build',
+    caretName: 'Build adjustments',
+    values: ['autoPull'],
+    labels: ['Pull dependencies first'],
+    details: [
+      "Resolve the Release's dependencies into the lockfile before rendering, then build against them",
+    ],
+  },
+];
+
+// DIALS_DRAWN is how many settings the document carries when every control can
+// run. A sum of the list above rather than a number, so it cannot drift from it.
+const DIALS_DRAWN = DIALS_RULED.reduce((total, dials) => total + dials.values.length, 0);
+
+// MENU_IDS_IN_ORDER is every region the menu layer holds, in the order the
+// document draws them.
+//
+// 🔴 WRITTEN OUT IN DOCUMENT ORDER RATHER THAN CONCATENATED FROM THE TWO LISTS
+// ABOVE. The layer is composed from one walk over the groups, so a settings menu
+// lands wherever its holder sits among the operations rather than after them —
+// interleaved, and the interleaving is exactly what a concatenation would get
+// wrong while still agreeing with itself. Stating the order here is what makes a
+// menu that moved a diff in this file.
+const MENU_IDS_IN_ORDER: string[] = [
+  'dials-build',
+  'scaffold',
+  'inspect',
+  'push',
+  'cache',
+  'pluginAdd',
+  'pluginEntities',
+];
+
 // menusOf slices the document into one chunk per menu, in document order.
+//
+// 🔴 THE SEPARATOR ADMITS THE SETTINGS MENU'S SECOND CLASS. A split on the bare
+// opening tag would not match a menu carrying one, so such a menu would be
+// swallowed into its NEIGHBOUR's chunk — leaving the per-menu assertions below
+// reading one region while believing they read another, and the count of menus
+// short by one with nothing saying so. The optional class is written into the
+// separator rather than the split being loosened, because loosening it to
+// `op-menu` alone would also split at the LAYER that holds them
+// (`class="op-menus"`) and shift every chunk.
 function menusOf(html: string): string[] {
-  return html.split('<div class="op-menu"').slice(1);
+  return html.split(/<div class="op-menu(?: op-menu-dials)?"/).slice(1);
+}
+
+// menuIdsIn reports the regions the menu layer holds, in document order.
+//
+// 🔴 THE CHARACTER CLASS ADMITS A HYPHEN, and that is not cosmetic: a settings
+// menu's region is named after a control whose id carries one, so a class of
+// letters alone would MATCH NOTHING for it and report a clean census over a menu
+// it never looked at. That is the shape of false zero this file's own negative
+// controls exist to catch, so the widening is asserted rather than assumed —
+// the ruled order below names such a region, and a class that could not see it
+// would fail against it.
+function menuIdsIn(html: string): string[] {
+  return Array.from(html.matchAll(/<div class="op-menu[^"]*" id="menu-([a-zA-Z-]+)"/g))
+    .map((m) => m[1]);
 }
 
 // menuChunkFor slices ONE menu out of the document by the control it belongs
 // to, and fails naming the control when the document draws no menu for it — so
 // an assertion about one menu is made against that menu rather than against a
 // position in a list that another change could shift underneath it.
-function menuChunkFor(html: string, id: OperationId): string {
+function menuChunkFor(html: string, id: string): string {
   const chunk = menusOf(html).find((c) => c.startsWith(` id="menu-${id}"`));
   assert.ok(chunk !== undefined, `the document draws no menu for ${id}`);
   return chunk;
+}
+
+// dialsIn reports the settings a chunk draws, by the value each composes.
+function dialsIn(html: string): string[] {
+  return Array.from(html.matchAll(/data-dial="([^"]*)"/g)).map((m) => m[1]);
+}
+
+// caretTagOf reports the caret drawn beside one button, or undefined.
+function caretTagOf(html: string, holder: OperationId): string | undefined {
+  return tagsOf(html).find((tag) => tag.includes(`data-dials="${holder}"`));
 }
 
 // optionsIn reports the choices a chunk draws, by the value each composes.
@@ -502,8 +599,8 @@ describe('the Commands panel document', () => {
     );
     assert.strictEqual(
       occurrences(html, /aria-expanded="false"/),
-      1 + MENUS_RULED.length,
-      'something other than the closed section and the menus reports itself closed',
+      1 + MENUS_RULED.length + DIALS_RULED.length,
+      'something other than the closed section, the menus and the adjustment carets reports itself closed',
     );
     assert.strictEqual(
       occurrences(html, /aria-expanded="true"/),
@@ -627,6 +724,8 @@ describe('what the panel owes a reader who is not using a pointer', () => {
         allOperations().length
         + 2
         + MENU_OPTIONS_DRAWN
+        + DIALS_RULED.length
+        + DIALS_DRAWN
         + (layout === 'sections' ? OPERATION_GROUPS.length : 0),
         `the ${layout} shape draws a number of buttons other than its controls`,
       );
@@ -711,12 +810,17 @@ describe('what the panel owes a reader who is not using a pointer', () => {
     );
     // 🔴 AND NOTHING ELSE IN THE DOCUMENT IS OUTSIDE ONE OR THE OTHER. This is
     // the clause that keeps the narrowing above from being a weakening: every
-    // stop-less control is either an operation the roving stop passes over or a
-    // menu choice, and a third kind arriving fails here.
+    // stop-less control is one of a closed set of kinds, and a kind arriving
+    // from outside it fails here.
+    //
+    // The kinds are: an operation the roving stop passes over; a menu choice; an
+    // adjustment caret, which the roving stop DOES walk and so passes over on
+    // every drawing but one; and an adjustment itself, which is inside a menu and
+    // out of the tab order for the same reason a choice is.
     assert.strictEqual(
       occurrences(html, /tabindex="-1"/),
-      allOperations().length - 1 + MENU_OPTIONS_DRAWN,
-      'something other than the flow\'s controls and the menu choices carries no tab stop',
+      allOperations().length - 1 + MENU_OPTIONS_DRAWN + DIALS_RULED.length + DIALS_DRAWN,
+      'something other than the flow\'s controls, the menu choices and the adjustments carries no tab stop',
     );
   });
 
@@ -770,12 +874,13 @@ describe('what the panel owes a reader who is not using a pointer', () => {
       'a toggle does not name the region it controls',
     );
     // The total is accounted for, so the narrowing above cannot hide a control
-    // that reports an expansion state it has no business having: a toggle, or a
-    // control that opens a menu, and nothing else.
+    // that reports an expansion state it has no business having: a toggle, a
+    // control that opens a menu, or a caret that opens adjustments, and nothing
+    // else.
     assert.strictEqual(
       occurrences(html, /aria-expanded=/),
-      OPERATION_GROUPS.length + MENUS_RULED.length,
-      'something that neither opens a section nor opens a menu reports an expansion state',
+      OPERATION_GROUPS.length + MENUS_RULED.length + DIALS_RULED.length,
+      'something that neither opens a section, a menu nor a set of adjustments reports an expansion state',
     );
   });
 });
@@ -855,42 +960,65 @@ describe('a control that offers its choices beside itself', () => {
     for (const layout of BOTH) {
       const html = operationsBodyHtml(body({ layout }));
       assert.deepStrictEqual(
-        Array.from(html.matchAll(/<div class="op-menu" id="menu-([a-zA-Z]+)"/g)).map((m) => m[1]),
-        MENUS_RULED.map((menu) => menu.id),
+        menuIdsIn(html),
+        MENU_IDS_IN_ORDER,
         `the ${layout} shape draws a different set of menus, or draws them in a different order`,
       );
       // And no OTHER control claims to open one. This is the half that catches a
       // menu reference added to a control the layer holds no menu for — which
       // would be a control announcing a choice that does not exist.
       assert.deepStrictEqual(
-        Array.from(html.matchAll(/aria-haspopup="menu" aria-expanded="false" aria-controls="menu-([a-zA-Z]+)"/g))
+        Array.from(html.matchAll(/aria-haspopup="menu" aria-expanded="false" aria-controls="menu-([a-zA-Z-]+)"/g))
           .map((m) => m[1])
           .sort(),
-        MENUS_RULED.map((menu) => menu.id).sort(),
+        [...MENU_IDS_IN_ORDER].sort(),
         `the ${layout} shape has a control claiming a menu that is not there, or a menu no control opens`,
       );
     }
+    // 🔴 A NEGATIVE CONTROL ON THE WIDENED INSTRUMENT, and it is the reason the
+    // widening is safe to make. The ruled order above names a region whose id
+    // carries a hyphen, so a census over letters alone would have found nothing
+    // for it and reported a clean sweep over a menu it never inspected. This
+    // establishes that such an id IS in the ruled set, which is what makes the
+    // comparisons above measure the wider surface rather than the old one.
+    assert.ok(
+      MENU_IDS_IN_ORDER.some((id) => id.includes('-')),
+      'no ruled region carries a hyphenated id, so the widened census measures nothing the narrow one missed',
+    );
+    assert.deepStrictEqual(
+      MENU_IDS_IN_ORDER.filter((id) => id.includes('-')),
+      DIALS_RULED.map((dials) => dials.control),
+      'the hyphenated regions are not the adjustment menus, so the widening admits something unaccounted for',
+    );
   });
 
   it('draws each menu\'s choices, by what they compose and by what they read', () => {
-    const chunks = menusOf(operationsBodyHtml(body({ layout: 'buttons' })));
-    assert.strictEqual(chunks.length, MENUS_RULED.length, 'the document draws a different number of menus');
-    for (let at = 0; at < MENUS_RULED.length; at += 1) {
-      const ruled = MENUS_RULED[at];
+    // Each menu is sliced by the control it belongs to rather than by its
+    // position, so a menu that MOVED in the layer — which a settings menu
+    // interleaved among the operations does — fails the order clause above
+    // rather than silently shifting every assertion here onto its neighbour.
+    const html = operationsBodyHtml(body({ layout: 'buttons' }));
+    assert.strictEqual(
+      menusOf(html).length,
+      MENUS_RULED.length + DIALS_RULED.length,
+      'the document draws a different number of menus',
+    );
+    for (const ruled of MENUS_RULED) {
+      const chunk = menuChunkFor(html, ruled.id);
       assert.deepStrictEqual(
-        optionsIn(chunks[at]), ruled.values,
+        optionsIn(chunk), ruled.values,
         `${ruled.id} composes a different selection, or composes them in a different order`,
       );
       assert.deepStrictEqual(
-        optionLabelsIn(chunks[at]), ruled.labels,
+        optionLabelsIn(chunk), ruled.labels,
         `${ruled.id} reads differently, or reads its choices in a different order`,
       );
       assert.ok(
-        chunks[at].includes(`aria-label="${ruled.label}"`),
+        chunk.includes(`aria-label="${ruled.label}"`),
         `${ruled.id}'s menu is not named ${JSON.stringify(ruled.label)} for a reader who cannot see it`,
       );
       assert.ok(
-        chunks[at].includes(`data-menu-command="${ruled.command}"`),
+        chunk.includes(`data-menu-command="${ruled.command}"`),
         `${ruled.id}'s menu names a command other than the one its control runs`,
       );
     }
@@ -1116,33 +1244,33 @@ describe('a control that offers its choices beside itself', () => {
     // that opened empty while the workspace was being read would be worse than
     // the chooser it replaces: emptiness reads as "there is nothing" rather
     // than as "wait", and a reader acts on that reading.
-    const chunks = menusOf(operationsBodyHtml(body({ layout: 'buttons' })));
-    for (let at = 0; at < MENUS_RULED.length; at += 1) {
-      const ruled = MENUS_RULED[at];
+    const html = operationsBodyHtml(body({ layout: 'buttons' }));
+    for (const ruled of MENUS_RULED) {
+      const chunk = menuChunkFor(html, ruled.id);
       const fetched = ruled.waiting !== '';
       assert.strictEqual(
-        chunks[at].includes('data-menu-fetched'), fetched,
+        chunk.includes('data-menu-fetched'), fetched,
         `${ruled.id} is drawn as ${fetched ? 'a fixed' : 'a fetched'} menu`,
       );
       if (!fetched) {
         // A fixed menu has nothing to wait for, so its line says nothing and is
         // hidden — a choice announced with no text is worse than no choice.
         assert.ok(
-          chunks[at].includes('data-menu-status hidden>'),
+          chunk.includes('data-menu-status hidden>'),
           `${ruled.id} draws a waiting line it has nothing to wait for`,
         );
         continue;
       }
       assert.strictEqual(
-        optionsIn(chunks[at]).length, 0,
+        optionsIn(chunk).length, 0,
         `${ruled.id} composes choices the workspace has not been asked for yet`,
       );
       assert.ok(
-        chunks[at].includes(`aria-live="polite" data-menu-status>${ruled.waiting}</div>`),
+        chunk.includes(`aria-live="polite" data-menu-status>${ruled.waiting}</div>`),
         `${ruled.id} does not say it is reading, or says it where nothing announces it`,
       );
       assert.ok(
-        chunks[at].includes(`data-menu-pending="${ruled.waiting}"`),
+        chunk.includes(`data-menu-pending="${ruled.waiting}"`),
         `${ruled.id} carries no waiting line to return to, so re-opening it would show a stale answer`,
       );
     }
@@ -1153,8 +1281,8 @@ describe('a control that offers its choices beside itself', () => {
     // reader can reach but not see — the same treatment a closed section gets.
     const html = operationsBodyHtml(body({ layout: 'buttons' }));
     assert.strictEqual(
-      occurrences(html, /<div class="op-menu" id="menu-[a-zA-Z]+" role="menu" aria-label="[^"]*" hidden /),
-      MENUS_RULED.length,
+      occurrences(html, /<div class="op-menu[^"]*" id="menu-[a-zA-Z-]+" role="menu" aria-label="[^"]*" hidden /),
+      MENUS_RULED.length + DIALS_RULED.length,
       'a menu is drawn open, or is closed by something other than leaving the tree',
     );
   });
@@ -1173,8 +1301,8 @@ describe('a control that offers its choices beside itself', () => {
       },
     }));
     assert.deepStrictEqual(
-      Array.from(html.matchAll(/<div class="op-menu" id="menu-([a-zA-Z]+)"/g)).map((m) => m[1]),
-      MENUS_RULED.filter((menu) => menu.id !== 'push' && menu.id !== 'pluginAdd').map((menu) => menu.id),
+      menuIdsIn(html),
+      MENU_IDS_IN_ORDER.filter((id) => id !== 'push' && id !== 'pluginAdd'),
       'a menu is composed for a control that cannot open it, or one is lost from a control that can',
     );
     // And neither disabled control still claims to open one, which is the half
@@ -1185,6 +1313,49 @@ describe('a control that offers its choices beside itself', () => {
         'a control that cannot run still announces a menu',
       );
     }
+  });
+
+  it('withdraws the caret AND its adjustments from a button that cannot run', () => {
+    // 🔴 THE SAME RULE AS ABOVE, ASSERTED FOR THE OTHER KIND OF MENU, and it is
+    // not covered by that clause: the button whose adjustments these are is one
+    // the panel CAN disable, so the case is reachable rather than theoretical.
+    // Adjustments to a press a reader cannot make are settings for a build that
+    // cannot start — and a caret left standing beside a disabled button would
+    // let them be turned, with the panel remembering a setting nothing will
+    // carry.
+    for (const layout of BOTH) {
+      const html = operationsBodyHtml(body({
+        layout,
+        unavailable: { build: NO_RELEASE_SELECTED_CONTROL_REASON },
+      }));
+      for (const ruled of DIALS_RULED) {
+        assert.strictEqual(
+          caretTagOf(html, ruled.holder), undefined,
+          `the ${layout} shape still draws a caret beside ${ruled.holder}, which cannot run`,
+        );
+      }
+      assert.deepStrictEqual(
+        menuIdsIn(html),
+        MENU_IDS_IN_ORDER.filter((id) => !DIALS_RULED.some((d) => d.control === id)),
+        `the ${layout} shape holds an adjustment menu no control can open`,
+      );
+      // And the caret is not merely disabled in place: it is gone, so the walk
+      // cannot stop on it. A disabled control cannot take focus, so a stop
+      // placed on one would be a stop the reader can never reach.
+      assert.strictEqual(
+        occurrences(html, /class="op-caret"/), 0,
+        `the ${layout} shape left the caret in place rather than withdrawing it`,
+      );
+    }
+    // A negative control on all three: with the button available every one of
+    // them IS drawn, so the absences above measure the rule rather than a
+    // document that never carried a caret.
+    const available = operationsBodyHtml(body({ layout: 'buttons' }));
+    assert.strictEqual(
+      occurrences(available, /class="op-caret"/),
+      DIALS_RULED.length,
+      'no caret is drawn when the button can run, so the withdrawal above proves nothing',
+    );
   });
 
   it('draws the menus OUTSIDE the flow, so the flow still holds only its buttons', () => {
@@ -1272,6 +1443,259 @@ describe('a control that offers its choices beside itself', () => {
   });
 });
 
+describe('a button whose next press can be adjusted', () => {
+  it('🔴 KEEPS ITS OWN PRESS: the button offers no menu, so pressing it runs', () => {
+    // 🔴 THE CLAUSE THE WHOLE ARRANGEMENT EXISTS FOR. The panel's script answers
+    // a press on a control carrying a menu by OPENING that menu instead of
+    // running the command — so adjustments hung off the Build button would take
+    // the press away, and a reader pressing Build would get a list rather than a
+    // build. The adjustments therefore sit on a control of their own and the
+    // button is left exactly as it was.
+    //
+    // Asserted against the button's own tag in both shapes, by every attribute
+    // the script or the platform would read to divert a press.
+    for (const layout of BOTH) {
+      const html = operationsBodyHtml(body({ layout }));
+      for (const ruled of DIALS_RULED) {
+        const command = commandIdFor(
+          allOperations().find((op) => op.id === ruled.holder) as never,
+        );
+        const tag = tagsOf(html).find((t) => t.includes(`data-command="${command}"`));
+        assert.ok(tag !== undefined, `${ruled.holder} is not drawn at all in the ${layout} shape`);
+        assert.ok(
+          !tag.includes('data-menu='),
+          `${ruled.holder} is marked as opening a menu, so pressing it would open one instead of running`,
+        );
+        assert.ok(
+          !tag.includes('aria-haspopup'),
+          `${ruled.holder} announces a menu, so a reader is told the button asks rather than acts`,
+        );
+        assert.ok(
+          !tag.includes('aria-expanded'),
+          `${ruled.holder} reports an expansion state, which a button that runs has none of`,
+        );
+        assert.ok(
+          !tag.includes('aria-controls='),
+          `${ruled.holder} points at a region of its own`,
+        );
+      }
+    }
+  });
+
+  it('draws the caret immediately after its own button, in both shapes', () => {
+    // Adjacency is what makes the caret read as belonging to the button rather
+    // than as another operation. It is asserted as adjacency in the DOCUMENT —
+    // nothing between the two but whitespace — because the flow wraps at
+    // whatever width the reader drags the panel to, and a caret with another
+    // control between it and its button could wrap onto a line under a button
+    // that is not its own.
+    for (const layout of BOTH) {
+      const html = operationsBodyHtml(body({ layout }));
+      for (const ruled of DIALS_RULED) {
+        const command = commandIdFor(
+          allOperations().find((op) => op.id === ruled.holder) as never,
+        );
+        const buttonEnd = html.indexOf('</button>', html.indexOf(`data-command="${command}"`));
+        assert.notStrictEqual(buttonEnd, -1, `${ruled.holder} is not drawn as a control`);
+        const after = html.slice(buttonEnd + '</button>'.length);
+        assert.strictEqual(
+          after.trimStart().startsWith(`<button class="op-caret"`), true,
+          `the ${layout} shape draws something between ${ruled.holder} and its caret`,
+        );
+      }
+    }
+  });
+
+  it('gives the caret no command, no group, and a place in the roving walk', () => {
+    // NO COMMAND: nothing the caret does reaches the compiler, so a command on
+    // it would be a second route to an operation it does not run — and the
+    // panel's guard admits a press only for a command its own content offers,
+    // which a caret has none of.
+    //
+    // NO GROUP: the caret is an adjunct of one control rather than a member of
+    // the operation surface. Stating a group on it would put a non-operation
+    // into the surface's own membership, which the membership clause reads off
+    // exactly that attribute.
+    //
+    // A PLACE IN THE WALK: a reader who cannot use a pointer reaches the
+    // adjustments with the arrow keys that reach every other control, rather
+    // than by a gesture of its own.
+    for (const layout of BOTH) {
+      const html = operationsBodyHtml(body({ layout }));
+      for (const ruled of DIALS_RULED) {
+        const caret = caretTagOf(html, ruled.holder);
+        assert.ok(caret !== undefined, `no caret is drawn beside ${ruled.holder} in the ${layout} shape`);
+        assert.ok(caret.includes('type="button"'), 'the caret would submit rather than act');
+        assert.ok(!caret.includes('data-command='), 'the caret carries a command of its own');
+        assert.ok(!caret.includes('data-group='), 'the caret claims membership of an operation group');
+        assert.ok(
+          caret.includes(`data-focus-key="${ruled.control}"`),
+          'the caret is outside the roving walk, so the arrow keys cannot reach it',
+        );
+        assert.ok(
+          caret.includes(`aria-controls="menu-${ruled.control}"`),
+          'the caret does not name the region it opens',
+        );
+        assert.ok(
+          caret.includes('aria-expanded="false"'),
+          'the caret does not report its region closed, so a reader is told neither open nor closed',
+        );
+        // It draws no word of its own, so it says what it is for a reader who
+        // meets it without seeing it — and that name says whose adjustments
+        // these are rather than merely that adjustments exist.
+        assert.ok(
+          caret.includes(`aria-label="${ruled.caretName}"`),
+          'the caret carries no name, so a reader who cannot see it is told nothing',
+        );
+      }
+    }
+  });
+
+  it('says how many adjustments are on, so one left on is not silently carried', () => {
+    // The caret draws no word, so a reader who turned something on and pressed
+    // elsewhere has nothing in front of them saying so. The count is put on the
+    // name and the hover, which is where a reader can ask for it — a drawn count
+    // would spend the flow's width on a fact that is usually zero.
+    const ruled = DIALS_RULED[0];
+    const off = operationsBodyHtml(body({ layout: 'buttons' }));
+    const on = operationsBodyHtml(body({ layout: 'buttons', dials: ruled.values }));
+    assert.ok(
+      (caretTagOf(off, ruled.holder) ?? '').includes(`aria-label="${ruled.caretName}"`),
+      'the caret names a count when nothing is on',
+    );
+    assert.ok(
+      (caretTagOf(on, ruled.holder) ?? '')
+        .includes(`aria-label="${ruled.caretName}, ${ruled.values.length} on"`),
+      'the caret does not say how many adjustments are on',
+    );
+  });
+
+  it('draws each adjustment as a setting with a state, never as a choice', () => {
+    // 🔴 THE ATTRIBUTE THAT SEPARATES THEM IS ASSERTED AS ABSENT, and the reason
+    // is behavioural rather than cosmetic: the panel's script answers a press on
+    // `data-option` by CLOSING the menu and running the operation. An adjustment
+    // carrying that attribute would therefore run a build the moment a reader
+    // turned it, and close the menu before they could turn a second — which is
+    // the failure this absence prevents.
+    const html = operationsBodyHtml(body({ layout: 'buttons' }));
+    for (const ruled of DIALS_RULED) {
+      const chunk = menuChunkFor(html, ruled.control);
+      assert.deepStrictEqual(
+        dialsIn(chunk), ruled.values,
+        `${ruled.control} composes a different set of adjustments, or in a different order`,
+      );
+      assert.deepStrictEqual(
+        optionsIn(chunk), [],
+        `${ruled.control} draws an adjustment as a choice, so turning it would run the operation and close the menu`,
+      );
+      assert.deepStrictEqual(
+        optionLabelsIn(chunk), ruled.labels,
+        `${ruled.control} reads differently, or reads its adjustments in a different order`,
+      );
+      assert.ok(
+        chunk.includes(`aria-label="${ruled.label}"`),
+        `${ruled.control} is not named for a reader who cannot see it`,
+      );
+      // NO COMMAND ON THE MENU EITHER. A choice reaches its operation because the
+      // menu names the command; a settings menu must name none, or a press on a
+      // setting would have an operation to run.
+      assert.ok(
+        !chunk.includes('data-menu-command='),
+        `${ruled.control} names a command, so an adjustment would be a route to an operation`,
+      );
+      const entries = tagsOf(chunk).filter((tag) => tag.includes('class="op-menu-dial"'));
+      assert.strictEqual(
+        entries.length, ruled.values.length,
+        `${ruled.control} draws a number of settings other than the ones it holds`,
+      );
+      for (const tag of entries) {
+        assert.ok(tag.includes('type="button"'), 'an adjustment would submit rather than act');
+        assert.ok(
+          tag.includes('role="menuitemcheckbox"'),
+          'an adjustment is reported as a choice, so nothing announces whether it is on',
+        );
+        assert.ok(
+          tag.includes('tabindex="-1"'),
+          'an adjustment adds a second tab stop to the panel',
+        );
+        assert.ok(
+          !tag.includes('data-command='),
+          'an adjustment carries a command of its own',
+        );
+        assert.ok(
+          !tag.includes('data-focus-key='),
+          'an adjustment would be walked by the panel\'s own roving stop',
+        );
+      }
+    }
+  });
+
+  it('reports each adjustment\'s state, and composes the reader\'s own into the first drawing', () => {
+    // The state is composed rather than set afterwards, for the same reason the
+    // reader's closed sections are: restoring after the document loads always
+    // paints the default first, and the frame in between is the flicker. It also
+    // means the document is the one home of that state — the panel's script
+    // reads it back from here rather than keeping a copy that could start empty
+    // in front of a drawing that already said otherwise.
+    const ruled = DIALS_RULED[0];
+    const off = menuChunkFor(operationsBodyHtml(body()), ruled.control);
+    assert.strictEqual(
+      occurrences(off, /aria-checked="false"/), ruled.values.length,
+      'an adjustment nobody turned does not report itself off',
+    );
+    assert.strictEqual(
+      occurrences(off, /aria-checked="true"/), 0,
+      'an adjustment reports itself on before anybody turned it',
+    );
+    const on = menuChunkFor(operationsBodyHtml(body({ dials: ruled.values })), ruled.control);
+    assert.strictEqual(
+      occurrences(on, /aria-checked="true"/), ruled.values.length,
+      'the reader\'s own adjustment is not composed into the drawing',
+    );
+    assert.strictEqual(
+      occurrences(on, /aria-checked="false"/), 0,
+      'an adjustment the reader turned on still reports itself off',
+    );
+    // A value the panel does not offer is not drawn as an adjustment that is on.
+    // A document composed by an earlier version of this extension can record
+    // one, and it must not turn something else on by arriving.
+    const stray = menuChunkFor(
+      operationsBodyHtml(body({ dials: ['somethingWithdrawn'] })),
+      ruled.control,
+    );
+    assert.strictEqual(
+      occurrences(stray, /aria-checked="true"/), 0,
+      'a recorded value the panel does not offer turned an adjustment on',
+    );
+  });
+
+  it('draws the adjustments OUTSIDE the flow, so the flow still holds only buttons', () => {
+    // The same rule the choice menus follow, and for the same structural reason:
+    // the flow draws nothing between one button and the next, and a menu among
+    // them would be a flow item that repacked the buttons as it opened. The
+    // caret IS in the flow — it is a button — and the menu it opens is not.
+    const html = operationsBodyHtml(body({ layout: 'buttons' }));
+    assert.strictEqual(
+      betweenTheButtonsOf(html), '',
+      'an adjustment menu was composed among the flow\'s own buttons',
+    );
+    // A negative control on that residue: the caret really is inside the flow,
+    // so the empty result above measures what sits between the buttons rather
+    // than a flow the caret never reached.
+    assert.strictEqual(
+      occurrences(flowOf(html), /class="op-caret"/),
+      DIALS_RULED.length,
+      'the caret is not in the flow at all, so the residue measures the wrong document',
+    );
+    for (const ruled of DIALS_RULED) {
+      assert.ok(
+        html.indexOf('<div class="op-menus">') < html.indexOf(`id="menu-${ruled.control}"`),
+        `${ruled.control} is drawn outside the menu layer`,
+      );
+    }
+  });
+});
+
 describe('the whole document', () => {
   const document = (over: Partial<OperationsBody> = {}): string => operationsDocumentHtml({
     nonce: 'NONCE',
@@ -1291,7 +1715,7 @@ describe('the whole document', () => {
     assert.ok(html.includes('codicon.css'), 'the stylesheet naming the font is not loaded');
     assert.strictEqual(
       occurrences(html, /class="codicon codicon-[a-z-]+"/),
-      allOperations().length + 2,
+      allOperations().length + 2 + DIALS_RULED.length + DIALS_DRAWN,
       'a control draws no icon, or one is drawn twice',
     );
   });

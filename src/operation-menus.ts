@@ -10,6 +10,7 @@ import {
   ATTACHABLE_PLUGIN_TYPES,
   GEN_CATALOG_SCOPES,
 } from './plugins-run';
+import { BUILD_DIALS } from './build-dials';
 import { EntityKind } from './entity-kinds';
 
 // This module is the one description of which controls answer a press by
@@ -25,6 +26,25 @@ import { EntityKind } from './entity-kinds';
 // was written and then diverge silently — and the symptom would be a menu
 // offering something the operation refuses, or withholding something it accepts,
 // with nothing comparing the two.
+
+// MenuControlId names a control that can hold a menu.
+//
+// It is wider than the operation set because not every such control IS an
+// operation: an operation's own button holds the menu that answers the question
+// that operation was going to ask, while a SECOND control beside it holds the
+// adjustments made before it runs. The two cannot be one entry, and the reason
+// is mechanical rather than a matter of taste — a control carrying a menu
+// answers a press by opening it instead of running, so putting the adjustments
+// under the operation's own id would stop that operation running at all.
+export type DialsControlId = `dials-${OperationId}`;
+export type MenuControlId = OperationId | DialsControlId;
+
+// dialsControlId names the control that holds one operation's adjustments. It
+// is derived rather than recorded, so the key this menu is registered under and
+// every reference to it cannot disagree.
+export function dialsControlId(id: OperationId): DialsControlId {
+  return `dials-${id}`;
+}
 
 // MenuOption is one choice, with every string already decided.
 //
@@ -42,13 +62,34 @@ export interface MenuOption {
   detail: string;
 }
 
+// MenuDial is one setting a menu holds, rather than one choice it offers.
+//
+// The two are shaped alike and behave oppositely, which is why they are
+// separate types: taking a choice ANSWERS the control's question and closes the
+// menu, while turning a setting leaves the menu standing, because a reader
+// adjusting two settings would otherwise have to re-open the menu between them.
+export interface MenuDial {
+  value: string;
+  label: string;
+  detail: string;
+}
+
 // OperationMenu describes one control's menu.
 //
-// The two kinds are not two styles of the same thing: a fixed menu carries its
-// whole content in the composed document, while a fetched one cannot, because
-// its options are the language server's answer about the workspace. That
-// difference is what makes the in-flight state a property of the fetched kind
-// alone.
+// The three kinds are not three styles of the same thing.
+//
+// A fixed menu carries its whole content in the composed document, while a
+// fetched one cannot, because its options are the language server's answer
+// about the workspace — which is what makes the in-flight state a property of
+// the fetched kind alone.
+//
+// A dials menu differs from both on a further axis: its entries are not answers
+// to a question but SETTINGS carried into the next press of the control beside
+// it. So it holds no command of its own, nothing it holds runs anything, and
+// pressing an entry leaves the menu open. The kinds are separate cases rather
+// than one case with a flag because the panel's own script must be able to tell
+// a press that answers from a press that adjusts, and a flag on one shape would
+// leave that distinction to be remembered rather than read.
 export type OperationMenu =
   | {
     kind: 'fixed';
@@ -68,6 +109,11 @@ export type OperationMenu =
     // and the reader would act on that reading. So the fetched kind always
     // composes this line, and the options arrive beneath it.
     pending: string;
+  }
+  | {
+    kind: 'dials';
+    label: string;
+    dials: MenuDial[];
   };
 
 // CACHE_MENU_LABEL and the rest name what each menu is choosing. Each is a
@@ -79,6 +125,12 @@ const PUBLISH_MENU_LABEL = 'Entity to publish';
 const DRAFT_MENU_LABEL = 'Kind of entity to draft';
 const PLUGIN_TYPE_MENU_LABEL = 'Type of plugin to add';
 const GEN_CATALOG_MENU_LABEL = 'Plugins to generate an entity for';
+
+// BUILD_DIALS_MENU_LABEL names what the adjustments beside the Build button
+// are. It says they apply to the next build rather than naming them a mode,
+// because they are not alternatives to a build — pressing Build runs a build
+// either way, and these decide what that one build also does.
+const BUILD_DIALS_MENU_LABEL = 'Adjustments for the next build';
 
 // READING_THE_INDEX is what the two menus offering the workspace's own entities
 // say while the language server is answering. It is one sentence for both
@@ -94,10 +146,17 @@ const READING_THE_INDEX = 'Reading the workspace entity index…';
 // this read never touches.
 const READING_THE_KINDS = 'Reading the entity kinds the compiler declares…';
 
-// OPERATION_MENUS is the whole set, keyed by the operation whose button opens
-// it. An operation absent from this map answers a press by running, or by
-// opening a prompt of its own, exactly as it did before.
-export const OPERATION_MENUS: Partial<Record<OperationId, OperationMenu>> = {
+// OPERATION_MENUS is the whole set, keyed by the control whose press opens it.
+// A control absent from this map answers a press by running, or by opening a
+// prompt of its own, exactly as it did before.
+//
+// 🔴 AN OPERATION'S OWN ID AND ITS ADJUSTMENTS' CONTROL ID ARE DIFFERENT KEYS,
+// and registering the adjustments under the operation's own id is the one thing
+// this map must never carry: a control in this map opens its menu instead of
+// running, so the Build button would stop building. The adjustments therefore
+// sit under a control of their own, drawn beside the button, and the button's
+// own press is untouched.
+export const OPERATION_MENUS: Partial<Record<MenuControlId, OperationMenu>> = {
   // The cache entry is the one control whose press names no operation at all,
   // so what its menu offers IS the operation. The reach of each is on its own
   // row, because the difference between emptying what belongs to this workspace
@@ -162,11 +221,29 @@ export const OPERATION_MENUS: Partial<Record<OperationId, OperationMenu>> = {
       detail: '',
     })),
   },
+  // The adjustments a build offers, read from the one description of them
+  // rather than written out again — so a dial withdrawn from the build is
+  // withdrawn from what a reader is offered in the same act, and one that has
+  // to be added cannot be added here alone and reach no request.
+  //
+  // 🔴 REGISTERED AGAINST A CONTROL OF ITS OWN, NEVER AGAINST `build`. The
+  // Build button runs on a press and offers nothing, which is the whole design:
+  // a reader presses it and gets a build with the current settings, with no
+  // dialog and no choice in the way.
+  [dialsControlId('build')]: {
+    kind: 'dials',
+    label: BUILD_DIALS_MENU_LABEL,
+    dials: BUILD_DIALS.map((dial) => ({
+      value: dial.id,
+      label: dial.label,
+      detail: dial.detail,
+    })),
+  },
 };
 
 // menuFor reports the menu a control opens, or null where pressing it opens no
 // menu at all.
-export function menuFor(id: OperationId): OperationMenu | null {
+export function menuFor(id: MenuControlId): OperationMenu | null {
   return OPERATION_MENUS[id] ?? null;
 }
 
@@ -180,6 +257,10 @@ export function menuFor(id: OperationId): OperationMenu | null {
 // such a choice is resolved where it can be — against the offer by whoever
 // consumes it, or by the compiler, which refuses in its own words a value it no
 // longer answers for.
+//
+// A dials menu answers false for a different reason again, and it is not a
+// bound: it holds no choices at all. Nothing it holds is an answer an operation
+// acts on, so there is no value here for an invocation to carry.
 export function menuOptionOffered(id: OperationId, value: string): boolean {
   const menu = menuFor(id);
   if (menu === null || menu.kind !== 'fixed') { return false; }
@@ -261,6 +342,10 @@ export function entityKindMenuOptions(kinds: EntityKind[]): MenuOption[] {
 //     a token of the compiler's own vocabulary; the first is resolved against
 //     that offer by whoever consumes it, and the second by the compiler, which
 //     refuses in its own words a value it no longer answers for.
+//   - a DIALS menu has no answer to report. Its entries are settings carried
+//     into the next press of the control beside it, not answers to a question
+//     this operation asked — so every value falls to the check below and comes
+//     back as none, and the operation asks whatever it was going to ask.
 export function menuAnswer(id: OperationId, value: unknown): string | null {
   if (typeof value !== 'string' || value.trim() === '') { return null; }
   const menu = menuFor(id);

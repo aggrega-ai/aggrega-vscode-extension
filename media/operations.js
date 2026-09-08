@@ -86,8 +86,32 @@
   let openedBy = null;
   let typed = '';
 
+  // optionsIn reports everything in a menu the arrow keys walk and the filter
+  // narrows. It covers a menu's CHOICES and its SETTINGS alike, because the
+  // whole keyboard contract — the arrow keys, the ends, the dismiss key,
+  // narrowing as the reader types — is owed to both: a menu whose entries the
+  // arrow keys did not reach would be a menu only a pointer can use.
+  //
+  // What separates the two is what a press DOES, which the press handler reads
+  // off the entry itself, and not whether the keys reach it.
   function optionsIn(menu) {
-    return Array.prototype.slice.call(menu.querySelectorAll('[data-option]'));
+    return Array.prototype.slice.call(menu.querySelectorAll('[data-option], [data-dial]'));
+  }
+
+  // dialsSetIn reports which of a menu's settings are on, read from the document
+  // rather than from a record kept here.
+  //
+  // 🔴 THE DOCUMENT IS THE ONE HOME OF THAT STATE, and holding a copy on this
+  // side is the divergence to avoid: the extension composes the body — including
+  // on the first drawing after the reader re-opens a panel it had put away — so
+  // a variable here would start empty in front of a document that already said
+  // otherwise, and the next press would post a set that silently turned an
+  // adjustment back off.
+  function dialsSetIn(menu) {
+    return optionsIn(menu)
+      .filter((entry) => entry.dataset.dial !== undefined
+        && entry.getAttribute('aria-checked') === 'true')
+      .map((entry) => entry.dataset.dial);
   }
 
   // shownOptionsIn reports the choices the reader can currently reach. A choice
@@ -100,6 +124,19 @@
 
   function statusOf(menu) {
     return menu.querySelector('[data-menu-status]');
+  }
+
+  // narrows reports whether typing filters this menu.
+  //
+  // A menu of SETTINGS is not narrowed, and the absence is deliberate rather
+  // than unimplemented. It holds a short set that is read whole, so there is no
+  // long list for a filter to be worth having over — and it carries no status
+  // line, so a filter here could put the only setting away with nothing saying
+  // why. The arrow keys, the ends and the dismiss key are unaffected: those are
+  // owed to every menu, and a menu only a pointer could use would be worse than
+  // no menu.
+  function narrows(menu) {
+    return menu.dataset.menuDials === undefined;
   }
 
   function say(menu, text) {
@@ -257,7 +294,7 @@
     if (event.key === 'Home') { focusAt(menu, 0); return true; }
     if (event.key === 'End') { focusAt(menu, shownOptionsIn(menu).length - 1); return true; }
     if (event.key === 'Backspace') {
-      if (typed === '') { return false; }
+      if (!narrows(menu) || typed === '') { return false; }
       typed = typed.slice(0, -1);
       narrow(menu);
       return true;
@@ -280,7 +317,8 @@
     // otherwise: that is one key meaning two things depending on state the
     // reader cannot see, which is the fault this file rejects for the dismiss
     // key as well.
-    if (event.key !== ' '
+    if (narrows(menu)
+      && event.key !== ' '
       && event.key.length === 1
       && !event.ctrlKey && !event.metaKey && !event.altKey) {
       typed += event.key;
@@ -317,9 +355,39 @@
   // so a control does here exactly what the same command does anywhere else in
   // the extension.
   panel.addEventListener('click', (event) => {
-    // A choice is answered first, because it is the innermost thing a press can
-    // land on. It carries no command of its own — the command is on the menu —
-    // so the operation and the answer leave together as one press.
+    // 🔴 A SETTING IS TURNED AND THE MENU STAYS OPEN, which is the whole
+    // difference between a setting and a choice and is why it is answered
+    // before one. A reader adjusting two of them would otherwise have to
+    // re-open the menu between them, and nothing has run yet either way: these
+    // reach the compiler on the next press of the button beside them, as
+    // parameters of that one request.
+    //
+    // The two things that DO close this menu are the two a reader would expect:
+    // pressing the button it belongs to, and pressing the caret again. Both are
+    // below. Nothing else here closes it, and a third way would be a dismissal
+    // the reader did not ask for.
+    const dial = event.target.closest('[data-dial]');
+    if (dial) {
+      const menu = dial.closest('[data-menu-dials]');
+      const on = dial.getAttribute('aria-checked') !== 'true';
+      dial.setAttribute('aria-checked', on ? 'true' : 'false');
+      const mark = dial.querySelector('.codicon');
+      if (mark) {
+        mark.classList.toggle('codicon-check', on);
+        mark.classList.toggle('codicon-blank', !on);
+      }
+      // Posted so the extension composes the next drawing already carrying the
+      // reader's setting, and so the press of the button beside it carries the
+      // same set this document shows. It is NOT written into this document's
+      // remembered state: an adjustment surviving a window reload would hand a
+      // reader a registry reach and a lockfile write on a later build without
+      // their seeing why they asked for it.
+      if (menu) { vscode.postMessage({ type: 'dials', set: dialsSetIn(menu) }); }
+      return;
+    }
+    // A choice is answered next, because it is the innermost remaining thing a
+    // press can land on. It carries no command of its own — the command is on
+    // the menu — so the operation and the answer leave together as one press.
     const option = event.target.closest('[data-option]');
     if (option) {
       const menu = option.closest('[data-menu-command]');
@@ -331,6 +399,15 @@
           option: option.dataset.option,
         });
       }
+      return;
+    }
+    // The caret beside a button opens that button's adjustments, and pressing it
+    // again puts them away — which is what a reader expects of anything that
+    // opened on a press. It carries no command, so it is answered here rather
+    // than falling through to the branch that runs one.
+    const caret = event.target.closest('[data-dials]');
+    if (caret) {
+      if (openedBy === caret) { closeMenu(); } else { openMenuFor(caret); }
       return;
     }
     const toggle = event.target.closest('[data-toggle]');
