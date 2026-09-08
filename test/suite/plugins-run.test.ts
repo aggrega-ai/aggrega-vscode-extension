@@ -22,7 +22,6 @@ import {
   pluginNodes,
   pluginRemovalConfigTarget,
   pluginRemovalSubject,
-  pluginRemoveArgs,
   pluginRowContext,
   rowForPlugin,
 } from '../../src/plugins-run';
@@ -473,33 +472,9 @@ describe('plugins-run: which configuration file a removal writes', () => {
 });
 
 // --- the arguments each operation composes -------------------------------
-
-describe('plugins-run: composing a removal', () => {
-  it('passes the type and the reference through in the command’s own order', () => {
-    assert.deepStrictEqual(
-      pluginRemoveArgs('provider', 'oci://hub.aggrega.ai/plugin/provider/helm:1.0.0'),
-      ['plugin', 'remove', 'provider', 'oci://hub.aggrega.ai/plugin/provider/helm:1.0.0'],
-    );
-  });
-
-  it('translates no type, whatever the type is', () => {
-    // The listing reports a type and the removal accepts one, in the product's
-    // own vocabulary on both sides. A mapping here would be a second copy of a
-    // set the compiler owns, and it would rot silently.
-    for (const type of ['provider', 'governance', 'linter', 'importer', 'cli']) {
-      assert.strictEqual(pluginRemoveArgs(type, 'x/y')[2], type);
-    }
-  });
-
-  it('refuses without a reference, so no removal runs with nothing to match', () => {
-    assert.throws(() => pluginRemoveArgs('linter', ''), /takes a reference/);
-    assert.throws(() => pluginRemoveArgs('linter', '   '), /takes a reference/);
-  });
-
-  it('refuses without a type', () => {
-    assert.throws(() => pluginRemoveArgs('', 'x/y'), /takes the plugin's type/);
-  });
-});
+//
+// The removal composes no arguments: it is a request, and the properties its
+// composition holds are asserted against the request object in plugin-removal.
 
 describe('plugins-run: composing an attachment', () => {
   it('a socket type composes the type and the search term and nothing else', () => {

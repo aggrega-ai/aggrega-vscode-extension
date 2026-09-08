@@ -337,28 +337,6 @@ export function pluginRemovalSubject(node: PluginNode): PluginRemovalSubject | n
   return { type: node.row.type, reference: node.row.reference };
 }
 
-// pluginRemoveArgs composes the removal of one configured plugin.
-//
-// Both the type and the reference are the product's own strings, passed through
-// verbatim: the listing reports them and the removal accepts them, and the
-// removal matches a reference by an exact match on the entry it was configured
-// with. A translation between the two surfaces would be a second copy of a
-// vocabulary that belongs to the compiler, and it would agree with the compiler
-// only until the day one of them changed.
-//
-// The subject guard is reached rather than restated, which is why the verb it is
-// given is the whole command as a reader would name it: the composition builds
-// its own two-word verb, and only the checked subject is taken back.
-export function pluginRemoveArgs(type: string, reference: string): string[] {
-  const [, checkedType] = withSubject('plugin remove', type, "the plugin's type");
-  const [, query] = withSubject(
-    'plugin remove',
-    reference,
-    'a reference to the plugin to remove',
-  );
-  return ['plugin', 'remove', checkedType, query];
-}
-
 // pluginRemovalConfigTarget names the configuration file a removal of this type
 // writes, in the product's own terms.
 //

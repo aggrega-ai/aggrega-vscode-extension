@@ -2,8 +2,13 @@
 // Copyright 2026 Cognitio S.r.l.
 
 import * as vscode from 'vscode';
-import { CliOperationDeps, runCli, runWatchableCli } from './cli-operation';
+import { CliOperationDeps, reportOutcome, runCli, runWatchableCli } from './cli-operation';
 import { runCliJson } from './cli-json';
+import {
+  PluginRemovalDeps,
+  REMOVAL_SUBJECT,
+  runPluginRemoval,
+} from './plugin-removal';
 import {
   ATTACHABLE_PLUGIN_TYPES,
   GEN_CATALOG_SCOPES,
@@ -20,19 +25,20 @@ import {
   pluginNodes,
   pluginRemovalConfigTarget,
   pluginRemovalSubject,
-  pluginRemoveArgs,
   pluginRowContext,
 } from './plugins-run';
 import { menuAnswer } from './operation-menus';
 import { RendersOnReady } from './readiness';
 
 // PluginsDeps supplies the live state this panel needs: the anchored workspace
-// root the commands run in, the configured binary path, and the shared output
-// channel that carries the compiler's own report.
+// root the commands run in, the configured binary path, the shared output channel
+// that carries the compiler's own report, and the way to ask the language server
+// to remove a configured plugin.
 //
-// It adds nothing of its own to the invocation surface, so it is that surface
-// plus the readiness signal rather than a third declaration of the same members.
-export type PluginsDeps = RendersOnReady & CliOperationDeps;
+// The invocation surface stays, because the operations that remain command-backed
+// need it — so this is that surface plus the readiness signal plus the one request
+// this panel sends, rather than a fourth declaration of the same members.
+export type PluginsDeps = RendersOnReady & CliOperationDeps & PluginRemovalDeps;
 
 // PluginsTreeProvider renders the plugins the compiler can see as a two-group
 // tree in the Aggrega activity-bar container.
@@ -321,6 +327,19 @@ export function activatePluginsView(
     // configuration file the removal writes — that depends on the plugin's type
     // and is not guessable from the row, so it is put in front of the reader
     // before anything happens rather than explained afterwards.
+    //
+    // The confirmation predicts that file from the type, because it is asked
+    // before anything runs and there is no answer to read yet. The ending names
+    // the file the compiler actually wrote, which is the same fact measured
+    // instead of predicted.
+    //
+    // No progress indicator and no cancel button, and that follows from what the
+    // operation is rather than from its being quick. The shared operation behind
+    // the request accepts no cancellation, so a stop here could only stop this
+    // side waiting — and reporting that as a stop would tell a reader the compiler
+    // stopped when it did not. What the reader gets instead is the confirmation
+    // beforehand, which is the affordance a destructive operation owes, and an
+    // ending they cannot miss.
     vscode.commands.registerCommand(
       'aggrega.plugins.remove',
       (node?: PluginNode) => runOnRow(node, async (subject) => {
@@ -335,10 +354,13 @@ export function activatePluginsView(
           'Remove',
         );
         if (consented !== 'Remove') { return; }
-        await runCli(deps, 'The removal', pluginRemoveArgs(subject.type, subject.reference), {
-          detail: `removed the ${subject.type} plugin ${subject.reference}.`,
-        });
+        const outcome = await runPluginRemoval(deps, subject.type, subject.reference);
+        // The listing is re-read whatever the ending was. A removal that was
+        // refused may still have changed what the workspace resolves, because the
+        // work is the compiler's and it is not this surface's to say how far it
+        // got.
         plugins.refresh();
+        await reportOutcome(deps, REMOVAL_SUBJECT, outcome, true);
       }),
     ),
   );

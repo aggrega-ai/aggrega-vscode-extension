@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cognitio S.r.l.
 
+import { ConfigWriteScope, reachPhrase } from './config-write-scope';
 import { OperationOutcome, outcomeOf } from './operation-outcome';
 
 // This module is the whole of what seeding a configuration means on this side:
@@ -54,20 +55,6 @@ import { OperationOutcome, outcomeOf } from './operation-outcome';
 // request that says nothing about the registry.
 export interface ConfigInitParams {
   registry?: string;
-}
-
-// ConfigWriteScope is how far the write reached (mirrors the answer's `scope`).
-//
-// machineWide is the fact a reader most needs and has no other way to get. A
-// request names one workspace, so an answer with no reach on it reads as being
-// about that workspace — and this operation defaults to the file every project on
-// the machine resolves through, which makes that reading wrong. It is derived
-// from the file the write actually landed in rather than from the request, so it
-// cannot describe a machine-wide change as a local one.
-export interface ConfigWriteScope {
-  configFile: string;
-  machineWide: boolean;
-  workspaceRoot: string;
 }
 
 // TrustFetchOutcome is what the advertised-trust fetch did (mirrors `trust`).
@@ -188,14 +175,6 @@ export function seedingDetail(result: ConfigInitResult): string {
     ? `registered ${result.host} in ${where}`
     : `reported the configuration for ${result.host} without writing ${where}`;
   return `${opening}. ${trustPhrase(result.trust)}`;
-}
-
-// reachPhrase says how far the file that was written reaches, in the words the
-// panel and the product's own configuration reference use for the two files.
-function reachPhrase(scope: ConfigWriteScope): string {
-  return scope.machineWide
-    ? 'the global file shared by every project on this machine'
-    : 'this project\'s own configuration file';
 }
 
 // trustPhrase says what the advertised-trust fetch found.

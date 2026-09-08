@@ -1528,15 +1528,19 @@ describe('the welcome panel seeds a configuration without starting a process', (
   });
 
   it('gives the seeding decision no way to reach a process at all', () => {
-    // The module that owns the seeding imports one thing, and it cannot start
-    // anything: the classification of an ending. Read as the whole import list
-    // rather than as an absence, so a module added to it has to be looked at
-    // — including one that could reach a process, and one that would carry the
-    // editor in, which is what keeps this decision readable without a host.
+    // The module that owns the seeding imports two things, and neither can start
+    // anything: the classification of an ending, and how far a configuration
+    // write reached. Read as the whole import list rather than as an absence, so a
+    // module added to it has to be looked at — including one that could reach a
+    // process, and one that would carry the editor in, which is what keeps this
+    // decision readable without a host.
     const source = fs.readFileSync(path.join(EXTENSION_ROOT, 'src/config-seeding.ts'), 'utf8');
     const imported = [...source.matchAll(/from\s+'([^']+)'/g)].map((m) => m[1]);
-    assert.deepStrictEqual(imported.sort(), ['./operation-outcome']);
+    assert.deepStrictEqual(imported.sort(), ['./config-write-scope', './operation-outcome']);
     assert.strictEqual(launchFacilityCount('src/config-seeding.ts'), 0);
+    // The shared home is on the same side of the claim, so it is measured too
+    // rather than trusted for being small.
+    assert.strictEqual(launchFacilityCount('src/config-write-scope.ts'), 0);
   });
 
   it('sends the seeding to the language server under the compiler\'s own method name', () => {

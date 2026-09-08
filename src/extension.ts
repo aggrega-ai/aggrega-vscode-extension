@@ -8,6 +8,7 @@ import type { AttachmentContainerRequest } from './attachment-edit';
 import { CancellationSignal } from './cancellation';
 import type { RegistrySearchParams, SearchDoc } from './catalog-search-run';
 import type { ConfigInitParams, ConfigInitResult } from './config-seeding';
+import type { PluginRemoveParams, PluginRemoveResult } from './plugin-removal';
 import type { RegistryListDoc } from './registries-run';
 import { Daemon, DaemonState } from './daemon';
 import { debounce } from './debounce';
@@ -464,13 +465,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     output: outputChannel,
   });
 
-  // The plugins tree is CLI-backed (plugin list -o json), as is every operation
-  // it offers: no wire method carries any of them. The anchored root is not known
-  // when the tree is registered, so it renders from the readiness signal like
-  // every other view.
+  // The plugins tree reads over the command line (plugin list -o json), and it
+  // stays there: the compiler declines to serve that listing, because its subject
+  // is the toolchain — this binary and the guest modules it can load — rather than
+  // the workspace every request is about. The removal reaches the language server;
+  // the operations that remain command-backed keep the binary path.
+  //
+  // The anchored root is not known when the tree is registered, so it renders from
+  // the readiness signal like every other view.
   activatePluginsView(context, {
     getWorkspaceRoot: () => workspaceRootForCommands,
     getBinaryPath: () => getSettings().binaryPath,
+    removePlugin: requestPluginRemove,
     onReady: ready.onReady,
     output: outputChannel,
   });
@@ -1875,6 +1881,29 @@ async function requestRegistrySearch(params: RegistrySearchParams): Promise<Sear
     throw new Error('the Aggrega language server is not running');
   }
   return await daemon.request<SearchDoc>('aggrega/search', params);
+}
+
+// requestPluginRemove asks the language server to drop a configured plugin's
+// entry so it no longer participates in a build.
+//
+// It reaches no registry: a removal operates on the configuration text alone.
+// The answer names the configuration file the removal wrote and whether that file
+// is the global one, so the operation can tell the reader the reach of what just
+// changed instead of inferring it from a choice the request did not make.
+//
+// It carries no cancellation, and that is read off what the compiler does rather
+// than assumed: the shared operation behind the request takes none, and the
+// handler checks for a stopped caller only after that operation has returned. A
+// stop sent here would stop this client waiting and not the work, so none is
+// offered.
+//
+// Throws when the server is not running, so a caller reports that state rather
+// than presenting a removal that never ran as one that found nothing to remove.
+async function requestPluginRemove(params: PluginRemoveParams): Promise<PluginRemoveResult> {
+  if (!daemon || daemon.getState() !== DaemonState.Running) {
+    throw new Error('the Aggrega language server is not running');
+  }
+  return await daemon.request<PluginRemoveResult>('aggrega/pluginRemove', params);
 }
 
 async function handleCacheMiss<T>(method: string, params: unknown, doc: vscode.TextDocument): Promise<T | null> {

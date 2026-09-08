@@ -150,7 +150,17 @@ describe('a completed seeding says what was seeded and where', () => {
   });
 
   it('says the reach of the file, because the default is the machine-wide one', () => {
-    const machineWide = seedingDetail(answer());
+    // 🔴 BOTH BRANCHES ARE WHOLE-MESSAGE EQUALITIES. They were containment checks,
+    // which pass on a message that keeps the phrase and re-words everything
+    // around it — the failure this repository has measured. The phrasing is now
+    // shared with every other operation that writes configuration, so a change to
+    // it would otherwise show up in no assertion at all.
+    assert.strictEqual(
+      seedingDetail(answer()),
+      'registered hub.aggrega.ai in /home/reader/.config/aggrega/config.yaml, the global '
+      + 'file shared by every project on this machine. Its advertised signature trust policy '
+      + 'was pinned, naming 3 identities.',
+    );
     const projectLocal = seedingDetail(answer({
       scope: {
         configFile: '/work/project/.aggrega-config.yaml',
@@ -158,8 +168,12 @@ describe('a completed seeding says what was seeded and where', () => {
         workspaceRoot: '/work/project',
       },
     }));
-    assert.ok(machineWide.includes('every project on this machine'));
-    assert.ok(projectLocal.includes('this project\'s own configuration file'));
+    assert.strictEqual(
+      projectLocal,
+      'registered hub.aggrega.ai in /work/project/.aggrega-config.yaml, this project\'s own '
+      + 'configuration file. Its advertised signature trust policy was pinned, naming 3 '
+      + 'identities.',
+    );
     assert.ok(
       !projectLocal.includes('every project on this machine'),
       'a project-local write must never be described as machine-wide',
