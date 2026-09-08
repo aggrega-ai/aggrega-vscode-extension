@@ -7,6 +7,7 @@ import {
   CatalogRow,
   ENTITY_KINDS,
   FilterAction,
+  RegistrySearchParams,
   SearchDoc,
   emptyFilter,
   filterRows,
@@ -15,20 +16,20 @@ import {
   searchCatalog,
   splitValueList,
 } from './catalog-search-run';
-import { runCliJson } from './cli-json';
 import { describeError } from './error-surfaces';
 import { NO_ANCHORED_WORKSPACE_MESSAGE } from './workspace';
 
 // CatalogDeps supplies the live state the published-catalog search needs: the
-// anchored workspace root (the CLI runs there), the configured binary path, and
-// the shared output channel for the product's own report.
+// anchored workspace root that decides whether the search can be asked for, the
+// request that carries it to the compiler, and the shared output channel that
+// records what was searched.
 //
-// It needs no readiness signal. A search runs when a reader asks for it and
-// checks the anchored root then, rather than rendering something now that a later
-// signal would have to supersede.
+// It needs no readiness signal. A search is asked for when a reader asks for it
+// and checks the anchored root then, rather than rendering something now that a
+// later signal would have to supersede.
 export interface CatalogDeps {
   getWorkspaceRoot(): string | null;
-  getBinaryPath(): string;
+  runSearch(params: RegistrySearchParams): Promise<SearchDoc>;
   output: vscode.OutputChannel;
 }
 
@@ -75,7 +76,7 @@ async function searchPublished(deps: CatalogDeps): Promise<void> {
   const outcome = await searchCatalog(
     {
       getWorkspaceRoot: deps.getWorkspaceRoot,
-      runSearchJson: (args) => runCliJson<SearchDoc>(deps, args),
+      runSearch: deps.runSearch,
       log: { appendLine: (text) => deps.output.appendLine(text) },
     },
     filter,
@@ -84,14 +85,17 @@ async function searchPublished(deps: CatalogDeps): Promise<void> {
   switch (outcome.kind) {
     case 'not-invoked':
     case 'no-matches':
-      // A successful search that matched nothing, and a search never run
-      // because nothing is anchored, are both plain answers rather than
-      // failures — so neither is shown as an error.
+    case 'no-registries':
+      // A successful search that matched nothing, a workspace that configures no
+      // registry to search, and a search never asked for because nothing is
+      // anchored are all plain answers rather than failures — so none is shown
+      // as an error. The one that names something to do says so in its own
+      // message rather than by being dressed as a fault.
       void vscode.window.showInformationMessage(outcome.message);
       return;
     case 'failed':
-      // The index could not be read. The message is the product's own, which is
-      // where the remediation lives, and the channel carries the full text.
+      // The snapshot could not be read. The message is the compiler's own, which
+      // is where the remediation lives, and the channel carries the full text.
       deps.output.show(true);
       void vscode.window.showErrorMessage(outcome.message);
       return;

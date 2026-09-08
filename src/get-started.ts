@@ -5,8 +5,8 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as vscode from 'vscode';
 
-import { runCliJson } from './cli-json';
 import { reportOutcome } from './cli-operation';
+import { describeError } from './error-surfaces';
 import { makeNonce } from './html';
 import { panelControlCommand } from './panel-control';
 import { RendersOnReady } from './readiness';
@@ -102,6 +102,13 @@ export interface GetStartedDeps extends RendersOnReady {
   // sent, the ending reached, and the sentence a reader is left with — be read
   // back without an editor or a compiler.
   seedConfiguration(params: ConfigInitParams): Promise<ConfigInitResult>;
+  // listRegistries asks the language server which registries the resolved
+  // configuration names, which is how the registry condition is read.
+  //
+  // It is a dependency for the same two reasons the seeding is: the language
+  // server is held by the surface that starts it, and passing it in is what lets
+  // the reading of that condition be exercised without a compiler.
+  listRegistries(): Promise<RegistryListDoc>;
   output: vscode.OutputChannel;
 }
 
@@ -438,22 +445,19 @@ async function readFacts(deps: GetStartedDeps): Promise<GetStartedFacts> {
 // read as the step being unmet, because in neither case can the reader be told
 // they have one.
 //
-// The command is re-run here rather than shared with the registries panel: that
-// panel computes its rows inside the editor's request for them, so it produces
-// a result only while a reader has it open, and a step whose standing depended
-// on that would report differently according to which panel somebody had
-// expanded. The command reads the resolved configuration and contacts no
+// The question is asked again here rather than shared with the registries panel:
+// that panel computes its rows inside the editor's request for them, so it
+// produces a result only while a reader has it open, and a step whose standing
+// depended on that would report differently according to which panel somebody
+// had expanded. The enumeration reads the resolved configuration and contacts no
 // registry, so asking it again costs nothing over the network.
 async function hasConfiguredRegistry(deps: GetStartedDeps): Promise<boolean> {
   try {
-    const { doc } = await runCliJson<RegistryListDoc>(
-      deps,
-      ['registry', 'list', '-o', 'json'],
-    );
+    const doc = await deps.listRegistries();
     return (doc.registries ?? []).length > 0;
   } catch (err) {
     deps.output.appendLine(
-      `get started: could not read the configured registries: ${messageOf(err)}`,
+      `get started: could not read the configured registries: ${describeError(err)}`,
     );
     return false;
   }
@@ -491,7 +495,7 @@ async function bringBack(openPanel: () => Promise<void>): Promise<void> {
     // panel is on top of it. Where the editor declines, the reader is told the
     // panel is back rather than left to wonder whether anything happened.
     void vscode.window.showInformationMessage(
-      `Aggrega: the welcome panel is back; it will open with the editor. ${messageOf(err)}`,
+      `Aggrega: the welcome panel is back; it will open with the editor. ${describeError(err)}`,
     );
   }
 }
@@ -535,7 +539,7 @@ async function createWorkspace(deps: GetStartedDeps, refresh: () => void): Promi
   } catch (err) {
     if (!isAlreadyExists(err)) {
       void vscode.window.showErrorMessage(
-        `Aggrega: could not create ${CONFIG_FILENAME}: ${messageOf(err)}`,
+        `Aggrega: could not create ${CONFIG_FILENAME}: ${describeError(err)}`,
       );
       return;
     }
@@ -753,6 +757,3 @@ function isAlreadyExists(err: unknown): boolean {
     && (err as { code?: unknown }).code === 'EEXIST';
 }
 
-function messageOf(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}

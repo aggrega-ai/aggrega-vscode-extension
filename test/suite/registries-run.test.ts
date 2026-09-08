@@ -31,11 +31,11 @@ interface Harness {
 }
 
 // harness builds the run's dependency set over a recorder and a caller-supplied
-// answer for the command invocation, so a test reads back exactly the rows an
-// author would have seen in the view.
+// answer for the request, so a test reads back exactly the rows an author would
+// have seen in the view.
 function harness(
   root: string | null,
-  answer: () => Promise<{ doc: RegistryListDoc; stderr: string }>,
+  answer: () => Promise<RegistryListDoc>,
 ): Harness {
   const log = new FakeLog();
   let calls = 0;
@@ -45,7 +45,7 @@ function harness(
     nodes: () =>
       registryNodes({
         getWorkspaceRoot: () => root,
-        runRegistryListJson: () => {
+        runRegistryList: () => {
           calls++;
           return answer();
         },
@@ -54,8 +54,8 @@ function harness(
   };
 }
 
-function ok(doc: RegistryListDoc): () => Promise<{ doc: RegistryListDoc; stderr: string }> {
-  return () => Promise.resolve({ doc, stderr: '' });
+function ok(doc: RegistryListDoc): () => Promise<RegistryListDoc> {
+  return () => Promise.resolve(doc);
 }
 
 function rowsOf(nodes: RegistryNode[]): RegistryRow[] {
@@ -199,7 +199,7 @@ describe('registryNodes', () => {
     assert.deepStrictEqual(h.log.lines, [message]);
   });
 
-  it('does not invoke the command when nothing is anchored', async () => {
+  it('asks nothing when nothing is anchored', async () => {
     const h = harness(null, ok(MEASURED_DOCUMENT));
     const nodes = await h.nodes();
 
@@ -207,14 +207,41 @@ describe('registryNodes', () => {
     assert.strictEqual(h.invocations(), 0);
   });
 
-  it('re-runs the command on every enumeration, so a refresh repopulates from the product', async () => {
+  it('asks again on every enumeration, so a refresh repopulates from the compiler', async () => {
     let doc: RegistryListDoc = { registries: [{ host: 'a.example.test' }] };
-    const h = harness('/ws', () => Promise.resolve({ doc, stderr: '' }));
+    const h = harness('/ws', () => Promise.resolve(doc));
 
     assert.deepStrictEqual(labelsOf(await h.nodes()), ['a.example.test']);
     doc = { registries: [{ host: 'a.example.test' }, { host: 'b.example.test' }] };
     assert.deepStrictEqual(labelsOf(await h.nodes()), ['a.example.test', 'b.example.test']);
     assert.strictEqual(h.invocations(), 2);
+  });
+
+  it('🔴 A LANGUAGE-SERVER REFUSAL CARRIES THE COMPILER’S TEXT, NOT "[object Object]"', async () => {
+    // The transport rejects with the raw error member — an envelope object, not
+    // an error — so a reading of its own here would put [object Object] in the
+    // row's detail AND in the channel. The equality is on the whole message,
+    // because a substring check passes on a wrapper that dropped the text.
+    const h = harness('/ws', () => Promise.reject({
+      code: -32603,
+      message: 'the daemon holds no resolved workspace to report configured registries for',
+    }));
+    const nodes = await h.nodes();
+    const rendered =
+      'code=-32603 the daemon holds no resolved workspace to report configured registries for';
+
+    assert.deepStrictEqual(nodes, [
+      { kind: 'message', label: FAILURE_LABEL, detail: rendered },
+    ]);
+    assert.deepStrictEqual(h.log.lines, [rendered]);
+  });
+
+  it('a refusal still never reads as "no registries configured"', async () => {
+    // One means the reader has configured none; the other means the set is not
+    // known. That distinction must survive the rejection shape changing.
+    const h = harness('/ws', () => Promise.reject({ code: -32603, message: 'unavailable' }));
+    assert.deepStrictEqual(labelsOf(await h.nodes()), [FAILURE_LABEL]);
+    assert.notStrictEqual(FAILURE_LABEL, EMPTY_LABEL);
   });
 });
 

@@ -28,6 +28,10 @@ import {
 } from '../../src/get-started-steps';
 import { escapeHtml } from '../../src/html';
 import {
+  assertCensusInstrumentFires,
+  launchFacilityCount,
+} from '../helpers/launch-census';
+import {
   MET_LABEL,
   UNMET_LABEL,
   dismissHtml,
@@ -1456,20 +1460,6 @@ describe('the welcome panel', () => {
   });
 });
 
-// LAUNCH_FACILITY matches the ways a module creates a child process: the two
-// calls that start one, and the import that makes either reachable.
-//
-// It is a global pattern because the claim below is a COUNT and not a presence.
-// A module that launches twice and is cleaned up once satisfies any "does it
-// still contain one" reading, so a presence test cannot express the claim.
-const LAUNCH_FACILITY =
-  /\bspawn\s*\(|\bexecFile\s*\(|from\s+['"]child_process['"]|require\(\s*['"]child_process['"]/g;
-
-function launchFacilityCount(relativePath: string): number {
-  const source = fs.readFileSync(path.join(EXTENSION_ROOT, relativePath), 'utf8');
-  return (source.match(LAUNCH_FACILITY) ?? []).length;
-}
-
 describe('the welcome panel seeds a configuration without starting a process', () => {
   it('fires on a module that does launch, so a zero below is an absence and not a broken pattern', () => {
     // 🔴 THE POSITIVE CONTROL, AND IT IS THE HALF THAT MAKES THE ZERO MEAN
@@ -1477,28 +1467,63 @@ describe('the welcome panel seeds a configuration without starting a process', (
     // The control is a module the extension deliberately still launches from, so
     // it is on the same side of the claim as the subject and moves independently
     // of it.
-    assert.ok(
-      launchFacilityCount('src/cli-json.ts') > 0,
-      'the pattern no longer matches a module that provably launches, so it can no longer '
-      + 'detect one that does — every assertion below would pass vacuously',
-    );
+    assertCensusInstrumentFires(assert.ok);
   });
 
   it('creates no child process anywhere in the panel\'s own module', () => {
     // The panel's seeding asks the language server, so this module needs no way
     // to start a process — the facility is absent rather than merely unused.
-    //
-    // 🔴 WHAT THIS DOES NOT CLAIM, said here so a green is not read as more than
-    // it is: the panel reads the configured registries through a helper that does
-    // start a process, and that is a different operation reached by a different
-    // route. What is asserted is that this module holds no launch of its own — so
-    // the seeding either goes through the injected request or does not happen at
-    // all, since the type requires that dependency and nothing else here can
-    // reach a compiler.
     assert.strictEqual(
       launchFacilityCount('src/get-started.ts'),
       0,
       'the welcome panel starts a process again, so two execution paths reach the compiler',
+    );
+  });
+
+  it('reaches no process-launching helper either, so the module is launch-free END TO END', () => {
+    // 🔴 THE STRONGER CLAIM, AND IT NEEDS THE IMPORT LIST RATHER THAN THE LAUNCH
+    // PATTERN. A module holding no spawn of its own can still reach one through a
+    // helper, which is what a launch census over the module alone cannot see. Both
+    // of the panel's compiler questions — the seeding and the configured-registry
+    // reading — now travel as injected requests, so the helper that captures a
+    // structured command run is not imported here at all.
+    const source = fs.readFileSync(path.join(EXTENSION_ROOT, 'src/get-started.ts'), 'utf8');
+    const imported = [...source.matchAll(/from\s+'([^']+)'/g)].map((m) => m[1]);
+    assert.ok(
+      !imported.includes('./cli-json'),
+      'the panel reaches the structured-run helper again, which starts a process',
+    );
+    assert.ok(
+      !imported.includes('./cli-run'),
+      'the panel reaches the streaming-run helper again, which starts a process',
+    );
+    // The positive control for THIS instrument: the import list is genuinely
+    // being read, so the two absences above are absences and not an empty parse.
+    assert.ok(
+      imported.includes('./config-seeding'),
+      'the import list came back without a module the panel provably imports, so the '
+      + 'two assertions above prove nothing',
+    );
+  });
+
+  it('reads the configured registries over the language server, from one place', () => {
+    // The method is the compiler's identifier, so it is read from the surface
+    // that sends it rather than restated as a constant this side owns.
+    //
+    // TWO call sites consume this one answer — the panel's registry condition and
+    // the registries tree — and the count is what holds them to ONE request
+    // wrapper. Two sends would be two execution paths for one question again,
+    // which is the defect the count exists to catch.
+    const source = fs.readFileSync(path.join(EXTENSION_ROOT, 'src/extension.ts'), 'utf8');
+    assert.strictEqual(
+      (source.match(/'aggrega\/registryList'/g) ?? []).length,
+      1,
+      'the registry listing is sent from more than one place, so one question has two paths',
+    );
+    assert.strictEqual(
+      (source.match(/'aggrega\/search'/g) ?? []).length,
+      1,
+      'the catalog search is sent from more than one place, so one question has two paths',
     );
   });
 

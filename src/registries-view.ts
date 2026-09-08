@@ -3,7 +3,6 @@
 
 import * as vscode from 'vscode';
 import { CliOperationDeps, runCli, runWatchableCli } from './cli-operation';
-import { runCliJson } from './cli-json';
 import {
   REGISTRY_ROW_CONTEXT,
   RegistryListDoc,
@@ -19,12 +18,16 @@ import {
 import { RendersOnReady } from './readiness';
 
 // RegistriesDeps supplies the live state the registries tree needs: the
-// anchored workspace root (the command runs there, and it is what selects the
-// configuration the reader is actually working against), the configured binary
-// path, and the shared output channel that carries failure detail.
+// anchored workspace root (it is what selects the configuration the reader is
+// actually working against), the request that enumerates the registries, and the
+// shared output channel that carries failure detail.
+//
+// The binary path arrives through CliOperationDeps and is still needed: the
+// operations that CHANGE the configured set run as commands, so the tree reads
+// over the language server while its row operations do not.
 export interface RegistriesDeps extends RendersOnReady, CliOperationDeps {
   getWorkspaceRoot(): string | null;
-  getBinaryPath(): string;
+  runRegistryList(): Promise<RegistryListDoc>;
   output: vscode.OutputChannel;
 }
 
@@ -36,8 +39,8 @@ export interface RegistriesDeps extends RendersOnReady, CliOperationDeps {
 // registryNodes, which depends on no editor type and is therefore directly
 // testable.
 //
-// Each expansion of the root re-runs the command, so a refresh is a change
-// event. That costs nothing over the network: the command reads the resolved
+// Each expansion of the root asks again, so a refresh is a change event. That
+// costs nothing over the network: the enumeration reads the resolved
 // configuration and never contacts a registry.
 class RegistriesTreeProvider implements vscode.TreeDataProvider<RegistryNode> {
   private readonly changed = new vscode.EventEmitter<void>();
@@ -76,8 +79,7 @@ class RegistriesTreeProvider implements vscode.TreeDataProvider<RegistryNode> {
     }
     return registryNodes({
       getWorkspaceRoot: this.deps.getWorkspaceRoot,
-      runRegistryListJson: () =>
-        runCliJson<RegistryListDoc>(this.deps, ['registry', 'list', '-o', 'json']),
+      runRegistryList: () => this.deps.runRegistryList(),
       log: { appendLine: (text) => this.deps.output.appendLine(text) },
     });
   }

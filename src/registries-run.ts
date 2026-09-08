@@ -1,9 +1,24 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cognitio S.r.l.
 
+import { describeError } from './error-surfaces';
 import { NO_ANCHORED_WORKSPACE_TREE_LABEL } from './workspace';
 
-// --- wire shapes (mirror `aggrega registry list -o json`) -----------------
+// The compiler owns the enumeration and this module owns what it looks like.
+// Nothing here resolves configuration, merges files or decides an order: every
+// row is shaped from fields the answer carried, and a refusal is rendered as the
+// compiler's own text.
+//
+// 🔴 NOTHING HERE CAN BE STOPPED, AND THE ABSENCE OF A STOP IS THE DECISION. The
+// shared operation behind the request takes no cancellation — nothing is passed
+// to it that could carry one — so a stop offered here could only ever stop the
+// editor waiting, never the work, and presenting that as a stop would break the
+// rule that stopping means the compiler stopped. The enumeration reads the
+// resolved configuration and contacts no registry, so its work is bounded by
+// local computation and there is nothing a reader would want to interrupt. No
+// signal is accepted anywhere in this module.
+
+// --- wire shapes (mirror the aggrega/registryList answer) -----------------
 
 // RegistryTrust is the registry's trust posture as discrete fields. The
 // structured output carries the posture this way deliberately, in place of the
@@ -34,7 +49,12 @@ export interface RegistryEntry {
   trust?: RegistryTrust;
 }
 
-// RegistryListDoc is the top level of the structured output.
+// RegistryListDoc is the top level of the answer.
+//
+// The answer also states that the credential state it reports is a machine-wide
+// fact rather than a property of this workspace. That is not declared here:
+// naming the reach of a credential to a reader is a decision about what these
+// rows say, and a declared field is a field a later call site will read.
 export interface RegistryListDoc {
   registries?: RegistryEntry[];
 }
@@ -247,39 +267,48 @@ export interface RegistriesLog {
 }
 
 // RegistriesRunDeps supplies the run's surfaces: the anchored root that decides
-// whether the command can be invoked at all, the structured invocation itself,
-// and the log that carries the product's message when it fails.
+// whether the enumeration can be asked for at all, the request itself, and the
+// log that carries the compiler's message when it refuses.
+//
+// It is declared this narrowly so the surface that owns the tree passes its own
+// richer dependency set here unchanged, and so a test drives the whole rendering
+// with a fake answer and no transport at all. It takes no cancellation, for the
+// reason stated at the head of this module.
 export interface RegistriesRunDeps {
   getWorkspaceRoot(): string | null;
-  // runRegistryListJson invokes the structured listing. It resolves the parsed
-  // document, and rejects with the product's own message when the command could
-  // not run.
-  runRegistryListJson(): Promise<{ doc: RegistryListDoc; stderr: string }>;
+  // runRegistryList asks the compiler for the listing. It resolves the answer,
+  // and rejects with the compiler's own refusal when it could not be produced.
+  runRegistryList(): Promise<RegistryListDoc>;
   log: RegistriesLog;
 }
 
 // registryNodes enumerates the configured registries for display.
 //
-// The command reads the resolved configuration and never contacts a registry,
-// so this run is cheap and a refresh costs nothing over the network. That is
-// also why the credential state it surfaces is a presence report and never a
-// reachability or validity check: no round trip is made, and none is implied.
+// The enumeration reads the resolved configuration and never contacts a
+// registry, so this run is cheap and a refresh costs nothing over the network.
+// That is also why the credential state it surfaces is a presence report and
+// never a reachability or validity check: no round trip is made, and none is
+// implied.
 //
-// A failure is surfaced as its own row with the product's message in the log and
-// in the row's detail, so it can never be read as "no registries configured".
+// A refusal is surfaced as its own row with the compiler's message in the log
+// and in the row's detail, so it can never be read as "no registries
+// configured".
 export async function registryNodes(deps: RegistriesRunDeps): Promise<RegistryNode[]> {
   if (!deps.getWorkspaceRoot()) {
     return [{ kind: 'message', label: NO_ANCHORED_WORKSPACE_TREE_LABEL }];
   }
-  let result: { doc: RegistryListDoc; stderr: string };
+  let doc: RegistryListDoc;
   try {
-    result = await deps.runRegistryListJson();
+    doc = await deps.runRegistryList();
   } catch (err) {
-    // The message is the command's own text. It is carried through unchanged: a
-    // re-worded wrapper would hide the remediation the product already named.
-    const message = err instanceof Error ? err.message : String(err);
+    // The message is the compiler's own text, rendered through the extension's
+    // one home for that conversion. A reading of its own here would be a second
+    // implementation of the same job — one that agrees for everything the
+    // extension throws and loses the whole diagnostic for the shape the language
+    // server rejects with, which is an envelope object rather than an error.
+    const message = describeError(err);
     deps.log.appendLine(message);
     return [{ kind: 'message', label: FAILURE_LABEL, detail: message }];
   }
-  return nodesForDocument(result.doc);
+  return nodesForDocument(doc);
 }

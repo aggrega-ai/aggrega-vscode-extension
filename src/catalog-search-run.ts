@@ -1,14 +1,62 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cognitio S.r.l.
 
+import { describeError } from './error-surfaces';
+import { EMPTY_LABEL } from './registries-run';
 import { shortUri } from './uri-display';
 import { NO_ANCHORED_WORKSPACE_MESSAGE } from './workspace';
 
-// --- wire shapes (mirror `aggrega search -o json`) ------------------------
+// The compiler owns the search and this module owns what the answer means to a
+// reader. Nothing here searches, ranks or filters: the request names the facets
+// the reader set, and every sentence below is composed from fields the answer
+// carried or from the compiler's own text.
+//
+// 🔴 NOTHING HERE CAN BE STOPPED, AND THE ABSENCE OF A STOP IS THE DECISION. A
+// search reads an offline snapshot under the workspace's own cache directory and
+// contacts no registry, but the shared operation behind the request takes no
+// cancellation: nothing is passed to it that could carry one, and the request
+// handler checks for a stopped caller only after its operation has already
+// returned, at which point all it can do is withhold the reply. So a stop
+// offered here could only ever stop the editor waiting, never the work — and
+// presenting that as a stop would break the rule that stopping means the
+// compiler stopped. No signal is accepted anywhere in this module.
+//
+// Silence is not the alternative. Every ending produces a sentence, and the
+// freshness of what was searched reaches the channel whether or not anything
+// matched.
 
-// IndexRecord is one record of the structured search result. Only uri, name and
-// version are dependable; the rest is optional so a record missing a field is
-// rendered as it arrived.
+// --- wire shapes (mirror the aggrega/search request and answer) -----------
+
+// RegistrySearchParams is what this client sends to search the published
+// catalog.
+//
+// Every field narrows and every one is optional: an absent field imposes no
+// constraint, so a request with none asks for everything the snapshot holds.
+// A facet the reader left unset is OMITTED rather than expanded into a value —
+// sending every kind when no kind was chosen would freeze today's default into
+// this extension, and the two would part company the moment the compiler's
+// default moved.
+//
+// The operation also accepts a single-registry narrowing and an
+// include-retracted override, and this client offers neither, so neither is
+// declared here: a declared field is a field a later call site will fill.
+export interface RegistrySearchParams {
+  query?: string;
+  kinds?: string[];
+  selector?: string;
+  capabilities?: string[];
+  pluginType?: string;
+  limit?: number;
+}
+
+// IndexRecord is one record of the search answer. Only uri, name and version are
+// dependable; the rest is optional so a record missing a field is rendered as it
+// arrived.
+//
+// The answer also carries, per record, the versions a resolution would refuse.
+// That is not declared here: presenting screened-out versions is a decision
+// about what this list shows, and a declared field is a field a later call site
+// will read.
 export interface IndexRecord {
   uri: string;
   name: string;
@@ -18,12 +66,32 @@ export interface IndexRecord {
   category?: string;
 }
 
-// SearchDoc is the top level of the structured result. records absent and
-// records empty mean the same thing — nothing matched — and both are a
-// successful answer.
+// SearchIndex is one searched registry's freshness. lastUpdated is absent rather
+// than zero when the snapshot carries no timestamp, so "not recorded" is
+// distinguishable from a date.
+export interface SearchIndex {
+  host: string;
+  lastUpdated?: string;
+}
+
+// SearchDoc is the answer one search produced.
+//
+// The provenance travels with the result rather than beside it, which is what
+// makes a thin result attributable. A search is answered from an offline
+// snapshot, so a reader acting on it needs to know which registries were
+// consulted, how old each snapshot is, which configured registries could not be
+// consulted at all, and whether the compiler judges any of them stale.
+//
+// registriesConfigured is read as false ONLY when the answer says so. A
+// workspace that configures no registry is a different answer from a search that
+// matched nothing, and treating a missing field as either would report a fact the
+// compiler did not send.
 export interface SearchDoc {
-  updated?: Record<string, string>;
   records?: IndexRecord[];
+  indexes?: SearchIndex[];
+  missingIndexHosts?: string[];
+  stale?: boolean;
+  registriesConfigured?: boolean;
 }
 
 // --- the filter ----------------------------------------------------------
@@ -92,37 +160,40 @@ export function normalizeKinds(kinds: string[]): string[] {
   return [...offered, ...extra];
 }
 
-// searchArgs builds the command line for a filter.
+// searchParams composes the request for a filter.
 //
-// The positional query goes directly after the verb, and every facet the reader
-// left unset is OMITTED rather than expanded into a value: passing every kind
-// when no kind was chosen would freeze today's default into this extension, and
-// the two would part company the moment the product's default moved.
-export function searchArgs(filter: CatalogFilter): string[] {
-  const args = ['search'];
+// A facet the reader left unset contributes no key at all, so which records the
+// compiler considers stays the compiler's default and never becomes a set this
+// extension enumerated. A trimmed-to-empty text facet counts as unset: a box
+// holding only spaces is a box nobody filled in.
+//
+// An explicitly typed limit is sent even when it is zero, because zero is a
+// value the compiler already reads as no cap and this surface is not a second
+// answer to what a limit means.
+export function searchParams(filter: CatalogFilter): RegistrySearchParams {
+  const params: RegistrySearchParams = {};
   const query = filter.query?.trim();
   if (query) {
-    args.push(query);
+    params.query = query;
   }
-  for (const kind of filter.kinds) {
-    args.push('--kind', kind);
-  }
-  for (const capability of filter.capabilities) {
-    args.push('--capability', capability);
+  if (filter.kinds.length > 0) {
+    params.kinds = [...filter.kinds];
   }
   const selector = filter.selector?.trim();
   if (selector) {
-    args.push('-l', selector);
+    params.selector = selector;
+  }
+  if (filter.capabilities.length > 0) {
+    params.capabilities = [...filter.capabilities];
   }
   const pluginType = filter.pluginType?.trim();
   if (pluginType) {
-    args.push('--plugin-type', pluginType);
+    params.pluginType = pluginType;
   }
   if (filter.limit !== undefined) {
-    args.push('--limit', String(filter.limit));
+    params.limit = filter.limit;
   }
-  args.push('-o', 'json');
-  return args;
+  return params;
 }
 
 // ANY_VALUE_LABEL is how an unset facet reads in the filter list. It says the
@@ -208,23 +279,83 @@ export function rowForRecord(record: IndexRecord): CatalogRow {
 
 // --- outcomes ------------------------------------------------------------
 
-// SearchOutcome is what one search produced. The four cases are distinct types
-// rather than a message plus a flag, because three of them are easy to collapse
+// NO_REGISTRIES_MESSAGE is what a reader is told when the configuration names no
+// registry at all.
+//
+// It opens with the compiler's own sentence for that state, which the registries
+// view already shows for the same fact — a DELIBERATE reuse, so the two surfaces
+// cannot come to word one state differently, and it is imported rather than
+// retyped so there is nothing to keep in step. What is added is the consequence
+// for a search and the two affordances this reader actually has, named as the
+// panel names them; the compiler words its own remediation as a command line,
+// which is not where the reader of this message is.
+export const NO_REGISTRIES_MESSAGE =
+  `Aggrega: ${EMPTY_LABEL} Add one with “Add registry” in the Registries panel, `
+  + 'then build its index with “Update the searchable index”.';
+
+// REFRESH_REMEDIATION names the editor's own way to fix a missing or stale
+// snapshot. The compiler names a command line for the same repair; this reader
+// is in an editor, and the panel entry is the thing they can press.
+export const REFRESH_REMEDIATION =
+  'Refresh with “Update the searchable index” in the Registries panel.';
+
+// SearchOutcome is what one search produced. The five cases are distinct types
+// rather than a message plus a flag, because four of them are easy to collapse
 // and must not be:
 //
 //   - matches is a result to choose from;
-//   - no-matches is a SUCCESSFUL answer: the index was read and nothing in it
+//   - no-matches is a SUCCESSFUL answer: the snapshot was read and nothing in it
 //     fit the filter;
-//   - failed is the opposite: the index could not be read at all — not built
-//     yet, or no registry configured — so nothing is known about what matches.
-//     Rendering it like no-matches would tell a reader the catalog lacks
-//     something when the truth is that it was never consulted;
-//   - not-invoked is the command never having run, because nothing is anchored.
+//   - no-registries is the configuration naming no registry, so there was no
+//     snapshot to consult. It is told apart from no-matches because one means
+//     "nothing published fits" and the other means "nothing was searched", and
+//     from failed because nothing went wrong;
+//   - failed is the snapshot not being readable at all, so nothing is known
+//     about what matches. Rendering it like no-matches would tell a reader the
+//     catalog lacks something when the truth is that it was never consulted;
+//   - not-invoked is the search never having run, because nothing is anchored.
 export type SearchOutcome =
   | { kind: 'matches'; rows: CatalogRow[] }
   | { kind: 'no-matches'; message: string }
+  | { kind: 'no-registries'; message: string }
   | { kind: 'failed'; message: string }
   | { kind: 'not-invoked'; message: string };
+
+// freshnessReport renders what was searched and how current it was, one line per
+// fact, for the channel.
+//
+// It is how a reader tells an entity missing from the published catalog from one
+// missing only out of a stale local snapshot, and it is composed from the
+// answer's own fields rather than from a rendering of them: the hosts consulted,
+// the timestamp each snapshot carries, the configured hosts that had no snapshot
+// to consult, and the compiler's own staleness verdict — which is read as a
+// value and never re-derived here, because judging a snapshot old is the
+// compiler's call and a second rule would be free to disagree.
+//
+// The remediation is appended once rather than per host, so a reader with
+// several unbuilt registries is told what to do once.
+export function freshnessReport(doc: SearchDoc): string[] {
+  const lines: string[] = [];
+  const missing = doc.missingIndexHosts ?? [];
+  for (const host of missing) {
+    lines.push(`registry ${host}: no local index has been built.`);
+  }
+  for (const index of doc.indexes ?? []) {
+    lines.push(
+      index.lastUpdated
+        ? `Index for ${index.host} last updated ${index.lastUpdated}`
+        : `Index for ${index.host} last updated (timestamp unavailable)`,
+    );
+  }
+  const stale = doc.stale === true;
+  if (stale) {
+    lines.push('One or more indexes are stale.');
+  }
+  if (missing.length > 0 || stale) {
+    lines.push(REFRESH_REMEDIATION);
+  }
+  return lines;
+}
 
 // CatalogSearchLog is the reader-visible channel the run appends to.
 export interface CatalogSearchLog {
@@ -232,30 +363,37 @@ export interface CatalogSearchLog {
 }
 
 // CatalogSearchRunDeps supplies the run's surfaces: the anchored root that
-// decides whether the command can be invoked, the structured invocation, and
-// the log carrying the product's own report.
+// decides whether the search can be asked for at all, the request itself, and
+// the log carrying what was searched.
+//
+// It is declared this narrowly so the surface that owns the command passes its
+// own richer dependency set here unchanged, and so a test drives the whole
+// decision with a fake answer and no transport at all. It takes no cancellation,
+// for the reason stated at the head of this module.
 export interface CatalogSearchRunDeps {
   getWorkspaceRoot(): string | null;
-  // runSearchJson invokes the structured search with the given arguments. It
-  // resolves the parsed document together with whatever the product wrote to
-  // stderr, and rejects with the product's own message when the index could not
-  // be read.
-  runSearchJson(args: string[]): Promise<{ doc: SearchDoc; stderr: string }>;
+  // runSearch asks the compiler for the search. It resolves the answer, and
+  // rejects with the compiler's own refusal when the snapshot could not be read.
+  runSearch(params: RegistrySearchParams): Promise<SearchDoc>;
   log: CatalogSearchLog;
 }
 
 // searchCatalog runs one search and classifies what came back.
 //
-// A successful run writes a freshness line to stderr naming each registry
-// searched and when its index was last updated. It is appended to the log
-// verbatim: it is how a reader knows whether an absent entity is missing from
-// the catalog or merely missing from a stale local index, and the product has
-// already worded it.
+// The freshness of what was searched reaches the channel before the result is
+// classified, so it is there whether anything matched or not — the order matters
+// because a reader looking at an empty result is exactly the reader who needs to
+// know how old the snapshot was.
 //
-// A failure carries the product's own message, which is where the remediation
-// lives — the command names the step to run when no index has been built. That
-// text reaches the reader instead of a re-worded wrapper, so the hint a reader
-// needs is the product's own rather than a second rendering of it.
+// The three empty answers are separated by reading the answer rather than by
+// inferring from the record count: a configuration naming no registry says so in
+// its own field, and it is checked FIRST, because such an answer also carries no
+// records and would otherwise be reported as a catalog that holds nothing
+// matching.
+//
+// A refusal is classified through the extension's one home for that, so the
+// compiler's own diagnostic travels intact — including the one naming what to
+// build when no snapshot exists.
 export async function searchCatalog(
   deps: CatalogSearchRunDeps,
   filter: CatalogFilter,
@@ -263,21 +401,24 @@ export async function searchCatalog(
   if (!deps.getWorkspaceRoot()) {
     return { kind: 'not-invoked', message: NO_ANCHORED_WORKSPACE_MESSAGE };
   }
-  let result: { doc: SearchDoc; stderr: string };
+  let doc: SearchDoc;
   try {
-    result = await deps.runSearchJson(searchArgs(filter));
+    doc = await deps.runSearch(searchParams(filter));
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = describeError(err);
     deps.log.appendLine(message);
     return { kind: 'failed', message };
   }
 
-  const report = result.stderr.trim();
-  if (report) {
-    deps.log.appendLine(report);
+  for (const line of freshnessReport(doc)) {
+    deps.log.appendLine(line);
   }
 
-  const records = result.doc.records ?? [];
+  if (doc.registriesConfigured === false) {
+    return { kind: 'no-registries', message: NO_REGISTRIES_MESSAGE };
+  }
+
+  const records = doc.records ?? [];
   if (records.length === 0) {
     return {
       kind: 'no-matches',

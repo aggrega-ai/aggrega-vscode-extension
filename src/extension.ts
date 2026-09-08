@@ -6,7 +6,9 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import type { AttachmentContainerRequest } from './attachment-edit';
 import { CancellationSignal } from './cancellation';
+import type { RegistrySearchParams, SearchDoc } from './catalog-search-run';
 import type { ConfigInitParams, ConfigInitResult } from './config-seeding';
+import type { RegistryListDoc } from './registries-run';
 import { Daemon, DaemonState } from './daemon';
 import { debounce } from './debounce';
 import {
@@ -451,12 +453,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     output: outputChannel,
   });
 
-  // The published-catalog search is CLI-backed (search -o json), so it needs no
-  // language server — but it does need the anchored root the CLI runs in, read
-  // when a reader runs a search rather than when the command is registered.
+  // The published-catalog search is language-server-backed (search), so the
+  // snapshot it reads is the one the compiler resolved for this workspace rather
+  // than one this extension located. The anchored root is still read when a
+  // reader runs a search rather than when the command is registered, because a
+  // search that cannot be composed is reported instead of attempted.
   activateCatalogViews(context, {
     getWorkspaceRoot: () => workspaceRootForCommands,
-    getBinaryPath: () => getSettings().binaryPath,
+    runSearch: requestRegistrySearch,
     output: outputChannel,
   });
 
@@ -471,12 +475,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     output: outputChannel,
   });
 
-  // The registries tree is CLI-backed (registry list -o json). The command
-  // reads the resolved configuration and contacts no registry, so a refresh
-  // costs nothing over the network.
+  // The registries tree is language-server-backed (registryList), so it reports
+  // the configuration the compiler resolved. That enumeration reads the resolved
+  // configuration and contacts no registry, so a refresh costs nothing over the
+  // network. The binary path stays: the row operations that CHANGE the
+  // configured set still run as commands.
   activateRegistriesView(context, {
     getWorkspaceRoot: () => workspaceRootForCommands,
     getBinaryPath: () => getSettings().binaryPath,
+    runRegistryList: requestRegistryList,
     onReady: ready.onReady,
     output: outputChannel,
   });
@@ -527,6 +534,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     onReady: ready.onReady,
     onSelectionChange: (listener) => releaseSelection?.onChange(listener),
     seedConfiguration: requestConfigInit,
+    listRegistries: requestRegistryList,
     output: outputChannel,
   });
 
@@ -1825,6 +1833,48 @@ async function requestConfigInit(params: ConfigInitParams): Promise<ConfigInitRe
     throw new Error('the Aggrega language server is not running');
   }
   return await daemon.request<ConfigInitResult>('aggrega/configInit', params);
+}
+
+// requestRegistryList asks the language server which registries this workspace's
+// resolved configuration reaches, and the signature trust posture of each.
+//
+// It reads: the subject is the merged configuration the session already resolved,
+// so the answer is what the compiler is acting on rather than a set this
+// extension assembled. It contacts no registry.
+//
+// It carries no cancellation, and that is read off what the compiler does rather
+// than assumed: the shared operation behind the request takes none, so a stop
+// sent here would stop this client waiting and not the work.
+//
+// Throws when the server is not running, so a caller reports that state rather
+// than presenting an unasked question as an empty answer.
+async function requestRegistryList(): Promise<RegistryListDoc> {
+  if (!daemon || daemon.getState() !== DaemonState.Running) {
+    throw new Error('the Aggrega language server is not running');
+  }
+  return await daemon.request<RegistryListDoc>('aggrega/registryList', {});
+}
+
+// requestRegistrySearch asks the language server to search the published
+// catalog.
+//
+// The search is answered from the offline snapshot under this workspace's own
+// configured cache directory, so it reaches no network and needs no credential.
+// The answer names which registries were consulted and how current each snapshot
+// was, which is what makes a thin result attributable to a stale snapshot rather
+// than to the catalog.
+//
+// It carries no cancellation, for the same measured reason: the shared operation
+// behind the request takes none, and the handler checks for a stopped caller only
+// after that operation has returned.
+//
+// Throws when the server is not running, so a caller reports that state rather
+// than presenting a search that never ran as one that found nothing.
+async function requestRegistrySearch(params: RegistrySearchParams): Promise<SearchDoc> {
+  if (!daemon || daemon.getState() !== DaemonState.Running) {
+    throw new Error('the Aggrega language server is not running');
+  }
+  return await daemon.request<SearchDoc>('aggrega/search', params);
 }
 
 async function handleCacheMiss<T>(method: string, params: unknown, doc: vscode.TextDocument): Promise<T | null> {

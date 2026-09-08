@@ -6,6 +6,11 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { allOperations, commandIdFor } from '../../src/operation-groups';
 import { REGISTRY_ROW_CONTEXT } from '../../src/registries-run';
+import {
+  EXTENSION_ROOT,
+  assertCensusInstrumentFires,
+  launchFacilityCount,
+} from '../helpers/launch-census';
 
 // What a reader sees and presses on this panel is not provable here — driving
 // the panel needs an extension host, and the suite that supplies one does not
@@ -245,5 +250,80 @@ describe('the operations the registries panel contributes', () => {
     const misplaced = manifest.contributes.menus['view/title']
       .filter((m) => registryCommands.includes(m.command) && m.when !== REGISTRIES_VIEW);
     assert.deepStrictEqual(misplaced, []);
+  });
+});
+
+// --- one execution path per operation ------------------------------------
+
+describe('the registries panel and the catalog search reach the compiler without a launch', () => {
+  it('fires on a module that does launch, so every zero below is an absence', () => {
+    // 🔴 THE POSITIVE CONTROL. A pattern that has stopped matching reports every
+    // module clean, so without this the absences below would pass vacuously. The
+    // control is a module the extension deliberately still launches from, so it
+    // moves independently of the subjects.
+    assertCensusInstrumentFires(assert.ok);
+  });
+
+  it('gives neither reading module any way to start a process', () => {
+    // The two modules that decide what a listing and a search MEAN hold no launch
+    // at all, so the facility is absent rather than merely unused.
+    for (const module of ['src/registries-run.ts', 'src/catalog-search-run.ts']) {
+      assert.strictEqual(launchFacilityCount(module), 0, module);
+    }
+  });
+
+  it('gives neither panel module any way to start a process', () => {
+    // The registries tree still runs commands for the operations that CHANGE the
+    // configured set, and those go through the shared invocation helper rather
+    // than through a launch of this module's own.
+    for (const module of ['src/registries-view.ts', 'src/catalog-views.ts']) {
+      assert.strictEqual(launchFacilityCount(module), 0, module);
+    }
+  });
+
+  it('reaches no process-launching helper from the module that owns the search', () => {
+    // The stronger claim, which a launch census over one module cannot make: a
+    // module holding no spawn can still reach one through a helper. Read as the
+    // whole import list, so a module added to it has to be looked at — including
+    // one that could start a process and one that would carry the editor in,
+    // which is what keeps the search decision readable without a host.
+    const source = fs.readFileSync(
+      path.join(EXTENSION_ROOT, 'src/catalog-search-run.ts'),
+      'utf8',
+    );
+    const imported = [...source.matchAll(/from\s+'([^']+)'/g)].map((m) => m[1]);
+    assert.deepStrictEqual(
+      imported.sort(),
+      ['./error-surfaces', './registries-run', './uri-display', './workspace'],
+    );
+  });
+
+  it('reaches no process-launching helper from the module that owns the listing', () => {
+    const source = fs.readFileSync(path.join(EXTENSION_ROOT, 'src/registries-run.ts'), 'utf8');
+    const imported = [...source.matchAll(/from\s+'([^']+)'/g)].map((m) => m[1]);
+    assert.deepStrictEqual(imported.sort(), ['./error-surfaces', './workspace']);
+  });
+
+  it('🔴 THE SURVIVING LAUNCH HELPER HAS EXACTLY TWO CONSUMERS, EACH DELIBERATE', () => {
+    // A COUNT rather than a presence, and over the whole source tree rather than
+    // over a module: what this increment claims is that ONE execution path is
+    // left per operation, and a third consumer appearing anywhere would be a
+    // second path for something.
+    //
+    // The two that remain survive for stated reasons rather than by omission —
+    // one operation the compiler does not serve, because its subject is the
+    // toolchain rather than a workspace, and one whose command-line run can be
+    // stopped in a way no request could be.
+    const dir = path.join(EXTENSION_ROOT, 'src');
+    const importers = fs.readdirSync(dir)
+      .filter((f) => f.endsWith('.ts'))
+      .filter((f) => /from\s+'\.\/cli-json'/.test(fs.readFileSync(path.join(dir, f), 'utf8')))
+      .sort();
+    assert.deepStrictEqual(
+      importers,
+      ['lint.ts', 'plugins-view.ts'],
+      'the structured-run helper gained or lost a consumer; each one is a process launch and '
+      + 'each needs a stated reason to exist',
+    );
   });
 });

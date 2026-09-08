@@ -7,19 +7,24 @@ import {
   CatalogFilter,
   ENTITY_KINDS,
   IndexRecord,
+  NO_REGISTRIES_MESSAGE,
+  REFRESH_REMEDIATION,
   RUN_ROW_LABEL,
+  RegistrySearchParams,
   SearchDoc,
   SearchOutcome,
   describeFilter,
   emptyFilter,
   filterRows,
+  freshnessReport,
   normalizeKinds,
   parseLimit,
   rowForRecord,
-  searchArgs,
   searchCatalog,
+  searchParams,
   splitValueList,
 } from '../../src/catalog-search-run';
+import { EMPTY_LABEL } from '../../src/registries-run';
 import { NO_ANCHORED_WORKSPACE_MESSAGE } from '../../src/workspace';
 
 class FakeLog {
@@ -30,24 +35,24 @@ class FakeLog {
 interface Harness {
   search(filter: CatalogFilter): Promise<SearchOutcome>;
   log: FakeLog;
-  args(): string[][];
+  sent(): RegistrySearchParams[];
 }
 
 function harness(
   root: string | null,
-  answer: () => Promise<{ doc: SearchDoc; stderr: string }>,
+  answer: () => Promise<SearchDoc>,
 ): Harness {
   const log = new FakeLog();
-  const seen: string[][] = [];
+  const seen: RegistrySearchParams[] = [];
   return {
     log,
-    args: () => seen,
+    sent: () => seen,
     search: (filter) =>
       searchCatalog(
         {
           getWorkspaceRoot: () => root,
-          runSearchJson: (args) => {
-            seen.push(args);
+          runSearch: (params) => {
+            seen.push(params);
             return answer();
           },
           log,
@@ -57,6 +62,11 @@ function harness(
   };
 }
 
+// A workspace configuring at least one registry, so an answer under test is
+// classified on its records rather than on the no-registry branch. Written out
+// per answer where it matters, because the branch order is itself asserted.
+const CONFIGURED = { registriesConfigured: true } as const;
+
 const RECORD: IndexRecord = {
   uri: 'oci://hub.aggrega.ai/component/core/service:1.2.0',
   name: 'service',
@@ -65,72 +75,84 @@ const RECORD: IndexRecord = {
   description: 'A long-running workload',
 };
 
-// --- argv ----------------------------------------------------------------
+// --- the request ---------------------------------------------------------
 
-describe('catalog-search-run: argv', () => {
-  it('an untouched filter passes no facet flag at all', () => {
+describe('catalog-search-run: the request', () => {
+  it('an untouched filter carries NO KEY AT ALL', () => {
     // Every facet the reader left alone must be OMITTED. Expanding an unset
     // facet into every value would freeze today's default into this extension.
-    assert.deepStrictEqual(searchArgs(emptyFilter()), ['search', '-o', 'json']);
+    // Asserted as the whole object rather than key by key, so a field added
+    // later has to be argued for here.
+    assert.deepStrictEqual(searchParams(emptyFilter()), {});
+    assert.deepStrictEqual(Object.keys(searchParams(emptyFilter())), []);
   });
 
-  it('the free-text query is the positional, straight after the verb', () => {
-    assert.deepStrictEqual(
-      searchArgs({ ...emptyFilter(), query: 'postgres' }),
-      ['search', 'postgres', '-o', 'json'],
+  it('the free-text query travels as its own field', () => {
+    assert.deepStrictEqual(searchParams({ ...emptyFilter(), query: 'postgres' }), {
+      query: 'postgres',
+    });
+  });
+
+  it('a whitespace-only query contributes no field', () => {
+    assert.deepStrictEqual(searchParams({ ...emptyFilter(), query: '   ' }), {});
+  });
+
+  it('the query is trimmed rather than sent with the reader’s spacing', () => {
+    assert.deepStrictEqual(searchParams({ ...emptyFilter(), query: '  postgres ' }), {
+      query: 'postgres',
+    });
+  });
+
+  it('kinds travel as a list, never as one comma-joined literal', () => {
+    const params = searchParams({ ...emptyFilter(), kinds: ['component', 'feature'] });
+    assert.deepStrictEqual(params, { kinds: ['component', 'feature'] });
+    assert.ok(
+      !params.kinds!.some((k) => k.includes(',')),
+      'a comma-joined value would be matched as one literal',
     );
   });
 
-  it('a whitespace-only query contributes no positional', () => {
-    assert.deepStrictEqual(searchArgs({ ...emptyFilter(), query: '   ' }), ['search', '-o', 'json']);
-  });
-
-  it('kinds are repeated flag occurrences, never comma-joined', () => {
-    const args = searchArgs({ ...emptyFilter(), kinds: ['component', 'feature'] });
-    assert.deepStrictEqual(args, [
-      'search', '--kind', 'component', '--kind', 'feature', '-o', 'json',
-    ]);
-    assert.ok(!args.some((a) => a.includes(',')), 'a comma-joined value would match one literal');
-  });
-
-  it('capabilities are repeated flag occurrences too', () => {
+  it('capabilities travel as a list too', () => {
     assert.deepStrictEqual(
-      searchArgs({ ...emptyFilter(), capabilities: ['helm', 'parse:hcl'] }),
-      ['search', '--capability', 'helm', '--capability', 'parse:hcl', '-o', 'json'],
+      searchParams({ ...emptyFilter(), capabilities: ['helm', 'parse:hcl'] }),
+      { capabilities: ['helm', 'parse:hcl'] },
     );
+  });
+
+  it('a repeatable facet is COPIED, so a later edit cannot mutate a sent request', () => {
+    const filter = { ...emptyFilter(), kinds: ['component'] };
+    const params = searchParams(filter);
+    filter.kinds.push('feature');
+    assert.deepStrictEqual(params.kinds, ['component']);
   });
 
   it('the label selector is passed through untouched', () => {
     // Its grammar belongs to the compiler. Nothing here parses or rewrites it,
-    // so an expression the product rejects is rejected by the product.
+    // so an expression the compiler rejects is rejected by the compiler.
     const selector = 'component.aggrega.ai/category in (compute,data),!deprecated';
-    assert.deepStrictEqual(
-      searchArgs({ ...emptyFilter(), selector }),
-      ['search', '-l', selector, '-o', 'json'],
-    );
+    assert.deepStrictEqual(searchParams({ ...emptyFilter(), selector }), { selector });
   });
 
-  it('the plugin socket is a single-valued flag', () => {
-    assert.deepStrictEqual(
-      searchArgs({ ...emptyFilter(), pluginType: 'provider' }),
-      ['search', '--plugin-type', 'provider', '-o', 'json'],
-    );
+  it('the plugin socket is a single-valued field', () => {
+    assert.deepStrictEqual(searchParams({ ...emptyFilter(), pluginType: 'provider' }), {
+      pluginType: 'provider',
+    });
   });
 
-  it('an unset cap contributes no flag', () => {
-    assert.ok(!searchArgs(emptyFilter()).includes('--limit'));
+  it('an unset cap contributes no field', () => {
+    assert.ok(!('limit' in searchParams(emptyFilter())));
   });
 
-  it('a cap of zero is passed, because zero is the product’s own "no cap"', () => {
-    assert.deepStrictEqual(
-      searchArgs({ ...emptyFilter(), limit: 0 }),
-      ['search', '--limit', '0', '-o', 'json'],
-    );
+  it('a cap of zero is sent, because zero is the compiler’s own "no cap"', () => {
+    // An omitted field and an explicit zero reach the same reading in the
+    // compiler, so this is not a correctness fix — it is that a reader who typed
+    // a value has the value they typed sent.
+    assert.deepStrictEqual(searchParams({ ...emptyFilter(), limit: 0 }), { limit: 0 });
   });
 
-  it('every facet together, in one command line', () => {
+  it('every facet together, in one request', () => {
     assert.deepStrictEqual(
-      searchArgs({
+      searchParams({
         query: 'db',
         kinds: ['component'],
         capabilities: ['helm'],
@@ -138,22 +160,32 @@ describe('catalog-search-run: argv', () => {
         pluginType: 'provider',
         limit: 25,
       }),
-      [
-        'search', 'db',
-        '--kind', 'component',
-        '--capability', 'helm',
-        '-l', 'a=b',
-        '--plugin-type', 'provider',
-        '--limit', '25',
-        '-o', 'json',
-      ],
+      {
+        query: 'db',
+        kinds: ['component'],
+        capabilities: ['helm'],
+        selector: 'a=b',
+        pluginType: 'provider',
+        limit: 25,
+      },
     );
   });
 
-  it('the structured format is always requested', () => {
-    // The whole surface reads structured output; nothing parses a human table.
-    const args = searchArgs({ ...emptyFilter(), query: 'x' });
-    assert.deepStrictEqual(args.slice(-2), ['-o', 'json']);
+  it('the request declares no transport or format concern', () => {
+    // The answer is structured because it is a request. Nothing asks for a
+    // format, names a verb, or carries a flag — a field doing any of those would
+    // be this surface composing a command line again.
+    const params = searchParams({
+      query: 'db',
+      kinds: ['component'],
+      capabilities: ['helm'],
+      selector: 'a=b',
+      pluginType: 'provider',
+      limit: 25,
+    });
+    assert.deepStrictEqual(Object.keys(params).sort(), [
+      'capabilities', 'kinds', 'limit', 'pluginType', 'query', 'selector',
+    ]);
   });
 });
 
@@ -204,8 +236,8 @@ describe('catalog-search-run: the filter list', () => {
     assert.strictEqual(cap?.description, 'no cap');
   });
 
-  it('every facet the argv builder supports is reachable from the list', () => {
-    // A facet with no row is a flag no reader can set.
+  it('every facet the request can carry is reachable from the list', () => {
+    // A facet with no row is a field no reader can set.
     const actions = new Set(filterRows(emptyFilter()).map((r) => r.action));
     for (const action of ['query', 'kinds', 'selector', 'capabilities', 'pluginType', 'limit']) {
       assert.ok(actions.has(action as never), `${action} is unreachable`);
@@ -310,11 +342,11 @@ describe('catalog-search-run: kinds', () => {
     );
   });
 
-  it('each offered kind survives into its own flag occurrence', () => {
+  it('each offered kind survives into the request as itself', () => {
     for (const kind of ENTITY_KINDS) {
       assert.deepStrictEqual(
-        searchArgs({ ...emptyFilter(), kinds: [kind] }),
-        ['search', '--kind', kind, '-o', 'json'],
+        searchParams({ ...emptyFilter(), kinds: [kind] }),
+        { kinds: [kind] },
       );
     }
   });
@@ -351,10 +383,10 @@ describe('catalog-search-run: rows', () => {
 // --- outcomes ------------------------------------------------------------
 
 describe('catalog-search-run: outcomes', () => {
-  it('nothing anchored means the command is never invoked', async () => {
-    const h = harness(null, () => Promise.resolve({ doc: {}, stderr: '' }));
+  it('nothing anchored means nothing is ever asked', async () => {
+    const h = harness(null, () => Promise.resolve({}));
     const outcome = await h.search(emptyFilter());
-    assert.deepStrictEqual(h.args(), []);
+    assert.deepStrictEqual(h.sent(), []);
     assert.deepStrictEqual(outcome, {
       kind: 'not-invoked',
       message: NO_ANCHORED_WORKSPACE_MESSAGE,
@@ -362,26 +394,26 @@ describe('catalog-search-run: outcomes', () => {
   });
 
   it('a match set becomes rows', async () => {
-    const h = harness('/w', () => Promise.resolve({ doc: { records: [RECORD] }, stderr: '' }));
+    const h = harness('/w', () => Promise.resolve({ ...CONFIGURED, records: [RECORD] }));
     const outcome = await h.search(emptyFilter());
     assert.strictEqual(outcome.kind, 'matches');
     assert.strictEqual(outcome.kind === 'matches' && outcome.rows.length, 1);
   });
 
   it('zero matches is a SUCCESSFUL answer, distinct from a failure', async () => {
-    const h = harness('/w', () => Promise.resolve({ doc: { records: [] }, stderr: '' }));
+    const h = harness('/w', () => Promise.resolve({ ...CONFIGURED, records: [] }));
     const outcome = await h.search({ ...emptyFilter(), query: 'postgres' });
     assert.strictEqual(outcome.kind, 'no-matches');
     assert.ok(outcome.kind === 'no-matches' && outcome.message.includes('"postgres"'));
   });
 
   it('an absent records key reads the same as an empty one', async () => {
-    const h = harness('/w', () => Promise.resolve({ doc: {}, stderr: '' }));
+    const h = harness('/w', () => Promise.resolve({ ...CONFIGURED }));
     assert.strictEqual((await h.search(emptyFilter())).kind, 'no-matches');
   });
 
   it('a zero-match message names the filter, so an empty result is attributable', async () => {
-    const h = harness('/w', () => Promise.resolve({ doc: { records: [] }, stderr: '' }));
+    const h = harness('/w', () => Promise.resolve({ ...CONFIGURED, records: [] }));
     const outcome = await h.search({ ...emptyFilter(), kinds: ['workload'] });
     assert.strictEqual(
       outcome.kind === 'no-matches' ? outcome.message : '',
@@ -389,9 +421,9 @@ describe('catalog-search-run: outcomes', () => {
     );
   });
 
-  it('an unreadable index is a FAILURE carrying the product’s own remediation', async () => {
-    // The product names the step to run. That text reaches the reader instead
-    // of a re-worded wrapper, so the hint is the product's own.
+  it('an unreadable snapshot is a FAILURE carrying the compiler’s own remediation', async () => {
+    // The compiler names what to build. That text reaches the reader instead of
+    // a re-worded wrapper, so the hint is the compiler's own.
     const message =
       "aggrega search: no local index found for any configured registry; run 'aggrega registry update'";
     const h = harness('/w', () => Promise.reject(new Error(message)));
@@ -400,7 +432,7 @@ describe('catalog-search-run: outcomes', () => {
     assert.deepStrictEqual(h.log.lines, [message]);
   });
 
-  it('an unreadable index never renders as "nothing matched"', async () => {
+  it('an unreadable snapshot never renders as "nothing matched"', async () => {
     // One means the catalog lacks something; the other means it was never
     // consulted. Collapsing them would tell a reader a falsehood.
     const h = harness('/w', () => Promise.reject(new Error('no local index')));
@@ -408,13 +440,23 @@ describe('catalog-search-run: outcomes', () => {
     assert.notStrictEqual(outcome.kind, 'no-matches');
   });
 
-  it('a configuration answered in prose reaches the reader as prose', async () => {
-    // With no registry configured the command answers in a sentence and exits
-    // zero, so the runner rejects with that sentence. It is surfaced as the
-    // product wrote it.
-    const h = harness('/w', () => Promise.reject(new Error('No registries configured.')));
+  it('🔴 A LANGUAGE-SERVER REFUSAL CARRIES THE COMPILER’S TEXT, NOT "[object Object]"', async () => {
+    // The transport rejects with the raw error member — an envelope object, not
+    // an error — so a reading of its own here would render the whole diagnostic
+    // as [object Object] and lose the remediation. The equality is on the WHOLE
+    // message, because a substring check passes on a wrapper that dropped it.
+    const h = harness('/w', () => Promise.reject({
+      code: -32602,
+      message: 'search: no local index has been built for hub.aggrega.ai',
+    }));
     const outcome = await h.search(emptyFilter());
-    assert.deepStrictEqual(outcome, { kind: 'failed', message: 'No registries configured.' });
+    assert.deepStrictEqual(outcome, {
+      kind: 'failed',
+      message: 'code=-32602 search: no local index has been built for hub.aggrega.ai',
+    });
+    assert.deepStrictEqual(h.log.lines, [
+      'code=-32602 search: no local index has been built for hub.aggrega.ai',
+    ]);
   });
 
   it('a non-Error rejection still reaches the reader', async () => {
@@ -423,26 +465,164 @@ describe('catalog-search-run: outcomes', () => {
     assert.deepStrictEqual(outcome, { kind: 'failed', message: 'plain string' });
   });
 
-  it('the freshness report on stderr is logged verbatim', async () => {
-    // It is how a reader tells an entity missing from the catalog from one
-    // missing only from a stale local index.
-    const freshness = 'registry hub.aggrega.ai: index updated 2026-08-26T10:00:00Z';
-    const h = harness('/w', () =>
-      Promise.resolve({ doc: { records: [RECORD] }, stderr: `${freshness}\n` }));
-    await h.search(emptyFilter());
-    assert.deepStrictEqual(h.log.lines, [freshness]);
+  it('🔴 NO REGISTRY CONFIGURED IS ITS OWN ANSWER, NOT A FAILURE AND NOT "NOTHING MATCHED"', async () => {
+    // Such an answer also carries no records, so classifying on the record count
+    // alone would tell a reader the catalog holds nothing matching when the truth
+    // is that nothing was searched.
+    const h = harness('/w', () => Promise.resolve({ registriesConfigured: false, records: [] }));
+    const outcome = await h.search(emptyFilter());
+    assert.deepStrictEqual(outcome, { kind: 'no-registries', message: NO_REGISTRIES_MESSAGE });
   });
 
-  it('a silent stderr adds no log line', async () => {
-    const h = harness('/w', () => Promise.resolve({ doc: { records: [RECORD] }, stderr: '' }));
-    await h.search(emptyFilter());
-    assert.deepStrictEqual(h.log.lines, []);
+  it('the no-registry answer wins over a filter that also matched nothing', async () => {
+    // Branch ORDER, asserted directly: a narrowed filter must not turn this into
+    // a report about the filter.
+    const h = harness('/w', () => Promise.resolve({ registriesConfigured: false }));
+    const outcome = await h.search({ ...emptyFilter(), query: 'postgres' });
+    assert.strictEqual(outcome.kind, 'no-registries');
   });
 
-  it('the filter reaches the command as the argv the builder produced', async () => {
-    const h = harness('/w', () => Promise.resolve({ doc: { records: [] }, stderr: '' }));
+  it('the no-registry message opens with the compiler’s own sentence for that state', async () => {
+    // 🔴 THE WHOLE SENTENCE, NOT A SUBSTRING OF IT. A containment check passes on
+    // any wrapper that kept the phrase and re-worded everything around it, which
+    // is exactly the re-wording this surface must not do.
+    assert.strictEqual(
+      NO_REGISTRIES_MESSAGE,
+      'Aggrega: No registries configured. Add one with “Add registry” in the Registries '
+      + 'panel, then build its index with “Update the searchable index”.',
+    );
+    // And the opening clause is the constant the registries view shows for the
+    // same fact, so the two surfaces cannot come to word one state differently.
+    // Pinned as a literal as well, from outside the implementation: an
+    // expectation that only read the constant would sit on both sides of the
+    // comparison and could not see a change to it.
+    assert.strictEqual(EMPTY_LABEL, 'No registries configured.');
+    assert.ok(NO_REGISTRIES_MESSAGE.startsWith(`Aggrega: ${EMPTY_LABEL} `), NO_REGISTRIES_MESSAGE);
+  });
+
+  it('an answer that does not mention the registry set is NOT read as "none configured"', async () => {
+    // Only an explicit false says so. Reading a missing field as a fact would
+    // report something the compiler never sent.
+    const h = harness('/w', () => Promise.resolve({ records: [RECORD] }));
+    assert.strictEqual((await h.search(emptyFilter())).kind, 'matches');
+  });
+
+  it('the filter reaches the compiler as the request, asserted literally', async () => {
+    // The expectation is written out rather than produced by searchParams: an
+    // expectation derived from the implementation sits on both sides of the
+    // comparison and cannot see a defect planted in it.
+    const h = harness('/w', () => Promise.resolve({ ...CONFIGURED, records: [] }));
     const filter: CatalogFilter = { ...emptyFilter(), kinds: ['plugin'], capabilities: ['helm'] };
     await h.search(filter);
-    assert.deepStrictEqual(h.args(), [searchArgs(filter)]);
+    assert.deepStrictEqual(h.sent(), [{ kinds: ['plugin'], capabilities: ['helm'] }]);
+  });
+
+  it('exactly one request is sent per search', async () => {
+    const h = harness('/w', () => Promise.resolve({ ...CONFIGURED, records: [RECORD] }));
+    await h.search(emptyFilter());
+    assert.strictEqual(h.sent().length, 1);
+  });
+});
+
+// --- freshness -----------------------------------------------------------
+
+describe('catalog-search-run: freshness', () => {
+  it('a consulted snapshot names its host and its timestamp', () => {
+    assert.deepStrictEqual(
+      freshnessReport({ indexes: [{ host: 'hub.aggrega.ai', lastUpdated: '2026-08-26T10:00:00Z' }] }),
+      ['Index for hub.aggrega.ai last updated 2026-08-26T10:00:00Z'],
+    );
+  });
+
+  it('a snapshot carrying no timestamp says so rather than showing a blank', () => {
+    // "not recorded" and a date are different facts, and an absent timestamp
+    // must not read as the epoch.
+    assert.deepStrictEqual(
+      freshnessReport({ indexes: [{ host: 'hub.aggrega.ai' }] }),
+      ['Index for hub.aggrega.ai last updated (timestamp unavailable)'],
+    );
+  });
+
+  it('a configured registry with no snapshot is named, with the editor’s own repair', () => {
+    assert.deepStrictEqual(
+      freshnessReport({ missingIndexHosts: ['other.example.test'] }),
+      [
+        'registry other.example.test: no local index has been built.',
+        REFRESH_REMEDIATION,
+      ],
+    );
+  });
+
+  it('the compiler’s staleness verdict is REPORTED, never re-derived from a timestamp', () => {
+    // Judging a snapshot old is the compiler's call. A rule of its own here
+    // would be free to disagree with it.
+    const fresh = freshnessReport({
+      indexes: [{ host: 'h', lastUpdated: '1999-01-01T00:00:00Z' }],
+      stale: false,
+    });
+    assert.deepStrictEqual(fresh, ['Index for h last updated 1999-01-01T00:00:00Z']);
+
+    const stale = freshnessReport({
+      indexes: [{ host: 'h', lastUpdated: '2026-09-08T00:00:00Z' }],
+      stale: true,
+    });
+    assert.deepStrictEqual(stale, [
+      'Index for h last updated 2026-09-08T00:00:00Z',
+      'One or more indexes are stale.',
+      REFRESH_REMEDIATION,
+    ]);
+  });
+
+  it('the repair is named ONCE however many registries need it', () => {
+    const lines = freshnessReport({
+      missingIndexHosts: ['a.example.test', 'b.example.test'],
+      stale: true,
+    });
+    assert.strictEqual(
+      lines.filter((l) => l === REFRESH_REMEDIATION).length,
+      1,
+      lines.join(' | '),
+    );
+  });
+
+  it('a healthy answer produces no repair line at all', () => {
+    const lines = freshnessReport({
+      indexes: [{ host: 'h', lastUpdated: '2026-09-08T00:00:00Z' }],
+      stale: false,
+      missingIndexHosts: [],
+    });
+    assert.ok(!lines.includes(REFRESH_REMEDIATION), lines.join(' | '));
+  });
+
+  it('an answer carrying no provenance produces no lines', () => {
+    assert.deepStrictEqual(freshnessReport({}), []);
+  });
+
+  it('the freshness reaches the channel even when nothing matched', async () => {
+    // The reader looking at an empty result is exactly the reader who needs to
+    // know how old the snapshot was.
+    const h = harness('/w', () => Promise.resolve({
+      ...CONFIGURED,
+      records: [],
+      indexes: [{ host: 'hub.aggrega.ai', lastUpdated: '2026-08-26T10:00:00Z' }],
+    }));
+    const outcome = await h.search(emptyFilter());
+    assert.strictEqual(outcome.kind, 'no-matches');
+    assert.deepStrictEqual(h.log.lines, [
+      'Index for hub.aggrega.ai last updated 2026-08-26T10:00:00Z',
+    ]);
+  });
+
+  it('a host with no timestamp is still reported, where the command line drops it', () => {
+    // The structured answer names every consulted host and omits only the
+    // timestamp, so a snapshot with no date is visible rather than absent.
+    const hosts = freshnessReport({
+      indexes: [
+        { host: 'dated.example.test', lastUpdated: '2026-08-26T10:00:00Z' },
+        { host: 'undated.example.test' },
+      ],
+    });
+    assert.strictEqual(hosts.length, 2);
+    assert.ok(hosts[1].includes('undated.example.test'), hosts[1]);
   });
 });
