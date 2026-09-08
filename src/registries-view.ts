@@ -163,10 +163,10 @@ export function activateRegistriesView(
 
     // Removing a registry and removing its credential both confirm first, and
     // each confirmation names what the change reaches. A registry entry is
-    // written to the config shared across every workspace, so dropping one
-    // changes what every project on this machine resolves through — that is not
-    // guessable from the entry's label, so it is put in front of the reader
-    // before anything happens rather than explained afterwards.
+    // written to the global configuration shared across every workspace, so
+    // dropping one changes what every project on this machine resolves through —
+    // that is not guessable from the entry's label, so it is put in front of the
+    // reader before anything happens rather than explained afterwards.
     vscode.commands.registerCommand(
       'aggrega.registries.remove',
       (node?: RegistryNode) => runOnRow(node, async (host) => {
@@ -174,9 +174,9 @@ export function activateRegistriesView(
           `Remove the registry ${host} and its trust policy?`,
           {
             modal: true,
-            detail: 'The entry is removed from the config shared across every workspace on this '
-              + 'machine, so every project resolving through it is affected. Which registry is '
-              + 'the default is left unchanged.',
+            detail: 'The entry is removed from the global configuration shared across every '
+              + 'workspace on this machine, so every project resolving through it is affected. '
+              + 'Which registry is the default is left unchanged.',
           },
           'Remove',
         );

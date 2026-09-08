@@ -1355,7 +1355,7 @@ describe('the welcome panel', () => {
       );
     });
 
-    // What earns the file on the machine is machine-wide tooling — the
+    // What earns the global file on the machine is global tooling — the
     // registries and their trust policy, the compiled-module store's size, the
     // installed command extensions. Not credentials: those are in neither file.
     it('does not explain the file on the machine as somewhere to keep credentials', () => {
@@ -1368,6 +1368,68 @@ describe('the welcome panel', () => {
         found,
         null,
         `the panel explains the machine's configuration file as a place credentials go, which is false — they are fields in neither file: ${found ?? ''}`,
+      );
+    });
+
+    // 🔴 THE SHARED CONFIGURATION FILE IS CALLED GLOBAL ON BOTH SURFACES A READER
+    // MEETS WITHOUT OPENING ANY DOCUMENTATION — the welcome panel and the settings
+    // screen. The word is the one every comparable tool spells it, so a reader
+    // arrives already carrying it; one concept carries one name.
+    //
+    // 🔴 THE PHRASES ARE LITERALS HERE, AND READING THEM FROM THE STEP CONTENT
+    // WOULD DESTROY THE CHECK — the same blindness this file guards the
+    // configuration wording against. A comparison whose two sides both read the
+    // panel's own constant moves both sides at once and passes any rename.
+    //
+    // The name is asserted ALONGSIDE the teaching rather than in place of it: the
+    // panel must still say the file is on your machine and holds what belongs to
+    // the machine rather than to one project, which the phrase list above pins
+    // against the product's own reference. "Global" on its own says less than the
+    // sentence it sits in, so it is checked as an addition, never a replacement.
+    //
+    // 🔴 THE CHECK IS THAT EVERY MENTION CARRIES THE NAME, NOT THAT ONE DOES.
+    // A plain `includes` for the named form is satisfied by any single mention,
+    // so a surface naming the file three times and losing the name on the one
+    // that INTRODUCES it passes — measured, on this very assertion, by planting
+    // exactly that defect. Comparing the two counts is what closes it: the named
+    // form must account for every occurrence of the bare one.
+    it('calls the shared configuration file global on both surfaces, and keeps the teaching', () => {
+      const html = renderedPanel(stepStandings(NOTHING_MET));
+      const description = String(manifest().properties['aggrega.server.binaryPath']?.description ?? '');
+
+      // Occurrences, not matching lines and not a substring test: both of those
+      // report "present" for a surface that names the file twice and got it
+      // right once.
+      const occurrences = (haystack: string, needle: string): number =>
+        haystack.split(needle).length - 1;
+
+      for (const [surface, text] of [['panel', html], ['settings description', description]] as const) {
+        const lower = text.toLowerCase();
+        const mentions = occurrences(lower, 'file on your machine');
+        const named = occurrences(lower, 'global file on your machine');
+        assert.ok(
+          mentions > 0,
+          `the ${surface} no longer tells a reader the shared configuration file is on their machine`,
+        );
+        assert.strictEqual(
+          named,
+          mentions,
+          `the ${surface} names the shared configuration file ${mentions} time(s) but calls it global only ${named}, so a reader meets it under two names`,
+        );
+        for (const withdrawn of ['machine-wide', 'machine wide']) {
+          assert.ok(
+            !lower.includes(withdrawn),
+            `the ${surface} still says "${withdrawn}", which is not what this file is called`,
+          );
+        }
+      }
+
+      // The teaching, checked on the surface that carries the fuller sentence: a
+      // reader must still learn WHICH machine and WHY the file is separate, not
+      // merely that the file has a name.
+      assert.ok(
+        html.includes('on your machine'),
+        'the panel names the file global but no longer says where it is, which teaches less than the phrase it replaced',
       );
     });
   });

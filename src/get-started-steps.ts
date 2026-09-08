@@ -281,9 +281,9 @@ export interface StepContent {
 // problem one of them solves can find it and a reader who does not is not taught
 // it first.
 //
-// WHAT EARNS THE MACHINE-WIDE FILE IS MACHINE-WIDE TOOLING, NOT CREDENTIALS, and
-// the plausible version of that claim is wrong: a registry password and a signing
-// identity token are never fields in either configuration file, so "the machine
+// WHAT EARNS THE GLOBAL FILE IS GLOBAL TOOLING, NOT CREDENTIALS, and the
+// plausible version of that claim is wrong: a registry password and a signing
+// identity token are never fields in either configuration file, so "the global
 // file exists so credentials need not be committed" is not the reason and must
 // not be written back in. What belongs there is the registries and their
 // signature trust policy, the compiled-module store's size, and the installed
@@ -306,7 +306,7 @@ export const STEP_CONTENT: readonly StepContent[] = [
       {
         bullets: [
           '**One file in your project**, named `.aggrega-config.yaml`, sitting at the project root. Its `workspace:` block is what marks the directory as the project root, and a project that vendors no catalog content still writes the block empty — `workspace: {}` — because the block\'s presence is the marker.',
-          '**One file on your machine**, at `~/.config/aggrega/config.yaml`. It holds settings that belong to the machine rather than to any one project — the registries you pull from and the signature trust policy for each, how large the compiled-module store may grow, and any command-extension plugin you have installed. It loads automatically when it is there, and nothing breaks when it is not.',
+          '**One global file on your machine**, at `~/.config/aggrega/config.yaml`. It holds settings that belong to the machine rather than to any one project — the registries you pull from and the signature trust policy for each, how large the compiled-module store may grow, and any command-extension plugin you have installed. It loads automatically when it is there, and nothing breaks when it is not.',
         ],
       },
       {
@@ -438,11 +438,11 @@ export const STEP_CONTENT: readonly StepContent[] = [
       },
       {
         paragraph:
-          'A registry belongs in the file on your machine rather than in your project\'s: the registries you pull from are the same wherever you are working, so declaring them once is the point. **Secrets are not configuration** — a registry password and a signing identity token are never fields in either file, and are supplied by environment variable or flag at the moment they are needed.',
+          'A registry belongs in the global file on your machine rather than in your project\'s: the registries you pull from are the same wherever you are working, so declaring them once is the point. **Secrets are not configuration** — a registry password and a signing identity token are never fields in either file, and are supplied by environment variable or flag at the moment they are needed.',
       },
       {
         paragraph:
-          '**Seed the official hub** registers the public hub together with its signature trust policy, using the compiler\'s own seeding — so what you get here and what you would get from the command line are the same configuration. It writes the file on your machine rather than one in your project. Seeding declines rather than replacing a configuration that is already there, and says which file it found; replacing one is something you ask for explicitly at the command line.',
+          '**Seed the official hub** registers the public hub together with its signature trust policy, using the compiler\'s own seeding — so what you get here and what you would get from the command line are the same configuration. It writes the global file on your machine rather than one in your project. Seeding declines rather than replacing a configuration that is already there, and says which file it found; replacing one is something you ask for explicitly at the command line.',
       },
       {
         paragraph:

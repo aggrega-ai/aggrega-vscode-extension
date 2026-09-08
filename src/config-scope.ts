@@ -71,12 +71,12 @@ interface ReachRule {
 // the guess this module exists to avoid.
 const MACHINE_WIDE_BY_NATURE: ReachRule[] = [
   {
-    // A registry and the identities trusted on it are machine-wide tooling: the
-    // operation that registers one writes the file shared across every workspace
-    // on this machine unless told otherwise.
+    // A registry and the identities trusted on it are global tooling: the
+    // operation that registers one writes the global configuration shared across
+    // every workspace on this machine unless told otherwise.
     prefix: ['registries'],
     reach: 'machine',
-    evidence: 'A registry and its signature trust policy are machine-wide tooling, so '
+    evidence: 'A registry and its signature trust policy are global tooling, so '
       + 'registering one changes what every project on this machine resolves through.',
   },
   {

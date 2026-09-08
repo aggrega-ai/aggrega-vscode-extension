@@ -256,7 +256,32 @@ describe('the configuration document as a reader sees it', () => {
     // A note on every row would train a reader to stop reading them.
     const rows = Array.from(html.matchAll(/class="config-row"/g)).length;
     assert.ok(warnings < rows, 'every row carries a machine-wide warning');
-    assert.ok(html.includes('Machine-wide:'), 'the warning does not say what it is about');
+    assert.ok(html.includes('Global:'), 'the warning does not say what it is about');
+  });
+
+  // 🔴 THE SHARED CONFIGURATION FILE IS CALLED GLOBAL, AND THE WORD IT REPLACED
+  // MUST NOT COME BACK. Both spellings below are written out HERE AS LITERALS.
+  // Importing the label or the evidence from the modules under test would put the
+  // same text on both sides of the comparison, so a rename would move both at
+  // once and this assertion would pass on whatever the product happened to say.
+  //
+  // The reach note is ONE SENTENCE COMPOSED FROM TWO FILES — the label lives in
+  // the renderer and the reason it introduces lives in the classification — so a
+  // check on either alone passes while the composed note reads "Global: … are
+  // machine-wide tooling". This reads the composed document for that reason.
+  //
+  // Only the words a reader SEES are asserted on. The classification's own
+  // internal name is unaffected: its reach value is 'machine', and the identifiers
+  // holding it keep that vocabulary deliberately.
+  it('names the reach global, in the word the reader already knows', () => {
+    const html = configPanelBodyHtml(configPanelModel(SCHEMA, null), 'expanded');
+    assert.ok(html.includes('Global:'), 'the reach note does not name the reach global');
+    for (const withdrawn of ['machine-wide', 'machine wide']) {
+      assert.ok(
+        !html.toLowerCase().includes(withdrawn),
+        `the configuration document still says "${withdrawn}", which is not what this file is called`,
+      );
+    }
   });
 
   it('renders authored text as text', () => {

@@ -273,7 +273,7 @@ function rowHtml(row: ConfigRow): string {
     `<p class="config-source">${escapeHtml(`Source: ${describeProvenance(row.provenance)}`)}</p>`,
   ];
   if (row.scope.reach === 'machine') {
-    parts.push(`<p class="config-reach" role="note">${escapeHtml(`Machine-wide: ${row.scope.evidence}`)}</p>`);
+    parts.push(`<p class="config-reach" role="note">${escapeHtml(`Global: ${row.scope.evidence}`)}</p>`);
   }
   parts.push('</dd>');
   return `<dl class="config-row">${parts.join('')}</dl>`;
