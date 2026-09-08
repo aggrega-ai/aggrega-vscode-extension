@@ -2,9 +2,17 @@
 // Copyright 2026 Cognitio S.r.l.
 
 // The Commands panel's script. It forwards a press, swaps in the body the
-// extension composed, moves the roving tab stop, and remembers where the reader
-// was. It composes no markup of its own, because the layout has one home and it
-// is not this file.
+// extension composed, moves the roving tab stop, opens and closes the menus a
+// control offers beside itself, and remembers where the reader was. It composes
+// no markup of its own, because the layout has one home and it is not this file.
+//
+// WHAT A MENU HERE HAS TO DO, AND WHY IT IS ALL WRITTEN OUT. The editor's own
+// modal chooser supplied keyboard navigation, filtering as you type, focus
+// trapping, dismissal, and the semantics a screen reader reads — none of which
+// comes free to a menu drawn in a document. So each is written here, and none of
+// it is provable without a running editor: what this file does is walked by
+// hand. The composed document is what a test can read back, and it carries every
+// attribute this file keys on.
 (function () {
   'use strict';
 
@@ -68,6 +76,220 @@
     remember();
   }
 
+  // --- the menu a control offers beside itself ----------------------------
+
+  // The menu currently open, the control that opened it, and what the reader
+  // has typed to narrow it. All three are one state: a menu is open for exactly
+  // one control at a time, because a second open menu would leave two lists
+  // claiming the keystrokes.
+  let openMenu = null;
+  let openedBy = null;
+  let typed = '';
+
+  function optionsIn(menu) {
+    return Array.prototype.slice.call(menu.querySelectorAll('[data-option]'));
+  }
+
+  // shownOptionsIn reports the choices the reader can currently reach. A choice
+  // the filter has put away is hidden, so it leaves the accessibility tree and
+  // the arrow keys skip it — rather than being dimmed and still walked, which
+  // would make the filter cosmetic.
+  function shownOptionsIn(menu) {
+    return optionsIn(menu).filter((option) => !option.hidden);
+  }
+
+  function statusOf(menu) {
+    return menu.querySelector('[data-menu-status]');
+  }
+
+  function say(menu, text) {
+    const status = statusOf(menu);
+    if (!status) { return; }
+    status.textContent = text;
+    status.hidden = text === '';
+  }
+
+  // placeBeside puts the menu under the control that opened it, and above it
+  // where there is no room below.
+  //
+  // The position is measured at the moment of opening and is deliberately not
+  // maintained: the panel scrolls and the reader resizes it, and re-measuring
+  // on either would be a menu that follows the button around while the reader
+  // is reading it. Both of those close the menu instead, which is what a menu
+  // anchored to a control that has moved should do.
+  function placeBeside(menu, control) {
+    if (!control) { return; }
+    const at = control.getBoundingClientRect();
+    // Measured while shown, because a hidden element has no size to read.
+    const height = menu.offsetHeight;
+    const width = menu.offsetWidth;
+    const room = window.innerHeight - at.bottom;
+    const top = room < height && at.top > height ? at.top - height : at.bottom;
+    // Kept inside the panel's own width. The flow wraps, so a control near the
+    // right edge of a narrow panel would otherwise open a menu the reader
+    // cannot see the end of.
+    const left = Math.max(0, Math.min(at.left, window.innerWidth - width));
+    menu.style.top = Math.max(0, top) + 'px';
+    menu.style.left = left + 'px';
+  }
+
+  // closeMenu puts the menu away and RETURNS FOCUS TO THE CONTROL THAT OPENED
+  // IT. Returning focus is the part that matters: a menu that closed leaving
+  // focus nowhere would drop a keyboard reader out of the panel entirely, with
+  // nothing to say where they now are.
+  function closeMenu() {
+    if (!openMenu) { return; }
+    const menu = openMenu;
+    const control = openedBy;
+    openMenu = null;
+    openedBy = null;
+    typed = '';
+    menu.hidden = true;
+    optionsIn(menu).forEach((option) => { option.hidden = false; });
+    // A fetched menu goes back to the line it was composed with, so re-opening
+    // it says it is reading again rather than showing the answer to a read that
+    // has since been superseded.
+    if (menu.dataset.menuFetched !== undefined) {
+      optionsIn(menu).forEach((option) => { option.remove(); });
+      say(menu, menu.dataset.menuPending || '');
+    } else {
+      say(menu, '');
+    }
+    if (control) {
+      control.setAttribute('aria-expanded', 'false');
+      control.focus();
+    }
+  }
+
+  function openMenuFor(control) {
+    const menu = document.getElementById(control.getAttribute('aria-controls') || '');
+    if (!menu) { return; }
+    // Whatever was open is put away first, so the keystrokes have one owner.
+    closeMenu();
+    openMenu = menu;
+    openedBy = control;
+    typed = '';
+    menu.hidden = false;
+    control.setAttribute('aria-expanded', 'true');
+    placeBeside(menu, control);
+    // A menu whose options are the workspace's asks for them now. Its composed
+    // line already says it is reading, so the reader is never looking at an
+    // empty list wondering whether that is the answer.
+    if (menu.dataset.menuFetched !== undefined) {
+      vscode.postMessage({ type: 'menu', command: menu.dataset.menuCommand });
+    }
+    const first = shownOptionsIn(menu)[0];
+    // Focus moves into the menu where there is something to move onto. While a
+    // fetched menu is still reading there is not, so focus stays on the
+    // control — and the keystrokes are still the menu's, because the handler
+    // reads the open menu rather than where the focus happens to be.
+    if (first) { first.focus(); }
+  }
+
+  // narrow filters the menu by what the reader has typed.
+  //
+  // 🔴 THIS IS THE ONE THING THE MODAL CHOOSER GAVE AWAY THAT COSTS REAL
+  // USABILITY ON A LONG LIST, so it is written rather than left out: a workspace
+  // with many entities is exactly the case the two fetched menus meet. The match
+  // is a substring over everything the choice draws — its name and its second
+  // line — so a fragment from the middle of a name finds it, which is what the
+  // chooser did. It is not a prefix jump, which finds only what a reader can
+  // already spell from the start.
+  //
+  // The count is announced rather than merely drawn, because a reader who
+  // cannot see the list shrinking has no other way to know the typing landed.
+  function narrow(menu) {
+    const query = typed.toLowerCase();
+    const all = optionsIn(menu);
+    all.forEach((option) => {
+      option.hidden = query !== '' && (option.textContent || '').toLowerCase().indexOf(query) === -1;
+    });
+    const shown = shownOptionsIn(menu);
+    if (query === '') {
+      say(menu, '');
+    } else {
+      say(menu, shown.length + ' of ' + all.length + ' matching “' + typed + '”');
+    }
+    // Focus follows the filter rather than being stranded on a choice that has
+    // just been put away.
+    if (shown.length > 0 && shown.indexOf(document.activeElement) === -1) {
+      shown[0].focus();
+    }
+    placeBeside(menu, openedBy);
+  }
+
+  // focusAt puts focus on one choice by position, clamped to the choices still
+  // shown. Ends are addressed through this rather than through a step of
+  // enormous size: from the control itself — which is where focus sits while a
+  // fetched menu is reading — there is no current position to step from, and a
+  // step would have to guess an end, which is how the first key press lands on
+  // the wrong one.
+  function focusAt(menu, index) {
+    const shown = shownOptionsIn(menu);
+    if (shown.length === 0) { return; }
+    shown[Math.min(Math.max(index, 0), shown.length - 1)].focus();
+  }
+
+  function moveWithin(menu, step) {
+    const shown = shownOptionsIn(menu);
+    if (shown.length === 0) { return; }
+    const at = shown.indexOf(document.activeElement);
+    // From the control itself, the first press lands on the near end of the
+    // list in the direction of travel rather than one past it.
+    focusAt(menu, at === -1 ? (step > 0 ? 0 : shown.length - 1) : at + step);
+  }
+
+  // menuKey handles a keystroke while a menu is open, and reports whether it
+  // took it. Everything it takes is stopped here: the workbench forwards every
+  // keystroke from this document, so a key this menu acts on must not also
+  // reach a keybinding.
+  function menuKey(event) {
+    if (!openMenu) { return false; }
+    const menu = openMenu;
+    // ESCAPE ALWAYS CLOSES, whether or not the reader has typed something. A
+    // reader who presses it wants out of the menu, and an Escape that only
+    // cleared a filter would leave them pressing it twice to leave — with no
+    // way to tell which press they were on. Backspace is what unwinds the
+    // typing.
+    if (event.key === 'Escape') { closeMenu(); return true; }
+    if (event.key === 'ArrowDown') { moveWithin(menu, 1); return true; }
+    if (event.key === 'ArrowUp') { moveWithin(menu, -1); return true; }
+    if (event.key === 'Home') { focusAt(menu, 0); return true; }
+    if (event.key === 'End') { focusAt(menu, shownOptionsIn(menu).length - 1); return true; }
+    if (event.key === 'Backspace') {
+      if (typed === '') { return false; }
+      typed = typed.slice(0, -1);
+      narrow(menu);
+      return true;
+    }
+    // Tab leaves the menu rather than being trapped in it. The menu closes and
+    // the keystroke is left alone, so focus goes wherever Tab would have taken
+    // it from the control — which keeps the panel's one tab stop the panel's
+    // one tab stop.
+    if (event.key === 'Tab') { closeMenu(); return false; }
+    // A single printable character narrows. Modifier combinations are left
+    // alone: they are the reader's own keybindings, not typing.
+    //
+    // SPACE IS NOT ONE OF THEM. It is the platform's second activation key on a
+    // button, so a choice under focus is taken by it, and taking that away to
+    // spend it on filtering would remove a way of confirming that costs nothing
+    // and that a reader may already rely on. The match is a substring, so a
+    // multi-word choice is still reachable by a single word inside it — which is
+    // what a space would have been used for. The alternative considered and
+    // refused was letting a space continue a filter already begun and activate
+    // otherwise: that is one key meaning two things depending on state the
+    // reader cannot see, which is the fault this file rejects for the dismiss
+    // key as well.
+    if (event.key !== ' '
+      && event.key.length === 1
+      && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      typed += event.key;
+      narrow(menu);
+      return true;
+    }
+    return false;
+  }
+
   function toggleSection(group, open) {
     const closed = state.collapsed.filter((id) => id !== group);
     if (!open) { closed.push(group); }
@@ -95,14 +317,51 @@
   // so a control does here exactly what the same command does anywhere else in
   // the extension.
   panel.addEventListener('click', (event) => {
+    // A choice is answered first, because it is the innermost thing a press can
+    // land on. It carries no command of its own — the command is on the menu —
+    // so the operation and the answer leave together as one press.
+    const option = event.target.closest('[data-option]');
+    if (option) {
+      const menu = option.closest('[data-menu-command]');
+      closeMenu();
+      if (menu) {
+        vscode.postMessage({
+          type: 'run',
+          command: menu.dataset.menuCommand,
+          option: option.dataset.option,
+        });
+      }
+      return;
+    }
     const toggle = event.target.closest('[data-toggle]');
     if (toggle) {
+      closeMenu();
       toggleSection(toggle.dataset.toggle, toggle.getAttribute('aria-expanded') !== 'true');
       return;
     }
     const control = event.target.closest('[data-command]');
-    if (!control || control.disabled) { return; }
+    if (!control || control.disabled) { closeMenu(); return; }
+    // A control that offers a choice opens it rather than running. Pressing the
+    // same control again closes it, which is what a reader expects of anything
+    // that opened on a press.
+    if (control.dataset.menu !== undefined) {
+      if (openedBy === control) { closeMenu(); } else { openMenuFor(control); }
+      return;
+    }
+    closeMenu();
     vscode.postMessage({ type: 'run', command: control.dataset.command });
+  });
+
+  // CLICKING ANYWHERE ELSE CLOSES THE MENU. The listener is on the document
+  // rather than on the panel, because "anywhere else" includes the padding
+  // around the panel's own content — a press there is still the reader
+  // dismissing the menu. It runs after the panel's own handler, so a press on a
+  // choice or on the control that opened the menu has already been dealt with.
+  document.addEventListener('click', (event) => {
+    if (!openMenu) { return; }
+    if (openMenu.contains(event.target)) { return; }
+    if (openedBy && openedBy.contains(event.target)) { return; }
+    closeMenu();
   });
 
   // The reader's place follows the control they last put focus on, whether they
@@ -117,6 +376,15 @@
   });
 
   panel.addEventListener('keydown', (event) => {
+    // AN OPEN MENU OWNS THE KEYSTROKES, and it is asked first rather than after
+    // the roving walk. Focus may still be on the control that opened it — that
+    // is the case while a fetched menu is reading — so a handler keyed on where
+    // the focus sits would let an arrow key walk the flow underneath an open
+    // menu instead of walking the menu.
+    if (menuKey(event)) {
+      event.preventDefault();
+      return;
+    }
     const control = event.target.closest('[data-focus-key]');
     if (!control) { return; }
     const container = control.closest('[data-roving]');
@@ -160,10 +428,20 @@
   // recording is collapsed to one call after the scrolling stops.
   let scrollSettling = null;
   window.addEventListener('scroll', () => {
+    // A menu is anchored to where its control was when it opened, so scrolling
+    // it out from under the menu is the moment to put the menu away rather than
+    // to re-measure it — a menu that chased its control around while the reader
+    // was reading it would be worse than one that closed.
+    closeMenu();
     state.scrollTop = window.scrollY;
     if (scrollSettling !== null) { clearTimeout(scrollSettling); }
     scrollSettling = setTimeout(() => { scrollSettling = null; remember(); }, 150);
   });
+
+  // The flow re-wraps at whatever width the reader drags the panel to, which
+  // moves every control. An open menu is put away for the same reason a scroll
+  // puts it away.
+  window.addEventListener('resize', () => { closeMenu(); });
 
   // The extension re-composes the body whenever what it draws may have moved —
   // the shape, the two rows, or whether an entry can run — and posts it here.
@@ -176,7 +454,60 @@
   // reader actually is.
   window.addEventListener('message', (event) => {
     const message = event.data;
-    if (!message || message.type !== 'panel') { return; }
+    if (!message) { return; }
+
+    // The answer to a fetched menu's request. It is applied only while that
+    // same menu is still the open one: a reader who closed it and pressed
+    // something else has moved on, and filling a closed menu would leave an
+    // answer waiting behind a control the reader is no longer at.
+    if (message.type === 'menu-options') {
+      if (!openMenu || openMenu.dataset.menuCommand !== message.command) { return; }
+      const menu = openMenu;
+      optionsIn(menu).forEach((option) => { option.remove(); });
+      say(menu, '');
+      (message.options || []).forEach((option) => {
+        const button = document.createElement('button');
+        button.className = 'op-menu-option';
+        button.type = 'button';
+        button.setAttribute('role', 'menuitem');
+        button.setAttribute('tabindex', '-1');
+        button.dataset.option = option.value;
+        button.title = option.detail ? option.label + ' — ' + option.detail : option.label;
+        const label = document.createElement('span');
+        label.className = 'op-menu-label';
+        // Assigned as text, never as markup: these are an author's own entity
+        // names and paths, and neither is this document's to interpret.
+        label.textContent = option.label;
+        button.appendChild(label);
+        if (option.detail) {
+          const detail = document.createElement('span');
+          detail.className = 'op-menu-detail';
+          detail.textContent = option.detail;
+          button.appendChild(detail);
+        }
+        menu.appendChild(button);
+      });
+      // Whatever the reader typed while the read was in flight still applies,
+      // so their narrowing is not thrown away by the answer arriving.
+      narrow(menu);
+      const first = shownOptionsIn(menu)[0];
+      if (first) { first.focus(); }
+      return;
+    }
+
+    // The read had nothing to offer, or refused. The menu closes and the
+    // extension's own message is what tells the reader why — one sentence for
+    // that state rather than a second wording of it inside the menu.
+    if (message.type === 'menu-refused') {
+      if (openMenu && openMenu.dataset.menuCommand === message.command) { closeMenu(); }
+      return;
+    }
+
+    if (message.type !== 'panel') { return; }
+    // The body is about to be replaced, so every menu in it is about to stop
+    // existing. It is closed first, which is what puts focus back on a control
+    // the swap can then match by key.
+    closeMenu();
     const active = document.activeElement;
     const held = panel.contains(active) ? active.closest('[data-focus-key]') : null;
     const key = held ? held.dataset.focusKey : null;

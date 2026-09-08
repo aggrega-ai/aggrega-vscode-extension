@@ -6,6 +6,7 @@ import { CliOperationDeps, runCli, runWatchableCli } from './cli-operation';
 import { runCliJson } from './cli-json';
 import {
   ATTACHABLE_PLUGIN_TYPES,
+  GEN_CATALOG_SCOPES,
   GOVERNANCE_ROLES,
   GenCatalogSelection,
   PLUGIN_TYPE_GOVERNANCE,
@@ -13,6 +14,7 @@ import {
   PluginListDoc,
   PluginNode,
   PluginRemovalSubject,
+  genCatalogScope,
   pluginAddArgs,
   pluginGenCatalogArgs,
   pluginNodes,
@@ -21,6 +23,7 @@ import {
   pluginRemoveArgs,
   pluginRowContext,
 } from './plugins-run';
+import { menuAnswer } from './operation-menus';
 import { RendersOnReady } from './readiness';
 
 // PluginsDeps supplies the live state this panel needs: the anchored workspace
@@ -120,10 +123,17 @@ async function runOnRow(
 // it, because it is decided by that type; the search term is asked last, since it
 // is the answer the registry search consumes. Dismissing any one of them invokes
 // nothing at all.
-async function askForAttachment(): Promise<
+//
+// chosenType is the answer a reader already gave on the panel, where the type is
+// offered as a menu beside the control. Where it is given, the first question is
+// not asked again — asking it twice would make the menu a step rather than an
+// answer. Where it is absent the question is asked here, which is the path the
+// command index takes: a command invoked from there carries no answer, and it has
+// to work.
+async function askForAttachment(chosenType?: string): Promise<
   { type: string; query: string; capability?: string; role?: string } | null
 > {
-  const type = await vscode.window.showQuickPick([...ATTACHABLE_PLUGIN_TYPES], {
+  const type = chosenType ?? await vscode.window.showQuickPick([...ATTACHABLE_PLUGIN_TYPES], {
     title: 'Aggrega: add a plugin',
     placeHolder: 'Which type of plugin to add',
     ignoreFocusOut: true,
@@ -169,20 +179,27 @@ async function askForAttachment(): Promise<
 // first place. What the overlay dialog selects follows the selection: generating
 // for every embedded guest merges a directory of overlays, one per guest, while
 // generating for a single artifact merges one overlay file.
-async function askForGeneration(): Promise<
+// chosenScope is the answer a reader already gave on the panel, where the scope
+// is offered as a menu beside the control; absent, the question is asked here,
+// which is the path a command invoked from the command index takes.
+async function askForGeneration(chosenScope?: GenCatalogSelection['kind']): Promise<
   { selection: GenCatalogSelection; outputDir: string; overlayPath: string } | null
 > {
-  const EVERY_EMBEDDED = 'Every plugin built into the compiler';
-  const ONE_ARTIFACT = 'One plugin artifact on this machine';
-  const scope = await vscode.window.showQuickPick([EVERY_EMBEDDED, ONE_ARTIFACT], {
-    title: 'Aggrega: generate Plugin entities',
-    placeHolder: 'Which plugins to generate an entity for',
-    ignoreFocusOut: true,
-  });
+  // The labels and the selection each one composes are paired in the one set
+  // that declares them, so the words a reader chooses between and the selection
+  // built from that choice cannot part company.
+  const scope = chosenScope ?? await vscode.window.showQuickPick(
+    GEN_CATALOG_SCOPES.map((entry) => ({ label: entry.label, value: entry.value })),
+    {
+      title: 'Aggrega: generate Plugin entities',
+      placeHolder: 'Which plugins to generate an entity for',
+      ignoreFocusOut: true,
+    },
+  ).then((picked) => picked?.value);
   if (!scope) { return null; }
 
   let selection: GenCatalogSelection;
-  if (scope === EVERY_EMBEDDED) {
+  if (scope === 'embedded') {
     selection = { kind: 'embedded' };
   } else {
     const artifact = await vscode.window.showOpenDialog({
@@ -247,8 +264,15 @@ export function activatePluginsView(
     // that is not attached yet, so the answers are asked for. It is also the one
     // operation here that reaches the network — it searches the configured
     // registry — so it is the one that is watched and can be stopped.
-    vscode.commands.registerCommand('aggrega.plugins.add', async () => {
-      const attachment = await askForAttachment();
+    //
+    // The type may arrive already answered, from the menu the panel offers
+    // beside the control. It is checked against the set that control offers
+    // before it is used, and anything else is discarded rather than passed on:
+    // an answer the surface never offered is not an answer, and falling back to
+    // asking is what the reader gets instead of a refusal about a value they
+    // never chose.
+    vscode.commands.registerCommand('aggrega.plugins.add', async (chosen?: unknown) => {
+      const attachment = await askForAttachment(menuAnswer('pluginAdd', chosen) ?? undefined);
       if (!attachment) { return; }
       await runWatchableCli(
         deps,
@@ -265,8 +289,9 @@ export function activatePluginsView(
     // A generated entity's path is derived from the plugin rather than chosen, so
     // a reader cannot tell from the directory alone what is about to be replaced
     // inside it.
-    vscode.commands.registerCommand('aggrega.plugins.genCatalog', async () => {
-      const request = await askForGeneration();
+    vscode.commands.registerCommand('aggrega.plugins.genCatalog', async (chosen?: unknown) => {
+      const named = menuAnswer('pluginEntities', chosen);
+      const request = await askForGeneration(genCatalogScope(named ?? '')?.value);
       if (!request) { return; }
       const consented = await vscode.window.showWarningMessage(
         `Write Plugin entities under ${request.outputDir}?`,

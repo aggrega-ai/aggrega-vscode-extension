@@ -10,6 +10,7 @@ import {
   OperationsLayout,
   commandIdFor,
 } from './operation-groups';
+import { MenuOption, OperationMenu, menuFor } from './operation-menus';
 import { escapeHtml } from './html';
 import { SelectorRow } from './selector-rows';
 
@@ -30,6 +31,18 @@ import { SelectorRow } from './selector-rows';
 // unavailable state, and the accessible name then all come from the platform
 // rather than from anything written here — which is the half of this panel's
 // accessibility that cannot regress.
+//
+// A CONTROL THAT OFFERS A CHOICE PRESENTS IT BESIDE ITSELF, and the menus are
+// composed into a LAYER OF THEIR OWN after the operations rather than among
+// them. Two reasons, and the first is the binding one. The flow is one
+// continuous sequence with nothing drawn between one button and the next, and
+// that absence is asserted as a RESIDUE — whatever the flow holds that is not
+// one of its buttons — so a menu sitting among them would be exactly the
+// something the flow must not draw. Second, a closed menu drawn inside a
+// wrapping flow would still be a flow item, and the browser's own wrapping is
+// what decides the panel's height. Each menu names the command it belongs to
+// and each control points at its menu, so the pairing is stated in the document
+// rather than inferred from where the markup sits.
 
 // PANEL_TITLE is the document's title. The view's own name comes from the
 // manifest; this is what a reader's assistive technology announces for the
@@ -89,15 +102,126 @@ function operationHtml(
   const note = reason === null
     ? ''
     : `<span class="op-reason" id="${reasonId}">${escapeHtml(reason)}</span>`;
+  // A control that opens a menu SAYS SO, and says whether the menu is open.
+  //
+  // Both are composed rather than left to the script. The state has to be
+  // present and false while the menu is closed, because a control announced as
+  // having a menu and nothing said about its state reads as neither open nor
+  // closed — and the closed state is the one a reader meets first, every time.
+  //
+  // It is offered only where the control can run: a disabled control cannot be
+  // pressed, so a menu composed for one would be a menu nothing can open, and
+  // the document would carry a choice the reader can never reach. That mirrors
+  // how the roving stop is placed, and for the same reason.
+  const menu = reason === null ? menuFor(op.id) : null;
+  const opens = menu === null
+    ? ''
+    : ` aria-haspopup="menu" aria-expanded="false" aria-controls="${menuId(op.id)}" data-menu="${escapeHtml(op.id)}"`;
   // The group each control belongs to is stated on the control itself. In the
   // flow shape there is no group box left to read it off, and which group an
   // operation sits in is a ruled property of the surface rather than a
   // consequence of how it is drawn — so the document says it in both shapes,
   // and the flow's membership stays assertable without one.
-  return `<button class="op" type="button"${disabled}${described} tabindex="${tabindex}" data-command="${escapeHtml(command)}" data-focus-key="${escapeHtml(command)}" data-group="${escapeHtml(group)}" title="${escapeHtml(hint)}">
+  return `<button class="op" type="button"${disabled}${described} tabindex="${tabindex}" data-command="${escapeHtml(command)}" data-focus-key="${escapeHtml(command)}" data-group="${escapeHtml(group)}" title="${escapeHtml(hint)}"${opens}>
       <span class="codicon codicon-${escapeHtml(op.icon)}" aria-hidden="true"></span>
       <span class="op-label">${escapeHtml(op.label)}</span>${note}
     </button>`;
+}
+
+// menuId names the region a control's menu occupies. It is derived from the
+// operation rather than recorded, so the control's reference and the menu's own
+// identifier cannot disagree.
+function menuId(id: OperationId): string {
+  return `menu-${id}`;
+}
+
+// menuOptionHtml draws one choice.
+//
+// It is a native button for the same reason every other control here is one:
+// activation on Enter and on Space comes from the platform. It carries NO
+// command of its own — the command is stated once, on the menu — because a
+// choice is not a second route to the operation, it is the answer the operation
+// was going to ask for.
+//
+// It holds no tab stop. A menu is reached by pressing the control that opens
+// it, never by tabbing into one, so every choice is out of the tab order and
+// focus is moved onto it deliberately. That is what keeps a menu from adding a
+// second stop to a panel that costs exactly one.
+function menuOptionHtml(option: MenuOption): string {
+  const detail = option.detail === ''
+    ? ''
+    : `
+      <span class="op-menu-detail">${escapeHtml(option.detail)}</span>`;
+  const hint = option.detail === '' ? option.label : `${option.label} — ${option.detail}`;
+  return `<button class="op-menu-option" type="button" role="menuitem" tabindex="-1" data-option="${escapeHtml(option.value)}" title="${escapeHtml(hint)}">
+      <span class="op-menu-label">${escapeHtml(option.label)}</span>${detail}
+    </button>`;
+}
+
+// menuHtml draws one control's menu, closed.
+//
+// It is composed hidden rather than merely unpainted, so a closed menu leaves
+// the accessibility tree instead of staying in it as content a reader can reach
+// but not see — the same treatment a closed section gets, for the same reason.
+//
+// EVERY MENU CARRIES ONE STATUS LINE, and what it says at rest is the whole
+// difference between the two kinds. A fetched menu opens saying it is reading,
+// with no options at all beneath it; a fixed menu opens with its options and the
+// line hidden, because there is nothing to wait for. 🔴 The alternative for the
+// fetched kind — composing an empty menu and filling it in — is the one shape
+// that must not ship: an empty list of choices reads as "there is nothing", and
+// a reader acts on that reading while the answer is still on its way.
+//
+// The line is a choice announced as unavailable rather than a bare piece of
+// text, so a reader who has just entered the menu is told about it as part of
+// the menu; and it is a live region, so what replaces it is announced rather
+// than silently swapped in. It is hidden when it has nothing to say, because a
+// choice announced with no text is worse than no choice at all.
+function menuHtml(id: OperationId, command: string, menu: OperationMenu): string {
+  const waiting = menu.kind === 'fetched' ? menu.pending : '';
+  const status = `<div class="op-menu-status" role="menuitem" aria-disabled="true" aria-live="polite" data-menu-status${waiting === '' ? ' hidden' : ''}>${escapeHtml(waiting)}</div>`;
+  const options = menu.kind === 'fixed'
+    ? `\n    ${menu.options.map(menuOptionHtml).join('\n    ')}`
+    : '';
+  // The waiting line is carried as a value as well as as text, because the text
+  // is replaced by the answer and a menu re-opened has to say it is reading
+  // again. Composing it once here is what keeps the panel's script from holding
+  // a wording of its own — the sentence a reader sees has one home, and it is
+  // not that file.
+  const fetched = menu.kind === 'fetched'
+    ? ` data-menu-fetched data-menu-pending="${escapeHtml(menu.pending)}"`
+    : '';
+  return `<div class="op-menu" id="${menuId(id)}" role="menu" aria-label="${escapeHtml(menu.label)}" hidden data-menu="${escapeHtml(id)}" data-menu-command="${escapeHtml(command)}"${fetched}>
+    ${status}${options}
+  </div>`;
+}
+
+// menusHtml draws the layer holding every menu the document offers.
+//
+// The walk is the same one that draws the controls, and it skips an entry that
+// cannot run for the same reason that entry carries no menu reference: a menu
+// nothing can open is a choice the reader cannot reach. So the layer's contents
+// and the controls that point into it are composed from one pass and cannot
+// disagree — a control cannot reference a menu the layer does not hold, and the
+// layer cannot hold one no control opens.
+//
+// The layer is drawn in both shapes. Which shape the panel is in decides how a
+// group is drawn and never what a control does when pressed.
+function menusHtml(body: OperationsBody): string {
+  const pieces: string[] = [];
+  for (const group of OPERATION_GROUPS) {
+    for (const op of group.operations) {
+      if ((body.unavailable[op.id] ?? null) !== null) { continue; }
+      const menu = menuFor(op.id);
+      if (menu === null) { continue; }
+      pieces.push(menuHtml(op.id, commandIdFor(op), menu));
+    }
+  }
+  if (pieces.length === 0) { return ''; }
+  return `
+<div class="op-menus">
+  ${pieces.join('\n  ')}
+</div>`;
 }
 
 // groupClasses carries the divider ahead of a group whose operations differ in
@@ -258,7 +382,7 @@ export function operationsBodyHtml(body: OperationsBody): string {
 </div>
 <div class="groups groups-sections" data-roving data-orientation="vertical">
 ${groups}
-</div>`;
+</div>${menusHtml(body)}`;
   }
 
   // One roving stop for the whole flow, because the flow is one sequence: Tab
@@ -266,7 +390,7 @@ ${groups}
   return `<div class="selectors">
   ${selectors}
 </div>
-${buttonsFlowHtml(body, rovingKeyFor(body, reachable))}`;
+${buttonsFlowHtml(body, rovingKeyFor(body, reachable))}${menusHtml(body)}`;
 }
 
 // OperationsDocumentOptions carries the addresses the editor resolves for this

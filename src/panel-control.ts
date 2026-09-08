@@ -19,10 +19,29 @@ export interface PanelControlLog {
   appendLine(text: string): void;
 }
 
-// panelControlCommand reports the command a press names, or null where the
-// press is not one to act on.
+// PanelControlPress is an accepted press: the command it names, and the choice
+// the reader made if the control offered one.
 //
-// The name is checked against the commands the surface's own content offers
+// The choice is carried here rather than read separately, because it arrives in
+// the same message and is meaningless apart from the command it answers. It is
+// null for the ordinary case — a control that runs when pressed — so a caller
+// that never offers a choice reads one field and ignores the other.
+export interface PanelControlPress {
+  command: string;
+  // option is the reader's answer where a control presented one beside itself.
+  //
+  // It is carried through as text and judged by whoever consumes it, not here.
+  // What a given control's answers may be is a property of that control, and
+  // this guard has no access to it — a check written here would be a second
+  // statement of a set that lives with the operation, and the weaker of the two
+  // copies is the one that would silently start disagreeing.
+  option: string | null;
+}
+
+// panelControlCommand reports the press a message names, or null where the
+// message is not one to act on.
+//
+// The command is checked against the commands the surface's own content offers
 // before anything runs. Each panel is this extension's own document under a
 // content policy that admits only its own script, so this is not a defence
 // against a page that has been tampered with — it is the guarantee that a
@@ -36,9 +55,9 @@ export function panelControlCommand(
   offered: string[],
   surface: string,
   log: PanelControlLog,
-): string | null {
+): PanelControlPress | null {
   const named = typeof message === 'object' && message !== null
-    ? (message as { type?: unknown; command?: unknown })
+    ? (message as { type?: unknown; command?: unknown; option?: unknown })
     : null;
   if (!named || named.type !== 'run' || typeof named.command !== 'string') { return null; }
   if (!offered.includes(named.command)) {
@@ -47,5 +66,8 @@ export function panelControlCommand(
     );
     return null;
   }
-  return named.command;
+  return {
+    command: named.command,
+    option: typeof named.option === 'string' ? named.option : null,
+  };
 }

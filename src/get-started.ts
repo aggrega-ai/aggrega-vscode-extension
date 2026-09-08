@@ -361,15 +361,19 @@ export function activateGetStarted(
 // Deciding whether to act on a press is panel-control.ts's, shared with the
 // other document this extension draws; what is left here is the invocation,
 // which is where the editor is.
+// No control on this panel presents a choice beside itself, so the press is
+// invoked by its command alone and the answer the shared guard carries is left
+// unread. That is a property of this panel's controls rather than of the guard:
+// every step here reaches a command that asks its own questions.
 function runPanelControl(message: unknown, output: vscode.OutputChannel): void {
-  const command = panelControlCommand(
+  const press = panelControlCommand(
     message,
     panelControlCommands(),
     'get started',
     output,
   );
-  if (command === null) { return; }
-  void vscode.commands.executeCommand(command);
+  if (press === null) { return; }
+  void vscode.commands.executeCommand(press.command);
 }
 
 // welcomeHtml resolves this installation's own panel resources and composes the

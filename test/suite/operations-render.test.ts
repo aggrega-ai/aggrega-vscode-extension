@@ -112,6 +112,104 @@ function betweenTheButtonsOf(html: string): string {
     .trim();
 }
 
+// MENUS_RULED is the set of controls that answer a press by offering a choice
+// beside themselves, with the words a reader reads.
+//
+// 🔴 WRITTEN OUT LITERALLY, AND NOT READ BACK FROM THE DESCRIPTION THE COMPOSER
+// READS. A comparison whose two sides come from one table agrees with itself
+// whatever that table says, so it would accept a menu silently emptied, a menu
+// gained by a control that must not have one, and a rename applied on one side
+// only. The literal list is the independent side, so a change here is a
+// deliberate decision recorded in this file rather than a consequence nobody
+// reviewed.
+//
+// The two fetched ones carry NO options: their choices are the workspace's, so
+// the composed document cannot hold them, which is the difference this list has
+// to be able to see.
+// The reader-visible words and the values each choice COMPOSES are separate
+// fields, and both are asserted — they differ for the generation control, which
+// reads two sentences and composes two one-word selections. Taking a label as
+// the value an operation acts on is exactly the coupling that breaks silently,
+// so the document is required to carry them apart.
+const MENUS_RULED: Array<{
+  id: OperationId;
+  command: string;
+  label: string;
+  waiting: string;
+  values: string[];
+  labels: string[];
+}> = [
+  {
+    id: 'inspect',
+    command: 'aggrega.op.inspect',
+    label: 'Entity to inspect',
+    waiting: 'Reading the workspace entity index…',
+    values: [],
+    labels: [],
+  },
+  {
+    id: 'push',
+    command: 'aggrega.op.push',
+    label: 'Entity to publish',
+    waiting: 'Reading the workspace entity index…',
+    values: [],
+    labels: [],
+  },
+  {
+    id: 'cache',
+    command: 'aggrega.op.cache',
+    label: 'Cache operation',
+    waiting: '',
+    values: ['status', 'prune', 'evict', 'clear'],
+    labels: ['status', 'prune', 'evict', 'clear'],
+  },
+  {
+    id: 'pluginAdd',
+    command: 'aggrega.plugins.add',
+    label: 'Type of plugin to add',
+    waiting: '',
+    values: ['provider', 'governance', 'linter', 'importer'],
+    labels: ['provider', 'governance', 'linter', 'importer'],
+  },
+  {
+    id: 'pluginEntities',
+    command: 'aggrega.plugins.genCatalog',
+    label: 'Plugins to generate an entity for',
+    waiting: '',
+    values: ['embedded', 'artifact'],
+    labels: ['Every plugin built into the compiler', 'One plugin artifact on this machine'],
+  },
+];
+
+// MENU_OPTIONS_DRAWN is how many choices the document carries when every control
+// can run. Stated as a sum of the list above rather than as a number, so it
+// cannot drift from the list it counts.
+const MENU_OPTIONS_DRAWN = MENUS_RULED.reduce((total, menu) => total + menu.values.length, 0);
+
+// menusOf slices the document into one chunk per menu, in document order.
+function menusOf(html: string): string[] {
+  return html.split('<div class="op-menu"').slice(1);
+}
+
+// optionsIn reports the choices a chunk draws, by the value each composes.
+function optionsIn(html: string): string[] {
+  return Array.from(html.matchAll(/data-option="([^"]*)"/g)).map((m) => m[1]);
+}
+
+// optionLabelsIn reports what a chunk's choices READ, which is a different
+// question from what they compose — and the two differ for one menu, which is
+// why both are asserted.
+function optionLabelsIn(html: string): string[] {
+  return Array.from(html.matchAll(/<span class="op-menu-label">(.*?)<\/span>/g)).map((m) => m[1]);
+}
+
+// tagsOf reports every opening button tag, so a per-control rule is asserted
+// against the control rather than against a count over the whole document —
+// where a total can be right and every part of it wrong.
+function tagsOf(html: string): string[] {
+  return Array.from(html.matchAll(/<button [^>]*>/g)).map((m) => m[0]);
+}
+
 const BOTH: OperationsLayout[] = ['buttons', 'sections'];
 
 describe('the Commands panel document', () => {
@@ -367,9 +465,21 @@ describe('the Commands panel document', () => {
       || html.includes('aria-expanded="false" aria-controls="sec-publish"'),
       'the closed section does not report itself closed',
     );
+    // Counted over the SECTION TOGGLES rather than over the document, because a
+    // control offering a menu also reports whether that menu is open — and a
+    // document-wide count would fold the two states into one number, where a
+    // section wrongly reporting itself closed could be cancelled out by a menu
+    // wrongly reporting itself open. The two are counted apart and then
+    // accounted for in total, so nothing goes unmeasured either way.
+    const toggles = tagsOf(html).filter((tag) => tag.includes('data-toggle='));
     assert.strictEqual(
-      occurrences(html, /aria-expanded="false"/), 1,
+      toggles.filter((tag) => tag.includes('aria-expanded="false"')).length, 1,
       'the number of sections reporting themselves closed is not the number the reader closed',
+    );
+    assert.strictEqual(
+      occurrences(html, /aria-expanded="false"/),
+      1 + MENUS_RULED.length,
+      'something other than the closed section and the menus reports itself closed',
     );
     assert.strictEqual(
       occurrences(html, /aria-expanded="true"/),
@@ -490,7 +600,10 @@ describe('what the panel owes a reader who is not using a pointer', () => {
       const controls = occurrences(html, /<button /);
       assert.strictEqual(
         controls,
-        allOperations().length + 2 + (layout === 'sections' ? OPERATION_GROUPS.length : 0),
+        allOperations().length
+        + 2
+        + MENU_OPTIONS_DRAWN
+        + (layout === 'sections' ? OPERATION_GROUPS.length : 0),
         `the ${layout} shape draws a number of buttons other than its controls`,
       );
       assert.strictEqual(
@@ -556,10 +669,30 @@ describe('what the panel owes a reader who is not using a pointer', () => {
       occurrences(html, /tabindex="0"/), 1,
       'the flow carries a number of tab stops other than one',
     );
+    // Counted over the operation controls rather than over the document. A
+    // menu's choices are out of the tab order too, and for the same reason —
+    // a menu is reached by pressing the control that opens it, never by tabbing
+    // into one — but they are not controls in the flow, so folding them into
+    // this count would let a control that HAD escaped the roving stop be hidden
+    // by a menu having gained a choice.
+    const opTags = tagsOf(html).filter((tag) => tag.includes('class="op"'));
     assert.strictEqual(
-      occurrences(html, /tabindex="-1"/),
+      opTags.length, allOperations().length,
+      'the flow draws a number of operation controls other than all of them',
+    );
+    assert.strictEqual(
+      opTags.filter((tag) => tag.includes('tabindex="-1"')).length,
       allOperations().length - 1,
       'a control in the flow is outside the roving stop\'s reach',
+    );
+    // 🔴 AND NOTHING ELSE IN THE DOCUMENT IS OUTSIDE ONE OR THE OTHER. This is
+    // the clause that keeps the narrowing above from being a weakening: every
+    // stop-less control is either an operation the roving stop passes over or a
+    // menu choice, and a third kind arriving fails here.
+    assert.strictEqual(
+      occurrences(html, /tabindex="-1"/),
+      allOperations().length - 1 + MENU_OPTIONS_DRAWN,
+      'something other than the flow\'s controls and the menu choices carries no tab stop',
     );
   });
 
@@ -603,7 +736,7 @@ describe('what the panel owes a reader who is not using a pointer', () => {
       'a group is missing its toggle, or carries two',
     );
     assert.strictEqual(
-      occurrences(html, /aria-expanded=/),
+      tagsOf(html).filter((tag) => tag.includes('data-toggle=') && tag.includes('aria-expanded=')).length,
       OPERATION_GROUPS.length,
       'a toggle does not report whether its section is open',
     );
@@ -611,6 +744,14 @@ describe('what the panel owes a reader who is not using a pointer', () => {
       occurrences(html, /aria-controls="sec-/),
       OPERATION_GROUPS.length,
       'a toggle does not name the region it controls',
+    );
+    // The total is accounted for, so the narrowing above cannot hide a control
+    // that reports an expansion state it has no business having: a toggle, or a
+    // control that opens a menu, and nothing else.
+    assert.strictEqual(
+      occurrences(html, /aria-expanded=/),
+      OPERATION_GROUPS.length + MENUS_RULED.length,
+      'something that neither opens a section nor opens a menu reports an expansion state',
     );
   });
 });
@@ -677,6 +818,259 @@ describe('how one group is separated from the next', () => {
     assert.strictEqual(
       occurrences(html, /group-separated/), 0,
       'the flow draws the kind-based divider, which belongs to the shape that has a box',
+    );
+  });
+});
+
+describe('a control that offers its choices beside itself', () => {
+  it('offers a menu on exactly the controls ruled to have one, in both shapes', () => {
+    // The set is compared against the literal list at the top of this file
+    // rather than against the description the composer reads. A comparison
+    // sharing one table with the composer agrees with itself whatever that
+    // table says, which is how a menu silently gained or emptied would pass.
+    for (const layout of BOTH) {
+      const html = operationsBodyHtml(body({ layout }));
+      assert.deepStrictEqual(
+        Array.from(html.matchAll(/<div class="op-menu" id="menu-([a-zA-Z]+)"/g)).map((m) => m[1]),
+        MENUS_RULED.map((menu) => menu.id),
+        `the ${layout} shape draws a different set of menus, or draws them in a different order`,
+      );
+      // And no OTHER control claims to open one. This is the half that catches a
+      // menu reference added to a control the layer holds no menu for — which
+      // would be a control announcing a choice that does not exist.
+      assert.deepStrictEqual(
+        Array.from(html.matchAll(/aria-haspopup="menu" aria-expanded="false" aria-controls="menu-([a-zA-Z]+)"/g))
+          .map((m) => m[1])
+          .sort(),
+        MENUS_RULED.map((menu) => menu.id).sort(),
+        `the ${layout} shape has a control claiming a menu that is not there, or a menu no control opens`,
+      );
+    }
+  });
+
+  it('draws each menu\'s choices, by what they compose and by what they read', () => {
+    const chunks = menusOf(operationsBodyHtml(body({ layout: 'buttons' })));
+    assert.strictEqual(chunks.length, MENUS_RULED.length, 'the document draws a different number of menus');
+    for (let at = 0; at < MENUS_RULED.length; at += 1) {
+      const ruled = MENUS_RULED[at];
+      assert.deepStrictEqual(
+        optionsIn(chunks[at]), ruled.values,
+        `${ruled.id} composes a different selection, or composes them in a different order`,
+      );
+      assert.deepStrictEqual(
+        optionLabelsIn(chunks[at]), ruled.labels,
+        `${ruled.id} reads differently, or reads its choices in a different order`,
+      );
+      assert.ok(
+        chunks[at].includes(`aria-label="${ruled.label}"`),
+        `${ruled.id}'s menu is not named ${JSON.stringify(ruled.label)} for a reader who cannot see it`,
+      );
+      assert.ok(
+        chunks[at].includes(`data-menu-command="${ruled.command}"`),
+        `${ruled.id}'s menu names a command other than the one its control runs`,
+      );
+    }
+    // 🔴 THE ONE MENU WHOSE WORDS AND VALUES DIFFER, ASSERTED AS DIFFERING. It
+    // is the clause that makes the two comparisons above two comparisons: if a
+    // later change made every label its own value, the pair would still pass
+    // while having stopped distinguishing anything.
+    const differ = MENUS_RULED.filter(
+      (menu) => menu.values.length > 0
+        && JSON.stringify(menu.values) !== JSON.stringify(menu.labels),
+    ).map((menu) => menu.id);
+    assert.deepStrictEqual(
+      differ, ['pluginEntities'],
+      'no menu reads differently from what it composes, so the two comparisons measure one thing',
+    );
+  });
+
+  it('composes every choice as a native menu item that holds no tab stop', () => {
+    // Activation on Enter and on Space comes from the platform for a button and
+    // from nowhere for an element dressed as one. And a menu must not add a
+    // second tab stop to a panel that costs exactly one: a menu is reached by
+    // pressing the control that opens it, so every choice is out of the tab
+    // order and focus is moved onto it deliberately.
+    const html = operationsBodyHtml(body({ layout: 'buttons' }));
+    const options = tagsOf(html).filter((tag) => tag.includes('class="op-menu-option"'));
+    assert.strictEqual(options.length, MENU_OPTIONS_DRAWN, 'a choice is not drawn as a control');
+    for (const tag of options) {
+      assert.ok(tag.includes('type="button"'), 'a choice would submit rather than act');
+      assert.ok(tag.includes('role="menuitem"'), 'a choice is not reported as one');
+      assert.ok(tag.includes('tabindex="-1"'), 'a choice adds a second tab stop to the panel');
+      assert.ok(
+        !tag.includes('data-command='),
+        'a choice carries a command of its own, so it is a second route to the operation rather than an answer to it',
+      );
+      assert.ok(
+        !tag.includes('data-focus-key='),
+        'a choice would be walked by the panel\'s own roving stop',
+      );
+    }
+    // A negative control on the loop: the operation controls DO carry a command
+    // and a focus key, so the two absences above measure the choices rather
+    // than an attribute nothing in the document has.
+    const opTags = tagsOf(html).filter((tag) => tag.includes('class="op"'));
+    assert.ok(
+      opTags.every((tag) => tag.includes('data-command=') && tag.includes('data-focus-key=')),
+      'an operation control carries no command or no focus key, so the absences above prove nothing',
+    );
+  });
+
+  it('opens a fetched menu SAYING IT IS READING, and never as an empty list', () => {
+    // 🔴 This is the clause the two fetched controls exist to satisfy. A menu
+    // that opened empty while the workspace was being read would be worse than
+    // the chooser it replaces: emptiness reads as "there is nothing" rather
+    // than as "wait", and a reader acts on that reading.
+    const chunks = menusOf(operationsBodyHtml(body({ layout: 'buttons' })));
+    for (let at = 0; at < MENUS_RULED.length; at += 1) {
+      const ruled = MENUS_RULED[at];
+      const fetched = ruled.waiting !== '';
+      assert.strictEqual(
+        chunks[at].includes('data-menu-fetched'), fetched,
+        `${ruled.id} is drawn as ${fetched ? 'a fixed' : 'a fetched'} menu`,
+      );
+      if (!fetched) {
+        // A fixed menu has nothing to wait for, so its line says nothing and is
+        // hidden — a choice announced with no text is worse than no choice.
+        assert.ok(
+          chunks[at].includes('data-menu-status hidden>'),
+          `${ruled.id} draws a waiting line it has nothing to wait for`,
+        );
+        continue;
+      }
+      assert.strictEqual(
+        optionsIn(chunks[at]).length, 0,
+        `${ruled.id} composes choices the workspace has not been asked for yet`,
+      );
+      assert.ok(
+        chunks[at].includes(`aria-live="polite" data-menu-status>${ruled.waiting}</div>`),
+        `${ruled.id} does not say it is reading, or says it where nothing announces it`,
+      );
+      assert.ok(
+        chunks[at].includes(`data-menu-pending="${ruled.waiting}"`),
+        `${ruled.id} carries no waiting line to return to, so re-opening it would show a stale answer`,
+      );
+    }
+  });
+
+  it('leaves a closed menu out of the accessibility tree entirely', () => {
+    // Hidden rather than merely unpainted, so a closed menu is not content a
+    // reader can reach but not see — the same treatment a closed section gets.
+    const html = operationsBodyHtml(body({ layout: 'buttons' }));
+    assert.strictEqual(
+      occurrences(html, /<div class="op-menu" id="menu-[a-zA-Z]+" role="menu" aria-label="[^"]*" hidden /),
+      MENUS_RULED.length,
+      'a menu is drawn open, or is closed by something other than leaving the tree',
+    );
+  });
+
+  it('offers no menu at all on a control that cannot run', () => {
+    // A disabled control cannot be pressed, so a menu composed for one would be
+    // a choice the reader can never reach — and the document would carry an
+    // offer nothing can accept. The two menu-bearing controls that CAN be
+    // disabled are used, so this measures the rule rather than an empty case.
+    const html = operationsBodyHtml(body({
+      unavailable: {
+        push: NO_RELEASE_SELECTED_CONTROL_REASON,
+        pluginAdd: NO_RELEASE_SELECTED_CONTROL_REASON,
+      },
+    }));
+    assert.deepStrictEqual(
+      Array.from(html.matchAll(/<div class="op-menu" id="menu-([a-zA-Z]+)"/g)).map((m) => m[1]),
+      MENUS_RULED.filter((menu) => menu.id !== 'push' && menu.id !== 'pluginAdd').map((menu) => menu.id),
+      'a menu is composed for a control that cannot open it, or one is lost from a control that can',
+    );
+    // And neither disabled control still claims to open one, which is the half
+    // that would otherwise leave a reference pointing at nothing.
+    for (const tag of tagsOf(html).filter((t) => t.includes(' disabled'))) {
+      assert.ok(
+        !tag.includes('aria-haspopup'),
+        'a control that cannot run still announces a menu',
+      );
+    }
+  });
+
+  it('draws the menus OUTSIDE the flow, so the flow still holds only its buttons', () => {
+    // The flow is one continuous sequence with nothing between one button and
+    // the next, and that absence is asserted as a residue. A menu among the
+    // buttons would be exactly the something the flow must not draw — and it
+    // would be a flow item, so it would push the buttons around as it opened.
+    const html = operationsBodyHtml(body({ layout: 'buttons' }));
+    assert.strictEqual(
+      betweenTheButtonsOf(html), '',
+      'a menu was composed among the flow\'s own buttons',
+    );
+    const flowAt = html.indexOf('<div class="groups ops-flow"');
+    const layerAt = html.indexOf('<div class="op-menus">');
+    assert.notStrictEqual(layerAt, -1, 'the document draws no menu layer at all');
+    assert.ok(flowAt < layerAt, 'the menu layer is drawn before the flow it belongs to');
+    // A negative control on the residue: the flow really does hold every
+    // button, so the empty result above measures what sits between them.
+    assert.strictEqual(
+      occurrences(flowOf(html), /class="op"/),
+      allOperations().length,
+      'the flow holds a number of buttons other than all of them',
+    );
+  });
+
+  it('leaves every control that gained NO menu exactly as it was', () => {
+    // 🔴 CLAUSE-BY-CLAUSE ENUMERATION, because a partial conversion that
+    // silently changed a neighbour is the failure mode here. Every control not
+    // in the ruled set must announce no menu, reference no menu, and report no
+    // expansion state — and the list is written out so a control quietly
+    // gaining one is a diff in this file.
+    const unchanged: OperationId[] = [
+      'validate', 'lint', 'build', 'preview', 'graph',
+      'pull', 'acquire',
+      'scaffold', 'import',
+      'sign', 'deprecate',
+      'configShow',
+      'registryAdd', 'registryIndex',
+      'catalogSearch',
+    ];
+    // The two lists together are the whole surface, which is what makes the
+    // enumeration exhaustive rather than a sample.
+    assert.strictEqual(
+      unchanged.length + MENUS_RULED.length,
+      allOperations().length,
+      'the two lists do not account for every operation, so this proves nothing about the rest',
+    );
+    for (const layout of BOTH) {
+      const html = operationsBodyHtml(body({ layout }));
+      for (const id of unchanged) {
+        const command = commandIdFor(
+          allOperations().find((op) => op.id === id) as never,
+        );
+        const tag = tagsOf(html).find((t) => t.includes(`data-command="${command}"`));
+        assert.ok(tag !== undefined, `${id} is not drawn at all in the ${layout} shape`);
+        assert.ok(
+          !tag.includes('aria-haspopup'),
+          `${id} announces a menu in the ${layout} shape, and it is ruled to have none`,
+        );
+        assert.ok(
+          !tag.includes('aria-controls="menu-'),
+          `${id} references a menu in the ${layout} shape`,
+        );
+        assert.ok(
+          !tag.includes('aria-expanded'),
+          `${id} reports an expansion state in the ${layout} shape`,
+        );
+        assert.ok(
+          !tag.includes('data-menu='),
+          `${id} is marked as opening a menu in the ${layout} shape`,
+        );
+      }
+    }
+    // 🔴 A NEGATIVE CONTROL ON THE WHOLE CLAUSE. The absences above are read
+    // with the same instrument that finds the attribute where it IS present,
+    // established here against a control ruled to carry one — so a zero above
+    // measures the control rather than a search that never matches.
+    const html = operationsBodyHtml(body({ layout: 'buttons' }));
+    const cacheTag = tagsOf(html).find((t) => t.includes('data-command="aggrega.op.cache"'));
+    assert.ok(cacheTag !== undefined, 'the control the control-case rests on is not drawn');
+    assert.ok(
+      cacheTag.includes('aria-haspopup') && cacheTag.includes('aria-controls="menu-cache"'),
+      'the instrument cannot see a menu on a control that carries one, so its zeros mean nothing',
     );
   });
 });

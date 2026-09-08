@@ -261,6 +261,117 @@ body {
   color: var(--vscode-list-activeSelectionForeground, inherit);
 }
 
+/* --- the menu a control offers beside itself ----------------------------- */
+
+/* A choice is presented UNDER THE CONTROL THAT RAISED IT rather than in a
+   window over the editor, which is the whole point of drawing this panel
+   ourselves: the reader's attention is already where they clicked.
+
+   It is positioned against the viewport rather than against a container, and
+   the script sets the two offsets from the control's own measured position. A
+   menu positioned inside the flow would be a flow item — and the flow wraps,
+   so it would push the buttons around as it opened. Anchoring to the viewport
+   is also what lets a menu near the bottom open upward instead of off the end
+   of the panel.
+
+   The layer itself draws nothing and takes no room, so a panel with no menu
+   open is exactly the panel it was before menus existed. */
+.op-menus {
+  position: static;
+}
+
+.op-menu {
+  position: fixed;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  /* Never wider than the panel, and never so narrow that a name is unreadable.
+     A long entity name is clipped on its own line rather than widening the
+     menu past the view. */
+  min-width: 12rem;
+  max-width: calc(100vw - 0.4rem);
+  /* A long list scrolls inside the menu rather than running off the panel. The
+     cap is a fraction of the view, so it is right at every panel height
+     instead of being a length chosen for one. */
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 0.2rem 0;
+  /* The editor's own menu tokens, so this reads as a menu the editor drew. They
+     fall back to the widget tokens, which every theme sets. */
+  color: var(--vscode-menu-foreground, var(--vscode-foreground));
+  background: var(--vscode-menu-background, var(--vscode-editorWidget-background));
+  border: 1px solid var(--vscode-menu-border, var(--vscode-widget-border, transparent));
+  border-radius: 3px;
+  box-shadow: 0 2px 8px var(--vscode-widget-shadow, transparent);
+}
+
+/* Each choice is two lines: the name, then what choosing it does. The second
+   line is where the reach of a cache operation lives — the difference between
+   emptying this workspace's caches and emptying what every project on this
+   machine shares — which is the fact a reader most needs before choosing and
+   which a name alone cannot carry. */
+.op-menu-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.1rem;
+  width: 100%;
+  min-width: 0;
+  text-align: left;
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 0;
+  padding: 0.25rem 0.7rem;
+  cursor: pointer;
+}
+
+.op-menu-label {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Dimmed and smaller, so the names remain the thing being scanned. */
+.op-menu-detail {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.9em;
+  opacity: 0.75;
+}
+
+.op-menu-option:hover {
+  background: var(--vscode-menu-selectionBackground, var(--vscode-list-hoverBackground));
+  color: var(--vscode-menu-selectionForeground, inherit);
+}
+
+/* The focused choice is marked the same way the hovered one is, because a
+   keyboard reader and a pointer reader are looking for the same thing: which
+   choice is about to be taken. The outline is kept on top of that, since a
+   background alone disappears under a high-contrast theme. */
+.op-menu-option:focus-visible {
+  background: var(--vscode-menu-selectionBackground, var(--vscode-list-focusBackground));
+  color: var(--vscode-menu-selectionForeground, inherit);
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
+}
+
+/* The line that says the menu is waiting for the workspace's answer, or how
+   much of the list the reader's typing has left. It is not a choice: it takes
+   no pointer and no focus, so it cannot be pressed or arrowed onto. */
+.op-menu-status {
+  padding: 0.25rem 0.7rem;
+  font-size: 0.9em;
+  opacity: 0.75;
+  cursor: default;
+  pointer-events: none;
+}
+
 /* --- high contrast ------------------------------------------------------- */
 
 /* A high-contrast theme deliberately leaves many backgrounds absent and
@@ -274,17 +385,21 @@ body {
 body.vscode-high-contrast .op,
 body.vscode-high-contrast .selector,
 body.vscode-high-contrast .section-head,
+body.vscode-high-contrast .op-menu,
 body.vscode-high-contrast-light .op,
 body.vscode-high-contrast-light .selector,
-body.vscode-high-contrast-light .section-head {
+body.vscode-high-contrast-light .section-head,
+body.vscode-high-contrast-light .op-menu {
   border: 1px solid var(--vscode-contrastBorder, currentColor);
 }
 
 body.vscode-high-contrast .op:focus-visible,
 body.vscode-high-contrast .selector:focus-visible,
 body.vscode-high-contrast .section-head:focus-visible,
+body.vscode-high-contrast .op-menu-option:focus-visible,
 body.vscode-high-contrast-light .op:focus-visible,
 body.vscode-high-contrast-light .selector:focus-visible,
-body.vscode-high-contrast-light .section-head:focus-visible {
+body.vscode-high-contrast-light .section-head:focus-visible,
+body.vscode-high-contrast-light .op-menu-option:focus-visible {
   border-color: var(--vscode-contrastActiveBorder, var(--vscode-focusBorder));
 }

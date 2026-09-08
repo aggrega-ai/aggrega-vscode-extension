@@ -434,6 +434,35 @@ export type GenCatalogSelection =
   | { kind: 'embedded' }
   | { kind: 'artifact'; artifactPath: string };
 
+// GEN_CATALOG_SCOPES is what a reader chooses between, paired with the
+// selection each one composes.
+//
+// The pairing is what this exists for. The label is what a reader reads and the
+// value is the selection's own discriminant, and holding them together here
+// means the control that offers the choice and the composition that consumes it
+// cannot come to disagree about which label meant which selection — which is
+// exactly the coupling that breaks silently, because both halves keep
+// compiling.
+//
+// The set is typed against the selection's discriminant, so a third selection
+// cannot be added without a reader being given a way to ask for it.
+export const GEN_CATALOG_SCOPES: ReadonlyArray<{
+  value: GenCatalogSelection['kind'];
+  label: string;
+}> = [
+  { value: 'embedded', label: 'Every plugin built into the compiler' },
+  { value: 'artifact', label: 'One plugin artifact on this machine' },
+];
+
+// genCatalogScope reports the scope a value names, or null where it names none.
+// A caller reads the label off the answer rather than composing one, so the two
+// surfaces that offer this choice say the same words.
+export function genCatalogScope(
+  value: string,
+): { value: GenCatalogSelection['kind']; label: string } | null {
+  return GEN_CATALOG_SCOPES.find((scope) => scope.value === value) ?? null;
+}
+
 // pluginGenCatalogArgs composes a catalog-generation run. Both paths are
 // required by the command, so both are required here; the artifact path is
 // required by the selection that names one.

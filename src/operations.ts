@@ -23,6 +23,12 @@ import {
   signArgs,
   unavailableReason,
 } from './operation-groups';
+import {
+  MenuOption,
+  menuAnswer,
+  menuFor,
+  subjectMenuOptions,
+} from './operation-menus';
 import { CancellationSignal } from './cancellation';
 import { reportOutcome, runCli, runWatchableCli } from './cli-operation';
 import { makeNonce } from './html';
@@ -230,6 +236,15 @@ class OperationsViewProvider implements vscode.WebviewViewProvider {
   // the default first.
   private state: PanelState = NO_PANEL_STATE;
 
+  // The subjects each fetched menu was last offered, held per operation.
+  //
+  // A choice made in a menu comes back as the position it held in the offer,
+  // never as anything the reader read, so the subject it names is resolved from
+  // the very list this surface composed. That is what keeps a display string
+  // from becoming the value an operation acts on — and it means an entity whose
+  // name another entity shares cannot resolve to the wrong one.
+  private offered = new Map<OperationId, EntitySubject[]>();
+
   constructor(
     private readonly extensionUri: vscode.Uri,
     private readonly deps: OperationDeps,
@@ -299,20 +314,88 @@ class OperationsViewProvider implements vscode.WebviewViewProvider {
 
   private receive(message: unknown): void {
     const named = typeof message === 'object' && message !== null
-      ? (message as { type?: unknown })
+      ? (message as { type?: unknown; command?: unknown })
       : null;
     if (named?.type === 'state') {
       this.state = readPanelState(message);
       return;
     }
-    const command = panelControlCommand(
+    // A menu whose options are the workspace's asks for them when it opens. The
+    // command it names is checked against the same offer every press is checked
+    // against, so a request cannot reach a read the panel's own content does not
+    // offer a control for.
+    if (named?.type === 'menu' && typeof named.command === 'string') {
+      if (!this.offeredCommands().includes(named.command)) {
+        this.deps.output.appendLine(
+          `commands: the panel asked to fill a menu for ${named.command}, which none of its controls offers.`,
+        );
+        return;
+      }
+      void this.fillMenu(named.command);
+      return;
+    }
+    const press = panelControlCommand(
       message,
       this.offeredCommands(),
       'commands',
       this.deps.output,
     );
-    if (command === null) { return; }
-    void vscode.commands.executeCommand(command);
+    if (press === null) { return; }
+    // The choice travels as the command's argument, so an operation reached from
+    // the editor's own index — where there is no argument at all — takes exactly
+    // the path it took before any menu existed.
+    void vscode.commands.executeCommand(press.command, press.option ?? undefined);
+  }
+
+  // fillMenu answers a fetched menu's request for its options.
+  //
+  // 🔴 A REFUSAL CLOSES THE MENU AND LEAVES THE EXISTING MESSAGE TO SPEAK. The
+  // read already tells the reader why it has nothing to offer — the workspace
+  // declares no entity the operation can name, or the language server refused —
+  // and that sentence is the one surface for it. Standing a second wording of it
+  // inside the menu would be a second statement of the same refusal, and
+  // replacing the sentence with an empty menu is the shape that must not ship.
+  private async fillMenu(command: string): Promise<void> {
+    const entry = allOperations().find((op) => commandIdFor(op) === command);
+    const menu = entry === undefined ? null : menuFor(entry.id);
+    const subjectsFor = entry === undefined ? undefined : SUBJECTS_OFFERED[entry.id];
+    if (entry === undefined || menu === null || menu.kind !== 'fetched' || subjectsFor === undefined) {
+      return;
+    }
+    const subjects = await readSubjects(this.deps, subjectsFor);
+    if (subjects === null) {
+      this.offered.delete(entry.id);
+      this.post({ type: 'menu-refused', command });
+      return;
+    }
+    this.offered.set(entry.id, subjects);
+    this.post({
+      type: 'menu-options',
+      command,
+      options: subjectMenuOptions(subjects),
+    });
+  }
+
+  private post(message: { type: string; command: string; options?: MenuOption[] }): void {
+    // Nothing is posted to a panel that is not there. A view whose document the
+    // editor has deallocated composes afresh when it comes back, and a menu is
+    // opened by a press that has not happened yet.
+    if (this.view === null) { return; }
+    void this.view.webview.postMessage(message);
+  }
+
+  // chosenSubject reports the entity a menu choice named, or null where no
+  // choice was made or the offer it belonged to is gone.
+  //
+  // Null is the ordinary case, not a fault: it is what an invocation from the
+  // editor's own index looks like, and what a press looks like after the panel
+  // has been re-drawn. The operation then asks its own question.
+  chosenSubject(id: OperationId, chosen: unknown): EntitySubject | null {
+    const value = menuAnswer(id, chosen);
+    if (value === null) { return null; }
+    const at = Number(value);
+    if (!Number.isInteger(at)) { return null; }
+    return this.offered.get(id)?.[at] ?? null;
   }
 
   // offeredCommands is what a press on this panel is allowed to run.
@@ -395,7 +478,12 @@ export function activateOperations(
     }),
   );
 
-  const reg = (id: OperationId, handler: () => void): void => {
+  // A handler takes whatever the invocation carried. It is unknown by contract:
+  // the same command sits in the editor's own index, where it is invoked with no
+  // argument at all, and a reader's recorded workflow may invoke one with
+  // anything — so an entry that reads an answer checks it rather than trusting
+  // it, and asks its own question where there is none to read.
+  const reg = (id: OperationId, handler: (chosen?: unknown) => void): void => {
     context.subscriptions.push(vscode.commands.registerCommand(`aggrega.op.${id}`, handler));
   };
 
@@ -410,13 +498,22 @@ export function activateOperations(
   // here would be a second command that only forwards.
   reg('pull', () => { void runReleaseScoped(deps, 'pull'); });
   reg('acquire', () => { void runReleaseScoped(deps, 'acquire'); });
+  // Drafting an entity asks for the kind as TEXT and offers no list, and that is
+  // deliberate rather than an entry this pass has yet to reach: the set of kinds
+  // belongs to the compiler, so a list held here would be a second statement of
+  // it, agreeing until the day a kind was added. It becomes a choice when the
+  // compiler is asked for its own set, and not before.
   reg('scaffold', () => { void runScaffold(deps); });
   reg('import', () => { void runImport(deps); });
-  reg('inspect', () => { void runInspect(deps); });
-  reg('push', () => { void runCatalogUpload(deps); });
+  reg('inspect', (chosen) => {
+    void runInspect(deps, provider.chosenSubject('inspect', chosen));
+  });
+  reg('push', (chosen) => {
+    void runCatalogUpload(deps, provider.chosenSubject('push', chosen));
+  });
   reg('sign', () => { void runSign(deps); });
   reg('deprecate', () => { void runDeprecate(deps); });
-  reg('cache', () => { void runCache(deps); });
+  reg('cache', (chosen) => { void runCache(deps, chosen); });
 
   return { refresh: () => provider.refresh() };
 }
@@ -646,13 +743,26 @@ async function runImport(deps: OperationDeps): Promise<void> {
 // waiting — and reporting that as a stop would tell a reader the compiler
 // stopped when it did not. What the reader gets instead is the confirmation
 // beforehand, which is the affordance a destructive operation owes.
-async function runCache(deps: OperationDeps): Promise<void> {
-  const choice = await vscode.window.showQuickPick(
+// 🔴 THE CHOICE MAY ARRIVE ALREADY MADE, FROM THE MENU THE PANEL OFFERS BESIDE
+// THE CONTROL, AND THAT CHANGES ONLY WHERE THE CHOICE COMES FROM. Everything
+// after it is untouched: the trim still asks how far to trim, and each of the
+// three removals still puts its modal confirmation in front of the reader. A
+// selection and a consent gate are different things — a selection is a question
+// the operation was going to ask, and moving it beside the button costs nothing,
+// while a confirmation's whole value is that it INTERRUPTS. Folding one into a
+// menu would let a stray click on an inline list empty a cache, which is the one
+// outcome the gate exists to prevent.
+async function runCache(deps: OperationDeps, chosen?: unknown): Promise<void> {
+  const answered = menuAnswer('cache', chosen);
+  const choice = answered ?? (await vscode.window.showQuickPick(
     CACHE_OPERATIONS.map((o) => ({ label: o.value, description: o.detail, value: o.value })),
     { placeHolder: 'Aggrega: choose a cache operation' },
-  );
+  ))?.value;
   if (!choice) { return; }
-  const operation = choice.value as CacheOperation;
+  // Resolved against the one set rather than asserted to belong to it, so a
+  // value from either route is the set's own member or nothing at all.
+  const operation = CACHE_OPERATIONS.find((o) => o.value === choice)?.value;
+  if (operation === undefined) { return; }
 
   // The trim is the only operation taking a subject, and it is collected before
   // the confirmation: a reader who has not yet said how far to trim has not
@@ -853,22 +963,42 @@ function cacheWhat(operation: CacheOperation): string {
 // that failed to load.
 const NO_ENTITY_TO_OFFER = 'Aggrega: this workspace declares no entity to offer here.';
 
-// pickEntity offers the workspace's own entities and returns the chosen one.
+// SUBJECTS_OFFERED pairs an operation with the entities it can name.
+//
+// It is the one home for that pairing, and it is read by both surfaces that
+// offer these subjects — the chooser a command opens and the menu the panel
+// draws beside the control. Two statements of it would agree on the day the
+// second was written, and the divergence would be a menu offering a subject the
+// operation cannot compose an invocation for.
+const SUBJECTS_OFFERED: Partial<
+  Record<OperationId, (entities: CatalogIndexDoc['entities']) => EntitySubject[]>
+> = {
+  inspect: inspectableSubjects,
+  push: publishableSubjects,
+};
+
+// readSubjects reads the entities an operation can name, and reports null where
+// there is nothing to offer — having already told the reader why.
 //
 // The offer comes from the language server's index rather than from a walk of
 // this extension's own: the server reports the index it derives from the
-// workspace it reads, so the picker and the compiler cannot disagree about what
-// the workspace contains. A failed request surfaces the server's own message,
-// which is where the remediation is already named.
-async function pickEntity(
+// workspace it reads, so what is offered and what the compiler resolves against
+// cannot disagree. A failed request surfaces the server's own message, which is
+// where the remediation is already named.
+//
+// 🔴 THE REFUSAL HAS ONE HOME AND IT IS HERE. An empty answer is reported as a
+// sentence saying the workspace declares nothing to offer, because an empty list
+// of choices reads as a surface that failed to load. Both surfaces route through
+// this, so a menu cannot come to open empty where the chooser refused — which is
+// exactly the divergence that would make the menu worse than what it replaced.
+async function readSubjects(
   deps: OperationDeps,
   subjectsFor: (entities: CatalogIndexDoc['entities']) => EntitySubject[],
-  placeHolder: string,
-): Promise<EntitySubject | null> {
+): Promise<EntitySubject[] | null> {
   // Reading the index walks the workspace's entities, which is the same kind of
   // work every other watched operation does — so it is watched too, rather than
   // being the one catalog walk a reader cannot see or stop merely because it
-  // happens before a picker rather than after one.
+  // happens before a choice rather than after one.
   let doc: CatalogIndexDoc;
   try {
     doc = await withCancellableProgress(
@@ -884,6 +1014,22 @@ async function pickEntity(
     void vscode.window.showInformationMessage(NO_ENTITY_TO_OFFER);
     return null;
   }
+  return subjects;
+}
+
+// pickEntity offers the workspace's own entities and returns the chosen one.
+//
+// This is the path a command invoked from the editor's own index takes, and the
+// path a control takes when its menu could not be filled. It stays whole rather
+// than being replaced: a menu is how the panel asks, not the only way the
+// question can be asked.
+async function pickEntity(
+  deps: OperationDeps,
+  subjectsFor: (entities: CatalogIndexDoc['entities']) => EntitySubject[],
+  placeHolder: string,
+): Promise<EntitySubject | null> {
+  const subjects = await readSubjects(deps, subjectsFor);
+  if (subjects === null) { return null; }
   const choice = await vscode.window.showQuickPick(subjects, { placeHolder });
   return choice ?? null;
 }
@@ -894,12 +1040,19 @@ async function pickEntity(
 // the entity's path and an invocation carrying none can only produce a usage
 // error. Choosing first is what makes the entry pressable at all, rather than a
 // control that reports a fault the reader had no way to avoid.
-async function runCatalogUpload(deps: OperationDeps): Promise<void> {
+//
+// chosen is the entity a reader already named in the menu beside the control.
+// Where it is absent the chooser is opened here, which is the path a command
+// invoked from the editor's own index takes.
+async function runCatalogUpload(
+  deps: OperationDeps,
+  chosen: EntitySubject | null,
+): Promise<void> {
   if (!deps.getWorkspaceRoot()) {
     void vscode.window.showInformationMessage(NO_ANCHORED_WORKSPACE_MESSAGE);
     return;
   }
-  const subject = await pickEntity(
+  const subject = chosen ?? await pickEntity(
     deps,
     publishableSubjects,
     'Aggrega: choose the entity to publish',
@@ -1038,8 +1191,15 @@ async function runScaffold(deps: OperationDeps): Promise<void> {
 // compiler will resolve against, and it is addressed by identity rather than by
 // path — an entity the workspace holds no file for is still answerable, so it is
 // still offered.
-async function runInspect(deps: OperationDeps): Promise<void> {
-  const subject = await pickEntity(
+//
+// chosen is the entity a reader already named in the menu beside the control.
+// Where it is absent the chooser is opened here, which is the path a command
+// invoked from the editor's own index takes.
+async function runInspect(
+  deps: OperationDeps,
+  chosen: EntitySubject | null,
+): Promise<void> {
+  const subject = chosen ?? await pickEntity(
     deps,
     inspectableSubjects,
     'Aggrega: choose the entity to inspect',
