@@ -276,6 +276,7 @@ export class Daemon extends EventEmitter {
   // and it is the send that has to be right — a caller that merely stopped
   // waiting would leave the compiler working.
   request<T>(method: string, params: unknown, signal?: CancellationSignal): Promise<T> {
+    params = this.withWorkspaceRoot(params);
     return new Promise<T>((resolve, reject) => {
       const wrappedResolve = (v: unknown) => resolve(v as T);
       const wrappedReject = (r: JsonRpcError | Error) => reject(r);
@@ -330,6 +331,43 @@ export class Daemon extends EventEmitter {
     });
   }
 
+  // withWorkspaceRoot names the workspace every request acts on.
+  //
+  // The compiler holds no workspace: it answers each request against the one
+  // that request names, so the workspace is a parameter and not something the
+  // server remembers between calls. This is the single place it is added, which
+  // is why no caller passes it — a per-call-site parameter is one every future
+  // call site has to remember, and forgetting it is a refused request rather
+  // than a wrong answer, but a refused request in an editor is still a broken
+  // feature.
+  //
+  // It is added for every method rather than for a chosen subset, and that is
+  // deliberate. A handful of methods answer from the compiled-in schema set and
+  // read no workspace at all; a subset here would be this extension's own copy
+  // of which those are, and such a copy agrees on the day it is written and
+  // stops agreeing the day the set changes — silently, because the extra field
+  // is simply not read. So the field always travels and the methods that do not
+  // read it ignore it.
+  //
+  // A window with no folder open has no workspace to name, so nothing is added
+  // and the request is refused naming the parameter. That is the honest outcome:
+  // there is no workspace for the answer to be about.
+  private withWorkspaceRoot(params: unknown): unknown {
+    if (this.workspaceRoot === null) {
+      return params;
+    }
+    if (params === undefined || params === null) {
+      return { workspaceRoot: this.workspaceRoot };
+    }
+    if (typeof params !== 'object' || Array.isArray(params)) {
+      // A caller sent something that is not a parameter object. Pass it through
+      // untouched rather than reshaping it: the server's own refusal names what
+      // it expected, which is a better report than one invented here.
+      return params;
+    }
+    return { workspaceRoot: this.workspaceRoot, ...(params as Record<string, unknown>) };
+  }
+
   updateSettings(next: Settings): void {
     this.settings = next;
     this.respawnTracker = new RespawnTracker(
@@ -378,13 +416,31 @@ export class Daemon extends EventEmitter {
     this.drainStartupQueue();
   }
 
+  // initializeHandshake negotiates the position encoding and DECLARES the
+  // workspace this client wants diagnostics pushed for.
+  //
+  // The declaration is what makes an editor's problem list update while somebody
+  // types. The compiler pushes for the declared workspace and no other one, so a
+  // question asked about somewhere else — by an assistant sharing this server,
+  // say — answers on its own reply and never lands in this window's problems
+  // view. Declaring the folder this window has open is therefore exactly right,
+  // and it is the same value every request then names.
+  //
+  // A window with no folder open declares nothing, which the compiler reads as
+  // its own launch workspace. Nothing else in the handshake changes.
   private async initializeHandshake(): Promise<void> {
     const id = this.nextId++;
+    const params: Record<string, unknown> = {
+      capabilities: { general: { positionEncodings: ['utf-8', 'utf-16'] } },
+    };
+    if (this.workspaceRoot !== null) {
+      params.workspaceRoot = this.workspaceRoot;
+    }
     const req: JsonRpcRequest = {
       jsonrpc: '2.0',
       id,
       method: 'aggrega/initialize',
-      params: { capabilities: { general: { positionEncodings: ['utf-8', 'utf-16'] } } },
+      params,
     };
     const result = await new Promise<unknown>((resolve, reject) => {
       const timer = setTimeout(() => {
