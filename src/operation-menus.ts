@@ -10,6 +10,7 @@ import {
   ATTACHABLE_PLUGIN_TYPES,
   GEN_CATALOG_SCOPES,
 } from './plugins-run';
+import { EntityKind } from './entity-kinds';
 
 // This module is the one description of which controls answer a press by
 // offering a choice BESIDE THEMSELVES, and what each of those choices holds.
@@ -75,14 +76,23 @@ export type OperationMenu =
 const CACHE_MENU_LABEL = 'Cache operation';
 const INSPECT_MENU_LABEL = 'Entity to inspect';
 const PUBLISH_MENU_LABEL = 'Entity to publish';
+const DRAFT_MENU_LABEL = 'Kind of entity to draft';
 const PLUGIN_TYPE_MENU_LABEL = 'Type of plugin to add';
 const GEN_CATALOG_MENU_LABEL = 'Plugins to generate an entity for';
 
-// READING_THE_INDEX is what both fetched menus say while the language server is
-// answering. It is one sentence for both because it describes the same read —
-// the workspace's own entity index — and two wordings for one wait would tell a
-// reader the two controls do different work.
+// READING_THE_INDEX is what the two menus offering the workspace's own entities
+// say while the language server is answering. It is one sentence for both
+// because it describes the same read — the workspace's own entity index — and
+// two wordings for one wait would tell a reader the two controls do different
+// work.
 const READING_THE_INDEX = 'Reading the workspace entity index…';
+
+// READING_THE_KINDS is what the drafting menu says while it waits. It is a
+// second sentence rather than the one above because it names a DIFFERENT read:
+// the kinds are the compiler's own, answered from the schemas compiled into it,
+// and telling a reader that the workspace was being read would name a subject
+// this read never touches.
+const READING_THE_KINDS = 'Reading the entity kinds the compiler declares…';
 
 // OPERATION_MENUS is the whole set, keyed by the operation whose button opens
 // it. An operation absent from this map answers a press by running, or by
@@ -102,8 +112,23 @@ export const OPERATION_MENUS: Partial<Record<OperationId, OperationMenu>> = {
       detail: operation.detail,
     })),
   },
-  // The two fetched ones. Their subjects are the workspace's, so the menu opens
-  // saying it is reading and fills in when the answer arrives.
+  // The drafting control's choices are the KINDS THE COMPILER ANSWERS FOR, and
+  // it is fetched for that reason rather than because the answer is slow: the
+  // set of kinds belongs to the compiler, so a list of them here would be a
+  // second statement of it, agreeing until the day a kind was declared and then
+  // quietly wrong with nothing comparing the two. Asking is what makes what a
+  // reader is offered follow the running binary.
+  //
+  // The fetched kind admits no options field at all, so a list on this side is
+  // not a thing this entry can hold — the type refuses it rather than a reviewer
+  // having to notice.
+  scaffold: {
+    kind: 'fetched',
+    label: DRAFT_MENU_LABEL,
+    pending: READING_THE_KINDS,
+  },
+  // The two whose subjects are the workspace's own entities, on the same terms:
+  // the menu opens saying it is reading and fills in when the answer arrives.
   inspect: {
     kind: 'fetched',
     label: INSPECT_MENU_LABEL,
@@ -148,19 +173,20 @@ export function menuFor(id: OperationId): OperationMenu | null {
 // menuOptionOffered reports whether a control's menu offers a value.
 //
 // It answers for a FIXED menu only, and returns false for every other case —
-// including for a fetched menu, whose set is the workspace's rather than this
-// surface's. That is the honest bound rather than a gap: the values a fetched
-// menu carries are an entity's identity and an entity's path, which are open
-// sets the compiler resolves, so a membership test here could only be a stale
-// copy of an answer that has already moved. A fetched choice is therefore
-// carried to the compiler, which refuses it in its own words if it has gone.
+// including for a fetched menu, whose choices are not this surface's to hold.
+// That is the honest bound rather than a gap: a fetched value is a position into
+// an offer that was composed for one opening of one menu, or a token of the
+// compiler's own vocabulary, and neither is a member of any set kept here. So
+// such a choice is resolved where it can be — against the offer by whoever
+// consumes it, or by the compiler, which refuses in its own words a value it no
+// longer answers for.
 export function menuOptionOffered(id: OperationId, value: string): boolean {
   const menu = menuFor(id);
   if (menu === null || menu.kind !== 'fixed') { return false; }
   return menu.options.some((option) => option.value === value);
 }
 
-// subjectMenuOptions turns the entities a fetched menu offers into its choices.
+// subjectMenuOptions turns the entities a menu offers into its choices.
 //
 // 🔴 THE VALUE IS THE SUBJECT'S POSITION IN THIS OFFER, NOT ANYTHING THE READER
 // READS. Two entities in one workspace may share a name — the kind is what
@@ -182,6 +208,36 @@ export function subjectMenuOptions(subjects: EntitySubject[]): MenuOption[] {
   }));
 }
 
+// entityKindMenuOptions turns the kinds the compiler answered with into the
+// choices the drafting menu offers.
+//
+// 🔴 A READER READS THE VALUE THE DOCUMENT CARRIES AND THE CHOICE COMPOSES THE
+// TOKEN THE REQUEST TAKES, AND NEITHER IS DERIVED FROM THE OTHER. The two are
+// different words for a kind whose name is more than one word, so taking either
+// for the other would compose a request the compiler refuses or show a reader a
+// word their own document never carries. The word a reader reads is the one
+// their draft will open with, which is what makes it the right one to show.
+//
+// The value is the kind's own token rather than the choice's position in the
+// offer, and that is the one difference from the menus offering the workspace's
+// own entities. Two entities may share a name, so only a position identifies
+// one; a kind's token is the compiler's own identity for that kind and is
+// already the vocabulary its request takes, so it is carried through verbatim —
+// which is also what keeps the same command working when a reader's keybinding
+// or recorded workflow invokes it naming a kind outright.
+//
+// The second line is left empty rather than composed. On the menus that carry
+// one it says what choosing does or which document a subject is; here the word
+// a reader reads names the kind completely, and drawing the token beside it
+// would show two spellings of one thing with nothing to say why they differ.
+export function entityKindMenuOptions(kinds: EntityKind[]): MenuOption[] {
+  return kinds.map((kind) => ({
+    value: kind.kind,
+    label: kind.documentKind,
+    detail: '',
+  }));
+}
+
 // menuAnswer reports the choice a caller may act on, or null where there is
 // none to act on.
 //
@@ -200,10 +256,11 @@ export function subjectMenuOptions(subjects: EntitySubject[]): MenuOption[] {
 //     value this surface never presented is discarded and the question is asked
 //     instead. The set is closed and this side owns it, so the check is exact.
 //   - a FETCHED menu's answer is checked for being a non-empty string and
-//     nothing more. Its values are an entity's identity and an entity's path —
-//     open sets the compiler resolves — so a membership test here could only
-//     compare against a copy of an answer that has already moved. The value goes
-//     to the compiler, which refuses it in its own words if the entity has gone.
+//     nothing more, because this side holds no set for it to belong to. Such a
+//     value is a position into an offer composed for one opening of one menu, or
+//     a token of the compiler's own vocabulary; the first is resolved against
+//     that offer by whoever consumes it, and the second by the compiler, which
+//     refuses in its own words a value it no longer answers for.
 export function menuAnswer(id: OperationId, value: unknown): string | null {
   if (typeof value !== 'string' || value.trim() === '') { return null; }
   const menu = menuFor(id);

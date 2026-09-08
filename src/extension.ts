@@ -358,6 +358,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     previewBuild: requestBuildPreview,
     reportDaemonError,
     requestCatalogIndex,
+    // Asked with no kind named, which is the request that answers with the kinds
+    // rather than with one kind's schema.
+    entityKinds: () => requestSchema(),
     scaffoldEntity: requestScaffoldEntity,
     entityDefinition: requestEntityDefinition,
     cacheStatus: requestCacheStatus,
@@ -1701,7 +1704,14 @@ async function requestEffectiveConfiguration(): Promise<unknown> {
   return await daemon.request<unknown>('aggrega/effectiveConfiguration', {});
 }
 
-// requestSchema asks the language server for one kind's schema.
+// requestSchema asks the language server for one kind's schema, or — naming no
+// kind — for the kinds that can be named.
+//
+// One request carries both questions because that is how the language server
+// takes them, and it is what lets a client learn the vocabulary it would
+// otherwise have had to know before it could ask. Naming a kind answers with
+// that kind's schema; naming none answers with the kinds instead, at two widths,
+// and which of the two a caller wants is the caller's decision to state.
 //
 // The schema is asked for rather than read from a file beside the installation,
 // and that is a correctness choice rather than a convenience: a path into a
@@ -1709,15 +1719,20 @@ async function requestEffectiveConfiguration(): Promise<unknown> {
 // shipped alongside would be the contract as it stood when the extension was
 // packaged rather than the contract the running binary holds. Asking the process
 // that will do the work is the only way to be generated from the schema in
-// force.
+// force. The same reasoning is what makes the kinds worth asking for: a list of
+// them on this side would be the vocabulary as it stood when the extension was
+// packaged.
 //
 // Throws when the server is not running, so a caller reports that state rather
 // than presenting an absent schema as a product that declares nothing.
-async function requestSchema(kind: string): Promise<unknown> {
+async function requestSchema(kind?: string): Promise<unknown> {
   if (!daemon || daemon.getState() !== DaemonState.Running) {
     throw new Error('the Aggrega language server is not running');
   }
-  return await daemon.request<unknown>('aggrega/getSchema', { kind });
+  return await daemon.request<unknown>(
+    'aggrega/getSchema',
+    kind === undefined ? {} : { kind },
+  );
 }
 
 // requestCacheStatus asks the language server what the on-disk caches hold. It

@@ -25,10 +25,12 @@ import {
 } from './operation-groups';
 import {
   MenuOption,
+  entityKindMenuOptions,
   menuAnswer,
   menuFor,
   subjectMenuOptions,
 } from './operation-menus';
+import { EntityKind, readEntityKinds } from './entity-kinds';
 import { CancellationSignal } from './cancellation';
 import { reportOutcome, runCli, runWatchableCli } from './cli-operation';
 import { makeNonce } from './html';
@@ -139,6 +141,17 @@ export interface OperationDeps extends RendersOnReady {
   // walking the workspace itself would offer a set the compiler is not using,
   // with nothing to report the disagreement.
   requestCatalogIndex(signal?: CancellationSignal): Promise<CatalogIndexDoc>;
+  // entityKinds asks the language server which kinds an author may write a
+  // document of. It is the source the drafting control offers from, and asking
+  // is the whole point: the set of kinds belongs to the compiler, so a list held
+  // here would be a second statement of it, agreeing until the day a kind was
+  // declared and then leaving a reader unable to find their own.
+  //
+  // It takes no cancellation signal, and that is a property of the work rather
+  // than an omission: the answer comes from the schemas compiled into the
+  // binary, so it reaches no registry, no network and no workspace, and there is
+  // nothing for a stop to stop.
+  entityKinds(): Promise<unknown>;
   // scaffoldEntity asks the language server to draft a starter document for an
   // entity kind. It writes nothing: the answer is text, and where it goes is
   // this surface's decision, which is why it lands in an unsaved buffer.
@@ -358,22 +371,23 @@ class OperationsViewProvider implements vscode.WebviewViewProvider {
   private async fillMenu(command: string): Promise<void> {
     const entry = allOperations().find((op) => commandIdFor(op) === command);
     const menu = entry === undefined ? null : menuFor(entry.id);
-    const subjectsFor = entry === undefined ? undefined : SUBJECTS_OFFERED[entry.id];
-    if (entry === undefined || menu === null || menu.kind !== 'fetched' || subjectsFor === undefined) {
+    const fill = entry === undefined ? undefined : FILLS_ITS_MENU[entry.id];
+    if (entry === undefined || menu === null || menu.kind !== 'fetched' || fill === undefined) {
       return;
     }
-    const subjects = await readSubjects(this.deps, subjectsFor);
-    if (subjects === null) {
-      this.offered.delete(entry.id);
+    // Whatever offer was held for this control is dropped before the read, so a
+    // choice arriving from a menu that has since been re-filled cannot resolve
+    // against the list a previous opening composed.
+    this.offered.delete(entry.id);
+    const options = await fill(
+      this.deps,
+      (subjects) => this.offered.set(entry.id, subjects),
+    );
+    if (options === null) {
       this.post({ type: 'menu-refused', command });
       return;
     }
-    this.offered.set(entry.id, subjects);
-    this.post({
-      type: 'menu-options',
-      command,
-      options: subjectMenuOptions(subjects),
-    });
+    this.post({ type: 'menu-options', command, options });
   }
 
   private post(message: { type: string; command: string; options?: MenuOption[] }): void {
@@ -498,12 +512,11 @@ export function activateOperations(
   // here would be a second command that only forwards.
   reg('pull', () => { void runReleaseScoped(deps, 'pull'); });
   reg('acquire', () => { void runReleaseScoped(deps, 'acquire'); });
-  // Drafting an entity asks for the kind as TEXT and offers no list, and that is
-  // deliberate rather than an entry this pass has yet to reach: the set of kinds
-  // belongs to the compiler, so a list held here would be a second statement of
-  // it, agreeing until the day a kind was added. It becomes a choice when the
-  // compiler is asked for its own set, and not before.
-  reg('scaffold', () => { void runScaffold(deps); });
+  // Drafting an entity offers the kinds the COMPILER answers for, and holds no
+  // list of them: the set belongs to the compiler, so what a reader is offered
+  // is asked for and follows the running binary. A list held here would be a
+  // second statement of that set, agreeing until the day a kind was declared.
+  reg('scaffold', (chosen) => { void runScaffold(deps, chosen); });
   reg('import', () => { void runImport(deps); });
   reg('inspect', (chosen) => {
     void runInspect(deps, provider.chosenSubject('inspect', chosen));
@@ -963,19 +976,110 @@ function cacheWhat(operation: CacheOperation): string {
 // that failed to load.
 const NO_ENTITY_TO_OFFER = 'Aggrega: this workspace declares no entity to offer here.';
 
-// SUBJECTS_OFFERED pairs an operation with the entities it can name.
+// NO_KIND_TO_OFFER is what a reader is told when the compiler answered with no
+// kind an author may write a document of. It says so rather than showing an
+// empty list of choices, on the same terms as the sentence above: an empty list
+// reads as a surface that failed to load.
+const NO_KIND_TO_OFFER = 'Aggrega: the compiler reports no entity kind to draft.';
+
+// MenuFill reads one control's choices where the compiler is what holds them,
+// and reports null where there are none to offer — having already told the
+// reader why.
 //
-// It is the one home for that pairing, and it is read by both surfaces that
-// offer these subjects — the chooser a command opens and the menu the panel
-// draws beside the control. Two statements of it would agree on the day the
-// second was written, and the divergence would be a menu offering a subject the
-// operation cannot compose an invocation for.
-const SUBJECTS_OFFERED: Partial<
-  Record<OperationId, (entities: CatalogIndexDoc['entities']) => EntitySubject[]>
-> = {
-  inspect: inspectableSubjects,
-  push: publishableSubjects,
+// remember is how a fill whose answers are POSITIONS records the offer those
+// positions index into. A fill whose choices carry the compiler's own vocabulary
+// never calls it: the value such a choice composes is the token itself, so there
+// is no offer to resolve against and nothing to keep.
+type MenuFill = (
+  deps: OperationDeps,
+  remember: (subjects: EntitySubject[]) => void,
+) => Promise<MenuOption[] | null>;
+
+// FILLS_ITS_MENU pairs each control whose choices the compiler holds with the
+// read that fills them.
+//
+// It is the one home for that pairing, so the panel asks this rather than asking
+// which control it is dealing with — and a menu declared as fetched with no
+// entry here fills with nothing rather than filling from whichever read happened
+// to be written last. Each fill routes through the same helper the chooser uses,
+// so a menu cannot come to offer a set the chooser does not.
+const FILLS_ITS_MENU: Partial<Record<OperationId, MenuFill>> = {
+  scaffold: (deps) => kindChoices(deps),
+  inspect: (deps, remember) => subjectChoices(deps, inspectableSubjects, remember),
+  push: (deps, remember) => subjectChoices(deps, publishableSubjects, remember),
 };
+
+// subjectChoices offers the workspace's own entities, recording the offer a
+// choice will be resolved against.
+async function subjectChoices(
+  deps: OperationDeps,
+  subjectsFor: (entities: CatalogIndexDoc['entities']) => EntitySubject[],
+  remember: (subjects: EntitySubject[]) => void,
+): Promise<MenuOption[] | null> {
+  const subjects = await readSubjects(deps, subjectsFor);
+  if (subjects === null) { return null; }
+  remember(subjects);
+  return subjectMenuOptions(subjects);
+}
+
+// kindChoices offers the kinds an author may write a document of, as the
+// compiler answers them.
+async function kindChoices(deps: OperationDeps): Promise<MenuOption[] | null> {
+  const kinds = await askEntityKinds(deps);
+  return kinds === null ? null : entityKindMenuOptions(kinds);
+}
+
+// askEntityKinds reads the kinds an author may write a document of, and reports
+// null where there are none to offer — having already told the reader why.
+//
+// 🔴 THE REFUSAL HAS ONE HOME AND IT IS HERE, on the same terms as the entity
+// index below: the menu and the chooser both route through this, so one cannot
+// come to say something the other does not. A failed request surfaces the
+// language server's own message, which is where the remediation is named.
+//
+// 🔴 IT READS THE NARROW SET THE ANSWER CARRIES AND NEVER THE WIDE ONE. The wide
+// one is every token the compiler answers for, contracts and generated documents
+// included, so a choice built from it would offer a reader a document no
+// authoring schema accepts. Narrowing the wide one on this side is refused as
+// well: nothing in the answer separates a kind an author writes a file of from
+// one whose content lives inside another kind's document.
+async function askEntityKinds(deps: OperationDeps): Promise<EntityKind[] | null> {
+  let answer: unknown;
+  try {
+    answer = await deps.entityKinds();
+  } catch (err) {
+    await reportOutcome(deps, 'The entity-kind read', outcomeOf(err), true);
+    return null;
+  }
+  const kinds = readEntityKinds(answer);
+  if (kinds.length === 0) {
+    void vscode.window.showInformationMessage(NO_KIND_TO_OFFER);
+    return null;
+  }
+  return kinds;
+}
+
+// pickEntityKind offers those kinds as a chooser and returns the token the
+// chosen one is named by.
+//
+// This is the path a command invoked from the editor's own index takes, where
+// there is no button for a menu to hang under. It offers the same kinds from the
+// same read rather than asking for text, because a reader naming a kind from
+// memory is exactly what asking the compiler removes — and it costs no second
+// request and no second refusal, since both routes come through the read above.
+//
+// A reader reads the value the document carries and the choice returns the token
+// the request takes, which is the same separation the menu makes and for the
+// same reason: the two are different words for a kind of more than one word.
+async function pickEntityKind(deps: OperationDeps): Promise<string | null> {
+  const kinds = await askEntityKinds(deps);
+  if (kinds === null) { return null; }
+  const choice = await vscode.window.showQuickPick(
+    kinds.map((kind) => ({ label: kind.documentKind, value: kind.kind })),
+    { placeHolder: 'Aggrega: choose the kind of entity to draft' },
+  );
+  return choice?.value ?? null;
+}
 
 // readSubjects reads the entities an operation can name, and reports null where
 // there is nothing to offer — having already told the reader why.
@@ -1154,18 +1258,20 @@ async function reportDaemonFailure(
 
 // runScaffold drafts a starter document for an entity kind and opens it.
 //
-// The kind is asked for as text rather than offered as a list, because the set
-// of kinds belongs to the compiler: a list held here would be a second statement
-// of it, agreeing until the day a kind was added. A kind the compiler does not
-// answer to comes back refused, with the compiler's own corrective text naming
-// the whole valid set — which is the answer a list would have been standing in
-// for.
-async function runScaffold(deps: OperationDeps): Promise<void> {
-  const kind = await vscode.window.showInputBox({
-    title: 'Aggrega: draft an entity',
-    prompt: 'Entity kind to draft — for example component, aggregate, release or recipe',
-    ignoreFocusOut: true,
-  });
+// 🔴 THE KINDS ARE THE COMPILER'S AND NO LIST OF THEM IS HELD HERE. They are
+// asked for, so what a reader is offered follows the running binary rather than
+// a copy on this side that would agree on the day it was written and diverge
+// silently the day a kind was declared, with nothing comparing the two.
+//
+// chosen is the kind a reader already named in the menu beside the control.
+// Where it is absent the chooser is opened here, which is the path a command
+// invoked from the editor's own index takes. A kind the compiler does not answer
+// to still comes back refused with the compiler's own corrective text naming the
+// whole valid set — which is the answer for an invocation that named a kind
+// neither route offered, a reader's own keybinding or recorded workflow among
+// them.
+async function runScaffold(deps: OperationDeps, chosen?: unknown): Promise<void> {
+  const kind = menuAnswer('scaffold', chosen) ?? await pickEntityKind(deps);
   if (!kind) { return; }
 
   // The name is optional: the compiler fills a placeholder where none is given,

@@ -128,9 +128,10 @@ function betweenTheButtonsOf(html: string): string {
 // deliberate decision recorded in this file rather than a consequence nobody
 // reviewed.
 //
-// The two fetched ones carry NO options: their choices are the workspace's, so
-// the composed document cannot hold them, which is the difference this list has
-// to be able to see.
+// The fetched ones carry NO options: their choices are held by the compiler —
+// the workspace's own entities for two of them, and the kinds an author may
+// write a document of for the third — so the composed document cannot hold them,
+// which is the difference this list has to be able to see.
 // The reader-visible words and the values each choice COMPOSES are separate
 // fields, and both are asserted — they differ for the generation control, which
 // reads two sentences and composes two one-word selections. Taking a label as
@@ -144,6 +145,14 @@ const MENUS_RULED: Array<{
   values: string[];
   labels: string[];
 }> = [
+  {
+    id: 'scaffold',
+    command: 'aggrega.op.scaffold',
+    label: 'Kind of entity to draft',
+    waiting: 'Reading the entity kinds the compiler declares…',
+    values: [],
+    labels: [],
+  },
   {
     id: 'inspect',
     command: 'aggrega.op.inspect',
@@ -926,11 +935,14 @@ describe('a control that offers its choices beside itself', () => {
     // BLINDNESSES. The duplication is the mechanism here, not an oversight.
     //
     // The pairs below are the FIXED menus and the set each one reads. The
-    // fetched menus are deliberately absent and cannot be covered: their
-    // choices are the workspace's own entities, so this side declares no set for
-    // them to be compared against. That is a bound on what is provable rather
-    // than an omission, and the partition asserted first is what keeps it from
-    // widening silently.
+    // fetched menus are deliberately absent and cannot be covered: their choices
+    // are held by the compiler — the workspace's own entities for two of them,
+    // and the kinds an author may write a document of for the third — so this
+    // side declares no set for them to be compared against. That is a bound on
+    // what is provable rather than an omission, and the partition asserted first
+    // is what keeps it from widening silently: a menu that stops being fetched
+    // arrives here needing a declared set, and one added as fetched cannot be
+    // quietly covered by nothing.
     const declared: Array<{ id: OperationId; values: readonly string[] }> = [
       { id: 'cache', values: CACHE_OPERATIONS.map((operation) => operation.value) },
       { id: 'pluginAdd', values: ATTACHABLE_PLUGIN_TYPES },
@@ -939,7 +951,7 @@ describe('a control that offers its choices beside itself', () => {
     assert.deepStrictEqual(
       declared.map((pair) => pair.id),
       MENUS_RULED.filter((menu) => menu.waiting === '').map((menu) => menu.id),
-      'a fixed menu is held against no declared set, or a set is named for a menu whose choices are the workspace\'s',
+      'a fixed menu is held against no declared set, or a set is named for a menu whose choices the compiler holds',
     );
     const html = operationsBodyHtml(body({ layout: 'buttons' }));
     for (const pair of declared) {
@@ -980,8 +992,8 @@ describe('a control that offers its choices beside itself', () => {
     // declares one more value, is a reader offered it?
     //
     // The fetched menus are absent for the same reason they are absent above —
-    // there is no set on this side to move, because their choices are the
-    // workspace's.
+    // there is no set on this side to move, because the compiler is what holds
+    // their choices.
     const description = '../../src/operation-menus';
     // reload re-reads the menu description against the sets AS THEY NOW STAND.
     const reload = (): typeof import('../../src/operation-menus') => {
@@ -1150,8 +1162,10 @@ describe('a control that offers its choices beside itself', () => {
   it('offers no menu at all on a control that cannot run', () => {
     // A disabled control cannot be pressed, so a menu composed for one would be
     // a choice the reader can never reach — and the document would carry an
-    // offer nothing can accept. The two menu-bearing controls that CAN be
-    // disabled are used, so this measures the rule rather than an empty case.
+    // offer nothing can accept. The controls disabled here are menu-bearing ones
+    // the panel CAN disable, so this measures the rule rather than an empty
+    // case; a menu-bearing control nothing the panel reads can disable could not
+    // establish it.
     const html = operationsBodyHtml(body({
       unavailable: {
         push: NO_RELEASE_SELECTED_CONTROL_REASON,
@@ -1205,7 +1219,7 @@ describe('a control that offers its choices beside itself', () => {
     const unchanged: OperationId[] = [
       'validate', 'lint', 'build', 'preview', 'graph',
       'pull', 'acquire',
-      'scaffold', 'import',
+      'import',
       'sign', 'deprecate',
       'configShow',
       'registryAdd', 'registryIndex',
