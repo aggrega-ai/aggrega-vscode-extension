@@ -4,6 +4,7 @@
 import * as assert from 'node:assert';
 
 import {
+  CACHE_OPERATIONS,
   OPERATION_GROUPS,
   OperationId,
   OperationsLayout,
@@ -15,6 +16,10 @@ import {
   operationsBodyHtml,
   operationsDocumentHtml,
 } from '../../src/operations-render';
+import {
+  ATTACHABLE_PLUGIN_TYPES,
+  GEN_CATALOG_SCOPES,
+} from '../../src/plugins-run';
 import { NO_RELEASE_SELECTED_CONTROL_REASON } from '../../src/release-selection';
 import { selectorRows } from '../../src/selector-rows';
 
@@ -189,6 +194,16 @@ const MENU_OPTIONS_DRAWN = MENUS_RULED.reduce((total, menu) => total + menu.valu
 // menusOf slices the document into one chunk per menu, in document order.
 function menusOf(html: string): string[] {
   return html.split('<div class="op-menu"').slice(1);
+}
+
+// menuChunkFor slices ONE menu out of the document by the control it belongs
+// to, and fails naming the control when the document draws no menu for it — so
+// an assertion about one menu is made against that menu rather than against a
+// position in a list that another change could shift underneath it.
+function menuChunkFor(html: string, id: OperationId): string {
+  const chunk = menusOf(html).find((c) => c.startsWith(` id="menu-${id}"`));
+  assert.ok(chunk !== undefined, `the document draws no menu for ${id}`);
+  return chunk;
 }
 
 // optionsIn reports the choices a chunk draws, by the value each composes.
@@ -882,6 +897,174 @@ describe('a control that offers its choices beside itself', () => {
       differ, ['pluginEntities'],
       'no menu reads differently from what it composes, so the two comparisons measure one thing',
     );
+  });
+
+  it('draws each fixed menu\'s choices as the values that operation\'s own set declares', () => {
+    // 🔴 THIS IS ONE OF THREE DELIBERATELY OVERLAPPING CLAUSES, AND NONE OF THEM
+    // IS REDUNDANT. Each is blind to something the other two see, so the reasons
+    // are written here rather than left for a reader to reconstruct — an
+    // unrecorded near-duplicate is indistinguishable from an accident.
+    //
+    //   - MENUS_RULED, written out literally, pins what a reader is offered and
+    //     what each choice composes. A declared set edited without the words
+    //     here being changed to match fails against it, which is what makes an
+    //     edit to one of those sets a decision somebody reviewed. What it cannot
+    //     judge is where those words came from.
+    //   - THIS clause holds the drawn document against the set the operation
+    //     declares, in order — so a choice dropped, reordered, or spelled
+    //     differently from its own set fails here even though the literal list
+    //     was updated to match. It reads the same set the composition reads, and
+    //     is therefore blind to a value changed INSIDE that set: both sides move
+    //     together and the comparison still agrees. That is exactly what the
+    //     literal list covers.
+    //   - the clause below moves the set and requires the menu to follow, which
+    //     is what refuses an option list hand-written to agree with its set.
+    //     Neither clause above can: such a list draws byte-identical markup,
+    //     measured, so there is nothing in the document for them to see.
+    //
+    // 🔴 UNIFYING ANY TWO OF THEM, OR DELETING ANY ONE, RESTORES ONE OF THOSE
+    // BLINDNESSES. The duplication is the mechanism here, not an oversight.
+    //
+    // The pairs below are the FIXED menus and the set each one reads. The
+    // fetched menus are deliberately absent and cannot be covered: their
+    // choices are the workspace's own entities, so this side declares no set for
+    // them to be compared against. That is a bound on what is provable rather
+    // than an omission, and the partition asserted first is what keeps it from
+    // widening silently.
+    const declared: Array<{ id: OperationId; values: readonly string[] }> = [
+      { id: 'cache', values: CACHE_OPERATIONS.map((operation) => operation.value) },
+      { id: 'pluginAdd', values: ATTACHABLE_PLUGIN_TYPES },
+      { id: 'pluginEntities', values: GEN_CATALOG_SCOPES.map((scope) => scope.value) },
+    ];
+    assert.deepStrictEqual(
+      declared.map((pair) => pair.id),
+      MENUS_RULED.filter((menu) => menu.waiting === '').map((menu) => menu.id),
+      'a fixed menu is held against no declared set, or a set is named for a menu whose choices are the workspace\'s',
+    );
+    const html = operationsBodyHtml(body({ layout: 'buttons' }));
+    for (const pair of declared) {
+      // IN ORDER as well as by membership: a menu offering the right choices in
+      // a different sequence is a different surface, and the order a reader
+      // meets them in is the one the declared set states.
+      assert.deepStrictEqual(
+        optionsIn(menuChunkFor(html, pair.id)), pair.values,
+        `${pair.id} composes something other than the values its own set declares, so its menu is no longer derived from that set`,
+      );
+      // A negative control on that comparison: the declared set is not empty, so
+      // the agreement above is an agreement about real values rather than two
+      // empty lists matching each other.
+      assert.ok(
+        pair.values.length > 0,
+        `the set behind ${pair.id} declares nothing, so the comparison above measures nothing`,
+      );
+    }
+  });
+
+  it('offers a new choice as soon as the operation\'s own set declares one', () => {
+    // 🔴 THIS IS THE ONLY CLAUSE HERE THAT CAN REFUSE AN OPTION LIST WRITTEN OUT
+    // BY HAND TO AGREE WITH THE DECLARED SET, and the reason it takes this shape
+    // is worth stating, because it is not obvious. Such a list composes markup
+    // that is BYTE-IDENTICAL to the derivation's — measured — so no assertion
+    // over the drawn document can tell the two apart, however it is written. The
+    // property that separates them is not what the menu holds today; it is what
+    // the menu DOES when the set moves.
+    //
+    // So this clause moves the set and requires the menu to follow. A menu
+    // composes its fixed choices once, as its description is first loaded, so
+    // the set is changed and that description is re-read — which is what makes
+    // the observation a fresh derivation rather than the one already in hand.
+    // It reads the description rather than the drawn document, so it disturbs
+    // nothing the clauses around it measure.
+    //
+    // It answers the question the other two cannot: the day an operation's set
+    // declares one more value, is a reader offered it?
+    //
+    // The fetched menus are absent for the same reason they are absent above —
+    // there is no set on this side to move, because their choices are the
+    // workspace's.
+    const description = '../../src/operation-menus';
+    // reload re-reads the menu description against the sets AS THEY NOW STAND.
+    const reload = (): typeof import('../../src/operation-menus') => {
+      delete require.cache[require.resolve(description)];
+      return require(description);
+    };
+    // offered reports the values one menu composes, from a freshly re-read
+    // description.
+    const offered = (id: OperationId): string[] => {
+      const menu = reload().OPERATION_MENUS[id];
+      assert.ok(
+        menu !== undefined && menu.kind === 'fixed',
+        `${id} no longer holds a menu whose choices this side declares`,
+      );
+      return menu.options.map((option) => option.value);
+    };
+    // Each probe grows one operation's own set by one value and puts it back.
+    //
+    // It appends a value the set ALREADY declares rather than inventing one:
+    // inventing would put a word in this file that the product does not have,
+    // and the question here is whether the menu follows its set at all rather
+    // than what the next value happens to be called.
+    const attachable = ATTACHABLE_PLUGIN_TYPES as string[];
+    const scopes = GEN_CATALOG_SCOPES as Array<(typeof GEN_CATALOG_SCOPES)[number]>;
+    const probes: Array<{
+      id: OperationId;
+      declared: () => string[];
+      grow: () => void;
+      putBack: () => void;
+    }> = [
+      {
+        id: 'cache',
+        declared: () => CACHE_OPERATIONS.map((operation) => operation.value),
+        grow: () => { CACHE_OPERATIONS.push({ ...CACHE_OPERATIONS[0] }); },
+        putBack: () => { CACHE_OPERATIONS.pop(); },
+      },
+      {
+        id: 'pluginAdd',
+        declared: () => [...attachable],
+        grow: () => { attachable.push(attachable[0]); },
+        putBack: () => { attachable.pop(); },
+      },
+      {
+        id: 'pluginEntities',
+        declared: () => scopes.map((scope) => scope.value),
+        grow: () => { scopes.push({ ...scopes[0] }); },
+        putBack: () => { scopes.pop(); },
+      },
+    ];
+    assert.deepStrictEqual(
+      probes.map((probe) => probe.id),
+      MENUS_RULED.filter((menu) => menu.waiting === '').map((menu) => menu.id),
+      'a menu whose choices this side declares is never moved, so nothing here holds it to its set',
+    );
+    for (const probe of probes) {
+      const pristine = probe.declared();
+      probe.grow();
+      try {
+        const grown = probe.declared();
+        // A self-check on the probe: a probe that moved nothing would leave the
+        // comparison below trivially true.
+        assert.strictEqual(
+          grown.length, pristine.length + 1,
+          `the probe on ${probe.id} did not grow that operation's set, so the clause below measures nothing`,
+        );
+        assert.deepStrictEqual(
+          offered(probe.id), grown,
+          `${probe.id} withheld a value its own set declares, so what it offers is a list that agrees with that set rather than one read from it`,
+        );
+      } finally {
+        probe.putBack();
+      }
+      // The set is back and the description re-read from it, so this clause
+      // leaves nothing behind for anything after it to measure.
+      assert.deepStrictEqual(
+        probe.declared(), pristine,
+        `the set behind ${probe.id} was not put back`,
+      );
+      assert.deepStrictEqual(
+        offered(probe.id), pristine,
+        `${probe.id} was left describing a set this clause moved`,
+      );
+    }
   });
 
   it('composes every choice as a native menu item that holds no tab stop', () => {
