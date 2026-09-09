@@ -9,6 +9,7 @@ import { buildParams, buildPreviewParams } from './build-dials';
 import { CancellationSignal } from './cancellation';
 import type { RegistrySearchParams, SearchDoc } from './catalog-search-run';
 import type { ConfigInitParams, ConfigInitResult } from './config-seeding';
+import type { ImportParams, ImportResult } from './import-request';
 import type { PluginRemoveParams, PluginRemoveResult } from './plugin-removal';
 import type {
   LogoutParams,
@@ -369,6 +370,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     runLint: () => lintRunner?.run() ?? Promise.resolve(),
     build: requestBuild,
     previewBuild: requestBuildPreview,
+    importSource: requestImport,
     reportDaemonError,
     requestCatalogIndex,
     // Asked with no kind named, which is the request that answers with the kinds
@@ -1692,6 +1694,36 @@ async function requestBuild(
     buildParams(release, dials),
     signal,
   );
+}
+
+// requestImport asks the language server to draft Aggrega authoring files from a
+// foreign source description.
+//
+// The source is a file the reader chose and may sit anywhere on the machine: it is
+// READ, so the request surface resolves it as a selection rather than as a
+// workspace-relative path, and an absolute one naming a file outside the open
+// folder is accepted and read. The destination is the other direction — it is
+// WRITTEN to, and is confined to the workspace the session was opened over
+// whatever the request sends — which is why the parameters carry a relative value
+// for it and the two are not one rule.
+//
+// 🔴 IT CARRIES CANCELLATION, AND UNLIKE MOST OF THE REQUESTS HERE THE STOP
+// REACHES THE WORK. The importer is a module the compiler runs, this request's
+// context is what it is run under, and the runtime is configured to unwind a
+// module that is mid-run when that context is cancelled. So a reader's stop ends
+// the conversion, and offering one is not the decoration it would be on a request
+// whose shared operation takes no context.
+//
+// Throws when the server is not running, so a caller reports that state rather
+// than presenting an import that never ran as one that drafted nothing.
+async function requestImport(
+  params: ImportParams,
+  signal?: CancellationSignal,
+): Promise<ImportResult> {
+  if (!daemon || daemon.getState() !== DaemonState.Running) {
+    throw new Error('the Aggrega language server is not running');
+  }
+  return await daemon.request<ImportResult>('aggrega/import', params, signal);
 }
 
 // requestCatalogIndex asks the language server for the open workspace's entity

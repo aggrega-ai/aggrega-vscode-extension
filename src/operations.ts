@@ -16,7 +16,6 @@ import {
   catalogUploadArgs,
   commandIdFor,
   deprecateArgs,
-  importArgs,
   inspectableSubjects,
   publishableSubjects,
   releaseScopedArgs,
@@ -33,7 +32,16 @@ import {
 import { EntityKind, readEntityKinds } from './entity-kinds';
 import { dialsTurnedOn } from './build-dials';
 import { CancellationSignal } from './cancellation';
-import { reportOutcome, runCli, runWatchableCli } from './cli-operation';
+import { reportOutcome, runWatchableCli } from './cli-operation';
+import {
+  IMPORT_SOURCE_PROMPT,
+  IMPORT_SOURCE_TITLE,
+  IMPORT_SUBJECT,
+  ImportParams,
+  ImportResult,
+  importOpeningLine,
+  runImport as performImport,
+} from './import-request';
 import { makeNonce } from './html';
 import { outcomeOf } from './operation-outcome';
 import { openDocument } from './open-document';
@@ -137,6 +145,20 @@ export interface OperationDeps extends RendersOnReady {
   // not to: a reader would otherwise meet a refusal for a combination they
   // never authored and cannot see.
   previewBuild(release: string, signal?: CancellationSignal): Promise<BuildPreviewResponse>;
+  // importSource drafts Aggrega authoring files from a foreign source
+  // description. It is supplied rather than spawned here for the reason every
+  // server-backed entry is: the answer is a structured result this surface
+  // reports — what the source was recognised as, where the drafts went, and the
+  // importer's own findings — rather than output it would have to read back out
+  // of a stream.
+  //
+  // The signal is how a reader stops it, and here that is more than a courtesy:
+  // it reaches the language server as the cancellation of the request this call
+  // was sent as, and the compiler unwinds the importer module it is running. So
+  // stopping this stops the conversion rather than only stopping the editor
+  // waiting for an answer, which is what distinguishes it from the entries below
+  // that take no signal.
+  importSource(params: ImportParams, signal?: CancellationSignal): Promise<ImportResult>;
   // reportDaemonError routes a failed request's error envelope to the per-code
   // surfaces the extension already has for it — a diagnostic on the document
   // the envelope names, or the toast that offers the remediating command — and
@@ -774,22 +796,42 @@ async function runPreview(deps: OperationDeps): Promise<void> {
   );
 }
 
-// runImport prompts for the source to import, then runs the import operation.
-// The source is passed verbatim as a positional argument; the compiler
-// validates and reports on it.
-// It reads the named file and nothing else — no other files and no network — so
-// it is not watched: there is nothing to wait for and nothing to stop. It still
-// ends in a line, on the channel it already reveals.
+// runImport prompts for the source to import, then asks the language server to
+// draft authoring files from it. The source is passed through verbatim; the
+// compiler reads it and reports on it.
+//
+// It is watched and it can be stopped, and both follow from what the compiler
+// does with it. The importer is a module the compiler resolves, prepares and runs
+// over the source, so there is a wait worth showing; and the request's own
+// context reaches that module, with the runtime set to unwind one that is mid-run
+// when the context is cancelled — so the stop offered here ends the conversion
+// rather than only ending this side's wait for an answer.
+//
+// What lands where: the importer's findings carry no document position, because
+// its subject is a foreign source file rather than a place in an authored
+// document, so they are written to this channel — the same surface a build's
+// positionless advisories reach, and for the same reason. The ending is composed
+// from the answer's own fields.
 async function runImport(deps: OperationDeps): Promise<void> {
   const source = await vscode.window.showInputBox({
-    title: 'Aggrega: import source',
-    prompt: 'Path or reference of the source to import',
+    title: IMPORT_SOURCE_TITLE,
+    prompt: IMPORT_SOURCE_PROMPT,
     ignoreFocusOut: true,
   });
   if (!source) { return; }
-  await runCli(deps, 'The import', importArgs(source), {
-    detail: `drafted Aggrega documents from ${source}.`,
-  });
+
+  const out = deps.output;
+  out.show(true);
+  out.appendLine(importOpeningLine(source));
+
+  const report = await withCancellableProgress(
+    `Aggrega: importing ${source}`,
+    (signal) => performImport(deps, source, signal),
+  );
+  for (const line of report.lines) {
+    out.appendLine(line);
+  }
+  await reportOutcome(deps, IMPORT_SUBJECT, report.outcome, true);
 }
 
 // runCache offers the cache operations as a quick-pick, then asks the language

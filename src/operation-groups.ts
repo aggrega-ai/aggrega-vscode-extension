@@ -516,11 +516,15 @@ export function deprecateArgs(reference: string, severity: string, reason: strin
   return [...args, '--severity', trimmedSeverity, '--reason', trimmedReason];
 }
 
-// importArgs builds the import of one foreign source. The source is passed
-// verbatim; the compiler validates it and reports on it.
-export function importArgs(source: string): string[] {
-  return withSubject('import', source, 'the source to import');
-}
+// 🔴 THE IMPORT COMPOSES NO ARGUMENT LIST, BECAUSE NOTHING IS INVOKED FOR ONE.
+// It is a language-server request: the source is a file the reader chose and the
+// destination is the workspace root, both sent as request parameters, and the
+// answer carries what the source was recognised as, where the drafts went and the
+// importer's own findings. A composition left standing here would be a second way
+// to reach one operation, and the argument list is the shape that cannot carry a
+// stop — which this one has, because the request's context reaches the importer
+// module the compiler runs. What the request carries is stated where the request
+// is composed.
 
 // CacheOperation is the closed set of cache operations this surface offers.
 //

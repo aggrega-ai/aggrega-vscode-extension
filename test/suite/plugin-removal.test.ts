@@ -321,16 +321,21 @@ describe('the removal reaches the compiler without a launch', () => {
     );
   });
 
-  it('🔴 LEAVES THE LAUNCH HELPER EXACTLY FOUR DIRECT CALL SITES, EACH ACCOUNTED FOR', () => {
+  it('🔴 LEAVES THE LAUNCH HELPER EXACTLY THREE DIRECT CALL SITES, EACH ACCOUNTED FOR', () => {
     // A COUNT rather than a presence, and per module rather than over the tree.
     // The claim is that each remaining launch is accounted for, and a count is
     // the only shape that can express it: a presence check passes whatever the
     // number, and a tree-wide total hides which module a launch sits in.
     //
-    // The survivors are accounted for rather than tolerated: one import and one
-    // catalog generation whose move would confine a path the reader may name
-    // anywhere today, and the wrapper that supplies a stop to the operations that
-    // have one.
+    // The survivors are accounted for rather than tolerated: one catalog
+    // generation whose destination is written to and stays confined to the
+    // workspace while the picker that chooses it yields an absolute path, and the
+    // wrapper that supplies a stop to the operations that have one.
+    //
+    // The operations panel is absent from the list, and the reason is the import:
+    // its source is READ, so the request surface resolves it as a file the reader
+    // selected and accepts one naming anywhere on the machine — which is what
+    // makes a request able to serve it at all.
     const dir = path.join(EXTENSION_ROOT, 'src');
     const sites = new Map<string, number>();
     for (const file of fs.readdirSync(dir).filter((f) => f.endsWith('.ts'))) {
@@ -343,7 +348,6 @@ describe('the removal reaches the compiler without a launch', () => {
       [
         // The declaration and the one call inside the watchable wrapper.
         ['cli-operation.ts', 2],
-        ['operations.ts', 1],
         ['plugins-view.ts', 1],
       ],
       'the launch helper gained or lost a direct call site; each one is a process launch and '

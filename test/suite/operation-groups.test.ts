@@ -22,7 +22,6 @@ import {
   catalogUploadArgs,
   commandIdFor,
   deprecateArgs,
-  importArgs,
   inspectableSubjects,
   publishableSubjects,
   readLayout,
@@ -523,24 +522,34 @@ describe('the argument list each entry composes', () => {
     );
   });
 
-  it('imports a named source', () => {
-    assert.deepStrictEqual(importArgs('./chart'), ['import', './chart']);
-  });
-
-  it('composes no argument list for a cache operation, because none is invoked', () => {
-    // The cache operations are language-server requests, so there is no
-    // argument list to compose and no verb to name. A negative control first,
-    // so a zero below is a measurement of the module rather than a claim about
-    // the census: the module does still export the compositions that survive.
+  it('composes no argument list for a cache operation or an import, because neither is invoked', () => {
+    // The cache operations and the import are language-server requests, so there
+    // is no argument list to compose and no verb to name. A positive control
+    // first, so the zeros below are measurements of the module rather than claims
+    // about the census: the module does still export the compositions that
+    // survive.
+    //
+    // 🔴 THE CONTROL MUST NAME A COMPOSITION THAT SURVIVES. A control naming one
+    // the module does not export fails as though the module had regressed — or,
+    // written as a filter rather than an assertion, reports every zero below as
+    // clean while measuring nothing. So it names a deprecation, which composes an
+    // argument list and is not a candidate to move: that operation's
+    // command-line run can be stopped, and a request would take that away.
     const composers = Object.keys(groups).filter((name) => /Args$/.test(name));
     assert.ok(
-      composers.includes('importArgs'),
+      composers.includes('deprecateArgs'),
       'the census cannot see a composition that is present, so its zeros mean nothing',
     );
     assert.deepStrictEqual(
       composers.filter((name) => /cache/i.test(name)),
       [],
       'a cache operation that composed an argument list would be a second way to run one',
+    );
+    assert.deepStrictEqual(
+      composers.filter((name) => /^import/i.test(name)),
+      [],
+      'an import that composed an argument list would be a second way to run one, and the '
+      + 'argument list is the shape that cannot carry the stop the request has',
     );
   });
 
@@ -561,7 +570,6 @@ describe('an entry whose invocation cannot succeed is refused before it is built
     ['the catalog upload with a whitespace entity', () => catalogUploadArgs('   ')],
     ['a signature with no reference', () => signArgs('')],
     ['a deprecation with no reference', () => deprecateArgs('', 'warning', 'why')],
-    ['an import with no source', () => importArgs('')],
     ['a pull with no Release', () => releaseScopedArgs('pull', '')],
     ['a pull with a whitespace Release', () => releaseScopedArgs('pull', '  ')],
   ];
