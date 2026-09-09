@@ -33,7 +33,7 @@
 // It holds no editor type, so the classification is assertable without an
 // extension host.
 
-import { ConfigControl, dottedPath } from './config-schema';
+import { ConfigControl } from './config-schema';
 
 // ConfigReach is how far a setting's value carries.
 export type ConfigReach = 'machine' | 'project' | 'unclassified';
@@ -148,18 +148,6 @@ export function configScope(control: ConfigControl): ConfigScope {
   return { reach: best.reach, evidence: best.evidence };
 }
 
-// offeredAsProjectWrite reports whether a setting may be offered as a change to
-// this project's own file.
-//
-// A machine-wide setting is not, and that is the whole purpose of the
-// classification. An unclassified setting IS offered: the product carries no
-// statement that it is machine-wide, and declining every setting nobody has
-// classified would leave the surface refusing most of the configuration on the
-// strength of an absence.
-export function offeredAsProjectWrite(control: ConfigControl): boolean {
-  return configScope(control).reach !== 'machine';
-}
-
 // matches reports whether prefix addresses path or one of its ancestors.
 //
 // The comparison is segment by segment rather than on the dotted spelling, so a
@@ -170,11 +158,19 @@ function matches(prefix: string[], path: string[]): boolean {
   return prefix.every((segment, i) => segment === path[i]);
 }
 
-// machineWidePaths lists the settings this module places on the machine, spelled
-// as a reader sees them.
+// 🔴 THIS CLASSIFICATION ANSWERS ABOUT A SETTING, NEVER ABOUT AN OPERATION, and
+// the distinction is worth stating because the two questions read alike and have
+// different answers.
 //
-// It reports what the classification actually claims, so a caller checking its
-// own handling against the whole set reads it from here rather than restating it.
-export function machineWidePaths(): string[] {
-  return MACHINE_WIDE_BY_NATURE.map((rule) => dottedPath(rule.prefix));
-}
+// What is classified here is a setting's own reach: whether the value a reader
+// edits carries across the machine or belongs to one project's build. Which file
+// an operation WRITES is a different question, and the compiler answers it from
+// the operation's own nature — a registration is machine-wide tooling and
+// defaults to the global file, and yet the compiler accepts being told to write
+// the project's file instead. So the registry settings are machine-wide here AND
+// a registration may be directed at either file, both at once and without
+// contradiction.
+//
+// A surface deciding whether to offer a destination therefore asks the operation,
+// not this module. Reading a setting's reach as an answer to that question would
+// withhold a destination the compiler accepts.

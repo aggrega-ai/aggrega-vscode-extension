@@ -212,14 +212,6 @@ export function registrySubject(node: RegistryNode): string | null {
   return node.kind === 'entry' ? node.row.host : null;
 }
 
-// registryAddArgs composes the registration of a new registry. The host is the
-// command's one required argument, passed verbatim — the command validates it
-// and reports on it, and a reading here would be a second answer to what a host
-// is.
-export function registryAddArgs(host: string): string[] {
-  return ['registry', 'add', host];
-}
-
 // registryUpdateAllArgs composes the index build over every configured
 // registry. The command takes an optional registry argument and indexes all of
 // them when none is given, so the whole-set form passes none.
@@ -233,18 +225,11 @@ export function registryUpdateOneArgs(host: string): string[] {
   return ['registry', 'update', host];
 }
 
-// registryRemoveArgs composes the removal of one registry's entry, addressed by
-// its host.
-export function registryRemoveArgs(host: string): string[] {
-  return ['registry', 'remove', host];
-}
-
-// registryLogoutArgs composes the removal of one registry's stored credential.
-// The credential store is keyed by host, which is the same value the listing
-// reports the credential state against.
-export function registryLogoutArgs(host: string): string[] {
-  return ['logout', host];
-}
+// The index build is the only registry operation this module composes an
+// invocation for. Registering a registry, dropping its entry and removing its
+// stored credential are requests rather than invocations, so their shapes and
+// their wording live with the requests instead of here — there is no argument
+// list for any of them to compose.
 
 // nodesForDocument shapes a whole structured document, preserving the order the
 // product emitted. The command lists registries in ascending host order and

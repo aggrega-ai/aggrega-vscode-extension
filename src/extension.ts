@@ -10,6 +10,14 @@ import { CancellationSignal } from './cancellation';
 import type { RegistrySearchParams, SearchDoc } from './catalog-search-run';
 import type { ConfigInitParams, ConfigInitResult } from './config-seeding';
 import type { PluginRemoveParams, PluginRemoveResult } from './plugin-removal';
+import type {
+  LogoutParams,
+  LogoutResult,
+  RegistryAddParams,
+  RegistryAddResult,
+  RegistryRemoveParams,
+  RegistryRemoveResult,
+} from './registry-configure';
 import type { RegistryListDoc } from './registries-run';
 import { Daemon, DaemonState } from './daemon';
 import { debounce } from './debounce';
@@ -491,6 +499,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     getWorkspaceRoot: () => workspaceRootForCommands,
     getBinaryPath: () => getSettings().binaryPath,
     runRegistryList: requestRegistryList,
+    addRegistry: requestRegistryAdd,
+    removeRegistry: requestRegistryRemove,
+    logOutOfRegistry: requestLogout,
     onReady: ready.onReady,
     output: outputChannel,
   });
@@ -1884,6 +1895,77 @@ async function requestRegistryList(): Promise<RegistryListDoc> {
     throw new Error('the Aggrega language server is not running');
   }
   return await daemon.request<RegistryListDoc>('aggrega/registryList', {});
+}
+
+// requestRegistryAdd asks the language server to register a registry and its
+// signature trust policy.
+//
+// 🔴 IT WRITES, AND THE FILE IT WRITES IS THE READER'S CHOICE carried on the
+// request. The answer names the file the write actually resolved to and whether
+// that file is the global one, so the surface reports the reach of what changed
+// instead of restating the choice it asked for.
+//
+// Where the registration takes the registry's advertised trust policy it makes
+// one unauthenticated request to that registry's own origin. Nothing is prompted
+// for: a registry advertising nothing is reported as advertising nothing and the
+// registration proceeds.
+//
+// It carries no cancellation, and that is read off what the compiler does rather
+// than assumed: the shared operation behind the request is reached with none, and
+// the handler checks for a stopped caller only after that operation has returned.
+// A stop sent here would stop this client waiting and not the work, so none is
+// offered.
+//
+// Throws when the server is not running, so a caller reports that state rather
+// than presenting a registration that never ran as one that changed nothing.
+async function requestRegistryAdd(params: RegistryAddParams): Promise<RegistryAddResult> {
+  if (!daemon || daemon.getState() !== DaemonState.Running) {
+    throw new Error('the Aggrega language server is not running');
+  }
+  return await daemon.request<RegistryAddResult>('aggrega/registryAdd', params);
+}
+
+// requestRegistryRemove asks the language server to drop a registry's entry.
+//
+// It reaches no registry: a removal operates on the configuration text alone.
+// The answer names the host the compiler resolved the token to and the file the
+// removal wrote, so the reader is told what was removed and from where rather
+// than that something finished.
+//
+// It carries no cancellation, for the same measured reason as the registration
+// above.
+//
+// Throws when the server is not running, so a caller reports that state rather
+// than presenting a removal that never ran as one that found nothing to remove.
+async function requestRegistryRemove(
+  params: RegistryRemoveParams,
+): Promise<RegistryRemoveResult> {
+  if (!daemon || daemon.getState() !== DaemonState.Running) {
+    throw new Error('the Aggrega language server is not running');
+  }
+  return await daemon.request<RegistryRemoveResult>('aggrega/registryRemove', params);
+}
+
+// requestLogout asks the language server to remove a registry's stored
+// credential.
+//
+// 🔴 IT CHANGES MACHINE-WIDE STATE AND CARRIES NO CHOICE OF WHERE. The credential
+// store is shared by every project on the machine and by every other tool
+// speaking to the same registries, so the operation has no project-scoped form
+// and the request surface offers no override to send.
+//
+// The credential is never read. The store is asked to delete the host's entry,
+// and no part of what that entry held reaches the answer, an error or a log line.
+//
+// It carries no cancellation, for the same measured reason as the two above.
+//
+// Throws when the server is not running, so a caller reports that state rather
+// than presenting a removal that never ran as one that found nothing.
+async function requestLogout(params: LogoutParams): Promise<LogoutResult> {
+  if (!daemon || daemon.getState() !== DaemonState.Running) {
+    throw new Error('the Aggrega language server is not running');
+  }
+  return await daemon.request<LogoutResult>('aggrega/logout', params);
 }
 
 // requestRegistrySearch asks the language server to search the published

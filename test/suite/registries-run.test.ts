@@ -8,10 +8,7 @@ import {
   RegistryListDoc,
   RegistryNode,
   RegistryRow,
-  registryAddArgs,
-  registryLogoutArgs,
   registryNodes,
-  registryRemoveArgs,
   registrySubject,
   registryUpdateAllArgs,
   registryUpdateOneArgs,
@@ -315,19 +312,16 @@ describe('registrySubject', () => {
   });
 });
 
-describe('the argument list each registry operation composes', () => {
-  // Each list is asserted against the command's own argument declaration, which
+describe('the argument list the index refresh composes', () => {
+  // The list is asserted against the command's own argument declaration, which
   // is what decides whether an invocation can succeed. Composing one from the
   // operation's name instead is how a button comes to be pressed with no
   // subject.
-
-  it('names the host when registering a registry, which the command requires', () => {
-    // `registry add <host>` takes exactly one argument.
-    assert.deepStrictEqual(
-      registryAddArgs('registry.example.test'),
-      ['registry', 'add', 'registry.example.test'],
-    );
-  });
+  //
+  // 🔴 THE INDEX REFRESH IS THE ONLY REGISTRY OPERATION LEFT WITH AN ARGUMENT
+  // LIST, and the count below holds that. Registering a registry, dropping its
+  // entry and removing its stored credential are requests, so no argument list
+  // exists for any of them to be composed wrongly from.
 
   it('passes no argument when indexing every registry', () => {
     // `registry update [<name|host>]` accepts at most one argument and indexes
@@ -342,40 +336,37 @@ describe('the argument list each registry operation composes', () => {
     );
   });
 
-  it('names the registry when removing it, which the command requires', () => {
-    // `registry remove <name|host>` takes exactly one argument.
-    assert.deepStrictEqual(
-      registryRemoveArgs('mid.example.test'),
-      ['registry', 'remove', 'mid.example.test'],
-    );
-  });
-
-  it('names the registry when removing its stored credential', () => {
-    // `logout <registry>` takes exactly one argument, and the credential store
-    // is keyed by the same host the listing reports the credential state for.
-    assert.deepStrictEqual(
-      registryLogoutArgs('mid.example.test'),
-      ['logout', 'mid.example.test'],
-    );
-  });
-
-  it('composes a subject-bearing invocation for every row operation, from a row', async () => {
+  it('composes a subject-bearing invocation from a row', async () => {
     // The end-to-end shape the panel actually uses: a row, through the one
-    // extractor, into each argument list. This is the assertion that fails if a
+    // extractor, into the argument list. This is the assertion that fails if a
     // row ever stops carrying its subject.
+    //
+    // 🔴 AN EQUALITY, NOT A MEMBERSHIP TEST. Asserting that the list merely
+    // CONTAINS the host passes on a list that carries it in the wrong position,
+    // or twice, or alongside a verb that has changed — so the whole list is
+    // compared against a literal written here.
     const nodes = await harness('/ws', ok(MEASURED_DOCUMENT)).nodes();
     const host = registrySubject(nodes[1]);
     assert.ok(host);
-
-    for (const args of [
+    assert.deepStrictEqual(
       registryUpdateOneArgs(host),
-      registryRemoveArgs(host),
-      registryLogoutArgs(host),
-    ]) {
-      assert.ok(
-        args.includes('mid.example.test'),
-        `${args.join(' ')} was composed without the registry it acts on`,
-      );
-    }
+      ['registry', 'update', 'mid.example.test'],
+    );
+  });
+
+  it('composes an argument list for the refresh and for nothing else', () => {
+    // 🔴 A COUNT OVER THE MODULE'S OWN EXPORTS. Three composers were retired
+    // here when their operations became requests, and a presence check on the
+    // survivors would have gone on passing had any of the three been left
+    // standing with no caller — which is the shape that keeps a second execution
+    // path reachable while every other assertion reads clean.
+    const module: Record<string, unknown> = require('../../src/registries-run');
+    const composers = Object.keys(module).filter((name) => name.endsWith('Args')).sort();
+    assert.deepStrictEqual(
+      composers,
+      ['registryUpdateAllArgs', 'registryUpdateOneArgs'],
+      'a registry operation gained or lost an argument list; a composer with no caller is a '
+      + 'launch waiting to be reached, and a missing one is an operation that cannot run',
+    );
   });
 });

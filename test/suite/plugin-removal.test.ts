@@ -321,17 +321,16 @@ describe('the removal reaches the compiler without a launch', () => {
     );
   });
 
-  it('🔴 LEAVES THE LAUNCH HELPER EXACTLY FIVE DIRECT CALL SITES, EACH ACCOUNTED FOR', () => {
+  it('🔴 LEAVES THE LAUNCH HELPER EXACTLY FOUR DIRECT CALL SITES, EACH ACCOUNTED FOR', () => {
     // A COUNT rather than a presence, and per module rather than over the tree.
     // The claim is that each remaining launch is accounted for, and a count is
     // the only shape that can express it: a presence check passes whatever the
     // number, and a tree-wide total hides which module a launch sits in.
     //
-    // The survivors are accounted for rather than tolerated: three registry
-    // writes held behind an unanswered question about which configuration file
-    // they land in, one import and one catalog generation whose move would
-    // confine a path the reader may name anywhere today, and the wrapper that
-    // supplies a stop to the operations that have one.
+    // The survivors are accounted for rather than tolerated: one import and one
+    // catalog generation whose move would confine a path the reader may name
+    // anywhere today, and the wrapper that supplies a stop to the operations that
+    // have one.
     const dir = path.join(EXTENSION_ROOT, 'src');
     const sites = new Map<string, number>();
     for (const file of fs.readdirSync(dir).filter((f) => f.endsWith('.ts'))) {
@@ -346,7 +345,6 @@ describe('the removal reaches the compiler without a launch', () => {
         ['cli-operation.ts', 2],
         ['operations.ts', 1],
         ['plugins-view.ts', 1],
-        ['registries-view.ts', 3],
       ],
       'the launch helper gained or lost a direct call site; each one is a process launch and '
       + 'each needs a stated reason to exist',
@@ -359,11 +357,15 @@ describe('the removal reaches the compiler without a launch', () => {
     // provably calls the helper — otherwise a pattern that stopped matching would
     // report every module clean and the removal would look moved whether it was
     // or not.
-    const source = fs.readFileSync(path.join(EXTENSION_ROOT, 'src/registries-view.ts'), 'utf8');
+    //
+    // The control is the plugins panel, which still runs an attachment as a
+    // command: it is on the same side of the claim as the subject and moves
+    // independently of it.
+    const source = fs.readFileSync(path.join(EXTENSION_ROOT, 'src/plugins-view.ts'), 'utf8');
     const count = (source.match(/(?:^|[^a-zA-Z.])runCli\(/gm) ?? []).length;
     assert.ok(
       count > 0,
-      'the call-site pattern no longer matches registries-view.ts, which provably calls the '
+      'the call-site pattern no longer matches plugins-view.ts, which provably calls the '
       + 'launch helper, so it can no longer detect a module that does',
     );
   });

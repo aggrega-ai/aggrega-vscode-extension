@@ -273,12 +273,34 @@ describe('the registries panel and the catalog search reach the compiler without
   });
 
   it('gives neither panel module any way to start a process', () => {
-    // The registries tree still runs commands for the operations that CHANGE the
-    // configured set, and those go through the shared invocation helper rather
-    // than through a launch of this module's own.
+    // The registries tree still runs one command — the index refresh, which is
+    // the one registry operation that reaches the registries themselves and the
+    // one whose run can be stopped — and it goes through the shared invocation
+    // helper rather than through a launch of this module's own.
     for (const module of ['src/registries-view.ts', 'src/catalog-views.ts']) {
       assert.strictEqual(launchFacilityCount(module), 0, module);
     }
+  });
+
+  it('gives the module that decides the three registry changes no way to reach a process', () => {
+    // 🔴 THE STRONGER CLAIM, AND IT NEEDS THE IMPORT LIST RATHER THAN THE LAUNCH
+    // PATTERN. A module holding no spawn of its own can still reach one through a
+    // helper. Read as the WHOLE import list, so a module added to it has to be
+    // looked at — including one that could start a process and one that would
+    // carry the editor in, which is what keeps these decisions readable without a
+    // host.
+    const source = fs.readFileSync(path.join(EXTENSION_ROOT, 'src/registry-configure.ts'), 'utf8');
+    const imported = [...source.matchAll(/from\s+'([^']+)'/g)].map((m) => m[1]);
+    assert.deepStrictEqual(
+      imported.sort(),
+      [
+        './config-write-scope',
+        './operation-groups',
+        './operation-outcome',
+        './registration-outcome',
+      ],
+    );
+    assert.strictEqual(launchFacilityCount('src/registry-configure.ts'), 0);
   });
 
   it('reaches no process-launching helper from the module that owns the search', () => {
@@ -306,9 +328,9 @@ describe('the registries panel and the catalog search reach the compiler without
 
   it('🔴 THE SURVIVING LAUNCH HELPER HAS EXACTLY TWO CONSUMERS, EACH DELIBERATE', () => {
     // A COUNT rather than a presence, and over the whole source tree rather than
-    // over a module: what this increment claims is that ONE execution path is
-    // left per operation, and a third consumer appearing anywhere would be a
-    // second path for something.
+    // over a module: the claim is that ONE execution path is left per operation,
+    // and a third consumer appearing anywhere would be a second path for
+    // something.
     //
     // The two that remain survive for stated reasons rather than by omission —
     // one operation the compiler does not serve, because its subject is the

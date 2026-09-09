@@ -1,0 +1,698 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Cognitio S.r.l.
+
+import * as assert from 'node:assert';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+
+import {
+  CREDENTIAL_REMOVAL_SUBJECT,
+  LogoutParams,
+  LogoutResult,
+  REGISTRATION_DESTINATION_PROMPT,
+  REGISTRATION_SUBJECT,
+  REGISTRY_REMOVAL_SUBJECT,
+  REMOVAL_DESTINATION_PROMPT,
+  RegistryAddParams,
+  RegistryAddResult,
+  RegistryRemoveParams,
+  RegistryRemoveResult,
+  addRequest,
+  credentialRemovalDetail,
+  logoutRequest,
+  removalConsentDetail,
+  removeRequest,
+  runLogout,
+  runRegistryAdd,
+  runRegistryRemove,
+} from '../../src/registry-configure';
+import {
+  CONFIG_WRITE_DESTINATIONS,
+  configWriteOverrides,
+  reachOfDestination,
+} from '../../src/config-write-scope';
+import { terminalLine } from '../../src/operation-outcome';
+import { EXTENSION_ROOT, launchFacilityCount } from '../helpers/launch-census';
+
+// A DAEMON REFUSAL IS AN ENVELOPE OBJECT, NOT AN ERROR. The client rejects a
+// refused request with the raw JSON-RPC error member, so anything that reads a
+// failure as `err.message` sees nothing and anything that stringifies it sees
+// `[object Object]` — which loses the compiler's whole diagnostic rather than
+// re-wording it.
+interface DaemonRefusal {
+  code: number;
+  message: string;
+}
+
+// The three sentences the compiler writes when it refuses one of these
+// operations.
+//
+// 🔴 EACH IS A LITERAL HERE ON PURPOSE. The extension holds no copy of any of
+// them and must not: they are the compiler's, and the whole property under test
+// is that each arrives unaltered. A test building its expectation from the
+// extension's own rendering would move both sides of the comparison at once, so
+// it would accept any re-wording — a comparison is blind to a change reaching
+// both of its sides.
+const ADD_REFUSAL =
+  'registry add: host is required (the registry to register, such as '
+  + 'registry.example.com)';
+const REMOVE_REFUSAL =
+  'registry remove: no registry matching "gone.example.test" is configured in '
+  + '/home/reader/.config/aggrega/config.yaml; the configuration was left untouched';
+const LOGOUT_REFUSAL =
+  'logout: registry is required (the registry host whose stored credential to remove)';
+
+const REFUSAL_CODE = -32602;
+
+// The two files, spelled here as literals rather than read from the surface.
+const GLOBAL_FILE = '/home/reader/.config/aggrega/config.yaml';
+const PROJECT_FILE = '/work/project/aggrega.yaml';
+
+// addAnswer builds a registration answer, defaulting to the shape the compiler
+// produces for a registration that took the global file and pinned a policy.
+function addAnswer(over: Partial<RegistryAddResult> = {}): RegistryAddResult {
+  return {
+    host: 'registry.example.test',
+    scope: { configFile: GLOBAL_FILE, machineWide: true, workspaceRoot: '/work/project' },
+    trust: { pinned: true, identities: 2 },
+    ...over,
+  };
+}
+
+function removeAnswer(over: Partial<RegistryRemoveResult> = {}): RegistryRemoveResult {
+  return {
+    host: 'registry.example.test',
+    scope: { configFile: GLOBAL_FILE, machineWide: true, workspaceRoot: '/work/project' },
+    ...over,
+  };
+}
+
+type Answer<T> = T | Error | DaemonRefusal;
+
+function settle<T>(result: Answer<T>): Promise<T> {
+  if (result instanceof Error) { return Promise.reject(result); }
+  if (typeof result === 'object' && result !== null && 'code' in result) {
+    return Promise.reject(result);
+  }
+  return Promise.resolve(result as T);
+}
+
+// recorder stands in for the language server: it records what each operation was
+// asked and answers as told, so every decision below runs with no transport, no
+// compiler and no editor.
+function recorder(answers: {
+  add?: Answer<RegistryAddResult>;
+  remove?: Answer<RegistryRemoveResult>;
+  logout?: Answer<LogoutResult>;
+}) {
+  const addSent: RegistryAddParams[] = [];
+  const removeSent: RegistryRemoveParams[] = [];
+  const logoutSent: LogoutParams[] = [];
+  return {
+    addSent,
+    removeSent,
+    logoutSent,
+    addRegistry(params: RegistryAddParams) {
+      addSent.push(params);
+      return settle(answers.add ?? addAnswer());
+    },
+    removeRegistry(params: RegistryRemoveParams) {
+      removeSent.push(params);
+      return settle(answers.remove ?? removeAnswer());
+    },
+    logOutOfRegistry(params: LogoutParams) {
+      logoutSent.push(params);
+      return settle(answers.logout ?? { registry: 'registry.example.test' });
+    },
+  };
+}
+
+// --- the destination a reader chooses ------------------------------------
+
+describe('the destination a reader is offered', () => {
+  it('offers exactly the two files, with the global one first', () => {
+    // 🔴 AN EQUALITY OVER THE WHOLE OFFER, INCLUDING ITS ORDER. The order is
+    // load-bearing rather than cosmetic: the first entry is the one a reader
+    // takes by pressing nothing, so it is how "the global file remains the
+    // default" is expressed to somebody who does not want to choose. A set
+    // comparison, or a check that the global entry is merely present, would pass
+    // on an offer that had quietly reordered.
+    assert.deepStrictEqual(
+      CONFIG_WRITE_DESTINATIONS.map((d) => d.value),
+      ['global', 'workspace'],
+      'the destination offer changed order or membership; the first entry is the default a '
+      + 'reader takes by pressing nothing',
+    );
+  });
+
+  it('labels each file in the words its ending will use, capitalised to stand alone', () => {
+    // 🔴 LITERALS ON BOTH SIDES, DERIVED FROM NEITHER. The property is that a
+    // reader picks between two files described in the same words the ending then
+    // uses for them — so the labels and the reach phrases are each pinned to a
+    // literal written here. Had either been derived from the other, an edit
+    // reaching both would pass unnoticed, which is exactly how a single-sourcing
+    // assertion goes blind.
+    assert.deepStrictEqual(
+      CONFIG_WRITE_DESTINATIONS.map((d) => d.label),
+      [
+        'The global file shared by every project on this machine',
+        'This project\'s own configuration file',
+      ],
+    );
+    assert.strictEqual(
+      reachOfDestination('global'),
+      'the global file shared by every project on this machine',
+    );
+    assert.strictEqual(
+      reachOfDestination('workspace'),
+      'this project\'s own configuration file',
+    );
+  });
+
+  it('asks the question in each operation\'s own direction', () => {
+    assert.strictEqual(
+      REGISTRATION_DESTINATION_PROMPT,
+      'Aggrega: which configuration file should the registry be written to?',
+    );
+    assert.strictEqual(
+      REMOVAL_DESTINATION_PROMPT,
+      'Aggrega: which configuration file should the entry be removed from?',
+    );
+  });
+
+  it('turns a destination into exactly one override, never both and never neither', () => {
+    // 🔴 THE TWO HAZARDS THE COMPILER CARES ABOUT, ASSERTED AS EQUALITIES. Both
+    // overrides true is refused outright by the compiler; neither takes the
+    // operation's own default instead of the reader's answer, which is a silent
+    // wrong file rather than a refusal. One mapping in one place is what makes
+    // each unreachable from a call site.
+    assert.deepStrictEqual(configWriteOverrides('global'), { global: true, workspace: false });
+    assert.deepStrictEqual(configWriteOverrides('workspace'), { global: false, workspace: true });
+    for (const destination of CONFIG_WRITE_DESTINATIONS) {
+      const overrides = configWriteOverrides(destination.value);
+      assert.strictEqual(
+        Number(overrides.global) + Number(overrides.workspace),
+        1,
+        `${destination.value} composed ${JSON.stringify(overrides)}, which is not exactly one `
+        + 'override',
+      );
+    }
+  });
+});
+
+// --- what each request says ----------------------------------------------
+
+describe('the registration request says only what this surface has decided to say', () => {
+  it('carries the host and the chosen destination and nothing else', () => {
+    // 🔴 AN EQUALITY, NOT A PRESENCE, AND THAT IS THE WHOLE POINT. An assertion
+    // that the params "contain" the host would pass with a trust field added
+    // beside it — and two of those fields are pointer-valued in the compiler, so
+    // sending one as false is not the same as omitting it: it would turn an
+    // unqualified registration into one that pins nothing.
+    assert.deepStrictEqual(addRequest('registry.example.test', 'global'), {
+      host: 'registry.example.test',
+      global: true,
+      workspace: false,
+    });
+    assert.deepStrictEqual(
+      Object.keys(addRequest('registry.example.test', 'workspace')).sort(),
+      ['global', 'host', 'workspace'],
+    );
+  });
+
+  it('sends no trust field, so the compiler\'s own defaults stand', () => {
+    // Named separately from the equality above because it is the property, and a
+    // reader of a failure should see which rule was broken. The fetch of an
+    // advertised policy defaults to ON and an unset signature requirement is
+    // distinguishable from one turned off, so an omitted field is not a false
+    // one.
+    const params = addRequest('registry.example.test', 'global') as unknown as
+      Record<string, unknown>;
+    for (const forbidden of [
+      'name',
+      'identities',
+      'keyPath',
+      'trustedRoot',
+      'requireSignatures',
+      'advisory',
+      'fetchTrust',
+    ]) {
+      assert.ok(
+        !(forbidden in params),
+        `${forbidden} must not be sent: it shapes the trust policy, which this surface offers `
+        + 'no way to state, and sending its zero value is not the same as omitting it',
+      );
+    }
+  });
+
+  it('passes the host through verbatim, whatever it is', () => {
+    // The compiler validates a host and reports on it. A reading here would be a
+    // second answer to what a host is, and it would diverge the first time the
+    // compiler accepted something this side had not thought of.
+    for (const host of ['registry.example.test', 'localhost:5000', 'a.b.c.example']) {
+      assert.strictEqual(addRequest(host, 'global').host, host);
+    }
+  });
+
+  it('trims the host it was given, so a stray space is not part of the identity', () => {
+    assert.strictEqual(addRequest('  registry.example.test  ', 'global').host,
+      'registry.example.test');
+  });
+
+  it('refuses without a host, so no registration is sent with nothing to register', () => {
+    assert.throws(() => addRequest('', 'global'), /takes the registry to register/);
+    assert.throws(() => addRequest('   ', 'global'), /takes the registry to register/);
+  });
+
+  it('sends the composed request unchanged, exactly once', async () => {
+    const registries = recorder({});
+    await runRegistryAdd(registries, 'registry.example.test', 'workspace');
+    assert.deepStrictEqual(registries.addSent, [
+      { host: 'registry.example.test', global: false, workspace: true },
+    ]);
+  });
+
+  it('accepts no cancellation, because the compiler cannot interrupt the work', () => {
+    // 🔴 THE ARITY IS THE ASSERTION. The shared operation behind the request is
+    // reached with no cancellation and the handler checks for a stopped caller
+    // only after that operation has returned, so a stop would stop this side
+    // waiting and not the work. Holding the arity means a fourth parameter
+    // carrying a stop has to be argued rather than added.
+    assert.strictEqual(
+      runRegistryAdd.length,
+      3,
+      'a fourth argument carrying a stop would offer a stop the compiler cannot honour',
+    );
+  });
+});
+
+describe('the removal request says only what this surface has decided to say', () => {
+  it('carries the registry and the chosen destination and nothing else', () => {
+    assert.deepStrictEqual(removeRequest('registry.example.test', 'workspace'), {
+      registry: 'registry.example.test',
+      global: false,
+      workspace: true,
+    });
+    assert.deepStrictEqual(
+      Object.keys(removeRequest('registry.example.test', 'global')).sort(),
+      ['global', 'registry', 'workspace'],
+    );
+  });
+
+  it('refuses without a registry', () => {
+    assert.throws(() => removeRequest('', 'global'), /takes the registry to remove/);
+    assert.throws(() => removeRequest('  ', 'global'), /takes the registry to remove/);
+  });
+
+  it('sends the composed request unchanged, exactly once', async () => {
+    const registries = recorder({});
+    await runRegistryRemove(registries, 'registry.example.test', 'global');
+    assert.deepStrictEqual(registries.removeSent, [
+      { registry: 'registry.example.test', global: true, workspace: false },
+    ]);
+  });
+
+  it('accepts no cancellation', () => {
+    assert.strictEqual(runRegistryRemove.length, 3);
+  });
+});
+
+describe('the credential removal request says only what this surface has decided to say', () => {
+  it('carries the registry and nothing else, because there is no destination to choose', () => {
+    // 🔴 AN EQUALITY, AND THE ABSENCE IS THE COMPILER'S RATHER THAN A CHOICE.
+    // The credential store has no project-scoped form to resolve to, so the
+    // request surface carries no override at all — offering one here would be a
+    // choice the compiler cannot honour.
+    assert.deepStrictEqual(logoutRequest('registry.example.test'), {
+      registry: 'registry.example.test',
+    });
+    assert.deepStrictEqual(Object.keys(logoutRequest('registry.example.test')), ['registry']);
+  });
+
+  it('refuses without a registry', () => {
+    assert.throws(
+      () => logoutRequest(''),
+      /takes the registry whose stored credential to remove/,
+    );
+  });
+
+  it('sends the composed request unchanged, exactly once', async () => {
+    const registries = recorder({});
+    await runLogout(registries, 'registry.example.test');
+    assert.deepStrictEqual(registries.logoutSent, [{ registry: 'registry.example.test' }]);
+  });
+
+  it('accepts no cancellation and takes no destination', () => {
+    assert.strictEqual(
+      runLogout.length,
+      2,
+      'a third argument would be either a destination the compiler cannot honour or a stop it '
+      + 'cannot honour',
+    );
+  });
+});
+
+// --- what a completed operation tells the reader -------------------------
+
+describe('a completed registration says what was registered and where', () => {
+  it('names the host, the file, how far it reaches, and what the registry advertised', async () => {
+    const outcome = await runRegistryAdd(recorder({}), 'registry.example.test', 'global');
+    assert.strictEqual(outcome.kind, 'ok');
+    assert.strictEqual(
+      terminalLine(REGISTRATION_SUBJECT, outcome),
+      'The registration registered registry.example.test in '
+      + '/home/reader/.config/aggrega/config.yaml, the global file shared by every project on '
+      + 'this machine. Its advertised signature trust policy was pinned, naming 2 identities.',
+    );
+  });
+
+  it('reads the file and the reach off the ANSWER, not off the request', async () => {
+    // 🔴 A WHOLE-MESSAGE EQUALITY, and the case that separates the two sources.
+    // The request asked for the global file and the answer reports the project's
+    // one; the ending must describe where the write LANDED, because the compiler
+    // resolves the destination and this surface only asked.
+    const outcome = await runRegistryAdd(
+      recorder({
+        add: addAnswer({
+          host: 'normalised.example.test',
+          scope: {
+            configFile: PROJECT_FILE,
+            machineWide: false,
+            workspaceRoot: '/work/project',
+          },
+          trust: { pinned: false, notAdvertised: true, reason: 'HTTP 404 from its origin' },
+        }),
+      }),
+      'registry.example.test',
+      'global',
+    );
+    assert.strictEqual(
+      terminalLine(REGISTRATION_SUBJECT, outcome),
+      'The registration registered normalised.example.test in /work/project/aggrega.yaml, '
+      + 'this project\'s own configuration file. It advertises no signature trust policy, so '
+      + 'the built-in baseline stands. HTTP 404 from its origin',
+    );
+  });
+
+  it('says what the trust fetch found in every state the answer can report', async () => {
+    // Whole-message equalities per state rather than a containment check: a
+    // containment check passes on a message that keeps one phrase and re-words
+    // around it, which is the shape this project has measured passing a real
+    // planted defect.
+    const cases: Array<[RegistryAddResult['trust'], string]> = [
+      [{ pinned: true, identities: 1 },
+        'Its advertised signature trust policy was pinned, naming 1 identity.'],
+      [{ pinned: true, identities: 0 },
+        'Its advertised signature trust policy was pinned, naming 0 identities.'],
+      [{ pinned: false, skipped: true },
+        'No advertised signature trust policy was fetched.'],
+      [{ pinned: false },
+        'The answer names no signature trust policy outcome.'],
+    ];
+    for (const [trust, sentence] of cases) {
+      const outcome = await runRegistryAdd(
+        recorder({ add: addAnswer({ trust }) }),
+        'registry.example.test',
+        'global',
+      );
+      assert.strictEqual(
+        terminalLine(REGISTRATION_SUBJECT, outcome),
+        'The registration registered registry.example.test in '
+        + '/home/reader/.config/aggrega/config.yaml, the global file shared by every project '
+        + `on this machine. ${sentence}`,
+      );
+    }
+  });
+});
+
+describe('a completed removal says what was removed and from where', () => {
+  it('names the registry, the file the write landed in, and how far that file reaches', async () => {
+    const outcome = await runRegistryRemove(recorder({}), 'registry.example.test', 'global');
+    assert.strictEqual(outcome.kind, 'ok');
+    assert.strictEqual(
+      terminalLine(REGISTRY_REMOVAL_SUBJECT, outcome),
+      'The removal removed the registry registry.example.test from '
+      + '/home/reader/.config/aggrega/config.yaml, the global file shared by every project on '
+      + 'this machine.',
+    );
+  });
+
+  it('describes a project-scoped removal as project-scoped', async () => {
+    const outcome = await runRegistryRemove(
+      recorder({
+        remove: removeAnswer({
+          scope: {
+            configFile: PROJECT_FILE,
+            machineWide: false,
+            workspaceRoot: '/work/project',
+          },
+        }),
+      }),
+      'registry.example.test',
+      'workspace',
+    );
+    assert.strictEqual(
+      terminalLine(REGISTRY_REMOVAL_SUBJECT, outcome),
+      'The removal removed the registry registry.example.test from '
+      + '/work/project/aggrega.yaml, this project\'s own configuration file.',
+    );
+  });
+});
+
+describe('a completed credential removal says what was removed', () => {
+  it('names the registry the store was asked about, echoed from the answer', async () => {
+    const outcome = await runLogout(
+      recorder({ logout: { registry: 'normalised.example.test' } }),
+      'registry.example.test',
+    );
+    assert.strictEqual(outcome.kind, 'ok');
+    assert.strictEqual(
+      terminalLine(CREDENTIAL_REMOVAL_SUBJECT, outcome),
+      'The credential removal removed the stored credential for normalised.example.test.',
+    );
+  });
+
+  it('names no location, because the store is frequently not a file', () => {
+    // The store delegates to a keychain or a credential helper where one is
+    // configured, so a sentence naming a path would assert a location the removal
+    // did not necessarily touch. Asserted as an absence of either file rather
+    // than as a wording, so a re-worded sentence that started naming one fails.
+    const detail = credentialRemovalDetail({ registry: 'registry.example.test' });
+    assert.ok(!detail.includes('/'), `the credential removal named a location: ${detail}`);
+  });
+});
+
+// --- what the confirmation a reader consents to actually says ------------
+
+describe('the confirmation is true of the file the reader chose', () => {
+  it('states the machine-wide consequence for the global file', () => {
+    assert.strictEqual(
+      removalConsentDetail('global'),
+      'The entry is removed from the global file shared by every project on this machine, so '
+      + 'every project resolving through it is affected. Which registry is the default is left '
+      + 'unchanged.',
+    );
+  });
+
+  it('states the project-only consequence for the project\'s own file', () => {
+    // 🔴 THIS IS THE ASSERTION A HARDCODED SENTENCE CANNOT PASS. A consent
+    // sentence naming one file whatever the reader chose is true of one choice
+    // and false of the other, and consent taken on a false claim is consent to
+    // something else — so the sentence is pinned per destination rather than
+    // checked for merely being non-empty.
+    assert.strictEqual(
+      removalConsentDetail('workspace'),
+      'The entry is removed from this project\'s own configuration file, so no other project '
+      + 'on this machine is affected. Which registry is the default is left unchanged.',
+    );
+  });
+
+  it('says something different for each destination, so neither is the other\'s wording', () => {
+    assert.notStrictEqual(removalConsentDetail('global'), removalConsentDetail('workspace'));
+  });
+});
+
+// --- the compiler's own refusal, unaltered -------------------------------
+
+describe('a refused operation carries the compiler\'s own diagnostic', () => {
+  // 🔴 EACH LINE BELOW IS AN EXACT EQUALITY AGAINST A LITERAL THE IMPLEMENTATION
+  // DOES NOT READ. That is what makes these able to see a re-wording: an
+  // assertion that a message merely "appeared" passes on a wrapper sentence that
+  // has discarded the compiler's text, and an assertion built from the
+  // extension's own rendering moves both sides of the comparison at once.
+  //
+  // The transport code is prefixed by the extension's one rendering home, and
+  // that prefix is ADDITIVE: the compiler's own sentence follows it unaltered.
+  // Both halves are pinned here — the prefix so it cannot silently start
+  // replacing the sentence, and the sentence so it cannot silently start being
+  // summarised.
+  it('renders the registration refusal exactly, character for character', async () => {
+    const refusal: DaemonRefusal = { code: REFUSAL_CODE, message: ADD_REFUSAL };
+    const outcome = await runRegistryAdd(
+      recorder({ add: refusal }),
+      'registry.example.test',
+      'global',
+    );
+    assert.strictEqual(outcome.kind, 'failed');
+    assert.strictEqual(
+      terminalLine(REGISTRATION_SUBJECT, outcome),
+      'The registration did not complete: code=-32602 registry add: host is required (the '
+      + 'registry to register, such as registry.example.com)',
+    );
+  });
+
+  it('renders the removal refusal exactly, including the file it names', async () => {
+    const refusal: DaemonRefusal = { code: REFUSAL_CODE, message: REMOVE_REFUSAL };
+    const outcome = await runRegistryRemove(
+      recorder({ remove: refusal }),
+      'gone.example.test',
+      'global',
+    );
+    assert.strictEqual(outcome.kind, 'failed');
+    assert.strictEqual(
+      terminalLine(REGISTRY_REMOVAL_SUBJECT, outcome),
+      'The removal did not complete: code=-32602 registry remove: no registry matching '
+      + '"gone.example.test" is configured in /home/reader/.config/aggrega/config.yaml; the '
+      + 'configuration was left untouched',
+    );
+  });
+
+  it('renders the credential-removal refusal exactly', async () => {
+    const refusal: DaemonRefusal = { code: REFUSAL_CODE, message: LOGOUT_REFUSAL };
+    const outcome = await runLogout(recorder({ logout: refusal }), 'registry.example.test');
+    assert.strictEqual(outcome.kind, 'failed');
+    assert.strictEqual(
+      terminalLine(CREDENTIAL_REMOVAL_SUBJECT, outcome),
+      'The credential removal did not complete: code=-32602 logout: registry is required (the '
+      + 'registry host whose stored credential to remove)',
+    );
+  });
+
+  it('carries the compiler\'s sentence as an unbroken RUN inside the line it renders', () => {
+    // 🔴 THE SEPARATE PROPERTY, AND IT NEEDS ITS OWN ASSERTION. The three
+    // equalities above would each keep passing if the compiler's sentence were
+    // reflowed, re-punctuated or interleaved with words of this surface's own, so
+    // long as somebody updated the literal to match. This one asserts the
+    // structural claim instead: the line is the subject, the prefix, and the
+    // compiler's sentence with nothing inserted into it — computed by removing
+    // the sentence and checking that what remains carries none of it.
+    for (const [subject, message] of [
+      [REGISTRATION_SUBJECT, ADD_REFUSAL],
+      [REGISTRY_REMOVAL_SUBJECT, REMOVE_REFUSAL],
+      [CREDENTIAL_REMOVAL_SUBJECT, LOGOUT_REFUSAL],
+    ]) {
+      const line = terminalLine(subject, { kind: 'failed', message: `code=-32602 ${message}` });
+      assert.strictEqual(
+        line,
+        `${subject} did not complete: code=-32602 ${message}`,
+        'the compiler\'s sentence is no longer one unbroken run in the rendered line',
+      );
+    }
+  });
+
+  it('reports a server that is not running as the failure it is, on all three', async () => {
+    const notRunning = new Error('the Aggrega language server is not running');
+    const outcomes = [
+      await runRegistryAdd(recorder({ add: notRunning }), 'registry.example.test', 'global'),
+      await runRegistryRemove(
+        recorder({ remove: notRunning }),
+        'registry.example.test',
+        'global',
+      ),
+      await runLogout(recorder({ logout: notRunning }), 'registry.example.test'),
+    ];
+    for (const outcome of outcomes) {
+      assert.deepStrictEqual(outcome, {
+        kind: 'failed',
+        message: 'the Aggrega language server is not running',
+      });
+    }
+  });
+});
+
+// --- one execution path per operation ------------------------------------
+
+describe('the three registry changes reach the compiler without a launch', () => {
+  it('fires on a module that does launch, so every zero below is an absence', () => {
+    // 🔴 THE POSITIVE CONTROL, AND IT IS THE HALF THAT MAKES A ZERO MEAN
+    // ANYTHING. A pattern that has stopped matching reports every module clean.
+    // The control is a module the extension deliberately still launches from, so
+    // it is on the same side of the claim as the subjects and moves independently
+    // of them.
+    assert.ok(
+      launchFacilityCount('src/cli-json.ts') > 0,
+      'the launch pattern no longer matches a module that provably launches, so every absence '
+      + 'measured with it would pass vacuously',
+    );
+  });
+
+  it('gives the module that decides the three changes no way to start a process', () => {
+    assert.strictEqual(launchFacilityCount('src/registry-configure.ts'), 0);
+  });
+
+  it('leaves the panel with no direct call to the streaming launch helper', () => {
+    // 🔴 A COUNT, NOT A PRESENCE. The panel still calls the WATCHABLE wrapper for
+    // the index refresh, and that wrapper calls the launch helper internally — so
+    // what is claimed here is that the panel makes no launch of its own for the
+    // three operations that moved, and a count is the only shape that expresses
+    // it.
+    const source = fs.readFileSync(path.join(EXTENSION_ROOT, 'src/registries-view.ts'), 'utf8');
+    assert.strictEqual(
+      (source.match(/(?:^|[^a-zA-Z.])runCli\(/gm) ?? []).length,
+      0,
+      'the registries panel calls the streaming launch helper again, so an operation that '
+      + 'moved has a second execution path',
+    );
+    // The other half: the one call that SHOULD be there is, so the zero above is
+    // an absence rather than a file this test failed to read.
+    assert.strictEqual(
+      (source.match(/(?:^|[^a-zA-Z.])runWatchableCli\(/gm) ?? []).length,
+      2,
+      'the index refresh lost or gained a watched run; it is the one registry operation that '
+      + 'reaches the registries and the one whose run can be stopped',
+    );
+  });
+
+  it('sends each of the three from exactly one place', () => {
+    // Each request has one sender. A second would be a second execution path for
+    // one operation, which is the shape a single execution path exists to rule
+    // out. The method names are the compiler's identifiers, read from the surface
+    // that sends them rather than restated as constants this side owns.
+    const dir = path.join(EXTENSION_ROOT, 'src');
+    const files = fs.readdirSync(dir).filter((f) => f.endsWith('.ts'));
+    for (const method of ['registryAdd', 'registryRemove', 'logout']) {
+      const senders = files
+        .filter((f) => new RegExp(`'aggrega/${method}'`).test(
+          fs.readFileSync(path.join(dir, f), 'utf8'),
+        ))
+        .sort();
+      assert.deepStrictEqual(
+        senders,
+        ['extension.ts'],
+        `aggrega/${method} is sent from ${senders.length} place(s); one question with two `
+        + 'senders is two execution paths',
+      );
+    }
+  });
+
+  it('composes no argument list for any of the three, so none can be launched', () => {
+    // 🔴 THE OLD PATTERN, SWEPT FOR RATHER THAN ASSUMED GONE. A retired composer
+    // left standing with no caller is a launch waiting to be reached, and it
+    // would be invisible to every assertion above: the requests would still be
+    // sent from one place each, and the panel would still hold no launch.
+    const source = fs.readFileSync(path.join(EXTENSION_ROOT, 'src/registries-run.ts'), 'utf8');
+    for (const retired of ['registryAddArgs', 'registryRemoveArgs', 'registryLogoutArgs']) {
+      assert.ok(
+        !new RegExp(`function\\s+${retired}\\b`).test(source),
+        `${retired} still composes a command line for an operation that is now a request`,
+      );
+    }
+    // The positive control for this sweep: the pattern still finds the composer
+    // that legitimately remains, so the three absences are absences.
+    assert.ok(
+      /function\s+registryUpdateAllArgs\b/.test(source),
+      'the composer pattern no longer matches a composer that provably exists, so the three '
+      + 'absences above prove nothing',
+    );
+  });
+});

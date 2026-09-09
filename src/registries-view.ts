@@ -2,15 +2,28 @@
 // Copyright 2026 Cognitio S.r.l.
 
 import * as vscode from 'vscode';
-import { CliOperationDeps, runCli, runWatchableCli } from './cli-operation';
+import { CliOperationDeps, reportOutcome, runWatchableCli } from './cli-operation';
+import {
+  CONFIG_WRITE_DESTINATIONS,
+  ConfigWriteDestination,
+} from './config-write-scope';
+import {
+  CREDENTIAL_REMOVAL_SUBJECT,
+  REGISTRATION_DESTINATION_PROMPT,
+  REGISTRATION_SUBJECT,
+  REGISTRY_REMOVAL_SUBJECT,
+  REMOVAL_DESTINATION_PROMPT,
+  RegistryConfigureDeps,
+  removalConsentDetail,
+  runLogout,
+  runRegistryAdd,
+  runRegistryRemove,
+} from './registry-configure';
 import {
   REGISTRY_ROW_CONTEXT,
   RegistryListDoc,
   RegistryNode,
-  registryAddArgs,
-  registryLogoutArgs,
   registryNodes,
-  registryRemoveArgs,
   registrySubject,
   registryUpdateAllArgs,
   registryUpdateOneArgs,
@@ -19,16 +32,38 @@ import { RendersOnReady } from './readiness';
 
 // RegistriesDeps supplies the live state the registries tree needs: the
 // anchored workspace root (it is what selects the configuration the reader is
-// actually working against), the request that enumerates the registries, and the
-// shared output channel that carries failure detail.
+// actually working against), the requests that enumerate and change the
+// registries, and the shared output channel that carries failure detail.
 //
-// The binary path arrives through CliOperationDeps and is still needed: the
-// operations that CHANGE the configured set run as commands, so the tree reads
-// over the language server while its row operations do not.
-export interface RegistriesDeps extends RendersOnReady, CliOperationDeps {
+// The binary path arrives through CliOperationDeps and is still needed, for one
+// operation rather than for the row operations generally: the index refresh is
+// the one registry operation that reaches the registries themselves, and it is
+// run as a command because that run can be stopped.
+export interface RegistriesDeps
+  extends RendersOnReady, CliOperationDeps, RegistryConfigureDeps {
   getWorkspaceRoot(): string | null;
   runRegistryList(): Promise<RegistryListDoc>;
   output: vscode.OutputChannel;
+}
+
+// askWriteDestination asks which configuration file a write should land in, or
+// reports null when the reader chose nothing.
+//
+// The choices arrive in the order the one home for them offers, so the global
+// file is the highlighted entry a reader takes by pressing nothing — which is how
+// "the default is unchanged" is expressed to somebody who does not want to
+// choose. A dismissed prompt invokes nothing, exactly as the prompt asking for a
+// host does: dismissing is not an answer, and reading it as the default would
+// perform a write the reader backed out of.
+async function askWriteDestination(prompt: string): Promise<ConfigWriteDestination | null> {
+  const chosen = await vscode.window.showQuickPick(
+    CONFIG_WRITE_DESTINATIONS.map((destination) => ({
+      label: destination.label,
+      destination: destination.value,
+    })),
+    { placeHolder: prompt },
+  );
+  return chosen ? chosen.destination : null;
 }
 
 // RegistriesTreeProvider renders the configured registries in the Aggrega
@@ -125,7 +160,18 @@ export function activateRegistriesView(
 
     // Registering a registry is the one operation here that takes a subject the
     // panel cannot supply: it names a registry that does not exist yet, so the
-    // host is asked for. Dismissing the prompt invokes nothing.
+    // host is asked for. Dismissing either prompt invokes nothing.
+    //
+    // The destination is asked for because the compiler accepts either file for
+    // this operation and defaults to the global one. Asking is what makes that
+    // default a choice the reader made rather than one this surface took on their
+    // behalf, and the ending then names the file the write actually landed in.
+    //
+    // No progress indicator and no cancel button, and that follows from what the
+    // operation is rather than from its being quick. The shared operation behind
+    // the request is reached with no cancellation, so a stop here could only stop
+    // this side waiting — and reporting that as a stop would tell a reader the
+    // compiler stopped when it did not.
     vscode.commands.registerCommand('aggrega.registries.add', async () => {
       const host = await vscode.window.showInputBox({
         title: 'Aggrega: add a registry',
@@ -133,10 +179,15 @@ export function activateRegistriesView(
         ignoreFocusOut: true,
       });
       if (!host) { return; }
-      await runCli(deps, 'The registration', registryAddArgs(host), {
-        detail: `added ${host}.`,
-      });
+      const destination = await askWriteDestination(REGISTRATION_DESTINATION_PROMPT);
+      if (!destination) { return; }
+      const outcome = await runRegistryAdd(deps, host, destination);
+      // The listing is re-read whatever the ending was. A registration that was
+      // refused may still have changed what the workspace resolves, because the
+      // work is the compiler's and it is not this surface's to say how far it
+      // got.
       registries.refresh();
+      await reportOutcome(deps, REGISTRATION_SUBJECT, outcome, true);
     }),
 
     // The index build is the one registry operation that reaches the network,
@@ -164,32 +215,38 @@ export function activateRegistriesView(
     ),
 
     // Removing a registry and removing its credential both confirm first, and
-    // each confirmation names what the change reaches. A registry entry is
-    // written to the global configuration shared across every workspace, so
-    // dropping one changes what every project on this machine resolves through —
-    // that is not guessable from the entry's label, so it is put in front of the
-    // reader before anything happens rather than explained afterwards.
+    // each confirmation names what the change reaches. That is not guessable from
+    // the entry's label, so it is put in front of the reader before anything
+    // happens rather than explained afterwards.
+    //
+    // 🔴 THE REMOVAL ASKS WHICH FILE BEFORE IT ASKS FOR CONSENT, and the order is
+    // load-bearing rather than incidental. The confirmation states which projects
+    // the removal affects, and that sentence is only true of one of the two
+    // files — so consent taken before the destination is known would be consent
+    // to something else. The ending then names the file the compiler actually
+    // wrote, which is the same fact measured instead of predicted.
     vscode.commands.registerCommand(
       'aggrega.registries.remove',
       (node?: RegistryNode) => runOnRow(node, async (host) => {
+        const destination = await askWriteDestination(REMOVAL_DESTINATION_PROMPT);
+        if (!destination) { return; }
         const consented = await vscode.window.showWarningMessage(
           `Remove the registry ${host} and its trust policy?`,
-          {
-            modal: true,
-            detail: 'The entry is removed from the global configuration shared across every '
-              + 'workspace on this machine, so every project resolving through it is affected. '
-              + 'Which registry is the default is left unchanged.',
-          },
+          { modal: true, detail: removalConsentDetail(destination) },
           'Remove',
         );
         if (consented !== 'Remove') { return; }
-        await runCli(deps, 'The removal', registryRemoveArgs(host), {
-          detail: `dropped ${host}.`,
-        });
+        const outcome = await runRegistryRemove(deps, host, destination);
         registries.refresh();
+        await reportOutcome(deps, REGISTRY_REMOVAL_SUBJECT, outcome, true);
       }),
     ),
 
+    // The credential removal is offered no choice of destination, and the absence
+    // is the compiler's rather than this surface's: the credential store is
+    // shared by every project on the machine and has no project-scoped form to
+    // resolve to, so there is nothing to choose between. What the reader is told
+    // instead is how far the store reaches, before they consent.
     vscode.commands.registerCommand(
       'aggrega.registries.logout',
       (node?: RegistryNode) => runOnRow(node, async (host) => {
@@ -203,10 +260,9 @@ export function activateRegistriesView(
           'Remove',
         );
         if (consented !== 'Remove') { return; }
-        await runCli(deps, 'The credential removal', registryLogoutArgs(host), {
-          detail: `removed the stored credential for ${host}.`,
-        });
+        const outcome = await runLogout(deps, host);
         registries.refresh();
+        await reportOutcome(deps, CREDENTIAL_REMOVAL_SUBJECT, outcome, true);
       }),
     ),
   );

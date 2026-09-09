@@ -3,6 +3,11 @@
 
 import { ConfigWriteScope, reachPhrase } from './config-write-scope';
 import { OperationOutcome, outcomeOf } from './operation-outcome';
+import {
+  TrustFetchOutcome,
+  registrationSentence,
+  trustPhrase,
+} from './registration-outcome';
 
 // This module is the whole of what seeding a configuration means on this side:
 // what the request carries, what the answer carries, and the sentences the reader
@@ -55,20 +60,6 @@ import { OperationOutcome, outcomeOf } from './operation-outcome';
 // request that says nothing about the registry.
 export interface ConfigInitParams {
   registry?: string;
-}
-
-// TrustFetchOutcome is what the advertised-trust fetch did (mirrors `trust`).
-//
-// The three states mean different things to a reader and are carried as separate
-// fields rather than as a sentence, so this surface reads a value instead of
-// parsing prose. A registry that advertises nothing is not a failure: the seeding
-// proceeds on the built-in baseline and says so.
-export interface TrustFetchOutcome {
-  pinned: boolean;
-  notAdvertised?: boolean;
-  skipped?: boolean;
-  identities?: number;
-  reason?: string;
 }
 
 // ConfigInitResult is the answer a seeding produces.
@@ -161,43 +152,20 @@ export async function runSeeding(
 // seedingDetail is the sentence a completed seeding ends in.
 //
 // It is composed from the answer's own fields, so the reader is told what was
-// seeded and where rather than that something finished. That is strictly more
-// than a status told them: the host is the normalised one the compiler keyed the
-// entry under, which is not always the token that was typed, and the file is the
-// one the write actually resolved to.
-export function seedingDetail(result: ConfigInitResult): string {
-  const where = `${result.scope.configFile}, ${reachPhrase(result.scope)}`;
-  const opening = result.written
-    // The verb is read from the answer rather than assumed. This client asks for
-    // a write and cannot ask for anything else, so the other branch is what an
-    // answer that did not write would honestly be reported as, instead of a
-    // completion sentence claiming a file that is not there.
-    ? `registered ${result.host} in ${where}`
-    : `reported the configuration for ${result.host} without writing ${where}`;
-  return `${opening}. ${trustPhrase(result.trust)}`;
-}
-
-// trustPhrase says what the advertised-trust fetch found.
+// seeded and where rather than that something finished.
 //
-// A registry that advertises nothing carries the endpoint's own account of what
-// happened, unaltered — it is the compiler's text and it names what was actually
-// reached, which a re-wording would discard.
-function trustPhrase(trust: TrustFetchOutcome): string {
-  if (trust.pinned) {
-    const count = trust.identities ?? 0;
-    return count === 1
-      ? 'Its advertised signature trust policy was pinned, naming 1 identity.'
-      : `Its advertised signature trust policy was pinned, naming ${count} identities.`;
+// The written branch is the shared registration sentence rather than a wording
+// of its own: the seeding reaches the same registration a registration does, and
+// the compiler renders both as one set of sentences for that reason.
+export function seedingDetail(result: ConfigInitResult): string {
+  // The verb is read from the answer rather than assumed. This client asks for a
+  // write and cannot ask for anything else, so the other branch is what an answer
+  // that did not write would honestly be reported as, instead of a completion
+  // sentence claiming a file that is not there.
+  if (result.written) {
+    return registrationSentence(result.host, result.scope, result.trust);
   }
-  if (trust.notAdvertised) {
-    const because = trust.reason ? ` ${trust.reason}` : '';
-    return 'It advertises no signature trust policy, so the built-in baseline stands.'
-      + because;
-  }
-  if (trust.skipped) {
-    return 'No advertised signature trust policy was fetched.';
-  }
-  // The answer reported none of the three. Saying so is the honest reading: a
-  // surface that picked one of them would report a fact the compiler did not send.
-  return 'The answer names no signature trust policy outcome.';
+  const where = `${result.scope.configFile}, ${reachPhrase(result.scope)}`;
+  return `reported the configuration for ${result.host} without writing ${where}. `
+    + trustPhrase(result.trust);
 }

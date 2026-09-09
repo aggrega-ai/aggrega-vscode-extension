@@ -10,7 +10,7 @@ import {
   provenanceOf,
   readEffectiveConfiguration,
 } from '../../src/config-model';
-import { configScope, machineWidePaths, offeredAsProjectWrite } from '../../src/config-scope';
+import { configScope } from '../../src/config-scope';
 import { ConfigControl } from '../../src/config-schema';
 import { configPanelBodyHtml, coverageSentence, valueSentence } from '../../src/config-render';
 
@@ -96,8 +96,8 @@ describe('joining a schema against what the compiler resolved', () => {
     );
   });
 
-  // 🔴 CLAUSE (e) OF THE ACCEPTANCE: a setting with no provenance available is
-  // drawn honestly — its declared default, and no invented source.
+  // 🔴 A setting with no provenance available is drawn honestly — its declared
+  // default, and no invented source.
   it('draws a setting the report does not cover with its default and no source', () => {
     const model = configPanelModel(SCHEMA, {
       layers: ['/ws/.aggrega-config.yaml'],
@@ -170,9 +170,16 @@ describe('joining a schema against what the compiler resolved', () => {
 });
 
 describe('how far a change to a setting would reach', () => {
-  // 🔴 CLAUSE (f) OF THE ACCEPTANCE: a setting the product states is machine-wide
-  // is not offered as a change to this project's file.
-  it('declines to offer a machine-wide setting as a project change', () => {
+  // A setting the product states is machine-wide is reported as machine-wide,
+  // with the reason a reader can read travelling beside the verdict.
+  //
+  // 🔴 THE CLASSIFICATION IS ABOUT A SETTING AND NEVER ABOUT AN OPERATION, which
+  // is why nothing here asks whether a write may be directed at a project's
+  // file. Those are different questions with different answers: the registry
+  // settings are machine-wide, and the compiler still accepts a registration
+  // directed at a project's own file. An assertion joining the two would pin a
+  // reading that withholds a destination the compiler accepts.
+  it('reports a machine-wide setting as machine-wide, with its reason', () => {
     for (const path of [
       ['registries'],
       ['registries', '[]', 'host'],
@@ -183,15 +190,10 @@ describe('how far a change to a setting would reach', () => {
       const scope = configScope(control({ path }));
       assert.strictEqual(scope.reach, 'machine', `${path.join('.')} is not held to be machine-wide`);
       assert.ok(scope.evidence.length > 0, `${path.join('.')} carries no reason a reader could read`);
-      assert.strictEqual(
-        offeredAsProjectWrite(control({ path })),
-        false,
-        `${path.join('.')} is offered as a project change`,
-      );
     }
   });
 
-  it('offers a setting the product states travels with the project', () => {
+  it('reports a setting the product states travels with the project', () => {
     for (const path of [
       ['plugins', 'providers'],
       ['plugins', 'governance'],
@@ -199,18 +201,15 @@ describe('how far a change to a setting would reach', () => {
       ['plugins', 'importer'],
     ]) {
       assert.strictEqual(configScope(control({ path })).reach, 'project', path.join('.'));
-      assert.strictEqual(offeredAsProjectWrite(control({ path })), true, path.join('.'));
     }
   });
 
-  it('reports a setting nobody has classified as unclassified, and still offers it', () => {
-    // Declining every setting nobody classified would refuse most of the
-    // configuration on the strength of an absence. The honest answer is that
-    // there is no statement about it.
+  it('reports a setting nobody has classified as unclassified, carrying no reason', () => {
+    // Classifying every setting nobody classified would answer on the strength
+    // of an absence. The honest answer is that there is no statement about it.
     const scope = configScope(control({ path: ['offline'] }));
     assert.strictEqual(scope.reach, 'unclassified');
     assert.strictEqual(scope.evidence, '', 'an unclassified setting carries evidence it does not have');
-    assert.strictEqual(offeredAsProjectWrite(control({ path: ['offline'] })), true);
   });
 
   it('matches a path by its segments, not by the spelling of its name', () => {
@@ -222,12 +221,18 @@ describe('how far a change to a setting would reach', () => {
     assert.strictEqual(configScope(control({ path: ['plugins', 'cli', '[]', 'uri'] })).reach, 'machine');
   });
 
-  it('reports the whole of what the classification claims', () => {
-    // The set is read from the classification rather than restated, so a check
-    // of one's own handling against it cannot fall behind.
+  it('exports the classification and nothing built on top of it', () => {
+    // 🔴 A COUNT OVER THE MODULE'S OWN EXPORTS, not a presence check on one name.
+    // Two answers derived from this classification once existed with nothing in
+    // the surface reading them, and a presence check on either would have gone on
+    // passing while they sat unreachable. The whole export list is read so that a
+    // second derived answer has to be looked at rather than merely added.
+    const scope: Record<string, unknown> = require('../../src/config-scope');
     assert.deepStrictEqual(
-      machineWidePaths().slice().sort(),
-      ['compiled_module_cache', 'plugins.cli', 'registries'],
+      Object.keys(scope).sort(),
+      ['configScope'],
+      'the classification grew or lost an export; anything derived from it needs a reader in '
+      + 'the surface, or it is an answer nobody asked for',
     );
   });
 });
