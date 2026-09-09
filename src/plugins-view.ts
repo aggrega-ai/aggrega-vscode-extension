@@ -2,8 +2,14 @@
 // Copyright 2026 Cognitio S.r.l.
 
 import * as vscode from 'vscode';
-import { CliOperationDeps, reportOutcome, runCli, runWatchableCli } from './cli-operation';
+import { CliOperationDeps, reportOutcome, runCli } from './cli-operation';
 import { runCliJson } from './cli-json';
+import {
+  ATTACHMENT_SUBJECT,
+  PluginAttachmentDeps,
+  attachmentProgressTitle,
+  runPluginAttachment,
+} from './plugin-attachment';
 import {
   PluginRemovalDeps,
   REMOVAL_SUBJECT,
@@ -20,7 +26,6 @@ import {
   PluginNode,
   PluginRemovalSubject,
   genCatalogScope,
-  pluginAddArgs,
   pluginGenCatalogArgs,
   pluginNodes,
   pluginRemovalConfigTarget,
@@ -28,17 +33,19 @@ import {
   pluginRowContext,
 } from './plugins-run';
 import { menuAnswer } from './operation-menus';
+import { withCancellableProgress } from './progress';
 import { RendersOnReady } from './readiness';
 
 // PluginsDeps supplies the live state this panel needs: the anchored workspace
 // root the commands run in, the configured binary path, the shared output channel
-// that carries the compiler's own report, and the way to ask the language server
-// to remove a configured plugin.
+// that carries the compiler's own report, and the ways to ask the language server
+// to attach a plugin and to remove a configured one.
 //
 // The invocation surface stays, because the operations that remain command-backed
-// need it — so this is that surface plus the readiness signal plus the one request
-// this panel sends, rather than a fourth declaration of the same members.
-export type PluginsDeps = RendersOnReady & CliOperationDeps & PluginRemovalDeps;
+// need it — so this is that surface plus the readiness signal plus the requests
+// this panel sends, rather than a further declaration of the same members.
+export type PluginsDeps =
+  RendersOnReady & CliOperationDeps & PluginAttachmentDeps & PluginRemovalDeps;
 
 // PluginsTreeProvider renders the plugins the compiler can see as a two-group
 // tree in the Aggrega activity-bar container.
@@ -277,11 +284,13 @@ export function activatePluginsView(
     // operation here that reaches the network — it searches the configured
     // registry — so it is the one that is watched and can be stopped.
     //
-    // 🔴 IT IS THE ONE OPERATION STILL INVOKED AS A COMMAND FOR NO REASON OF THE
-    // STOP'S. The compiler carries the attachment as a request, and the search it
-    // runs for one takes a cancellation that reaches the registry read — so the
-    // button the reader presses ends the search on either path, and nothing about
-    // the stop decides where this runs.
+    // 🔴 IT ASKS THE LANGUAGE SERVER, AND THE STOP SURVIVES THAT, which is what
+    // makes it the one operation on this panel to do so. The request's own
+    // context reaches the registry enumeration that resolves the search term, and
+    // on to the registry client's own listing call — so the button the reader
+    // presses ends the search rather than only ending this side's wait. The two
+    // operations below are the opposite case, each for the reason stated where it
+    // is.
     //
     // The type may arrive already answered, from the menu the panel offers
     // beside the control. It is checked against the set that control offers
@@ -292,14 +301,17 @@ export function activatePluginsView(
     vscode.commands.registerCommand('aggrega.plugins.add', async (chosen?: unknown) => {
       const attachment = await askForAttachment(menuAnswer('pluginAdd', chosen) ?? undefined);
       if (!attachment) { return; }
-      await runWatchableCli(
-        deps,
-        `Aggrega: searching the registry for a ${attachment.type} plugin`,
-        'The attachment',
-        pluginAddArgs(attachment),
-        `added the ${attachment.type} plugin matching ${attachment.query}.`,
+      const outcome = await withCancellableProgress(
+        attachmentProgressTitle(attachment.type),
+        (signal) => runPluginAttachment(deps, attachment, signal),
       );
+      // The listing is re-read before the ending is announced, and whatever the
+      // ending was. An attachment that was refused may still have changed what
+      // the workspace resolves, because the work is the compiler's and it is not
+      // this surface's to say how far it got — and a reader dismissing a
+      // notification should not be what releases the tree.
       plugins.refresh();
+      await reportOutcome(deps, ATTACHMENT_SUBJECT, outcome, true);
     }),
 
     // Generating catalog entities reads the selected plugins and writes a file

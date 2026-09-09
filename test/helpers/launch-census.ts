@@ -149,12 +149,11 @@ export const RECORDED_LAUNCH_SITES: Readonly<Record<LaunchHelper, ReadonlyArray<
     ['plugins-view.ts', 1],
   ],
   // The declaration, and every operation whose shared operation is reached with
-  // no cancellation — plus the plugin attachment, which is here for no reason of
-  // the stop's.
+  // no cancellation. Every entry here is now that one case: an operation whose
+  // command-line run can be stopped and whose request could offer no honest stop.
   runWatchableCli: [
     ['cli-operation.ts', 1],
     ['operations.ts', 4],
-    ['plugins-view.ts', 1],
     ['registries-view.ts', 2],
     ['workspace-catalog-view.ts', 3],
   ],

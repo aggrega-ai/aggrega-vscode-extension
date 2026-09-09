@@ -17,7 +17,6 @@ import {
   PluginRow,
   isNoteworthyReadiness,
   nodesForDocument,
-  pluginAddArgs,
   pluginGenCatalogArgs,
   pluginNodes,
   pluginRemovalConfigTarget,
@@ -473,58 +472,12 @@ describe('plugins-run: which configuration file a removal writes', () => {
 
 // --- the arguments each operation composes -------------------------------
 //
-// The removal composes no arguments: it is a request, and the properties its
-// composition holds are asserted against the request object in plugin-removal.
+// The attachment and the removal compose no arguments: each is a request, and the
+// properties its composition holds are asserted against the request object in the
+// module that declares it.
 
-describe('plugins-run: composing an attachment', () => {
-  it('a socket type composes the type and the search term and nothing else', () => {
-    assert.deepStrictEqual(
-      pluginAddArgs({ type: 'linter', query: 'publishing' }),
-      ['plugin', 'add', 'linter', 'publishing'],
-    );
-  });
-
-  it('a provider binding carries the capability it serves', () => {
-    assert.deepStrictEqual(
-      pluginAddArgs({ type: 'provider', query: 'helm', capability: 'helm' }),
-      ['plugin', 'add', 'provider', 'helm', '--capability', 'helm'],
-    );
-  });
-
-  it('a governance attachment carries the role it is bound at', () => {
-    assert.deepStrictEqual(
-      pluginAddArgs({ type: 'governance', query: 'cel', role: 'ir-verdict' }),
-      ['plugin', 'add', 'governance', 'cel', '--role', 'ir-verdict'],
-    );
-  });
-
-  it('refuses a provider binding with no capability, which the command requires', () => {
-    assert.throws(() => pluginAddArgs({ type: 'provider', query: 'helm' }), /capability/);
-  });
-
-  it('refuses a governance attachment with no role, which the command requires', () => {
-    assert.throws(() => pluginAddArgs({ type: 'governance', query: 'cel' }), /role/);
-  });
-
-  it('refuses a capability or a role on a type that does not accept one', () => {
-    // The command treats either as a usage error, so composing one builds an
-    // invocation that cannot succeed.
-    assert.throws(
-      () => pluginAddArgs({ type: 'linter', query: 'publishing', capability: 'helm' }),
-      /only to the provider type/,
-    );
-    assert.throws(
-      () => pluginAddArgs({ type: 'linter', query: 'publishing', role: 'ir-verdict' }),
-      /only to the governance type/,
-    );
-  });
-
-  it('refuses with no search term and with no type', () => {
-    assert.throws(() => pluginAddArgs({ type: 'linter', query: '' }), /a name to search/);
-    assert.throws(() => pluginAddArgs({ type: '', query: 'publishing' }), /takes the plugin's type/);
-  });
-
-  it('offers no type the extension cannot see an invocation through', () => {
+describe('plugins-run: the answers an attachment is offered', () => {
+  it('offers no type the extension cannot obtain every answer for', () => {
     // A command plugin's install confirms its declared capabilities at a
     // terminal, and there is none behind a button. Accepting the grant instead is
     // the reader's decision, not this surface's, so the type is not offered.
@@ -537,13 +490,18 @@ describe('plugins-run: composing an attachment', () => {
     ]);
   });
 
-  it('every role it offers composes an attachment', () => {
-    for (const role of GOVERNANCE_ROLES) {
-      assert.deepStrictEqual(
-        pluginAddArgs({ type: 'governance', query: 'cel', role }),
-        ['plugin', 'add', 'governance', 'cel', '--role', role],
-      );
-    }
+  it('offers the roles the compiler binds a governance attachment at', () => {
+    // 🔴 THE EXPECTATION IS A LITERAL THIS MODULE DOES NOT READ, which is what
+    // makes it worth asserting. The spec that drives an attachment loops over this
+    // very set, so a set that lost a member would still satisfy every reading
+    // there; only a comparison against an independently written list can say the
+    // set is the right one.
+    assert.deepStrictEqual([...GOVERNANCE_ROLES], [
+      'annotation-transform',
+      'label-transform',
+      'ir-verdict',
+      'render-verdict',
+    ]);
   });
 });
 

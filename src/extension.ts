@@ -10,6 +10,7 @@ import { CancellationSignal } from './cancellation';
 import type { RegistrySearchParams, SearchDoc } from './catalog-search-run';
 import type { ConfigInitParams, ConfigInitResult } from './config-seeding';
 import type { ImportParams, ImportResult } from './import-request';
+import type { PluginAddParams, PluginAddResult } from './plugin-attachment';
 import type { PluginRemoveParams, PluginRemoveResult } from './plugin-removal';
 import type {
   LogoutParams,
@@ -479,14 +480,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // The plugins tree reads over the command line (plugin list -o json), and it
   // stays there: the compiler declines to serve that listing, because its subject
   // is the toolchain — this binary and the guest modules it can load — rather than
-  // the workspace every request is about. The removal reaches the language server;
-  // the operations that remain command-backed keep the binary path.
+  // the workspace every request is about. The attachment and the removal reach the
+  // language server; the one operation that remains command-backed keeps the
+  // binary path.
   //
   // The anchored root is not known when the tree is registered, so it renders from
   // the readiness signal like every other view.
   activatePluginsView(context, {
     getWorkspaceRoot: () => workspaceRootForCommands,
     getBinaryPath: () => getSettings().binaryPath,
+    addPlugin: requestPluginAdd,
     removePlugin: requestPluginRemove,
     onReady: ready.onReady,
     output: outputChannel,
@@ -2020,6 +2023,34 @@ async function requestRegistrySearch(params: RegistrySearchParams): Promise<Sear
     throw new Error('the Aggrega language server is not running');
   }
   return await daemon.request<SearchDoc>('aggrega/search', params);
+}
+
+// requestPluginAdd asks the language server to resolve a search term to one
+// plugin of the named type and attach it to the configuration.
+//
+// It reaches a registry — resolving the term to exactly one plugin, and pinning
+// that plugin's latest published version, are both registry reads — which is why
+// it is the one plugin operation that takes a wait worth showing. The answer
+// names which plugin the search resolved to, what it was bound as, and the
+// configuration file the entry landed in together with whether that file is the
+// global one, so the operation reports what the compiler measured rather than
+// echoing what was asked for.
+//
+// 🔴 IT CARRIES CANCELLATION, AND THE STOP REACHES THE WORK. This request's own
+// context is what the registry enumeration runs under, and on to the registry
+// client's own listing call — so a reader's stop ends the search rather than only
+// ending this side's wait for an answer.
+//
+// Throws when the server is not running, so a caller reports that state rather
+// than presenting an attachment that never ran as one that found no plugin.
+async function requestPluginAdd(
+  params: PluginAddParams,
+  signal?: CancellationSignal,
+): Promise<PluginAddResult> {
+  if (!daemon || daemon.getState() !== DaemonState.Running) {
+    throw new Error('the Aggrega language server is not running');
+  }
+  return await daemon.request<PluginAddResult>('aggrega/pluginAdd', params, signal);
 }
 
 // requestPluginRemove asks the language server to drop a configured plugin's

@@ -399,10 +399,16 @@ export const OPERATION_REQUIREMENTS: Record<OperationId, OperationRequirement> =
   deprecate: 'workspace',
   configShow: 'none',
   cache: 'none',
-  // The five that arrive from the list panels are all command-line-backed, and
-  // the single invocation path they share refuses without an anchored folder to
-  // run in — so each is gated on the folder and on nothing else. Two of them ask
-  // their questions before that path is reached; the control is still drawn as
+  // The five that arrive from the list panels are each gated on the anchored
+  // folder and on nothing else. They do not share one reason for it, so the
+  // reason is stated per group rather than for the set. The two invoked as
+  // commands refuse without a folder to run in, because the single invocation
+  // path they share does. The three asked of the language server are gated
+  // because the compiler resolves each one's subject against the workspace the
+  // session was opened over: a registry write and a plugin attachment each need a
+  // write target resolved against it, and a published-catalog search searches the
+  // registries that workspace's configuration declares. Two of the five ask their
+  // questions before either path is reached; the control is still drawn as
   // unavailable, because a reader who has answered three dialogs and is then
   // told there is no folder has answered them for nothing.
   registryAdd: 'workspace',

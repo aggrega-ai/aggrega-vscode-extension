@@ -365,44 +365,15 @@ export interface PluginAttachment {
   role?: string;
 }
 
-// pluginAddArgs composes the attachment of one plugin.
+// An attachment composes no argument list, because it is asked of the language
+// server rather than invoked as a command. The answers it is built from are the
+// shape above; what a request carries, and the guards that keep it from carrying
+// a combination the compiler refuses, are declared beside the request itself.
 //
-// The two type-conditional answers are required or refused rather than merely
-// passed along, because the command treats each the same way: absent where it is
-// required, and present where it is not, are both usage errors. Composing either
-// shape would build an invocation that cannot succeed.
-export function pluginAddArgs(attachment: PluginAttachment): string[] {
-  const [, type] = withSubject('plugin add', attachment.type, "the plugin's type");
-  const [, query] = withSubject(
-    'plugin add',
-    attachment.query,
-    'a name to search the registry for',
-  );
-
-  const capability = (attachment.capability ?? '').trim();
-  const role = (attachment.role ?? '').trim();
-  if (type === PLUGIN_TYPE_PROVIDER && capability === '') {
-    throw new Error(
-      'aggrega plugin add: the provider type takes the capability the binding serves, and none was given',
-    );
-  }
-  if (type !== PLUGIN_TYPE_PROVIDER && capability !== '') {
-    throw new Error('aggrega plugin add: a capability applies only to the provider type');
-  }
-  if (type === PLUGIN_TYPE_GOVERNANCE && role === '') {
-    throw new Error(
-      'aggrega plugin add: the governance type takes the role the attachment is bound at, and none was given',
-    );
-  }
-  if (type !== PLUGIN_TYPE_GOVERNANCE && role !== '') {
-    throw new Error('aggrega plugin add: a role applies only to the governance type');
-  }
-
-  const args = ['plugin', 'add', type, query];
-  if (capability !== '') { args.push('--capability', capability); }
-  if (role !== '') { args.push('--role', role); }
-  return args;
-}
+// The generation below still composes one, and the difference between the two is
+// where each writes: a generated entity's directory is a path the reader picks
+// from anywhere on the machine, and a destination a request names is confined to
+// the workspace the session opened.
 
 // GenCatalogSelection is which guests a generation run covers: every guest built
 // into the compiler, or one artifact named by path. The command declares the two
