@@ -624,6 +624,11 @@ export function activateOperations(
 // It reads the one selected Release rather than prompting for its own, so what
 // runs is the Release the panel names and a reader is not asked twice about the
 // same choice. It reaches registries, so it is watched and can be stopped.
+//
+// It stays a command for that stop. The resolution walks the Release's whole
+// dependency closure, fetching what it has not already cached and writing the
+// lockfile, and it is reached with no cancellation — so this is where a reader
+// can end a resolution they did not mean to start.
 async function runReleaseScoped(deps: OperationDeps, verb: ReleaseScopedVerb): Promise<void> {
   if (!deps.getWorkspaceRoot()) {
     void vscode.window.showInformationMessage(NO_ANCHORED_WORKSPACE_MESSAGE);
@@ -1249,6 +1254,10 @@ async function pickEntity(
 // chosen is the entity a reader already named in the menu beside the control.
 // Where it is absent the chooser is opened here, which is the path a command
 // invoked from the editor's own index takes.
+//
+// It stays a command for the stop, on the same terms as the entry the catalog
+// panel offers for one entity: the publication is reached with no cancellation,
+// and what it lands cannot be recalled from anyone who has already fetched it.
 async function runCatalogUpload(
   deps: OperationDeps,
   chosen: EntitySubject | null,
@@ -1284,6 +1293,10 @@ async function runCatalogUpload(
 // carries neither the version an artifact was published under nor the registry
 // it went to, so a reference built from it would be a guess — and a guess that
 // fails outright for an entity nobody has published.
+//
+// It stays a command for the stop. The signing walks its references one at a
+// time, resolving each against the registry, and it is reached with no
+// cancellation — so a batch a reader wants to end is ended here.
 async function runSign(deps: OperationDeps): Promise<void> {
   const reference = await vscode.window.showInputBox({
     title: 'Aggrega: sign a published artifact',
@@ -1309,6 +1322,10 @@ async function runSign(deps: OperationDeps): Promise<void> {
 // only the reference would refuse every time, whatever the reader intended. The
 // reference is asked for rather than offered, for the same reason the signature
 // above asks for one.
+//
+// It stays a command for the stop, on the same terms as the signature above: the
+// withdrawal reaches the registry and is reached with no cancellation, and every
+// consumer resolving that reference afterwards sees the marker.
 async function runDeprecate(deps: OperationDeps): Promise<void> {
   const reference = await vscode.window.showInputBox({
     title: 'Aggrega: deprecate a published artifact',

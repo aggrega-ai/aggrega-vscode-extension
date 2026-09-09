@@ -93,6 +93,12 @@ class PluginsTreeProvider implements vscode.TreeDataProvider<PluginNode> {
       // here from rows whose group would already have been dropped.
       return node.kind === 'group' ? node.entries : [];
     }
+    // The listing is invoked as a command because the compiler answers it no
+    // other way, and that is a decision rather than a gap: its subject is the
+    // toolchain — this binary and the guest modules it can load — while every
+    // request is about a workspace, its documents and the caches that serve them,
+    // so the compiler declines to carry it on the request channel and names that
+    // reason. There is nothing here waiting on the compiler.
     return pluginNodes({
       getWorkspaceRoot: this.deps.getWorkspaceRoot,
       runPluginListJson: () =>
@@ -271,6 +277,12 @@ export function activatePluginsView(
     // operation here that reaches the network — it searches the configured
     // registry — so it is the one that is watched and can be stopped.
     //
+    // 🔴 IT IS THE ONE OPERATION STILL INVOKED AS A COMMAND FOR NO REASON OF THE
+    // STOP'S. The compiler carries the attachment as a request, and the search it
+    // runs for one takes a cancellation that reaches the registry read — so the
+    // button the reader presses ends the search on either path, and nothing about
+    // the stop decides where this runs.
+    //
     // The type may arrive already answered, from the menu the panel offers
     // beside the control. It is checked against the set that control offers
     // before it is used, and anything else is discarded rather than passed on:
@@ -295,6 +307,19 @@ export function activatePluginsView(
     // A generated entity's path is derived from the plugin rather than chosen, so
     // a reader cannot tell from the directory alone what is about to be replaced
     // inside it.
+    //
+    // 🔴 IT IS INVOKED AS A COMMAND BECAUSE OF WHERE IT WRITES, and that is
+    // settled rather than pending. The directory is one the reader picks from
+    // anywhere on the machine, and the generated entities are ordinarily a build
+    // output feeding a catalog that lives in its own tree; the compiler resolves
+    // every destination a request names inside the workspace the session opened,
+    // without exception, because that is what a request may address. Confining
+    // the dialog below to the workspace instead would take away a reach the
+    // command has, on the operation most likely to need it.
+    //
+    // The two paths it READS are a different question and are not what keeps it
+    // here: a file the reader selected is not a workspace-scoped path, and the
+    // compiler accepts one naming anywhere on the machine.
     vscode.commands.registerCommand('aggrega.plugins.genCatalog', async (chosen?: unknown) => {
       const named = menuAnswer('pluginEntities', chosen);
       const request = await askForGeneration(genCatalogScope(named ?? '')?.value);

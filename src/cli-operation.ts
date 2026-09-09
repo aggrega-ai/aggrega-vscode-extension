@@ -146,6 +146,21 @@ export async function runCli(
 // ending is worded. Both are the reader's terms rather than the verb's. It is
 // the same presentation the language-server-backed operations use, so a reader
 // pressing cancel need not know which transport an operation happens to take.
+//
+// 🔴 WHY AN OPERATION IS STILL INVOKED HERE RATHER THAN ASKED OF THE LANGUAGE
+// SERVER, stated once because most of the callers below share it. A stop is
+// offered exactly where the compiler can honour one. Ending a command ends the
+// work, because ending the process ends the walk — so where the shared operation
+// behind a request is reached with no cancellation, this path has a stop and the
+// request path could have none: a request would leave the reader with a button that
+// stops this side waiting while the compiler carries on walking with nobody
+// waiting for what it finds, and reporting that as a stop would tell them the
+// compiler stopped when it did not.
+//
+// So those operations keep a stop that reaches the work, and the surface carries
+// a second way of reaching the compiler for as long as they do. Each caller names
+// which operation it invokes and what about that operation keeps it here, and a
+// caller that is here for some other reason says so where it is.
 export async function runWatchableCli(
   deps: CliOperationDeps,
   title: string,

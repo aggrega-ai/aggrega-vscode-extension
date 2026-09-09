@@ -192,6 +192,13 @@ export function activateRegistriesView(
 
     // The index build is the one registry operation that reaches the network,
     // so it is the one that is watched and can be stopped.
+    //
+    // Both forms of it below — every configured registry, and one named registry
+    // — are invoked as commands for that stop, and it is the same operation
+    // narrowed. The refresh walks each host's repositories and writes what it
+    // finds, and it is reached with no cancellation, so a reader who started a
+    // walk over every registry can end it here and could not over the language
+    // server.
     vscode.commands.registerCommand('aggrega.registries.update', async () => {
       await runWatchableCli(
         deps,

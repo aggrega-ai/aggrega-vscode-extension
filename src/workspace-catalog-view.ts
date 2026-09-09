@@ -221,6 +221,21 @@ export function activateWorkspaceCatalogView(
     // pathless form addressing the whole catalog. Bound to a row they address
     // that row, so the path is always given: the wider question is a different
     // one, and it is already offered where it belongs.
+    //
+    // Both are invoked as commands, for different reasons.
+    //
+    // The correctness check below is the only operation on this surface the
+    // compiler answers in a different SHAPE rather than not at all. Checking one
+    // entity on its own reads that entity from disk and checks it as the kind it
+    // declares — which for a Recipe means compiling it against a generated minimal
+    // deployment, so an author sees its output before it is wired into any
+    // Aggregate. The request channel answers correctness over a document's own
+    // bytes and, where one is named, over a Release's resolved closure. Those are
+    // two scopes of one question, and a row names an entity rather than a buffer
+    // or a Release — so there is nothing here to send the entity to yet.
+    //
+    // The conventions check is reached with no cancellation, so it stays a command
+    // for the stop, on the same terms as the catalog-wide form of it.
     vscode.commands.registerCommand(
       'aggrega.workspaceCatalog.validate',
       (node?: WorkspaceCatalogNode) => onPath(node, (entityPath) =>
@@ -250,6 +265,12 @@ export function activateWorkspaceCatalogView(
     // outside this machine, and a row carries no heading to say so ahead of the
     // press — so what separates it from the checks beside it is put in front of
     // the reader before anything happens rather than explained afterwards.
+    //
+    // It stays a command for the stop. The publication bundles the entity and
+    // pushes it to a registry, and it is reached with no cancellation — so a
+    // reader who started one and changed their mind can end it here and could not
+    // over the language server, on an operation whose bytes cannot be recalled
+    // from anyone who has already fetched them.
     vscode.commands.registerCommand(
       'aggrega.workspaceCatalog.push',
       (node?: WorkspaceCatalogNode) => onPath(node, async (entityPath) => {

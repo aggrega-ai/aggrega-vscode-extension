@@ -38,6 +38,13 @@ export function activateLint(context: vscode.ExtensionContext, deps: LintDeps): 
   // The linter walks every catalog entity, so the run is watched and can be
   // stopped — behind the same indicator, with the same button, as every other
   // long operation on the surface.
+  //
+  // It is invoked as a command for that stop. The walk covers every entity the
+  // configured catalog directories hold, so its cost grows with the catalog and a
+  // reader who started one by mistake has something worth ending; and it is
+  // reached with no cancellation, so the stop exists while it runs as a command
+  // and could not be offered honestly over the language server. The signal below
+  // is what reaches the walk.
   return {
     run: () => withCancellableProgress('Aggrega: checking publishing conventions', (signal) =>
       runLint({
