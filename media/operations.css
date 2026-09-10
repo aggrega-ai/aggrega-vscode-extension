@@ -476,8 +476,8 @@ body {
 /* --- a setting a menu holds, rather than a choice it offers --------------- */
 
 /* A setting is drawn as its mark, then its two lines. The mark keeps its width
-   whether or not it is on — the off state draws a blank glyph of the same size —
-   so turning one does not shift the words beside it under the reader's eye. */
+   whether or not it is on, so turning one does not shift the words beside it
+   under the reader's eye. */
 .op-menu-dial {
   display: flex;
   flex-direction: row;
@@ -494,6 +494,47 @@ body {
   border-radius: 0;
   padding: 0.25rem 0.7rem;
   cursor: pointer;
+}
+
+/* 🔴 THE MARK'S BOX IS DECLARED HERE, FOR BOTH STATES, RATHER THAN LEFT TO THE
+   TWO GLYPHS' OWN ADVANCE WIDTHS. Those widths belong to the icon set, which
+   arrives from a published package, so two marks agreeing on them is a fact
+   about that package and not about this panel — and the off state draws a
+   border, which without a declared box would sit OUTSIDE the glyph and widen
+   the mark by the border alone. One box, stated once and measured from the
+   inside, makes the two states the same width by construction rather than by
+   agreement.
+
+   It does not shrink, because a box that has given up part of its width to a
+   long line beside it has stopped reading as a box. The lines shrink instead:
+   they are the part of the row that can wrap. */
+.op-menu-dial .codicon {
+  flex: none;
+  box-sizing: border-box;
+  width: 1em;
+  height: 1em;
+}
+
+/* 🔴 THE OFF STATE DRAWS AN EMPTY BOX, BECAUSE A SETTING THAT IS OFF HAS TO SAY
+   SO. The glyph held in the mark's place while a setting is off is a blank one,
+   which reserves the width and draws nothing — and a row with nothing beside it
+   reads as an entry to press rather than as a setting currently turned off,
+   which is the fact a reader needs before turning it.
+
+   It is keyed on the state the row ANNOUNCES rather than on which glyph is in
+   place, because that attribute is where the state lives: the panel composes
+   it, a press updates it, and the set carried to the compiler is read back off
+   it. Keying the box on the glyph would be a second reading of one fact, right
+   only while the two agree.
+
+   🔴 THE COLOUR CHAIN ENDS IN A REAL COLOUR rather than in another name. Where
+   every name in a chain is undefined the whole `border` shorthand is invalid at
+   computed-value time and every longhand falls back to its own initial — and
+   the initial border style draws NOTHING, which is precisely the state this
+   rule exists to make visible. */
+.op-menu-dial[aria-checked="false"] .codicon {
+  border: 1px solid var(--vscode-checkbox-border, currentColor);
+  border-radius: 3px;
 }
 
 .op-menu-dial-text {
@@ -525,6 +566,38 @@ body {
   overflow: visible;
   text-overflow: clip;
   white-space: normal;
+}
+
+/* 🔴 THE SENTENCE IS SHOWN WHILE THE READER IS ON THE ROW, AND ITS SPACE IS
+   HELD EITHER WAY. Held rather than reclaimed, and the reason is mechanical: a
+   menu's position is measured once, as it opens, so a menu that grew afterwards
+   would grow downward from the position it was already given — over the control
+   that opened it, in the case of a menu placed above that control because there
+   was no room below. Holding the space keeps the row one height and the menu
+   one size, so nothing moves under a reader who is reading it.
+
+   🔴 FOCUS IS PART OF THE REVEAL RATHER THAN AN ADDITION TO IT: these rows are
+   reached by the arrow keys, so a sentence shown only to a pointer is one a
+   reader steering by keyboard never sees, and they would be left holding a
+   setting with no statement of what it does.
+
+   🔴 IT IS `:focus-visible`, NOT `:focus` OR `:focus-within`, AND THE CHOICE IS
+   THE WHOLE BEHAVIOUR. Opening a menu moves focus onto its first entry, so a
+   menu holding one setting has that setting focused from the moment it appears,
+   however it was opened — and a rule keyed on focus alone would then be on at
+   all times and reveal nothing at all. `:focus-visible` holds off until the
+   reader is steering by keyboard, which is exactly the reader a pointer rule
+   leaves out.
+
+   The sentence is on the row's hint as well, so it is reachable while it is not
+   drawn. */
+.op-menu-dial .op-menu-detail {
+  visibility: hidden;
+}
+
+.op-menu-dial:hover .op-menu-detail,
+.op-menu-dial:focus-visible .op-menu-detail {
+  visibility: visible;
 }
 
 /* The line that says the menu is waiting for the workspace's answer, or how
