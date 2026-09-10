@@ -376,6 +376,22 @@ body {
   background: var(--vscode-list-hoverBackground);
 }
 
+/* Hiding is declared here as well as carried by the attribute, because an
+   element given a layout of its own would ignore the attribute and stay on
+   screen. Three things in a menu are put away through the attribute and each
+   declares a display below: the menu itself, closed until a control opens it; a
+   choice, which the reader's typing narrows away; and a setting, which the same
+   walk over a menu's entries reaches. The status line is absent from this list
+   because it declares no display of its own, so the attribute already governs
+   it.
+
+   Any entry added below that declares a display of its own belongs here too. */
+.op-menu[hidden],
+.op-menu-option[hidden],
+.op-menu-dial[hidden] {
+  display: none;
+}
+
 .op-menu {
   position: fixed;
   z-index: 10;
