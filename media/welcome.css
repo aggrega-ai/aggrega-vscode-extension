@@ -224,12 +224,12 @@ body {
    declaring none of these would therefore have silently had no outline at all,
    which is precisely what this rule exists to provide. Terminating in the
    foreground colour cannot fail that way. */
-/* The control at the foot names both kinds here rather than declaring its own
-   copy of the rule: the outline reasoning above applies to it identically, and a
-   second declaration would be a second place the fallback chain could be
-   shortened by somebody who only read one of them. */
-.step-action,
-.dismiss-action {
+/* Only a step's ways through are named here. The control at the foot reports a
+   state rather than offering an act, so it is a tick and not a box to press, and
+   the outline reasoning above has nothing to say about it — a tick already reads
+   as something to operate, which is the whole thing an outline was fixing. Its
+   own rules are at the foot of this file. */
+.step-action {
   font-family: inherit;
   font-size: inherit;
   color: var(--vscode-button-secondaryForeground, var(--vscode-button-foreground));
@@ -240,13 +240,11 @@ body {
   cursor: pointer;
 }
 
-.step-action:hover,
-.dismiss-action:hover {
+.step-action:hover {
   background: var(--vscode-button-secondaryHoverBackground, var(--vscode-button-hoverBackground));
 }
 
-.step-action:focus-visible,
-.dismiss-action:focus-visible {
+.step-action:focus-visible {
   outline: 1px solid var(--vscode-focusBorder);
   outline-offset: 2px;
 }
@@ -259,20 +257,63 @@ body {
    in it. */
 .welcome-dismiss {
   display: flex;
+  align-items: center;
   justify-content: center;
+  gap: 0.5rem;
   margin-top: 2.5rem;
+}
+
+/* 🔴 THE TICK AND ITS WORDS ARE ONE CONTROL, SO THEY ARE CENTRED AS A PAIR. The
+   words are the control's name, bound to it in the document, so pressing them is
+   pressing the box — and centring the box alone would leave its own name
+   trailing off to one side of the axis everything else on the page sits on. They
+   share a baseline for the same reason: a box riding above the words it belongs
+   to reads as two things placed near each other.
+
+   🔴 THE BOX IS THE PLATFORM'S OWN CONTROL AND IS NOT REDRAWN HERE. A tick built
+   from parts stops being the thing a reader's assistive technology and their own
+   platform conventions already recognise, which is what makes it worth having.
+   What is set is its size, the margins the user agent puts around it, and the
+   colour it fills with when it is ticked.
+
+   🔴 THE ACCENT CHAIN ENDS IN A REAL COLOUR, for the reason the outlined-choice
+   rule above gives at length: where every name in a chain is undefined the
+   declaration is invalid at computed-value time, and the property falls back to
+   its own initial rather than to anything asked for here. */
+.dismiss-checkbox {
+  flex: none;
+  width: 1rem;
+  height: 1rem;
+  margin: 0;
+  accent-color: var(--vscode-checkbox-background, var(--vscode-focusBorder, currentColor));
+  cursor: pointer;
+}
+
+.dismiss-checkbox:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 2px;
+}
+
+/* The words are part of the control, so they carry the pointer that says so. */
+.dismiss-label {
+  cursor: pointer;
 }
 
 /* A high-contrast theme leaves many backgrounds absent and separates controls
    by border instead, so a control distinguished only by its background
    disappears there. Both classes are named because the editor adds the dark
    high-contrast class alongside the light one, and a rule written for one of
-   them would reach both by accident rather than by intent. */
+   them would reach both by accident rather than by intent.
+
+   🔴 THE TICK AT THE FOOT IS DELIBERATELY NOT LISTED, and the reason is the
+   condition above rather than an oversight: it is the platform's own control and
+   carries the platform's own edge, so it is not a thing distinguished only by
+   its background and there is nothing here for a border to rescue. Giving one an
+   author border replaces part of what the user agent draws, which is how a tick
+   stops looking like a tick. */
 body.vscode-high-contrast .step-action,
-body.vscode-high-contrast .dismiss-action,
 body.vscode-high-contrast .step-toggle,
 body.vscode-high-contrast-light .step-action,
-body.vscode-high-contrast-light .dismiss-action,
 body.vscode-high-contrast-light .step-toggle {
   border: 1px solid var(--vscode-contrastBorder, currentColor);
 }

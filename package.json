@@ -199,7 +199,7 @@
       },
       {
         "command": "aggrega.getStarted.dismiss",
-        "title": "Aggrega: Stop opening the welcome panel"
+        "title": "Aggrega: Stop opening the welcome page on startup"
       },
       {
         "command": "aggrega.getStarted.createWorkspace",
@@ -455,7 +455,7 @@
         "aggrega.getStarted.show": {
           "type": "boolean",
           "default": true,
-          "description": "Whether the Aggrega welcome panel opens with the editor. The panel opens in its own tab, says what Aggrega is, then lists what it needs in this workspace — a workspace it recognises, a compiler it can run, a Release to act on, a registry to resolve from — marking each one already met, and marking it to do again if it later lapses. The panel carries this same switch at its foot, so it can be turned off from where it is read. Turning it off is also what \"Aggrega: Stop opening the welcome panel\" does, and it stops the panel opening by itself rather than putting it out of reach. Turning it back on, and opening it, is what \"Aggrega: Get started\" does.",
+          "description": "Whether the Aggrega welcome page opens on startup. The page opens in its own tab, says what Aggrega is, then lists what it needs in this workspace — a workspace it recognises, a compiler it can run, a Release to act on, a registry to resolve from — marking each one already met, and marking it to do again if it later lapses. The page carries this same switch at its foot, so it can be turned off from where it is read. Turning it off is also what \"Aggrega: Stop opening the welcome page on startup\" does, and it stops the page opening by itself rather than putting it out of reach. Turning it back on, and opening it, is what \"Aggrega: Get started\" does.",
           "scope": "machine"
         },
         "aggrega.server.binaryPath": {

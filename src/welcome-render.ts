@@ -2,6 +2,7 @@
 // Copyright 2026 Cognitio S.r.l.
 
 import {
+  PANEL_SETTING_LABEL,
   STEP_CONTENT,
   STEP_IDS,
   StepDetail,
@@ -9,7 +10,7 @@ import {
   WELCOME_DESCRIPTION,
   WELCOME_GREETING,
   WELCOME_PANEL_TITLE,
-  panelSettingControl,
+  panelSettingCommand,
 } from './get-started-steps';
 import { escapeHtml } from './html';
 
@@ -145,6 +146,16 @@ export function stepsHtml(
   }).join('\n');
 }
 
+// PANEL_SETTING_CONTROL_ID addresses the tick at the foot so its words can be
+// bound to it.
+//
+// 🔴 THE ACCESSIBLE NAME COMES FROM THAT BINDING AND FROM NOTHING ELSE. A label
+// bound to the control names it for every reader at once and makes the words
+// themselves a place to press. A name declared on the control instead would be a
+// second copy of the same words, and the copy is the one left behind when the
+// words move — so the words have one home and the binding is what carries them.
+const PANEL_SETTING_CONTROL_ID = 'welcome-on-startup';
+
 // dismissHtml composes the control at the foot that decides whether the panel
 // opens with the editor.
 //
@@ -155,11 +166,18 @@ export function stepsHtml(
 // governs one decision, and so the region can be re-composed on its own when
 // the preference moves without the step list being re-drawn around it.
 //
-// The words and the command both come from the declaration keyed on the
-// preference, so the control cannot offer to do one thing and run another.
+// 🔴 IT IS A TICK RATHER THAN A BUTTON, SO THE STATE IS SHOWN AND NOT INFERRED.
+// The words name the preference and stay put; what the standing decides is
+// whether the box is ticked, and which command a press runs. The tick and the
+// command are read from the same preference in the same breath, so the control
+// cannot report one state and move the other.
+//
+// The ticked state is an attribute rather than a class of its own, because that
+// attribute is where a screen reader reads the state from — a class would be a
+// second record of one fact, wrong for one reader whenever the two came apart.
 export function dismissHtml(opensWithEditor: boolean): string {
-  const control = panelSettingControl(opensWithEditor);
-  return `<button class="dismiss-action" type="button" data-command="${escapeHtml(control.command)}">${escapeHtml(control.label)}</button>`;
+  const ticked = opensWithEditor ? ' checked' : '';
+  return `<input class="dismiss-checkbox" type="checkbox" id="${PANEL_SETTING_CONTROL_ID}"${ticked} data-command="${escapeHtml(panelSettingCommand(opensWithEditor))}"><label class="dismiss-label" for="${PANEL_SETTING_CONTROL_ID}">${escapeHtml(PANEL_SETTING_LABEL)}</label>`;
 }
 
 // WelcomeDocumentOptions carries the addresses the editor resolves for a panel's

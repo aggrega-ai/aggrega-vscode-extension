@@ -86,10 +86,30 @@
   // keyed by the message. A table indexed by an arriving name answers for every
   // name on the object's prototype as well as the two intended, so a message
   // naming one of those would resolve to something that is not a region at all.
+  // 🔴 REPLACING THE FOOT DESTROYS WHATEVER IN IT HAD FOCUS, AND THE FOOT IS THE
+  // ONE CONTROL HERE THAT IS ORDINARILY OPERATED FROM THE KEYBOARD. Pressing the
+  // tick moves the preference, the preference moving re-composes the foot, and
+  // the fragment that arrives is a different element from the one the press was
+  // made on — so a reader working without a pointer is returned to the top of the
+  // document by their own press, every time. Putting the focus back is what makes
+  // the tick operable more than once.
+  //
+  // It is safe to name the control positionally because the foot region holds
+  // exactly one, which the step list does not: restoring focus there would need
+  // to know WHICH of a dozen controls the reader was on, and a guess would move
+  // them somewhere they never went. So the step list is left as it is.
+  function replaceFoot(html) {
+    const held = dismiss.contains(document.activeElement);
+    dismiss.innerHTML = html;
+    if (!held) { return; }
+    const control = dismiss.querySelector('[data-command]');
+    if (control) { control.focus(); }
+  }
+
   window.addEventListener('message', (event) => {
     const message = event.data;
     if (!message) { return; }
     if (message.type === 'steps') { steps.innerHTML = message.html; return; }
-    if (message.type === 'dismiss') { dismiss.innerHTML = message.html; }
+    if (message.type === 'dismiss') { replaceFoot(message.html); }
   });
 })();

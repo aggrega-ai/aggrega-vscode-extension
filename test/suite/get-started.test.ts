@@ -9,10 +9,9 @@ import {
   DISMISS_COMMAND,
   DISMISS_COMMAND_TITLE,
   EVERYTHING_MET,
-  GET_STARTED_SHOW_SETTING,
   NOTHING_MET,
-  PANEL_SETTING_CONTROLS,
-  SHOW_COMMAND,
+  PANEL_SETTING_COMMANDS,
+  PANEL_SETTING_LABEL,
   SHOW_COMMAND_TITLE,
   STEP_CONTENT,
   STEP_IDS,
@@ -20,6 +19,8 @@ import {
   WELCOME_DESCRIPTION,
   WELCOME_GREETING,
   WELCOME_PANEL_TITLE,
+  WELCOME_SHOW_COMMAND,
+  WELCOME_SHOW_SETTING,
   panelControlCommands,
   readCollapsedSteps,
   stepMet,
@@ -448,7 +449,7 @@ describe('the welcome panel', () => {
     // assertion about the composed document reaches it.
     it('describes the standings in the settings screen in the words the badge uses', () => {
       const description = String(
-        manifest().properties[GET_STARTED_SHOW_SETTING].description ?? '',
+        manifest().properties[WELCOME_SHOW_SETTING].description ?? '',
       );
       assert.ok(description.length > 0, 'the preference carries no description at all');
       assert.ok(
@@ -950,8 +951,8 @@ describe('the welcome panel', () => {
     });
 
     it('declares the preference as a reader-facing switch that starts on', () => {
-      const property = manifest().properties[GET_STARTED_SHOW_SETTING];
-      assert.ok(property, `the manifest declares no ${GET_STARTED_SHOW_SETTING} preference`);
+      const property = manifest().properties[WELCOME_SHOW_SETTING];
+      assert.ok(property, `the manifest declares no ${WELCOME_SHOW_SETTING} preference`);
       assert.strictEqual(property.type, 'boolean');
       assert.strictEqual(
         property.default,
@@ -968,7 +969,7 @@ describe('the welcome panel', () => {
         .filter((k) => k.startsWith('aggrega.getStarted.'));
       assert.deepStrictEqual(
         welcomeKeys,
-        [GET_STARTED_SHOW_SETTING],
+        [WELCOME_SHOW_SETTING],
         'a second preference covers the same concept as the one that already gates the panel',
       );
     });
@@ -1075,7 +1076,7 @@ describe('the welcome panel', () => {
         'the foot control is composed before the step list, so it is not at the foot',
       );
       assert.ok(
-        !html.slice(stepsAt, dismissAt).includes('dismiss-action'),
+        !html.slice(stepsAt, dismissAt).includes('dismiss-checkbox'),
         'the foot control sits inside the step list, which is the placement the steps-are-the-conditions rule forbids',
       );
       assert.ok(
@@ -1085,36 +1086,109 @@ describe('the welcome panel', () => {
     });
 
     // 🔴 THE CONTROL IS COMPOSED FROM THE PREFERENCE, WHICH IS WHAT MAKES IT THE
-    // SAME SWITCH AS THE SETTINGS SCREEN'S RATHER THAN A SECOND ONE BESIDE IT.
-    // Each standing offers the command that moves the preference the other way,
-    // so the words and the effect cannot come apart — and a reader who turned
-    // the panel off elsewhere meets a control already reflecting that.
+    // SAME SWITCH AS THE SETTINGS SCREEN'S RATHER THAN A SECOND ONE BESIDE IT. A
+    // reader who turned the page off elsewhere meets a control already
+    // reflecting that, and a press moves the preference the way it is not
+    // already set.
     it('offers the switch in the direction the preference is not already in', () => {
       const opening = dismissHtml(true);
       const withheld = dismissHtml(false);
       assert.ok(
         opening.includes(`data-command="${DISMISS_COMMAND}"`),
-        'a panel that opens with the editor does not offer to stop doing so',
+        'a page that opens on startup does not offer to stop doing so',
       );
       assert.ok(
-        !opening.includes(`data-command="${SHOW_COMMAND}"`),
-        'a panel that already opens with the editor offers to make it open, which is a control with nothing to do',
+        !opening.includes(`data-command="${WELCOME_SHOW_COMMAND}"`),
+        'a page that already opens on startup offers to make it open, which is a control with nothing to do',
       );
       assert.ok(
-        withheld.includes(`data-command="${SHOW_COMMAND}"`),
-        'a panel the reader turned off does not offer the way back from where they are reading it',
+        withheld.includes(`data-command="${WELCOME_SHOW_COMMAND}"`),
+        'a page the reader turned off does not offer the way back from where they are reading it',
       );
       assert.ok(
         !withheld.includes(`data-command="${DISMISS_COMMAND}"`),
-        'a panel already withheld offers to withhold it again',
+        'a page already withheld offers to withhold it again',
       );
-      // The words follow the command rather than being written beside it, so a
-      // control cannot say one thing and do another.
-      const [stop, start] = PANEL_SETTING_CONTROLS;
-      assert.ok(opening.includes(escapeHtml(stop.label)), 'the control does not carry its own words');
-      assert.ok(withheld.includes(escapeHtml(start.label)), 'the control does not carry its own words');
-      assert.notStrictEqual(stop.label, start.label);
-      assert.notStrictEqual(stop.command, start.command);
+    });
+
+    // 🔴 THE WORDS REPORT THE PREFERENCE AND DO NOT MOVE WITH IT, WHICH IS THE
+    // WHOLE POINT OF A TICK. A control whose words changed with the standing
+    // would be describing the press again, leaving the reader to work the
+    // current value out backwards from the offer — so the SAME words appearing
+    // in both standings is the property, not an oversight.
+    //
+    // The words are also asserted to be the ones the manifest's own description
+    // is written in, because a reader searching the settings screen for them is
+    // the reason they were chosen.
+    it('names the preference in the same words in both standings', () => {
+      const opening = dismissHtml(true);
+      const withheld = dismissHtml(false);
+      const words = escapeHtml(PANEL_SETTING_LABEL);
+      assert.ok(opening.includes(words), 'the ticked control does not carry the preference\'s words');
+      assert.ok(withheld.includes(words), 'the unticked control does not carry the preference\'s words');
+      assert.ok(
+        /on startup/i.test(PANEL_SETTING_LABEL),
+        'the control does not say WHEN the page opens, so a reader cannot tell what the tick decides',
+      );
+      const description = String(manifest().properties[WELCOME_SHOW_SETTING].description ?? '');
+      assert.ok(
+        /welcome page/i.test(description) && /on startup/i.test(description),
+        `the settings screen describes this preference in words the control does not use, so one preference is met under two vocabularies: ${description}`,
+      );
+      assert.ok(
+        !/welcome panel|with the editor/i.test(description),
+        `the settings screen still describes this preference in the retired words: ${description}`,
+      );
+    });
+
+    // 🔴 THE TICK IS A REAL CONTROL AND ITS NAME COMES FROM ITS LABEL. This page
+    // is an ordinary document rather than a menu, so the platform's own checkbox
+    // is what belongs here — and a name declared on the control instead of bound
+    // to it would be a second copy of the words, wrong the moment the words move.
+    it('draws the switch as a checkbox whose name comes from its bound label', () => {
+      const html = dismissHtml(true);
+      const box = /<input\b[^>]*>/.exec(html)?.[0] ?? '';
+      assert.ok(box, 'the foot control is not an input at all, so it is not a checkbox');
+      assert.ok(/type="checkbox"/.test(box), `the foot control is an input of another type: ${box}`);
+      assert.ok(
+        !/aria-label/.test(html),
+        'the foot control declares its own name as well as carrying a label, which is two copies of one string',
+      );
+      // The association is read from the document rather than compared against
+      // the constant that composed it: a check whose two sides both read that
+      // constant moves both at once and passes any spelling.
+      const id = /\bid="([^"]+)"/.exec(box)?.[1] ?? '';
+      const boundTo = /<label\b[^>]*\bfor="([^"]+)"/.exec(html)?.[1] ?? '';
+      assert.ok(id, `the checkbox carries no identifier, so nothing can be bound to it: ${box}`);
+      assert.strictEqual(
+        boundTo,
+        id,
+        'the label is not bound to the checkbox, so the control reaches a reader using assistive technology unnamed',
+      );
+    });
+
+    // 🔴 THE TICK FOLLOWS THE PREFERENCE AND IS THE ONLY RECORD OF IT. The state
+    // is carried by the attribute a screen reader reads it from, so the two
+    // readers cannot be told different things; and it is composed from the one
+    // reading handed in rather than remembered, which is what keeps the foot and
+    // the settings screen one switch.
+    it('ticks the box exactly when the preference says the page opens', () => {
+      assert.ok(
+        / checked\b/.test(dismissHtml(true)),
+        'a page that opens on startup draws an unticked box, so the control reports the opposite of the preference',
+      );
+      assert.ok(
+        !/ checked\b/.test(dismissHtml(false)),
+        'a page the reader turned off draws a ticked box, so the control reports the opposite of the preference',
+      );
+      // The declared default is what makes the box ticked for a reader who has
+      // never touched it, and it lives in the manifest rather than beside the
+      // control: a fallback written here would be a second default.
+      assert.strictEqual(
+        manifest().properties[WELCOME_SHOW_SETTING].default,
+        true,
+        'the preference no longer defaults to on, so the box a first-time reader meets is unticked',
+      );
     });
 
     // The foot control is a press like any other in this panel, so it goes
@@ -1123,19 +1197,19 @@ describe('the welcome panel', () => {
     // capability rather than two.
     it('reaches the panel switch through the same declared commands the palette uses', () => {
       const declared = new Set(manifest().commands.map((c) => String(c.command)));
-      for (const control of PANEL_SETTING_CONTROLS) {
+      for (const command of PANEL_SETTING_COMMANDS) {
         assert.ok(
-          declared.has(control.command),
-          `the foot control names ${control.command}, which the manifest does not declare, so pressing it derives no activation event and does nothing`,
+          declared.has(command),
+          `the foot control names ${command}, which the manifest does not declare, so pressing it derives no activation event and does nothing`,
         );
         assert.ok(
-          panelControlCommands().includes(control.command),
-          `the host refuses ${control.command}, so the foot control is drawn and cannot be pressed`,
+          panelControlCommands().includes(command),
+          `the host refuses ${command}, so the foot control is drawn and cannot be pressed`,
         );
       }
       assert.deepStrictEqual(
-        PANEL_SETTING_CONTROLS.map((c) => c.command),
-        [DISMISS_COMMAND, SHOW_COMMAND],
+        [...PANEL_SETTING_COMMANDS],
+        [DISMISS_COMMAND, WELCOME_SHOW_COMMAND],
         'the foot control no longer runs the two commands the palette runs, so the panel and the palette are two switches rather than one',
       );
     });
@@ -1148,7 +1222,7 @@ describe('the welcome panel', () => {
       const admitted = panelControlCommands();
       assert.deepStrictEqual(
         admitted,
-        [...stepCommands, ...PANEL_SETTING_CONTROLS.map((c) => c.command)],
+        [...stepCommands, ...PANEL_SETTING_COMMANDS],
         'the guard admits something that is neither a step\'s way through nor the panel\'s own switch',
       );
     });
@@ -1161,7 +1235,7 @@ describe('the welcome panel', () => {
     it('keeps both the way out and the way back in the command palette', () => {
       const { commands, palette } = manifest();
       for (const [command, title] of [
-        [SHOW_COMMAND, SHOW_COMMAND_TITLE],
+        [WELCOME_SHOW_COMMAND, SHOW_COMMAND_TITLE],
         [DISMISS_COMMAND, DISMISS_COMMAND_TITLE],
       ] as const) {
         const declared = commands.find((c) => c.command === command);
@@ -1185,7 +1259,7 @@ describe('the welcome panel', () => {
       );
       const stepControls = [...new Set(panelControlCommands())]
         .filter((c) => c.startsWith('aggrega.getStarted.'))
-        .filter((c) => c !== SHOW_COMMAND && c !== DISMISS_COMMAND);
+        .filter((c) => c !== WELCOME_SHOW_COMMAND && c !== DISMISS_COMMAND);
       const leaked = stepControls.filter((c) => !hidden.has(c));
       assert.deepStrictEqual(
         leaked,
@@ -1442,7 +1516,7 @@ describe('the welcome panel', () => {
     it('names the get-started preference', () => {
       const readme = fs.readFileSync(README, 'utf8');
       assert.ok(
-        readme.includes(GET_STARTED_SHOW_SETTING),
+        readme.includes(WELCOME_SHOW_SETTING),
         'a preference the README does not name is one a reader has no way to find out about',
       );
     });

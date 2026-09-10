@@ -31,15 +31,15 @@ import {
   DISMISSED_CONFIRMATION,
   DISMISS_COMMAND,
   DRAFT_RELEASE_COMMAND,
-  GET_STARTED_SHOW_SETTING,
   GetStartedFacts,
   LOCATE_COMPILER_COMMAND,
   SEED_NAMED_REGISTRY_COMMAND,
   SEED_REGISTRY_COMMAND,
-  SHOW_COMMAND,
   StepId,
   USE_COMPILER_ON_PATH_COMMAND,
   WELCOME_PANEL_TITLE,
+  WELCOME_SHOW_COMMAND,
+  WELCOME_SHOW_SETTING,
   panelControlCommands,
   readCollapsedSteps,
   stepStandings,
@@ -336,7 +336,7 @@ export function activateGetStarted(
   // not redraw it.
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((event) => {
-      if (!event.affectsConfiguration(GET_STARTED_SHOW_SETTING)) { return; }
+      if (!event.affectsConfiguration(WELCOME_SHOW_SETTING)) { return; }
       panel?.webview.postMessage({
         type: 'dismiss',
         html: dismissHtml(opensWithEditor()),
@@ -345,7 +345,7 @@ export function activateGetStarted(
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand(SHOW_COMMAND, () => bringBack(openPanel)),
+    vscode.commands.registerCommand(WELCOME_SHOW_COMMAND, () => bringBack(openPanel)),
     vscode.commands.registerCommand(DISMISS_COMMAND, () => putAway()),
     vscode.commands.registerCommand(CREATE_WORKSPACE_COMMAND, () => createWorkspace(deps, refresh)),
     vscode.commands.registerCommand(CHOOSE_WORKSPACE_COMMAND, () => chooseWorkspace(deps, refresh)),
@@ -479,7 +479,7 @@ async function hasConfiguredRegistry(deps: GetStartedDeps): Promise<boolean> {
 // boolean at all: a preference nobody can parse is not an instruction to open a
 // tab unasked.
 function opensWithEditor(): boolean {
-  const [section, key] = splitSetting(GET_STARTED_SHOW_SETTING);
+  const [section, key] = splitSetting(WELCOME_SHOW_SETTING);
   return vscode.workspace.getConfiguration(section).get<boolean>(key) === true;
 }
 
@@ -495,7 +495,7 @@ async function bringBack(openPanel: () => Promise<void>): Promise<void> {
     // panel is on top of it. Where the editor declines, the reader is told the
     // panel is back rather than left to wonder whether anything happened.
     void vscode.window.showInformationMessage(
-      `Aggrega: the welcome panel is back; it will open with the editor. ${describeError(err)}`,
+      `Aggrega: the welcome page is back; it will open on startup. ${describeError(err)}`,
     );
   }
 }
@@ -509,7 +509,7 @@ async function putAway(): Promise<void> {
 }
 
 async function setShown(shown: boolean): Promise<void> {
-  const [section, key] = splitSetting(GET_STARTED_SHOW_SETTING);
+  const [section, key] = splitSetting(WELCOME_SHOW_SETTING);
   // The reader's own layer, because a preference confined to the reader has no
   // other layer it can live in: the editor refuses a write of one into a
   // project's settings outright.

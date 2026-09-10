@@ -45,9 +45,16 @@
 // exist, which is met, the words each step carries, and the words the panel
 // opens with — is assertable without an extension host.
 
-// GET_STARTED_SHOW_SETTING is the preference that decides whether the panel
-// opens by itself. It is the reader's own, like every other preference here,
-// and it is never written into a project.
+// WELCOME_SHOW_SETTING is the preference that decides whether the panel opens
+// by itself. It is the reader's own, like every other preference here, and it is
+// never written into a project.
+//
+// 🔴 IT SPELLS THE SAME TEXT AS WELCOME_SHOW_COMMAND BELOW, AND THE TWO NAME
+// DIFFERENT SURFACES. The editor keeps commands and configuration properties in
+// separate namespaces, so one identifier registered in both is legal — but a
+// reader of either constant has to be able to tell which registration it is.
+// The shared prefix says the text is shared; the suffix says which surface
+// declares it, this one the configuration property and the other the command.
 //
 // WHY A PREFERENCE RATHER THAN EDITOR-LOCAL STATE, WHICH WOULD ALSO BE
 // PER-READER. Storage private to this extension can only be read once this
@@ -56,7 +63,7 @@
 // is also what a reader can find and change without this extension running,
 // which is what makes the dismissal legible rather than a state only the
 // extension can see.
-export const GET_STARTED_SHOW_SETTING = 'aggrega.getStarted.show';
+export const WELCOME_SHOW_SETTING = 'aggrega.getStarted.show';
 
 // WELCOME_PANEL_TITLE is the tab the panel opens in. It names Aggrega, because
 // a tab is read in a strip beside whatever else the reader has open and a title
@@ -204,7 +211,12 @@ export const SELECT_RELEASE_COMMAND = 'aggrega.release.select';
 export const SEED_REGISTRY_COMMAND = 'aggrega.getStarted.seedRegistry';
 export const SEED_NAMED_REGISTRY_COMMAND = 'aggrega.getStarted.seedNamedRegistry';
 export const DISMISS_COMMAND = 'aggrega.getStarted.dismiss';
-export const SHOW_COMMAND = 'aggrega.getStarted.show';
+
+// WELCOME_SHOW_COMMAND is the palette command that brings the page back and
+// opens it. It spells the same text as WELCOME_SHOW_SETTING above, which the
+// manifest declares as a configuration property rather than as a command; the
+// note there says why both names carry the surface they name.
+export const WELCOME_SHOW_COMMAND = 'aggrega.getStarted.show';
 
 // SHOW_COMMAND_TITLE is how the way back is named in the command palette. The
 // dismissal is not a one-way door, and this is the door back; a conformance
@@ -223,14 +235,14 @@ export const SHOW_COMMAND_TITLE = 'Aggrega: Get started';
 // the same room: the palette entry is how the capability is FOUND, and the foot
 // control is how it is reached from where the panel is being read. Both run
 // this one command, so neither can come to mean something the other does not.
-export const DISMISS_COMMAND_TITLE = 'Aggrega: Stop opening the welcome panel';
+export const DISMISS_COMMAND_TITLE = 'Aggrega: Stop opening the welcome page on startup';
 
 // DISMISSED_CONFIRMATION is what the reader is told once the panel is put away.
 // It names the way back, because a control that removes something permanently
 // and says nothing leaves a reader with no way to find out that it can be
 // brought back.
 export const DISMISSED_CONFIRMATION =
-  `Aggrega: the welcome panel will not open again. Run "${SHOW_COMMAND_TITLE}" from the Command Palette to bring it back.`;
+  `Aggrega: the welcome page will not open on startup again. Run "${SHOW_COMMAND_TITLE}" from the Command Palette to bring it back.`;
 
 // StepAction is one way through a step: the words on the control, and the
 // command pressing it runs.
@@ -456,9 +468,27 @@ export const STEP_CONTENT: readonly StepContent[] = [
   },
 ];
 
-// PANEL_SETTING_CONTROLS is the foot control in its two standings: the words on
-// it and the command pressing it runs, one entry for a panel that opens with
-// the editor and one for a panel that does not.
+// PANEL_SETTING_LABEL is the words beside the tick at the foot. They name the
+// preference itself, and they are the same words in both standings.
+//
+// 🔴 THE WORDS SAY WHAT THE STATE IS RATHER THAN WHAT PRESSING WILL DO, WHICH IS
+// WHY THERE IS ONE LABEL AND NOT ONE PER STANDING. A control that offered the
+// act — stop opening this, start opening this — left the reader to work the
+// current value out backwards from the offer, and an offer is a poor way to
+// report a state: it says what is available, not what is so. A tick reports the
+// state directly, so the words are free to name the preference and nothing else.
+// Words that moved with the standing would be describing the press again, and
+// the reader would be back to inferring.
+//
+// They are also the words a reader would search the settings screen for, so the
+// preference is described in one vocabulary wherever it is met rather than in
+// one here and another there.
+export const PANEL_SETTING_LABEL = 'Show Aggrega welcome page on startup';
+
+// PANEL_SETTING_COMMANDS is what a press at the foot runs, one entry for a page
+// that opens on startup and one for a page that does not. A press moves the
+// preference the way it is not already set, so the standing picks the command
+// while the words above stay put.
 //
 // 🔴 THE CONTROL IS COMPOSED FROM THE PREFERENCE AND HOLDS NO STATE OF ITS OWN.
 // It reads and writes the one preference that already decides whether the panel
@@ -468,18 +498,15 @@ export const STEP_CONTENT: readonly StepContent[] = [
 // preference would be two records of one fact, and the failure would be a
 // switch at the foot of the panel disagreeing with the switch in the settings
 // screen — each correct about itself.
-//
-// The words say what pressing will do rather than what the state is, because
-// the state is what the reader can already infer from the offer: a panel that
-// can be stopped from opening is one that opens.
-export const PANEL_SETTING_CONTROLS: readonly [StepAction, StepAction] = [
-  { label: 'Stop opening this panel with the editor', command: DISMISS_COMMAND },
-  { label: 'Open this panel with the editor', command: SHOW_COMMAND },
+export const PANEL_SETTING_COMMANDS: readonly [string, string] = [
+  DISMISS_COMMAND,
+  WELCOME_SHOW_COMMAND,
 ];
 
-// panelSettingControl picks the standing the preference is currently in.
-export function panelSettingControl(opensWithEditor: boolean): StepAction {
-  return opensWithEditor ? PANEL_SETTING_CONTROLS[0] : PANEL_SETTING_CONTROLS[1];
+// panelSettingCommand picks the command a press would run from the standing the
+// preference is currently in.
+export function panelSettingCommand(opensWithEditor: boolean): string {
+  return opensWithEditor ? PANEL_SETTING_COMMANDS[0] : PANEL_SETTING_COMMANDS[1];
 }
 
 // panelControlCommands is what a press in the panel is allowed to run.
@@ -500,6 +527,6 @@ export function panelSettingControl(opensWithEditor: boolean): StepAction {
 export function panelControlCommands(): string[] {
   return [
     ...STEP_CONTENT.flatMap((step) => step.actions.map((action) => action.command)),
-    ...PANEL_SETTING_CONTROLS.map((control) => control.command),
+    ...PANEL_SETTING_COMMANDS,
   ];
 }
