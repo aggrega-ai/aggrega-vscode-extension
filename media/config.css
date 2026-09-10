@@ -139,6 +139,12 @@ body {
   width: 100%;
   border-collapse: collapse;
   font-size: 0.92rem;
+  /* The measure the setting column is held to. It is declared here, once,
+     because two rules need the same number: the column it sizes, and the
+     description that has to stay readable in the room left beside that column.
+     Two spellings of it would let the description claim width the panel does
+     not have once the column is holding its own place. */
+  --config-key-measure: 8rem;
 }
 
 .config-table caption {
@@ -157,12 +163,51 @@ body {
   position: sticky;
   top: 0;
   background: var(--vscode-editor-background);
+  /* Above the rows it heads, so a row passing underneath does not draw over the
+     heading that names its columns. */
+  z-index: 2;
 }
 
 .config-table td {
   padding: 0.4rem 0.5rem;
   border-bottom: 1px solid var(--vscode-panel-border);
   vertical-align: top;
+}
+
+/* The setting's own key stays put while a reader scrolls SIDEWAYS, for the same
+   reason the header stays put while they scroll down: a value with nothing
+   saying which setting it belongs to cannot be read. The table is wider than a
+   docked panel, so without this the key leaves the panel exactly when the reader
+   reaches the values it explains.
+
+   It paints its own background because the rest of the row travels underneath
+   it, and a column one can see through reads as a drawing fault rather than as a
+   panel too narrow for the table. And it is held to a measure of its own: a
+   setting path is long, so left to its content this column alone would be wider
+   than the panel and there would be nothing beside it to hold in view. Being
+   held to a measure, the path wraps within the column instead. */
+.config-table th:first-child,
+.config-table td:first-child {
+  position: sticky;
+  left: 0;
+  /* min-width, and deliberately not width or max-width: a table laid out from
+     its content treats those two as suggestions and collapses the column to a
+     single character when the path can break anywhere, which is a column that
+     fits and cannot be read. */
+  min-width: var(--config-key-measure);
+  overflow-wrap: anywhere;
+  background: var(--vscode-editor-background);
+}
+
+/* The rows travel under the key column, and the key column travels under the
+   header — so the cell in the corner, which stays put in both directions at
+   once, sits above both. */
+.config-table td:first-child {
+  z-index: 1;
+}
+
+.config-table th:first-child {
+  z-index: 3;
 }
 
 .config-cell-path code,
@@ -173,6 +218,16 @@ body {
 .config-cell-source,
 .config-cell-takes {
   color: var(--vscode-descriptionForeground);
+}
+
+/* A value, a file path or a declared field name is a single unbroken run of
+   characters, and a column sized to the longest of them is as wide as the
+   longest thing any setting happens to carry. These wrap instead, so a long
+   entry costs its own row some height rather than costing every row the width. */
+.config-cell-value,
+.config-cell-source,
+.config-cell-takes {
+  overflow-wrap: anywhere;
 }
 
 /* The affordance carrying a setting's own description: a small circle a reader
@@ -202,10 +257,17 @@ body {
 }
 
 /* Once opened, the description needs room the cell does not have, so it is
-   given a readable measure of its own. */
+   given a readable measure of its own — taken from the panel the reader has
+   rather than declared as a fixed floor. A floor wider than a docked panel is a
+   paragraph no scroll position can bring fully into view, because the setting
+   column holds the left of the panel and the paragraph would have to fit in what
+   remains. So what remains is what it is measured against: the panel, less that
+   column, less the room the cell's own edges take. In an editor pane, where the
+   panel is wide, the measure a paragraph reads well at is the smaller of the two
+   and the reader sees that instead. */
 .config-info > .config-description {
-  min-width: 18rem;
-  max-width: 24rem;
+  width: min(24rem, calc(100vw - var(--config-key-measure) - 2rem));
+  overflow-wrap: anywhere;
   margin: 0.4rem 0 0;
 }
 
