@@ -338,6 +338,44 @@ body {
   position: static;
 }
 
+/* THE CONTROL WHOSE MENU IS OPEN IS DRAWN AS HELD OPEN, and that mark is what
+   says which control a menu belongs to.
+
+   🔴 POSITION ALONE CANNOT SAY IT, and that is why the mark is here rather than
+   left to the placement. A menu is kept inside the panel's own width, so in a
+   panel a few hundred pixels wide a menu wide enough to read its rows spans
+   almost the whole width — and the position it would need in order to line up
+   with a control near the right edge is off the panel. The placement gives the
+   reader the menu they can see, which is the right trade; what it cannot also
+   give them is which button they are answering. The mark on the opener is
+   independent of the geometry, so it answers that for every control, including
+   the ones no alignment could reach.
+
+   It is read off the expansion state the control already carries for the
+   accessibility tree, so the document says which control is open in exactly one
+   place. A class set alongside it would be a second record of one fact, and the
+   two would part company the first time a menu closed by a route that only knew
+   about one of them.
+
+   The mark is a border rather than a background alone, because a high-contrast
+   theme leaves backgrounds absent and a control distinguished only by its
+   background disappears there. The border box it colours is already reserved on
+   every control, so nothing moves as a menu opens — and a mark that re-wrapped
+   the flow would move the very control the reader is being pointed at. */
+.op[aria-expanded="true"],
+.op-caret[aria-expanded="true"] {
+  border-color: var(--vscode-focusBorder);
+  background: var(--vscode-button-secondaryHoverBackground, var(--vscode-button-hoverBackground));
+}
+
+/* In the section shape the controls are rows rather than buttons, so the held
+   row is marked the way that shape marks the row under the reader's attention.
+   The border carries the mark in both shapes; only what sits behind it differs. */
+.groups-sections .op[aria-expanded="true"],
+.groups-sections .op-caret[aria-expanded="true"] {
+  background: var(--vscode-list-hoverBackground);
+}
+
 .op-menu {
   position: fixed;
   z-index: 10;
@@ -519,5 +557,18 @@ body.vscode-high-contrast-light .selector:focus-visible,
 body.vscode-high-contrast-light .section-head:focus-visible,
 body.vscode-high-contrast-light .op-menu-option:focus-visible,
 body.vscode-high-contrast-light .op-menu-dial:focus-visible {
+  border-color: var(--vscode-contrastActiveBorder, var(--vscode-focusBorder));
+}
+
+/* The held-open control needs its own entry here, because the border every
+   control declares under these themes is stated more specifically than the mark
+   is — so without this the mark would be the one thing a high-contrast reader
+   could not see, which is the reader it matters most to. It changes the colour
+   of the border already there rather than drawing one, exactly as the focused
+   control does. */
+body.vscode-high-contrast .op[aria-expanded="true"],
+body.vscode-high-contrast .op-caret[aria-expanded="true"],
+body.vscode-high-contrast-light .op[aria-expanded="true"],
+body.vscode-high-contrast-light .op-caret[aria-expanded="true"] {
   border-color: var(--vscode-contrastActiveBorder, var(--vscode-focusBorder));
 }
