@@ -300,4 +300,11 @@ extension draws itself can show the editor's own icons — a document the editor
 hosts is given no icon font of its own. Those files are placed there by the build
 from a development dependency rather than carried in this repository, and they
 are not Apache-2.0; their provenance and licence are recorded in
-[`media/codicon-NOTICE.md`](media/codicon-NOTICE.md).
+`media/codicon-NOTICE.md`, beside the files themselves.
+
+<!-- That path is deliberately NOT a relative markdown link. The packaging step
+     resolves every relative link in this file against a repository URL, and this
+     extension declares none — so a link here fails the package step outright and no
+     installable artifact is produced. A plain path tells the reader exactly where the
+     notice is and needs no URL to resolve. -->
+
