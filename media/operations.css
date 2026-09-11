@@ -417,6 +417,23 @@ body {
   box-shadow: 0 2px 8px var(--vscode-widget-shadow, transparent);
 }
 
+/* A MENU OF SETTINGS IS RELEASED FROM `.op-menu`'s FLOOR, WHICH IS SIZED FOR
+   CONTENT IT DOES NOT HOLD. That floor keeps a name readable, and a name is
+   what a menu of choices is made of. A setting's row is a mark and a short
+   label written here, so the widest row is already the width the menu needs:
+   released, it takes exactly that — the mark, the gap and the whole label on
+   one line — rather than standing open to the right of the words. `.op-menu`'s
+   cap is untouched and still keeps it inside the panel, and a label with no
+   room left for it is cut short there exactly as it is in a menu of choices.
+
+   Both classes are named because a floor and the release of it weigh the same
+   when each is written as one class, and the one that wins is then whichever
+   sits later in the file. Naming both makes this the narrower rule outright, so
+   it holds wherever either ends up. */
+.op-menu.op-menu-dials {
+  min-width: 0;
+}
+
 /* Each choice is two lines: the name, then what choosing it does. The second
    line is where the reach of a cache operation lives — the difference between
    emptying this workspace's caches and emptying what every project on this
@@ -475,13 +492,15 @@ body {
 
 /* --- a setting a menu holds, rather than a choice it offers --------------- */
 
-/* A setting is drawn as its mark, then its two lines. The mark keeps its width
+/* A setting is drawn as its mark, then its name. The mark keeps its width
    whether or not it is on, so turning one does not shift the words beside it
-   under the reader's eye. */
+   under the reader's eye. The row is those two things and no more: what the
+   setting does is on its hint, so there is no second line to make room for, and
+   the mark sits on the name's own line rather than at the top of a taller box. */
 .op-menu-dial {
   display: flex;
   flex-direction: row;
-  align-items: flex-start;
+  align-items: center;
   gap: 0.4rem;
   width: 100%;
   min-width: 0;
@@ -537,11 +556,14 @@ body {
   border-radius: 3px;
 }
 
+/* The name's own box. It holds one line, and it is kept for its width rather
+   than for any arrangement: a flex child will not shrink below its content
+   unless it is told it may, and without that the long name beside the mark
+   would push the row wider than the menu instead of being cut short. */
 .op-menu-dial-text {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 0.1rem;
   min-width: 0;
 }
 
@@ -555,49 +577,6 @@ body {
   color: var(--vscode-menu-selectionForeground, inherit);
   outline: 1px solid var(--vscode-focusBorder);
   outline-offset: -1px;
-}
-
-/* A setting's second line wraps rather than being clipped. It says what turning
-   the setting on makes the build DO, which is the fact a reader needs before
-   turning it — and a sentence cut off at the menu's edge is exactly the half of
-   it they would need. A choice's second line is clipped instead, because there
-   it is a name or a path and the menu holds many of them. */
-.op-menu-dial .op-menu-detail {
-  overflow: visible;
-  text-overflow: clip;
-  white-space: normal;
-}
-
-/* 🔴 THE SENTENCE IS SHOWN WHILE THE READER IS ON THE ROW, AND ITS SPACE IS
-   HELD EITHER WAY. Held rather than reclaimed, and the reason is mechanical: a
-   menu's position is measured once, as it opens, so a menu that grew afterwards
-   would grow downward from the position it was already given — over the control
-   that opened it, in the case of a menu placed above that control because there
-   was no room below. Holding the space keeps the row one height and the menu
-   one size, so nothing moves under a reader who is reading it.
-
-   🔴 FOCUS IS PART OF THE REVEAL RATHER THAN AN ADDITION TO IT: these rows are
-   reached by the arrow keys, so a sentence shown only to a pointer is one a
-   reader steering by keyboard never sees, and they would be left holding a
-   setting with no statement of what it does.
-
-   🔴 IT IS `:focus-visible`, NOT `:focus` OR `:focus-within`, AND THE CHOICE IS
-   THE WHOLE BEHAVIOUR. Opening a menu moves focus onto its first entry, so a
-   menu holding one setting has that setting focused from the moment it appears,
-   however it was opened — and a rule keyed on focus alone would then be on at
-   all times and reveal nothing at all. `:focus-visible` holds off until the
-   reader is steering by keyboard, which is exactly the reader a pointer rule
-   leaves out.
-
-   The sentence is on the row's hint as well, so it is reachable while it is not
-   drawn. */
-.op-menu-dial .op-menu-detail {
-  visibility: hidden;
-}
-
-.op-menu-dial:hover .op-menu-detail,
-.op-menu-dial:focus-visible .op-menu-detail {
-  visibility: visible;
 }
 
 /* The line that says the menu is waiting for the workspace's answer, or how

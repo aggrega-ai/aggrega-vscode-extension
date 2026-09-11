@@ -234,7 +234,7 @@ const DIALS_RULED: Array<{
     label: 'Adjustments for the next build',
     caretName: 'Build adjustments',
     values: ['autoPull'],
-    labels: ['Pull dependencies first'],
+    labels: ['Auto pull'],
     details: [
       "Resolve the Release's dependencies into the lockfile before rendering, then build against them",
     ],

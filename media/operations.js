@@ -126,6 +126,17 @@
     return menu.querySelector('[data-menu-status]');
   }
 
+  // holdsDials reports whether a menu's entries are SETTINGS rather than
+  // choices, read off the document the extension composed.
+  //
+  // 🔴 IT IS THE ONE HOME OF THAT QUESTION. Both the filter and the placement
+  // turn on it, and a second reading of the attribute would go on agreeing with
+  // this one right up until either behaviour was changed — at which point
+  // nothing would report that the two had parted company.
+  function holdsDials(menu) {
+    return menu.dataset.menuDials !== undefined;
+  }
+
   // narrows reports whether typing filters this menu.
   //
   // A menu of SETTINGS is not narrowed, and the absence is deliberate rather
@@ -136,7 +147,7 @@
   // owed to every menu, and a menu only a pointer could use would be worse than
   // no menu.
   function narrows(menu) {
-    return menu.dataset.menuDials === undefined;
+    return !holdsDials(menu);
   }
 
   function say(menu, text) {
@@ -147,7 +158,9 @@
   }
 
   // placeBeside puts the menu under the control that opened it, and above it
-  // where there is no room below.
+  // where there is no room below. Across, it hangs a menu of settings from the
+  // right of its control and a menu of choices from the left, for the reason
+  // given at the line that chooses between them.
   //
   // The position is measured at the moment of opening and is deliberately not
   // maintained: the panel scrolls and the reader resizes it, and re-measuring
@@ -162,10 +175,24 @@
     const width = menu.offsetWidth;
     const room = window.innerHeight - at.bottom;
     const top = room < height && at.top > height ? at.top - height : at.bottom;
+    // 🔴 A MENU OF SETTINGS LINES UP ITS RIGHT EDGE WITH THE RIGHT EDGE OF THE
+    // CARET THAT OPENS IT, and reaches back across the button it adjusts. The
+    // caret is a chevron a few characters wide sitting at the right of the
+    // control it belongs to, so a menu starting where the caret starts would
+    // stand out to the right of everything it is about — a panel of adjustments
+    // drawn beside the button rather than under it. Hanging it from the right
+    // puts it over the button whose next press the settings apply to, which is
+    // what says the two belong together.
+    //
+    // A menu of choices keeps the left edges. Its control is the operation's own
+    // full-width button, so the left edges already agree with what the reader
+    // pressed and there is nothing narrow to hang from.
+    const from = holdsDials(menu) ? at.right - width : at.left;
     // Kept inside the panel's own width. The flow wraps, so a control near the
     // right edge of a narrow panel would otherwise open a menu the reader
-    // cannot see the end of.
-    const left = Math.max(0, Math.min(at.left, window.innerWidth - width));
+    // cannot see the end of. It also catches a menu wider than the room to the
+    // left of its caret, which would otherwise start off the near edge.
+    const left = Math.max(0, Math.min(from, window.innerWidth - width));
     menu.style.top = Math.max(0, top) + 'px';
     menu.style.left = left + 'px';
   }

@@ -35,12 +35,17 @@ export const AUTO_PULL_DIAL = 'autoPull';
 // to read.
 export interface BuildDial {
   id: string;
-  // label says what the adjustment does, in the reader's own terms. 🔴 NEVER A
-  // COMMAND-LINE SPELLING. A reader of this panel has authored no flags, so a
-  // flag's name is a word they have nowhere to look up — and an adjustment
-  // named after a parameter teaches the parameter rather than the effect.
+  // label is what the adjustment is called, and the two surfaces call it one
+  // thing. 🔴 IT IS THE NAME THE COMMAND LINE USES, WORDED FOR READING RATHER
+  // THAN TYPED. The same operation is reachable from a terminal, so a reader who
+  // has met it there must be able to recognise it here — and a second, unrelated
+  // wording would leave one operation going by two names, with nothing on either
+  // surface saying they are the same. What the adjustment DOES is the detail's
+  // job, not this field's.
   label: string;
-  // detail is the second line, saying what turning it on makes the build do.
+  // detail says what turning the adjustment on makes the build do. It is what a
+  // reader is shown on the row's hint, and it is written to be read on its own:
+  // nothing else on the row states the effect.
   detail: string;
 }
 
@@ -55,7 +60,7 @@ export interface BuildDial {
 export const BUILD_DIALS: BuildDial[] = [
   {
     id: AUTO_PULL_DIAL,
-    label: 'Pull dependencies first',
+    label: 'Auto pull',
     detail: "Resolve the Release's dependencies into the lockfile before rendering, "
       + 'then build against them',
   },

@@ -247,13 +247,18 @@ function menuOptionHtml(option: MenuOption): string {
 // It is announced as a setting with a state rather than as a choice, so a reader
 // who cannot see the mark is told whether it is on — which for a choice is not a
 // question that exists.
+//
+// 🔴 WHAT THE SETTING DOES IS CARRIED ON THE HINT AND DRAWN NOWHERE. A row states
+// its effect once: written beside the label as well, the same sentence reaches a
+// reader twice at once — under the label and in the hint the pointer raises over
+// it — and the row is held open for a line that is a copy of one already there.
+// The row is therefore the mark and the label, and the sentence is one hover away.
 function menuDialHtml(dial: MenuDial, on: boolean): string {
   const hint = `${dial.label} — ${dial.detail}`;
   return `<button class="op-menu-dial" type="button" role="menuitemcheckbox" aria-checked="${on}" tabindex="-1" data-dial="${escapeHtml(dial.value)}" title="${escapeHtml(hint)}">
       <span class="codicon codicon-${on ? 'check' : 'blank'}" aria-hidden="true"></span>
       <span class="op-menu-dial-text">
         <span class="op-menu-label">${escapeHtml(dial.label)}</span>
-        <span class="op-menu-detail">${escapeHtml(dial.detail)}</span>
       </span>
     </button>`;
 }

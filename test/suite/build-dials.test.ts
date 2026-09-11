@@ -55,15 +55,20 @@ describe('the adjustments a build offers', () => {
     );
   });
 
-  it('names each adjustment by what it DOES, never by a command-line spelling', () => {
-    // 🔴 A READER OF THIS PANEL HAS AUTHORED NO FLAGS. A flag's name is a word
-    // they have nowhere to look up, and an adjustment named after a parameter
-    // teaches the parameter rather than the effect. The words are the reader's
-    // own — both reconduct to a control the panel already carries, whose own
-    // explanation says it pulls remote dependencies into the workspace.
+  it('words each adjustment for reading, never in a flag or parameter spelling', () => {
+    // 🔴 THE CORRESPONDENCE IS INTENDED; WHAT IS GUARDED IS THE SPELLING. The
+    // same operation is reachable from a terminal, so the label is the command
+    // line's name for it, worded for reading rather than typed: a reader who
+    // has met it there must be able to recognise it here. What no
+    // reader-visible word may carry is the form one types or sends — a reader
+    // of this panel has authored no flags, so a dashed spelling, or the
+    // parameter a request composes, is a word they have nowhere to look up.
+    // The words themselves are the reader's own: both reconduct to a control
+    // the panel already carries, whose own explanation says it pulls remote
+    // dependencies into the workspace.
     assert.deepStrictEqual(
       BUILD_DIALS.map((dial) => dial.label),
-      ['Pull dependencies first'],
+      ['Auto pull'],
       'an adjustment reads differently from the words ruled for it',
     );
     assert.deepStrictEqual(
