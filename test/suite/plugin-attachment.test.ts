@@ -523,3 +523,144 @@ describe('the attachment reaches the compiler without a launch', () => {
     assert.deepStrictEqual(holders, []);
   });
 });
+
+// --- the retraction advisory ---------------------------------------------
+
+// 🔴 EVERY EXPECTED SENTENCE HERE IS AN INDEPENDENT LITERAL, on the rule this
+// whole spec runs under. An expectation composed from retractionNote would put
+// the implementation on both sides of the comparison and accept any wording at
+// all — including one that dropped the reason the compiler recorded, which is the
+// one part of this a reader cannot afford to lose.
+describe('a retraction reaches the reader in the ending, not in a channel', () => {
+  // The answer the compiler gives when it skipped a withdrawn version. The values
+  // are the compiler's own — the reference it screened, the version it pinned, and
+  // the version it withdrew with the reason recorded against it.
+  const SUBSTITUTED: PluginAddResult = {
+    ...ATTACHED,
+    retraction: {
+      reference: 'hub.aggrega.ai/plugin/linter/publishing-conventions',
+      selected: '1.4.0',
+      excluded: [{ version: '2.0.0', reason: 'withdrawn in favour of a successor' }],
+    },
+  };
+
+  it('states what was withdrawn and why, in the sentence the reader already reads', () => {
+    assert.strictEqual(
+      terminalLine(ATTACHMENT_SUBJECT, { kind: 'ok', detail: attachmentDetail(SUBSTITUTED) }),
+      'The attachment added linter/publishing-conventions:1.4.0 as a linter plugin in '
+      + "/work/project/aggrega.yaml, this project's own configuration file."
+      + ' Retracted and not selected: 2.0.0 (withdrawn in favour of a successor).',
+    );
+  });
+
+  it('carries the recorded reason verbatim rather than a wording of its own', () => {
+    // The reason is the compiler's text. A surface that summarised it would still
+    // name the version, so the assertion is on the reason's own characters.
+    const line = attachmentDetail(SUBSTITUTED);
+    assert.ok(
+      line.includes('withdrawn in favour of a successor'),
+      `the recorded reason is not in the ending: ${line}`,
+    );
+  });
+
+  it('says a version was withdrawn even when no reason was recorded', () => {
+    // A withdrawal record is not required to carry prose. Saying nothing because
+    // the reason is absent would drop the withdrawal itself, which is the fact.
+    const noReason: PluginAddResult = {
+      ...ATTACHED,
+      retraction: {
+        reference: 'hub.aggrega.ai/plugin/linter/publishing-conventions',
+        selected: '1.4.0',
+        excluded: [{ version: '2.0.0' }],
+      },
+    };
+    assert.strictEqual(
+      terminalLine(ATTACHMENT_SUBJECT, { kind: 'ok', detail: attachmentDetail(noReason) }),
+      'The attachment added linter/publishing-conventions:1.4.0 as a linter plugin in '
+      + "/work/project/aggrega.yaml, this project's own configuration file."
+      + ' Retracted and not selected: 2.0.0.',
+    );
+  });
+
+  it('names every withdrawn version rather than only the first', () => {
+    const two: PluginAddResult = {
+      ...ATTACHED,
+      retraction: {
+        reference: 'hub.aggrega.ai/plugin/linter/publishing-conventions',
+        selected: '1.4.0',
+        excluded: [
+          { version: '2.0.0', reason: 'unsound rule set' },
+          { version: '3.0.0', reason: 'withdrawn in favour of a successor' },
+        ],
+      },
+    };
+    assert.strictEqual(
+      terminalLine(ATTACHMENT_SUBJECT, { kind: 'ok', detail: attachmentDetail(two) }),
+      'The attachment added linter/publishing-conventions:1.4.0 as a linter plugin in '
+      + "/work/project/aggrega.yaml, this project's own configuration file."
+      + ' Retracted and not selected: 2.0.0 (unsound rule set), 3.0.0 (withdrawn in favour of a successor).',
+    );
+  });
+
+  it('reports a screening that could not run, which carries no exclusions at all', () => {
+    // 🔴 THE CASE THAT WOULD OTHERWISE BE SILENCE. A failed withdrawal read leaves
+    // selection unscreened and produces no exclusions, so anything that looked only
+    // at those would say nothing — and saying nothing is indistinguishable from an
+    // attachment that screened cleanly.
+    const degraded: PluginAddResult = {
+      ...ATTACHED,
+      retraction: {
+        reference: 'hub.aggrega.ai/plugin/linter/publishing-conventions',
+        unscreened: 'the registry refused the referrer listing',
+      },
+    };
+    assert.strictEqual(
+      terminalLine(ATTACHMENT_SUBJECT, { kind: 'ok', detail: attachmentDetail(degraded) }),
+      'The attachment added linter/publishing-conventions:1.4.0 as a linter plugin in '
+      + "/work/project/aggrega.yaml, this project's own configuration file."
+      + ' Published versions were not screened for retraction: the registry refused the referrer listing.',
+    );
+  });
+
+  it('leaves the ending untouched when the compiler reported no retraction', () => {
+    // The control. Without it the assertions above pass on a surface that appends
+    // something to every attachment ever made, which would teach a reader to read
+    // past the one sentence that matters.
+    assert.strictEqual(
+      terminalLine(ATTACHMENT_SUBJECT, { kind: 'ok', detail: attachmentDetail(ATTACHED) }),
+      'The attachment added linter/publishing-conventions:1.4.0 as a linter plugin in '
+      + "/work/project/aggrega.yaml, this project's own configuration file.",
+    );
+  });
+
+  it('says nothing for an advisory that concluded nothing', () => {
+    // A defensive arm rather than a reachable one: the compiler omits the advisory
+    // entirely when it withdrew nothing. It is asserted because an empty advisory
+    // renders as a dangling phrase rather than as silence if the empty case is
+    // reached by branch order instead of by a test.
+    const empty: PluginAddResult = {
+      ...ATTACHED,
+      retraction: { reference: 'hub.aggrega.ai/plugin/linter/publishing-conventions', excluded: [] },
+    };
+    assert.strictEqual(
+      terminalLine(ATTACHMENT_SUBJECT, { kind: 'ok', detail: attachmentDetail(empty) }),
+      'The attachment added linter/publishing-conventions:1.4.0 as a linter plugin in '
+      + "/work/project/aggrega.yaml, this project's own configuration file.",
+    );
+  });
+
+  it('reaches the reader through the ending, so no channel has to be opened', async () => {
+    // The invocation proof: the advisory travels the path a reader actually meets —
+    // the answer, through the operation, into the ending — rather than being read
+    // off a formatter a test called directly.
+    const { deps } = recorder(SUBSTITUTED);
+    const outcome = await runPluginAttachment(deps, { type: 'linter', query: 'publishing' });
+    assert.strictEqual(outcome.kind, 'ok');
+    assert.strictEqual(
+      terminalLine(ATTACHMENT_SUBJECT, outcome),
+      'The attachment added linter/publishing-conventions:1.4.0 as a linter plugin in '
+      + "/work/project/aggrega.yaml, this project's own configuration file."
+      + ' Retracted and not selected: 2.0.0 (withdrawn in favour of a successor).',
+    );
+  });
+});

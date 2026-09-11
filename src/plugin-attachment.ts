@@ -28,16 +28,20 @@ import { PLUGIN_TYPE_GOVERNANCE, PLUGIN_TYPE_PROVIDER, PluginAttachment } from '
 // what separates it from the operations beside it on this panel, whose shared work
 // takes no cancellation at all and which therefore offer no stop.
 //
-// 🔴 AND ONE THING THE ANSWER DOES NOT CARRY, STATED RATHER THAN GLOSSED. When
-// the newest published version of a plugin has been retracted, the compiler skips
-// it, pins the next one down and announces the substitution — as prose, on the
-// writer the caller supplies. A request supplies no such writer, and the answer
-// carries no field for the substitution, so the reader is told which version was
-// pinned and not that a higher one was passed over. The choice itself is
-// unaffected: the screening runs either way, so the version pinned here is the
-// version the same attachment pins from a terminal. It is written down because a
-// module claiming the answer carries everything would be the same defect as one
-// claiming no stop is possible.
+// 🔴 AND THE RETRACTION ADVISORY REACHES THE READER IN THE ENDING, WHICH IS WHY
+// IT IS BUILT THIS WAY. When a published version of a plugin has been withdrawn,
+// the compiler skips it, pins another one down, and says which and why. A
+// retraction is a withdrawal, frequently for a safety reason, so that is the one
+// thing a reader cannot afford to miss — and a reader handed an older version than
+// the newest published one, with nothing said about it, has been denied exactly
+// that. So the answer carries the screen's conclusion as values and the sentence
+// below states it where the reader is already looking, rather than somewhere they
+// would have to go and open.
+//
+// What is composed here is the wording alone. Which versions were withdrawn, the
+// reason recorded against each, and which version was pinned instead are all the
+// compiler's own, carried across unchanged — so this surface can say it in the
+// words its reader is reading without being able to disagree about the facts.
 
 // ATTACHMENT_SUBJECT is the operation in the reader's terms, used for the
 // sentence every ending produces. One spelling, so a completion and a failure
@@ -109,6 +113,38 @@ export interface PluginAddResult {
   capability?: string;
   reference?: string;
   scope: ConfigWriteScope;
+  // retraction is what the compiler's withdrawal screen concluded about the
+  // version that was pinned, and is absent whenever it concluded nothing — which
+  // is every ordinary attachment. It is optional for that reason rather than
+  // because a client may ignore it.
+  retraction?: PluginRetraction;
+}
+
+// PluginRetractionExclusion is one published version the compiler withdrew from
+// selection, with the reason recorded against it. The reason is optional because a
+// withdrawal record is not required to carry prose, so an absent one means none was
+// recorded rather than that this side failed to read it.
+export interface PluginRetractionExclusion {
+  version: string;
+  reason?: string;
+}
+
+// PluginRetraction is the compiler's conclusion about the version an attachment
+// pinned.
+//
+// 🔴 THE TWO CONDITIONS IT CARRIES SAY OPPOSITE THINGS AND MUST NOT BE COLLAPSED.
+// excluded is "you are being told something": the screen ran, withdrew the versions
+// named, and the attachment pinned selected instead. unscreened is "you did not get
+// something": the withdrawal records could not be read at all, so nothing was
+// screened and nothing is being claimed about whether the pinned version has since
+// been withdrawn. Reading an empty excluded as "nothing was withdrawn" without
+// looking at unscreened first is the mistake that turns the second case silent,
+// which is the exact silence this field exists to end.
+export interface PluginRetraction {
+  reference: string;
+  selected?: string;
+  excluded?: PluginRetractionExclusion[];
+  unscreened?: string;
 }
 
 // PluginAttachmentDeps is the one thing an attachment needs: a way to ask the
@@ -231,11 +267,48 @@ function article(word: string): string {
 // absent value would read as a plugin called undefined.
 export function attachmentDetail(result: PluginAddResult): string {
   const where = `${result.scope.configFile}, ${reachPhrase(result.scope)}.`;
+  const note = retractionNote(result.retraction);
   if (result.uri) {
-    return `bound capability ${result.capability} to ${result.uri} in ${where}`;
+    return `bound capability ${result.capability} to ${result.uri} in ${where}${note}`;
   }
   if (result.identity) {
-    return `added ${result.identity} as ${article(result.type)} ${result.type} plugin in ${where}`;
+    return `added ${result.identity} as ${article(result.type)} ${result.type} plugin in ${where}${note}`;
   }
-  return `added ${article(result.type)} ${result.type} plugin in ${where}`;
+  return `added ${article(result.type)} ${result.type} plugin in ${where}${note}`;
+}
+
+// retractionNote states what the compiler's withdrawal screen concluded, or
+// nothing when it concluded nothing.
+//
+// It is appended to the ending the reader already reads rather than offered
+// behind a button, because a withdrawal is frequently a safety matter and a
+// reader who has to go and look is a reader who will not. The empty string for an
+// absent conclusion is what lets the ending stay one sentence on every ordinary
+// attachment.
+//
+// Every value in it is the compiler's own, rendered verbatim: the versions, the
+// reasons recorded against them, and the fault a failed screening read reported.
+// What this composes is the sentence around them, which is this surface's own
+// because the reader is reading this surface — and composing it from the values
+// rather than re-stating the compiler's line is what keeps the two from drifting
+// into disagreement about the facts.
+export function retractionNote(retraction?: PluginRetraction): string {
+  if (!retraction) {
+    return '';
+  }
+  // The unscreened case is answered first and on its own, because it is the one
+  // that would otherwise pass as silence: it carries no exclusions by definition,
+  // so a check that looked at those first would find none and say nothing at all —
+  // which reads exactly like an attachment that screened cleanly.
+  if (retraction.unscreened) {
+    return ` Published versions were not screened for retraction: ${retraction.unscreened}.`;
+  }
+  const excluded = retraction.excluded ?? [];
+  if (excluded.length === 0) {
+    return '';
+  }
+  const named = excluded
+    .map((x) => (x.reason ? `${x.version} (${x.reason})` : x.version))
+    .join(', ');
+  return ` Retracted and not selected: ${named}.`;
 }
