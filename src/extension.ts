@@ -28,6 +28,10 @@ import type {
   RegistryRemoveParams,
   RegistryRemoveResult,
 } from './registry-configure';
+import type {
+  RegistryUpdateParams,
+  RegistryUpdateResult,
+} from './registry-index-request';
 import type { RegistryListDoc } from './registries-run';
 import { Daemon, DaemonState } from './daemon';
 import { debounce } from './debounce';
@@ -362,10 +366,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   });
 
   // The operation surface (activity-bar Commands view + commands) is
-  // available regardless of daemon state: CLI-backed operations scope to the
-  // anchored root once it is known, and validate reports when no file or
-  // daemon is available. The getters read live state so the surface tracks the
-  // root the daemon later attaches to.
+  // available regardless of daemon state: each entry reports when the server is
+  // not answering, and validate reports when there is no file. The getters read
+  // live state so the surface tracks the root the daemon later attaches to.
+  //
+  // The binary path is passed for exactly one entry — the dependency resolution,
+  // which stays a command because it is the one operation whose stop the request
+  // surface cannot match. The reason is measured and written at its call site.
   operationsView = activateOperations(context, {
     getWorkspaceRoot: () => workspaceRootForCommands,
     getAnchoredWorkspaceRoot: anchoredWorkspaceRoot,
@@ -507,18 +514,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     output: outputChannel,
   });
 
-  // The registries tree is language-server-backed (registryList), so it reports
-  // the configuration the compiler resolved. That enumeration reads the resolved
-  // configuration and contacts no registry, so a refresh costs nothing over the
-  // network. The binary path stays: the row operations that CHANGE the
-  // configured set still run as commands.
+  // The registries tree is language-server-backed throughout, and so is every
+  // operation on it: the enumeration, the two writes to the configured set, the
+  // credential removal and the index build. The enumeration reads the resolved
+  // configuration and contacts no registry, so re-reading the tree costs nothing
+  // over the network; the index build is the one entry here that does go out to
+  // the registries, and it carries the reader's stop into that walk.
+  //
+  // No binary path is passed, because nothing on this surface starts a process.
   activateRegistriesView(context, {
     getWorkspaceRoot: () => workspaceRootForCommands,
-    getBinaryPath: () => getSettings().binaryPath,
     runRegistryList: requestRegistryList,
     addRegistry: requestRegistryAdd,
     removeRegistry: requestRegistryRemove,
     logOutOfRegistry: requestLogout,
+    updateRegistryIndex: requestRegistryUpdate,
     onReady: ready.onReady,
     output: outputChannel,
   });
@@ -2175,6 +2185,39 @@ async function requestDeprecateArtifact(
   return await daemon.request<DeprecateArtifactResult>(
     'aggrega/deprecateArtifact', params, signal,
   );
+}
+
+// requestRegistryUpdate builds the searchable index of the configured
+// registries.
+//
+// 🔴 IT REACHES THE REGISTRIES THEMSELVES, AND ITS STOP REACHES THE WALK. The
+// request's own context is what the shared walk observes: once per registry,
+// ahead of that registry's own walk, and carried into every network call the walk
+// makes. Measured against a registry that accepts a connection and never answers:
+// a stop sent four seconds in leaves no walk running eleven seconds in, while an
+// unstopped run is still inside the repository enumeration at the same moment. So
+// a reader's stop ends the walk rather than only ending this side's wait.
+//
+// 🔴 WHAT A STOP LEAVES BEHIND, STATED RATHER THAN GLOSSED: the registries
+// already indexed have been written, because each registry's records land as its
+// own walk finishes. A stop is not an undo, which is why the ending names how
+// many registries were reached.
+//
+// 🔴 NOTHING IS PROMPTED FOR. Credentials resolve from a supplied or ambient
+// source, and a registry needing one the machine does not carry is refused with
+// the credential named. That was already true of the subprocess this replaces,
+// which was spawned with piped streams.
+//
+// It throws when the server is not running, so a caller reports that state rather
+// than presenting an operation that never ran as one that did nothing.
+async function requestRegistryUpdate(
+  params: RegistryUpdateParams,
+  signal?: CancellationSignal,
+): Promise<RegistryUpdateResult> {
+  if (!daemon || daemon.getState() !== DaemonState.Running) {
+    throw new Error('the Aggrega language server is not running');
+  }
+  return await daemon.request<RegistryUpdateResult>('aggrega/registryUpdate', params, signal);
 }
 
 async function handleCacheMiss<T>(method: string, params: unknown, doc: vscode.TextDocument): Promise<T | null> {

@@ -2,11 +2,17 @@
 // Copyright 2026 Cognitio S.r.l.
 
 import * as vscode from 'vscode';
-import { CliOperationDeps, reportOutcome, runWatchableCli } from './cli-operation';
+import { reportOutcome } from './cli-operation';
 import {
   CONFIG_WRITE_DESTINATIONS,
   ConfigWriteDestination,
 } from './config-write-scope';
+import {
+  INDEX_BUILD_SUBJECT,
+  RegistryIndexDeps,
+  indexBuildOpeningLine,
+  runIndexBuild,
+} from './registry-index-request';
 import {
   CREDENTIAL_REMOVAL_SUBJECT,
   REGISTRATION_DESTINATION_PROMPT,
@@ -25,22 +31,23 @@ import {
   RegistryNode,
   registryNodes,
   registrySubject,
-  registryUpdateAllArgs,
-  registryUpdateOneArgs,
 } from './registries-run';
 import { RendersOnReady } from './readiness';
+import { withCancellableProgress } from './progress';
 
 // RegistriesDeps supplies the live state the registries tree needs: the
 // anchored workspace root (it is what selects the configuration the reader is
-// actually working against), the requests that enumerate and change the
-// registries, and the shared output channel that carries failure detail.
+// actually working against), the requests that enumerate, change and re-index
+// the registries, and the shared output channel that carries the detail.
 //
-// The binary path arrives through CliOperationDeps and is still needed, for one
-// operation rather than for the row operations generally: the index refresh is
-// the one registry operation that reaches the registries themselves, and it is
-// run as a command because that run can be stopped.
+// 🔴 IT DECLARES NO BINARY PATH, AND THE ABSENCE IS THE POINT RATHER THAN AN
+// OVERSIGHT. Every operation on this surface is a request on the language
+// server, the index build included, so there is no process for this surface to
+// start and nothing for a path to be used by. A declared getter would be a
+// capability this surface does not reach, and the next entry written here would
+// have one to hand.
 export interface RegistriesDeps
-  extends RendersOnReady, CliOperationDeps, RegistryConfigureDeps {
+  extends RendersOnReady, RegistryConfigureDeps, RegistryIndexDeps {
   getWorkspaceRoot(): string | null;
   runRegistryList(): Promise<RegistryListDoc>;
   output: vscode.OutputChannel;
@@ -140,6 +147,34 @@ async function runOnRow(
   await act(host);
 }
 
+// buildIndex runs an index build at the scope the reader pressed and reports how
+// it ended.
+//
+// It is one function for both entries because they are one operation: the scope
+// travels as a request field and nothing else about the run differs, so a second
+// function would be a second place for the presentation to drift. The channel is
+// revealed before the request goes out, so the run's account and its ending are in
+// front of a reader who pressed a button that reaches out to a registry.
+//
+// registry is absent for every configured registry and a host for one row.
+async function buildIndex(deps: RegistriesDeps, registry?: string): Promise<void> {
+  const out = deps.output;
+  out.show(true);
+  out.appendLine(indexBuildOpeningLine(registry));
+
+  const title = registry
+    ? `Aggrega: updating the searchable index for ${registry}`
+    : 'Aggrega: updating the searchable index';
+  const report = await withCancellableProgress(
+    title,
+    (signal) => runIndexBuild(deps, registry, signal),
+  );
+  for (const line of report.lines) {
+    out.appendLine(line);
+  }
+  await reportOutcome(deps, INDEX_BUILD_SUBJECT, report.outcome, true);
+}
+
 // activateRegistriesView registers the registries tree and the operations that
 // act on it: the panel-scoped ones in its title bar, the row-scoped ones on a
 // registry row. View and command ids mirror package.json.
@@ -191,34 +226,22 @@ export function activateRegistriesView(
     }),
 
     // The index build is the one registry operation that reaches the network,
-    // so it is the one that is watched and can be stopped.
+    // and it is the one that is watched and can be stopped. Both entries below
+    // are the same operation narrowed by its scope parameter — every configured
+    // registry, and one named registry — so they differ by that one value and
+    // share every word after it.
     //
-    // Both forms of it below — every configured registry, and one named registry
-    // — are invoked as commands for that stop, and it is the same operation
-    // narrowed. The refresh walks each host's repositories and writes what it
-    // finds, and it is reached with no cancellation, so a reader who started a
-    // walk over every registry can end it here and could not over the language
-    // server.
-    vscode.commands.registerCommand('aggrega.registries.update', async () => {
-      await runWatchableCli(
-        deps,
-        'Aggrega: updating the searchable index',
-        'The index build',
-        registryUpdateAllArgs(),
-        'refreshed the searchable index of every configured registry.',
-      );
-    }),
+    // The stop reaches the walk: the request's own context is observed once per
+    // registry and carried into every network call, so a reader who started a
+    // walk over every registry can end it. What a stop leaves behind is a
+    // partial index rather than none, because each registry's records are
+    // written as its own walk finishes — which is why the ending names how many
+    // registries were reached rather than reporting the walk as all-or-nothing.
+    vscode.commands.registerCommand('aggrega.registries.update', () => buildIndex(deps)),
 
     vscode.commands.registerCommand(
       'aggrega.registries.updateOne',
-      (node?: RegistryNode) => runOnRow(node, (host) =>
-        runWatchableCli(
-          deps,
-          `Aggrega: updating the searchable index for ${host}`,
-          'The index build',
-          registryUpdateOneArgs(host),
-          `refreshed the searchable index for ${host}.`,
-        )),
+      (node?: RegistryNode) => runOnRow(node, (host) => buildIndex(deps, host)),
     ),
 
     // Removing a registry and removing its credential both confirm first, and

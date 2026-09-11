@@ -26,6 +26,7 @@ import {
   EXTENSION_ROOT,
   assertCensusInstrumentFires,
   launchFacilityCount,
+  readSourceTree,
 } from '../helpers/launch-census';
 
 // This spec drives the whole import decision with no transport, no editor and no
@@ -494,23 +495,29 @@ describe('the import reaches the compiler without a launch', () => {
     );
   });
 
-  it('leaves the operations panel with no direct call to the streaming launch helper', () => {
-    // 🔴 A COUNT, NOT A PRESENCE. The panel still calls the WATCHABLE wrapper for
-    // the operations whose command-line run can be stopped, and that wrapper calls
-    // the launch helper internally — so what is claimed here is that the panel
-    // makes no launch of its own, and a count is the only shape that expresses it.
-    const source = fs.readFileSync(path.join(EXTENSION_ROOT, 'src/operations.ts'), 'utf8');
-    assert.strictEqual(
-      (source.match(/(?:^|[^a-zA-Z.])runCli\(/gm) ?? []).length,
-      0,
-      'the operations panel calls the streaming launch helper again, so an operation that '
-      + 'moved has a second execution path',
-    );
-    // The other half: the calls that SHOULD be there are, so the zero above is an
-    // absence rather than a file this test failed to read.
-    assert.ok(
-      (source.match(/(?:^|[^a-zA-Z.])runWatchableCli\(/gm) ?? []).length > 0,
-      'the operations panel makes no watched run at all, so the zero above measures nothing',
+  it('leaves the operations panel with one watched run and no launch of its own', () => {
+    // 🔴 A COUNT PER HELPER, NOT A PRESENCE. The panel still calls the WATCHABLE
+    // wrapper once, for the dependency resolution, and that wrapper calls the
+    // streaming helper internally — so what is claimed here is that the panel makes
+    // no launch of its own and exactly one watched run, and only counts express it.
+    //
+    // The one survivor carries its reason at its own call site: the resolution's
+    // closure walk resolves each entity through a catalog lookup that takes no
+    // context, so a request's stop cannot reach the registry fetch inside it while
+    // ending the process can. An operations-panel launch appearing anywhere else,
+    // or this one disappearing without that changing, fails here.
+    const sources = new Map(readSourceTree());
+    const subject = sources.get('operations.ts') ?? '';
+    const helpers = ['runCli', 'runCliJson', 'runWatchableCli'];
+    const countIn = (source: string, helper: string): number => (
+      source.match(new RegExp(`(?:^|[^a-zA-Z.])${helper}\\s*(?:<[^<>]*>)?\\s*\\(`, 'gm')) ?? []
+    ).length;
+
+    assert.deepStrictEqual(
+      helpers.map((helper) => [helper, countIn(subject, helper)]),
+      [['runCli', 0], ['runCliJson', 0], ['runWatchableCli', 1]],
+      'the operations panel gained or lost a command-backed run; a launch of its own is a '
+      + 'second execution path, and a lost watched run is an operation that cannot be stopped',
     );
   });
 
@@ -535,22 +542,44 @@ describe('the import reaches the compiler without a launch', () => {
     // left standing with no caller is a launch waiting to be reached, and it would
     // be invisible to every assertion above: the request would still be sent from
     // one place, and the panel would still hold no launch.
-    const source = fs.readFileSync(path.join(EXTENSION_ROOT, 'src/operation-groups.ts'), 'utf8');
-    assert.ok(
-      !/function\s+importArgs\b/.test(source),
+    //
+    // 🔴 THE SWEEP IS TREE-WIDE RATHER THAN CONFINED TO THE MODULE THAT ONCE
+    // DECLARED THE COMPOSITIONS, AND THAT IS A REPAIR RATHER THAN A WIDENING. That
+    // module now declares no composer at all, so a sweep of it alone returns zero
+    // whatever it is asked — and would keep returning zero if a composer were
+    // written into any other module. A census whose corpus has emptied reports
+    // every absence as clean.
+    const sources = readSourceTree();
+    const holders = sources
+      .filter(([, source]) => /function\s+importArgs\b/.test(source))
+      .map(([file]) => file);
+    assert.deepStrictEqual(
+      holders,
+      [],
       'importArgs still composes a command line for an operation that is now a request',
     );
-    // The positive control for this sweep: the pattern still finds a composer that
-    // legitimately remains, so the absence above is an absence.
+    // The positive control for this sweep: the SAME pattern shape, over the SAME
+    // corpus, finds the composers that legitimately remain.
     //
-    // 🔴 IT NAMES THE RELEASE-SCOPED COMPOSITION BECAUSE THAT IS THE ONE THIS
-    // MODULE STILL OWNS. A control naming a composer that later moves to the
-    // request surface fails as though the module had regressed — which is what
-    // this one did when the publication family moved, and repointing it is the
-    // repair rather than relaxing it.
-    assert.ok(
-      /function\s+releaseScopedArgs\b/.test(source),
-      'the composer pattern no longer matches a composer that provably exists, so the absence '
+    // 🔴 IT IS AN EQUALITY AGAINST A SET WRITTEN HERE RATHER THAN A COUNT DERIVED
+    // FROM THE WALK, so the expectation cannot agree with whatever the walk found.
+    // Each member is accounted for: the per-entity checks, the plugin catalog
+    // generation and the dependency resolution are operations still invoked as
+    // commands for reasons recorded at their own call sites, and the transport's
+    // own composer is the arguments the language server itself is started with —
+    // a launch that is never retired rather than an operation. A member
+    // disappearing means either that operation moved (repoint this control) or the
+    // pattern stopped matching (the absence above would have passed vacuously);
+    // both are worth a failing test.
+    const surviving = sources
+      .flatMap(([file, source]) => (
+        /function\s+[A-Za-z]+Args\b/.test(source) ? [file] : []
+      ))
+      .sort();
+    assert.deepStrictEqual(
+      surviving,
+      ['catalog-entity-operations.ts', 'daemon.ts', 'operation-groups.ts', 'plugins-run.ts'],
+      'the composer pattern no longer matches the composers that provably exist, so the absence '
       + 'above would pass vacuously',
     );
   });

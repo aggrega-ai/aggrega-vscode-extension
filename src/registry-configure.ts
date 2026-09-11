@@ -34,9 +34,13 @@ import { withSubject } from './operation-groups';
 // the work, and presenting that as a stop would break the rule that stopping
 // means the compiler stopped. No signal is accepted anywhere in this module.
 //
-// 🔴 THE INDEX REFRESH IS DELIBERATELY NOT HERE. It is the one registry
-// operation that reaches the registries themselves, it can be watched and
-// stopped today, and a stop that works is not traded for one execution path.
+// 🔴 THE INDEX BUILD IS DELIBERATELY NOT HERE, AND THE REASON IS THE PARAGRAPH
+// ABOVE RATHER THAN A TRANSPORT DIFFERENCE. It is a request like these three, but
+// it is the one registry operation that reaches the registries themselves and the
+// one whose shared walk observes the request's own context — so it carries a stop,
+// and it would falsify the module-wide statement that nothing here accepts a
+// signal. It lives in its own module, where that property can be stated where it
+// holds.
 
 // --- what the reader chooses ---------------------------------------------
 

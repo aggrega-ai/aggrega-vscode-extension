@@ -10,10 +10,9 @@ import {
   RegistryRow,
   registryNodes,
   registrySubject,
-  registryUpdateAllArgs,
-  registryUpdateOneArgs,
   rowForRegistry,
 } from '../../src/registries-run';
+import { indexBuildRequest } from '../../src/registry-index-request';
 import { NO_ANCHORED_WORKSPACE_TREE_LABEL } from '../../src/workspace';
 
 class FakeLog {
@@ -312,61 +311,47 @@ describe('registrySubject', () => {
   });
 });
 
-describe('the argument list the index refresh composes', () => {
-  // The list is asserted against the command's own argument declaration, which
-  // is what decides whether an invocation can succeed. Composing one from the
-  // operation's name instead is how a button comes to be pressed with no
-  // subject.
-  //
-  // 🔴 THE INDEX REFRESH IS THE ONLY REGISTRY OPERATION LEFT WITH AN ARGUMENT
-  // LIST, and the count below holds that. Registering a registry, dropping its
-  // entry and removing its stored credential are requests, so no argument list
-  // exists for any of them to be composed wrongly from.
-
-  it('passes no argument when indexing every registry', () => {
-    // `registry update [<name|host>]` accepts at most one argument and indexes
-    // every configured registry when given none.
-    assert.deepStrictEqual(registryUpdateAllArgs(), ['registry', 'update']);
-  });
-
-  it('names the one registry when indexing just that one', () => {
-    assert.deepStrictEqual(
-      registryUpdateOneArgs('mid.example.test'),
-      ['registry', 'update', 'mid.example.test'],
-    );
-  });
-
-  it('composes a subject-bearing invocation from a row', async () => {
+describe('what a row carries into the request that acts on it', () => {
+  it('carries the subject a row names through the one extractor', async () => {
     // The end-to-end shape the panel actually uses: a row, through the one
-    // extractor, into the argument list. This is the assertion that fails if a
-    // row ever stops carrying its subject.
+    // extractor, into the request that narrows an index build to it. This is the
+    // assertion that fails if a row ever stops carrying its subject.
     //
-    // 🔴 AN EQUALITY, NOT A MEMBERSHIP TEST. Asserting that the list merely
-    // CONTAINS the host passes on a list that carries it in the wrong position,
-    // or twice, or alongside a verb that has changed — so the whole list is
-    // compared against a literal written here.
+    // 🔴 AN EQUALITY, NOT A MEMBERSHIP TEST. Asserting that the request merely
+    // MENTIONS the host passes on one that carries it under the wrong key, or
+    // alongside a field this surface does not send — so the whole request object
+    // is compared against a literal written here.
     const nodes = await harness('/ws', ok(MEASURED_DOCUMENT)).nodes();
     const host = registrySubject(nodes[1]);
     assert.ok(host);
     assert.deepStrictEqual(
-      registryUpdateOneArgs(host),
-      ['registry', 'update', 'mid.example.test'],
+      indexBuildRequest(host),
+      { registry: 'mid.example.test' },
     );
   });
 
-  it('composes an argument list for the refresh and for nothing else', () => {
-    // 🔴 A COUNT OVER THE MODULE'S OWN EXPORTS. Three composers were retired
-    // here when their operations became requests, and a presence check on the
-    // survivors would have gone on passing had any of the three been left
-    // standing with no caller — which is the shape that keeps a second execution
-    // path reachable while every other assertion reads clean.
+  it('composes an argument list for nothing at all, because every registry operation is a request', () => {
+    // 🔴 A COUNT OVER THE MODULE'S OWN EXPORTS, AND IT IS NOW ZERO. Five composers
+    // were retired here as their operations became requests, the index build last,
+    // and a presence check on a survivor would have gone on passing had any of them
+    // been left standing with no caller — which is the shape that keeps a second
+    // execution path reachable while every other assertion reads clean.
     const module: Record<string, unknown> = require('../../src/registries-run');
     const composers = Object.keys(module).filter((name) => name.endsWith('Args')).sort();
     assert.deepStrictEqual(
       composers,
-      ['registryUpdateAllArgs', 'registryUpdateOneArgs'],
-      'a registry operation gained or lost an argument list; a composer with no caller is a '
-      + 'launch waiting to be reached, and a missing one is an operation that cannot run',
+      [],
+      'a registry operation gained an argument list; a composer with no caller is a launch '
+      + 'waiting to be reached',
+    );
+    // The control for that zero: the same filter, over a set it CAN match, still
+    // picks out a composer-shaped name. An empty answer above is therefore an empty
+    // module rather than a filter that stopped working.
+    assert.deepStrictEqual(
+      ['registryUpdateAllArgs', 'registryNodes'].filter((name) => name.endsWith('Args')),
+      ['registryUpdateAllArgs'],
+      'the composer filter no longer matches a composer-shaped name, so the zero above would '
+      + 'pass vacuously',
     );
   });
 });

@@ -69,6 +69,25 @@ export function assertCensusInstrumentFires(
 // cannot see.
 const SOURCE_DIR = path.join(EXTENSION_ROOT, 'src');
 
+// readSourceTree reads every module in that directory as a [file, source] pair,
+// for a sweep whose subject is the whole surface rather than one module.
+//
+// 🔴 IT EXISTS BECAUSE A SWEEP CONFINED TO ONE MODULE GOES VACUOUS WHEN THAT
+// MODULE EMPTIES, WHICH IS MEASURED RATHER THAN HYPOTHETICAL. The module that
+// once declared every command-line composition now declares none, so a sweep of
+// it reports any retired composer absent whether or not one was written into a
+// neighbour. Reading the whole tree is what keeps an absence an absence.
+//
+// It is here rather than in a spec so the specs that sweep share one corpus
+// definition; a second listing would agree on the day it was written and would
+// then be the only thing whichever spec held it consulted.
+export function readSourceTree(): Array<readonly [string, string]> {
+  return fs.readdirSync(SOURCE_DIR)
+    .filter((f) => f.endsWith('.ts'))
+    .sort()
+    .map((f) => [f, fs.readFileSync(path.join(SOURCE_DIR, f), 'utf8')] as const);
+}
+
 // LaunchHelper is a helper that invokes the compiler as a command. There are
 // three, they are the only ways a panel reaches one, and naming them as a closed
 // set is what makes the census below exhaustive rather than a sample.
@@ -145,21 +164,27 @@ export const RECORDED_LAUNCH_SITES: Readonly<Record<LaunchHelper, ReadonlyArray<
     ['cli-json.ts', 1],
     ['plugins-view.ts', 1],
   ],
-  // The declaration, and the operations still reached as commands.
+  // The declaration, the dependency resolution, and the two per-entity checks.
   //
   // 🔴 NO SINGLE REASON HOLDS THE REMAINDER, AND READING IT AS THOUGH ONE DID IS
-  // HOW AN ENTRY COMES TO LOOK SETTLED WHEN IT IS NOT. The absent stop was once
-  // what they had in common; it no longer is, and each survivor now carries its
+  // HOW AN ENTRY COMES TO LOOK SETTLED WHEN IT IS NOT. Each survivor carries its
   // own reason at its own call site, which is where a reader standing at a launch
-  // can see it. In `operations.ts` it is the pull; in `registries-view.ts` the two
-  // scopes of the registry index build; in `workspace-catalog-view.ts` the
-  // per-entity correctness check, whose request answers a different shape, and the
-  // per-entity conventions check, held by where its answer would land rather than
-  // by anything the compiler cannot do.
+  // can see it. In `workspace-catalog-view.ts`: the per-entity correctness check,
+  // whose request answers a different shape, and the per-entity conventions check,
+  // held by where its answer would land rather than by anything the compiler
+  // cannot do. In `operations.ts`: the dependency resolution, held by a stop the
+  // request surface cannot match — the closure walk resolves each entity through a
+  // catalog lookup that takes no context, so the registry fetch inside the walk
+  // runs on one nothing can cancel, while ending the process ends it.
+  //
+  // 🔴 THE REGISTRY INDEX BUILD IS GONE FROM THIS TABLE AND ITS ABSENCE IS THE
+  // MEASUREMENT. Its walk observes the request's own context once per registry and
+  // carries it into every network call, so the stop survived the move. An entry
+  // reappearing in `registries-view.ts` is a regression rather than a survivor, and
+  // this comparison is what says so.
   runWatchableCli: [
     ['cli-operation.ts', 1],
     ['operations.ts', 1],
-    ['registries-view.ts', 2],
     ['workspace-catalog-view.ts', 2],
   ],
 };

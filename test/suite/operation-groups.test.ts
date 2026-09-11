@@ -494,40 +494,23 @@ describe('the argument list each entry composes', () => {
     );
   });
 
-  it('composes no argument list for a cache operation, an import or a publication, because none is invoked', () => {
-    // The cache operations, the import and the whole publication family are
-    // language-server requests, so there is no argument list to compose and no
-    // verb to name. A positive control first, so the zeros below are measurements
-    // of the module rather than claims about the census: the module does still
-    // export the compositions that survive.
+  it('composes an argument list for the resolution and for nothing else', () => {
+    // 🔴 AN EQUALITY OVER THE WHOLE EXPORT SET, NOT A PER-OPERATION FILTER. The
+    // filters this replaced named the operations somebody had thought to name —
+    // cache, import, publication — so a composition reappearing under a name none
+    // of them anticipated would have passed every one of them. The set equality
+    // fails on any composition at all, whatever it is called.
     //
-    // 🔴 THE CONTROL MUST NAME A COMPOSITION THAT SURVIVES. A control naming one
-    // the module does not export fails as though the module had regressed — or,
-    // written as a filter rather than an assertion, reports every zero below as
-    // clean while measuring nothing. So it names the Release-scoped composition,
-    // which is the one this module still owns.
+    // The one survivor is the Release-scoped resolution, and it is held by a
+    // measured property of the compiler rather than by nobody having moved it: its
+    // closure walk resolves each entity through a catalog lookup that takes no
+    // context, so a request's stop cannot reach the registry fetch inside it.
     const composers = Object.keys(groups).filter((name) => /Args$/.test(name));
-    assert.ok(
-      composers.includes('releaseScopedArgs'),
-      'the census cannot see a composition that is present, so its zeros mean nothing',
-    );
     assert.deepStrictEqual(
-      composers.filter((name) => /cache/i.test(name)),
-      [],
-      'a cache operation that composed an argument list would be a second way to run one',
-    );
-    assert.deepStrictEqual(
-      composers.filter((name) => /^import/i.test(name)),
-      [],
-      'an import that composed an argument list would be a second way to run one, and the '
-      + 'argument list is the shape that cannot carry the stop the request has',
-    );
-    assert.deepStrictEqual(
-      composers.filter((name) => /upload|sign|deprecat/i.test(name)),
-      [],
-      'the publication family reaches the compiler as requests; an argument list for any of '
-      + 'them would be a second way to publish, sign or withdraw — and the one nothing '
-      + 'exercises is the one that goes stale',
+      composers,
+      ['releaseScopedArgs'],
+      'this panel gained or lost an argument list; every other entry reaches the compiler as a '
+      + 'request, and a composition for one of those would be a second way to run it',
     );
   });
 
@@ -541,11 +524,15 @@ describe('the argument list each entry composes', () => {
 
 describe('an entry whose invocation cannot succeed is refused before it is built', () => {
   // The panel shipped one such entry for a long time: the catalog upload ran the
-  // bare verb, so pressing it could only ever produce a usage error. These are
-  // the assertions that fail if any entry regresses to that shape.
-  // The publication family's own subject guards moved with it: they now refuse a
-  // request rather than an argument list, and are asserted in
-  // publication-request.test.ts against the same shapes.
+  // bare verb, so pressing it could only ever produce a usage error. These are the
+  // assertions that fail if any entry regresses to that shape.
+  //
+  // 🔴 THE GUARDS FOR THE ENTRIES THAT MOVED WENT WITH THEM, AND NAMING WHERE IS
+  // WHAT KEEPS THIS FROM READING AS A REMOVED PROTECTION. Each now refuses a
+  // REQUEST rather than an argument list, in the module that composes it and
+  // against the same shapes: the publication family in publication-request.test.ts,
+  // the import in import-request.test.ts, and the registry index build's row scope
+  // in registry-index-request.test.ts.
   const bare: Array<[string, () => unknown]> = [
     ['a pull with no Release', () => releaseScopedArgs('pull', '')],
     ['a pull with a whitespace Release', () => releaseScopedArgs('pull', '  ')],

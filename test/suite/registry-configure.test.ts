@@ -32,7 +32,7 @@ import {
   reachOfDestination,
 } from '../../src/config-write-scope';
 import { terminalLine } from '../../src/operation-outcome';
-import { EXTENSION_ROOT, launchFacilityCount } from '../helpers/launch-census';
+import { EXTENSION_ROOT, launchFacilityCount, readSourceTree } from '../helpers/launch-census';
 
 // A DAEMON REFUSAL IS AN ENVELOPE OBJECT, NOT AN ERROR. The client rejects a
 // refused request with the raw JSON-RPC error member, so anything that reads a
@@ -630,26 +630,38 @@ describe('the three registry changes reach the compiler without a launch', () =>
     assert.strictEqual(launchFacilityCount('src/registry-configure.ts'), 0);
   });
 
-  it('leaves the panel with no direct call to the streaming launch helper', () => {
-    // 🔴 A COUNT, NOT A PRESENCE. The panel still calls the WATCHABLE wrapper for
-    // the index refresh, and that wrapper calls the launch helper internally — so
-    // what is claimed here is that the panel makes no launch of its own for the
-    // three operations that moved, and a count is the only shape that expresses
-    // it.
-    const source = fs.readFileSync(path.join(EXTENSION_ROOT, 'src/registries-view.ts'), 'utf8');
-    assert.strictEqual(
-      (source.match(/(?:^|[^a-zA-Z.])runCli\(/gm) ?? []).length,
-      0,
-      'the registries panel calls the streaming launch helper again, so an operation that '
-      + 'moved has a second execution path',
+  it('leaves the panel with no call to any launch helper at all', () => {
+    // 🔴 THE CLAIM GOT STRONGER AND THE CONTROL HAD TO MOVE OUT OF THE SUBJECT. It
+    // used to be that the panel made no STREAMING launch while still making two
+    // watched ones for the index build, and that count of two was the control that
+    // proved the reading live. The index build is a request now — its walk observes
+    // the request's own context, so the stop survived the move — and the panel makes
+    // no launch of either kind. A control read from the same file would be asserting
+    // the very thing this test denies.
+    //
+    // So the subject is counted to zero across every helper, and the control is the
+    // same patterns read over a module that provably launches.
+    const sources = new Map(readSourceTree());
+    const subject = sources.get('registries-view.ts') ?? '';
+    const control = sources.get('workspace-catalog-view.ts') ?? '';
+    const helpers = ['runCli', 'runCliJson', 'runWatchableCli'];
+    const countIn = (source: string, helper: string): number => (
+      source.match(new RegExp(`(?:^|[^a-zA-Z.])${helper}\\s*(?:<[^<>]*>)?\\s*\\(`, 'gm')) ?? []
+    ).length;
+
+    assert.deepStrictEqual(
+      helpers.map((helper) => [helper, countIn(subject, helper)]),
+      [['runCli', 0], ['runCliJson', 0], ['runWatchableCli', 0]],
+      'the registries panel calls a launch helper again, so an operation that moved has a '
+      + 'second execution path',
     );
-    // The other half: the one call that SHOULD be there is, so the zero above is
-    // an absence rather than a file this test failed to read.
-    assert.strictEqual(
-      (source.match(/(?:^|[^a-zA-Z.])runWatchableCli\(/gm) ?? []).length,
-      2,
-      'the index refresh lost or gained a watched run; it is the one registry operation that '
-      + 'reaches the registries and the one whose run can be stopped',
+    // The control: the same patterns, over a module whose launches are deliberate,
+    // still count something. The zeros above are therefore absences rather than a
+    // pattern that stopped matching or a file this test failed to read.
+    assert.ok(
+      helpers.some((helper) => countIn(control, helper) > 0),
+      'the helper patterns match nothing in a module that provably launches, so the zeros '
+      + 'above measure nothing',
     );
   });
 
@@ -675,23 +687,49 @@ describe('the three registry changes reach the compiler without a launch', () =>
     }
   });
 
-  it('composes no argument list for any of the three, so none can be launched', () => {
+  it('composes no argument list for any registry operation, so none can be launched', () => {
     // 🔴 THE OLD PATTERN, SWEPT FOR RATHER THAN ASSUMED GONE. A retired composer
     // left standing with no caller is a launch waiting to be reached, and it
     // would be invisible to every assertion above: the requests would still be
     // sent from one place each, and the panel would still hold no launch.
-    const source = fs.readFileSync(path.join(EXTENSION_ROOT, 'src/registries-run.ts'), 'utf8');
-    for (const retired of ['registryAddArgs', 'registryRemoveArgs', 'registryLogoutArgs']) {
-      assert.ok(
-        !new RegExp(`function\\s+${retired}\\b`).test(source),
-        `${retired} still composes a command line for an operation that is now a request`,
+    //
+    // 🔴 THE INDEX BUILD IS IN THE RETIRED SET NOW, AND ITS ABSENCE IS WHY THIS
+    // SWEEP HAD TO GROW A CORPUS. It was the positive control here, because it was
+    // the one registry operation still invoked as a command; it is a request now,
+    // so the module holds no composer at all — and a sweep of an empty module
+    // reports every name absent whether or not one was written next door.
+    const sources = readSourceTree();
+    const retired = [
+      'registryAddArgs',
+      'registryRemoveArgs',
+      'registryLogoutArgs',
+      'registryUpdateAllArgs',
+      'registryUpdateOneArgs',
+    ];
+    for (const name of retired) {
+      const holders = sources
+        .filter(([, source]) => new RegExp(`function\\s+${name}\\b`).test(source))
+        .map(([file]) => file);
+      assert.deepStrictEqual(
+        holders,
+        [],
+        `${name} still composes a command line for an operation that is now a request`,
       );
     }
-    // The positive control for this sweep: the pattern still finds the composer
-    // that legitimately remains, so the three absences are absences.
-    assert.ok(
-      /function\s+registryUpdateAllArgs\b/.test(source),
-      'the composer pattern no longer matches a composer that provably exists, so the three '
+    // The positive control for this sweep: the same pattern shape, over the same
+    // corpus, finds the composers that legitimately remain — an equality against a
+    // set written here rather than a count derived from the walk, so the
+    // expectation cannot agree with whatever the walk happened to find. Three are
+    // operations still invoked as commands for reasons recorded at their own call
+    // sites; the fourth is the arguments the language server itself is started
+    // with, which is a launch that is never retired rather than an operation.
+    const surviving = sources
+      .flatMap(([file, source]) => (/function\s+[A-Za-z]+Args\b/.test(source) ? [file] : []))
+      .sort();
+    assert.deepStrictEqual(
+      surviving,
+      ['catalog-entity-operations.ts', 'daemon.ts', 'operation-groups.ts', 'plugins-run.ts'],
+      'the composer pattern no longer matches the composers that provably exist, so the '
       + 'absences above prove nothing',
     );
   });

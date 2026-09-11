@@ -86,11 +86,17 @@ import { NO_ANCHORED_WORKSPACE_MESSAGE } from './workspace';
 
 // OperationDeps supplies the live extension state the operation surface reads
 // without importing extension.ts (which would form an import cycle): the
-// anchored workspace root that scopes every CLI invocation, the configured
-// binary path, the shared output channel, and the serve-backed validate of the
-// active document. The root and binary path are read through getters so the
-// surface always sees the current value — the root is set only once the daemon
-// attaches, after this surface is registered.
+// anchored workspace root, the configured binary path, the shared output
+// channel, the requests, and the serve-backed validate of the active document.
+// The root and binary path are read through getters so the surface always sees
+// the current value — the root is set only once the daemon attaches, after this
+// surface is registered.
+//
+// 🔴 THE BINARY PATH SURVIVES FOR EXACTLY ONE OPERATION, AND THE REASON IS
+// MEASURED RATHER THAN INHERITED. The dependency resolution is the only entry
+// here still invoked as a command, because it is the only one whose stop the
+// request surface cannot match — see runReleaseScoped, where the measurement is
+// written at the call site.
 export interface OperationDeps extends RendersOnReady {
   getWorkspaceRoot(): string | null;
   // getAnchoredWorkspaceRoot reports the folder the language server anchored
@@ -650,22 +656,33 @@ export function activateOperations(
   return { refresh: () => provider.refresh() };
 }
 
-// runReleaseScoped runs a CLI-backed command that requires a --release
-// argument: it invokes `aggrega <verb> --release <path>` on the selected
-// Release. Running the bare verb would fail — the CLI marks --release required
-// on the verb routed through here.
+// runReleaseScoped runs a command-line-backed operation that requires a --release
+// argument: it invokes `aggrega <verb> --release <path>` on the selected Release.
+// Running the bare verb would fail — the command marks --release required.
 //
 // The path is workspace-relative and the subprocess runs in the workspace root,
 // so it resolves there.
 //
 // It reads the one selected Release rather than prompting for its own, so what
 // runs is the Release the panel names and a reader is not asked twice about the
-// same choice. It reaches registries, so it is watched and can be stopped.
+// same choice.
 //
-// It stays a command for that stop. The resolution walks the Release's whole
-// dependency closure, fetching what it has not already cached and writing the
-// lockfile, and it is reached with no cancellation — so this is where a reader
-// can end a resolution they did not mean to start.
+// 🔴 IT STAYS A COMMAND FOR THE STOP, AND THE REASON IS A MEASUREMENT RATHER THAN
+// AN ASSUMPTION ABOUT WHAT THE COMPILER CANNOT DO. The shared resolution DOES take
+// the caller's context and observes it at five points of its own — but the closure
+// walk sits between the first two, and the catalog lookup that walk resolves each
+// entity through takes no context at all, so the registry fetch inside it runs on
+// one nothing can cancel. Measured against a registry that accepts a connection and
+// never answers: a stop sent four seconds in leaves the walk still running eleven
+// seconds in, while the same stop over the same wiring ends a conventions walk
+// within milliseconds. Ending the process, by contrast, ends the walk — measured in
+// the same run: the child is gone at 4 s where an unstopped one is still running at
+// 22 s.
+//
+// So a request here would give a reader a button that stops this side waiting while
+// the compiler carries on fetching, and reporting that as a stop would tell them
+// the compiler stopped when it did not. This is the one operation on this panel
+// still reached as a command, and it is why the surface carries a binary path.
 async function runReleaseScoped(deps: OperationDeps, verb: ReleaseScopedVerb): Promise<void> {
   if (!deps.getWorkspaceRoot()) {
     void vscode.window.showInformationMessage(NO_ANCHORED_WORKSPACE_MESSAGE);

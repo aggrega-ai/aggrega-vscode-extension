@@ -480,6 +480,19 @@ export type ReleaseScopedVerb = 'pull';
 // --release required, so the bare verb is a usage error; the path is
 // workspace-relative and the subprocess runs in the workspace root, so it
 // resolves there.
+//
+// 🔴 THIS IS THE LAST COMPOSITION THIS MODULE OWNS, AND IT IS HELD BY A MEASURED
+// PROPERTY OF THE COMPILER RATHER THAN BY NOBODY HAVING MOVED IT. The resolution
+// the verb reaches walks the dependency closure through a catalog lookup that
+// takes no context, so a stop cannot reach the registry fetch inside that walk —
+// while ending the process does end it. The measurement and what it rules out are
+// written at the call site, in runReleaseScoped, which is where a reader standing
+// at the invocation can see them.
+//
+// ⚠️ It also carries no re-resolution form, and that absence is deliberate: the
+// form that discards every recorded pin is guarded at the command line by a
+// question a piped invocation is refused without, and this surface has never been
+// able to answer one.
 export function releaseScopedArgs(verb: ReleaseScopedVerb, release: string): string[] {
   const trimmed = release.trim();
   if (trimmed === '') {

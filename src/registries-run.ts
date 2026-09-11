@@ -212,24 +212,19 @@ export function registrySubject(node: RegistryNode): string | null {
   return node.kind === 'entry' ? node.row.host : null;
 }
 
-// registryUpdateAllArgs composes the index build over every configured
-// registry. The command takes an optional registry argument and indexes all of
-// them when none is given, so the whole-set form passes none.
-export function registryUpdateAllArgs(): string[] {
-  return ['registry', 'update'];
-}
-
-// registryUpdateOneArgs composes the index build for one registry, which is the
-// same command narrowed by its optional argument.
-export function registryUpdateOneArgs(host: string): string[] {
-  return ['registry', 'update', host];
-}
-
-// The index build is the only registry operation this module composes an
-// invocation for. Registering a registry, dropping its entry and removing its
-// stored credential are requests rather than invocations, so their shapes and
-// their wording live with the requests instead of here — there is no argument
-// list for any of them to compose.
+// 🔴 THIS MODULE COMPOSES NO INVOCATION AT ALL, BECAUSE EVERY REGISTRY OPERATION
+// IS A REQUEST. Registering a registry, dropping its entry, removing its stored
+// credential and building the searchable index all travel as request parameters,
+// and each answer carries what the compiler resolved — the file a write landed
+// in, or the directory an index was written under and what each registry's walk
+// found. Their shapes and their wording live with the requests instead of here.
+//
+// The index build was the last invocation this module composed. It is a request
+// now because the walk takes the request's own context and observes it per
+// registry, so the stop a reader is offered reaches the walk rather than only
+// this side's wait — which was the one property that had kept it a command.
+// Compositions left standing here would be a second way to reach operations that
+// already have one, and the one nothing exercises is the one that goes stale.
 
 // nodesForDocument shapes a whole structured document, preserving the order the
 // product emitted. The command lists registries in ascending host order and

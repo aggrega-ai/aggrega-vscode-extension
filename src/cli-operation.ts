@@ -34,6 +34,19 @@ export interface CliOperationDeps {
   output: vscode.OutputChannel;
 }
 
+// OutcomeChannel is all an ending needs: the channel the line is written to.
+//
+// 🔴 IT IS DECLARED SEPARATELY FROM THE INVOCATION DEPENDENCIES ABOVE, AND THE
+// SPLIT IS LOAD-BEARING. Every operation ends here, request-backed ones
+// included, and most surfaces now start no process at all — so requiring an
+// ending to be handed a binary path would make each of those surfaces declare a
+// capability it never reaches, and would hand the next entry written there one to
+// use. A surface that does invoke satisfies this structurally by having a
+// channel, so nothing at a call site changes.
+export interface OutcomeChannel {
+  output: vscode.OutputChannel;
+}
+
 // reportOutcome is where every operation ends.
 //
 // The channel always gets the line, because it is the record a reader returns
@@ -48,7 +61,7 @@ export interface CliOperationDeps {
 // A failure carries the compiler's own message and an action beside it. The
 // button reaches the compiler's full output; it replaces none of its words.
 export async function reportOutcome(
-  deps: CliOperationDeps,
+  deps: OutcomeChannel,
   what: string,
   outcome: OperationOutcome,
   announce: boolean,
@@ -148,19 +161,18 @@ export async function runCli(
 // pressing cancel need not know which transport an operation happens to take.
 //
 // 🔴 WHY AN OPERATION IS STILL INVOKED HERE RATHER THAN ASKED OF THE LANGUAGE
-// SERVER, stated once because most of the callers below share it. A stop is
-// offered exactly where the compiler can honour one. Ending a command ends the
-// work, because ending the process ends the walk — so where the shared operation
-// behind a request is reached with no cancellation, this path has a stop and the
-// request path could have none: a request would leave the reader with a button that
-// stops this side waiting while the compiler carries on walking with nobody
-// waiting for what it finds, and reporting that as a stop would tell them the
-// compiler stopped when it did not.
+// SERVER IS NOW A PER-CALLER QUESTION, AND THIS NOTE ANSWERS NONE OF IT. There is
+// no shared reason left: the surviving callers are here for reasons of their own,
+// and each states its own where it stands. Reading a reason off this note instead
+// would attribute to a call site something that is not true of it — and a note
+// that summarised the remaining set would be a second statement of what each
+// call site already says, going stale the first time one of them moved.
 //
-// So those operations keep a stop that reaches the work, and the surface carries
-// a second way of reaching the compiler for as long as they do. Each caller names
-// which operation it invokes and what about that operation keeps it here, and a
-// caller that is here for some other reason says so where it is.
+// What does hold generally is the rule the reasons are judged against: a stop is
+// offered exactly where the compiler can honour one, read off that operation's
+// own handler rather than off a precedent. Ending a command ends the work,
+// because ending the process ends the walk; a request can only match that where
+// the shared operation behind it observes the request's context.
 export async function runWatchableCli(
   deps: CliOperationDeps,
   title: string,
