@@ -19,16 +19,14 @@ import {
   OperationId,
   allOperations,
   cacheConfirmation,
-  catalogUploadArgs,
   commandIdFor,
-  deprecateArgs,
   inspectableSubjects,
   publishableSubjects,
   readLayout,
   releaseScopedArgs,
-  signArgs,
   unavailableReason,
 } from '../../src/operation-groups';
+import { publishEntityRequest } from '../../src/publication-request';
 import {
   NO_RELEASE_SELECTED_CONTROL_REASON,
 } from '../../src/release-selection';
@@ -496,48 +494,21 @@ describe('the argument list each entry composes', () => {
     );
   });
 
-  it('publishes a named entity, never a bare verb', () => {
-    assert.deepStrictEqual(
-      catalogUploadArgs('catalog/components/api-server.yaml'),
-      ['push', 'catalog/components/api-server.yaml'],
-    );
-  });
-
-  it('signs a named artifact reference', () => {
-    assert.deepStrictEqual(
-      signArgs('registry.example.com/component/api-server:1.2.0'),
-      ['sign', 'registry.example.com/component/api-server:1.2.0'],
-    );
-  });
-
-  it('carries the deprecation severity and reason as flags, because a subprocess has no terminal to be asked at', () => {
-    assert.deepStrictEqual(
-      deprecateArgs('registry.example.com/component/api-server:1.2.0', 'retracted', 'superseded by 2.x'),
-      [
-        'deprecate',
-        'registry.example.com/component/api-server:1.2.0',
-        '--severity', 'retracted',
-        '--reason', 'superseded by 2.x',
-      ],
-    );
-  });
-
-  it('composes no argument list for a cache operation or an import, because neither is invoked', () => {
-    // The cache operations and the import are language-server requests, so there
-    // is no argument list to compose and no verb to name. A positive control
-    // first, so the zeros below are measurements of the module rather than claims
-    // about the census: the module does still export the compositions that
-    // survive.
+  it('composes no argument list for a cache operation, an import or a publication, because none is invoked', () => {
+    // The cache operations, the import and the whole publication family are
+    // language-server requests, so there is no argument list to compose and no
+    // verb to name. A positive control first, so the zeros below are measurements
+    // of the module rather than claims about the census: the module does still
+    // export the compositions that survive.
     //
     // 🔴 THE CONTROL MUST NAME A COMPOSITION THAT SURVIVES. A control naming one
     // the module does not export fails as though the module had regressed — or,
     // written as a filter rather than an assertion, reports every zero below as
-    // clean while measuring nothing. So it names a deprecation, which composes an
-    // argument list and is not a candidate to move: that operation's
-    // command-line run can be stopped, and a request would take that away.
+    // clean while measuring nothing. So it names the Release-scoped composition,
+    // which is the one this module still owns.
     const composers = Object.keys(groups).filter((name) => /Args$/.test(name));
     assert.ok(
-      composers.includes('deprecateArgs'),
+      composers.includes('releaseScopedArgs'),
       'the census cannot see a composition that is present, so its zeros mean nothing',
     );
     assert.deepStrictEqual(
@@ -550,6 +521,13 @@ describe('the argument list each entry composes', () => {
       [],
       'an import that composed an argument list would be a second way to run one, and the '
       + 'argument list is the shape that cannot carry the stop the request has',
+    );
+    assert.deepStrictEqual(
+      composers.filter((name) => /upload|sign|deprecat/i.test(name)),
+      [],
+      'the publication family reaches the compiler as requests; an argument list for any of '
+      + 'them would be a second way to publish, sign or withdraw — and the one nothing '
+      + 'exercises is the one that goes stale',
     );
   });
 
@@ -565,11 +543,10 @@ describe('an entry whose invocation cannot succeed is refused before it is built
   // The panel shipped one such entry for a long time: the catalog upload ran the
   // bare verb, so pressing it could only ever produce a usage error. These are
   // the assertions that fail if any entry regresses to that shape.
+  // The publication family's own subject guards moved with it: they now refuse a
+  // request rather than an argument list, and are asserted in
+  // publication-request.test.ts against the same shapes.
   const bare: Array<[string, () => unknown]> = [
-    ['the catalog upload with no entity', () => catalogUploadArgs('')],
-    ['the catalog upload with a whitespace entity', () => catalogUploadArgs('   ')],
-    ['a signature with no reference', () => signArgs('')],
-    ['a deprecation with no reference', () => deprecateArgs('', 'warning', 'why')],
     ['a pull with no Release', () => releaseScopedArgs('pull', '')],
     ['a pull with a whitespace Release', () => releaseScopedArgs('pull', '  ')],
   ];
@@ -579,14 +556,6 @@ describe('an entry whose invocation cannot succeed is refused before it is built
       assert.throws(compose, /takes|requires/);
     });
   }
-
-  it('refuses a deprecation missing the severity the command needs', () => {
-    assert.throws(() => deprecateArgs('registry/x:1', '', 'why'), /severity/);
-  });
-
-  it('refuses a deprecation missing the reason the command needs', () => {
-    assert.throws(() => deprecateArgs('registry/x:1', 'warning', '  '), /reason/);
-  });
 
   it('leaves the size cap unread, because the compiler owns what a size means', () => {
     // A cache trim takes a size cap, and this surface deliberately composes no
@@ -922,11 +891,11 @@ describe('the subjects the workspace itself can answer for', () => {
     assert.deepStrictEqual(offered.map((s) => s.name), ['from-the-catalog', 'authored-here']);
   });
 
-  it('composes a publication from a chosen subject and nothing else', () => {
+  it('composes a publication request from a chosen subject and nothing else', () => {
     const [subject] = publishableSubjects([entity({})]);
     assert.deepStrictEqual(
-      catalogUploadArgs(subject.file),
-      ['push', 'catalog/components/api-server.yaml'],
+      publishEntityRequest(subject.file),
+      { entity: 'catalog/components/api-server.yaml' },
     );
   });
 });

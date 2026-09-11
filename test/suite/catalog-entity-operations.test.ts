@@ -9,9 +9,9 @@ import {
   catalogEntityPath,
   catalogLintArgs,
   catalogRowContext,
-  catalogUploadArgs,
   catalogValidateArgs,
 } from '../../src/catalog-entity-operations';
+import { publishEntityRequest } from '../../src/publication-request';
 import {
   CatalogIndexEntity,
   ENTITY_ORIGIN_CATALOG,
@@ -193,19 +193,21 @@ describe('the invocations a workspace-catalog row composes', () => {
     );
   });
 
-  it('publishes one entity by its path', () => {
+  it('publishes one entity by its path, as a request rather than an invocation', () => {
     assert.deepStrictEqual(
-      catalogUploadArgs('catalog/components/api-server.yaml'),
-      ['push', 'catalog/components/api-server.yaml'],
+      publishEntityRequest('catalog/components/api-server.yaml'),
+      { entity: 'catalog/components/api-server.yaml' },
     );
   });
 
   it('refuses to compose any of them without a subject', () => {
-    // Each of these commands has a pathless form addressing the whole catalog,
-    // so a subject dropped on the way to the invocation would not fail — it
-    // would silently run the wider operation instead of the one the row names.
-    // That is why the composition refuses rather than defaulting.
-    for (const compose of [catalogValidateArgs, catalogLintArgs, catalogUploadArgs]) {
+    // Each of these operations has a pathless form addressing the whole catalog,
+    // so a subject dropped on the way to the compiler would not fail — it would
+    // silently run the wider operation instead of the one the row names. That is
+    // why the composition refuses rather than defaulting, and it holds on both
+    // transports: the publication is a request and refuses on exactly the same
+    // ground.
+    for (const compose of [catalogValidateArgs, catalogLintArgs, publishEntityRequest]) {
       assert.throws(() => compose(''), /and none was given/);
       assert.throws(() => compose('   '), /and none was given/);
     }

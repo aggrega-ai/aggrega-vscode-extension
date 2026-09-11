@@ -11,10 +11,10 @@ import { withSubject } from './operation-groups';
 // without an extension host: a test reads back the exact argument list a press
 // would compose, and the exact value the manifest targets a row with.
 //
-// The publication's own composition is not restated here. It is reached through
-// the one module that already owns it and passed straight back out, so the panel
-// has a single import for the whole family while the composition keeps one home.
-export { catalogUploadArgs } from './operation-groups';
+// The publication is not composed here and no longer passes through here. It is a
+// language-server request taking the row's own workspace-relative path as a
+// request parameter, so there is no argument list for this module to own or to
+// re-export; the panel reaches it directly.
 
 // The two values a row of this panel carries, and the reason there are two.
 //

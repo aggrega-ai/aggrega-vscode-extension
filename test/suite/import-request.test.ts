@@ -542,8 +542,14 @@ describe('the import reaches the compiler without a launch', () => {
     );
     // The positive control for this sweep: the pattern still finds a composer that
     // legitimately remains, so the absence above is an absence.
+    //
+    // 🔴 IT NAMES THE RELEASE-SCOPED COMPOSITION BECAUSE THAT IS THE ONE THIS
+    // MODULE STILL OWNS. A control naming a composer that later moves to the
+    // request surface fails as though the module had regressed — which is what
+    // this one did when the publication family moved, and repointing it is the
+    // repair rather than relaxing it.
     assert.ok(
-      /function\s+deprecateArgs\b/.test(source),
+      /function\s+releaseScopedArgs\b/.test(source),
       'the composer pattern no longer matches a composer that provably exists, so the absence '
       + 'above would pass vacuously',
     );

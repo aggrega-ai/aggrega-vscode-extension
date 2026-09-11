@@ -145,18 +145,22 @@ export const RECORDED_LAUNCH_SITES: Readonly<Record<LaunchHelper, ReadonlyArray<
     ['cli-json.ts', 1],
     ['plugins-view.ts', 1],
   ],
-  // The declaration, and the operations still reached as commands. Most are the
-  // one case where the shared operation takes no cancellation, so a request could
-  // offer no honest stop — but that is no longer what every entry here has in
-  // common, and reading it as though it were would leave one of them looking
-  // settled when it is not. The per-entity conventions check in the workspace
-  // catalog is the exception: its request honours a stop, and what holds it here
-  // is stated at the call, where a reader standing at the launch can see it.
+  // The declaration, and the operations still reached as commands.
+  //
+  // 🔴 NO SINGLE REASON HOLDS THE REMAINDER, AND READING IT AS THOUGH ONE DID IS
+  // HOW AN ENTRY COMES TO LOOK SETTLED WHEN IT IS NOT. The absent stop was once
+  // what they had in common; it no longer is, and each survivor now carries its
+  // own reason at its own call site, which is where a reader standing at a launch
+  // can see it. In `operations.ts` it is the pull; in `registries-view.ts` the two
+  // scopes of the registry index build; in `workspace-catalog-view.ts` the
+  // per-entity correctness check, whose request answers a different shape, and the
+  // per-entity conventions check, held by where its answer would land rather than
+  // by anything the compiler cannot do.
   runWatchableCli: [
     ['cli-operation.ts', 1],
-    ['operations.ts', 4],
+    ['operations.ts', 1],
     ['registries-view.ts', 2],
-    ['workspace-catalog-view.ts', 3],
+    ['workspace-catalog-view.ts', 2],
   ],
 };
 

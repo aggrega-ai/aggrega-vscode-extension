@@ -13,13 +13,10 @@ import {
   SurfaceFacts,
   allOperations,
   cacheConfirmation,
-  catalogUploadArgs,
   commandIdFor,
-  deprecateArgs,
   inspectableSubjects,
   publishableSubjects,
   releaseScopedArgs,
-  signArgs,
   unavailableReason,
 } from './operation-groups';
 import {
@@ -42,6 +39,23 @@ import {
   importOpeningLine,
   runImport as performImport,
 } from './import-request';
+import {
+  DeprecateArtifactParams,
+  DeprecateArtifactResult,
+  PUBLICATION_SUBJECT,
+  PublishEntityParams,
+  PublishEntityResult,
+  SIGNATURE_SUBJECT,
+  SignArtifactsParams,
+  SignArtifactsResult,
+  WITHDRAWAL_SUBJECT,
+  publicationOpeningLine,
+  runDeprecateArtifact as performDeprecateArtifact,
+  runPublishEntity as performPublishEntity,
+  runSignArtifacts as performSignArtifacts,
+  signatureOpeningLine,
+  withdrawalOpeningLine,
+} from './publication-request';
 import { makeNonce } from './html';
 import { outcomeOf } from './operation-outcome';
 import { openDocument } from './open-document';
@@ -159,6 +173,29 @@ export interface OperationDeps extends RendersOnReady {
   // waiting for an answer, which is what distinguishes it from the entries below
   // that take no signal.
   importSource(params: ImportParams, signal?: CancellationSignal): Promise<ImportResult>;
+  // The three publication requests. Each reaches past this machine — what they
+  // land is what every consumer of that registry resolves — so each answer names
+  // the registry it addressed and whether anything actually landed, and the
+  // endings are composed from those facts rather than from an exit status.
+  //
+  // Each takes the reader's stop, and here that is more than a courtesy for the
+  // same reason the import's is: the signal reaches the language server as the
+  // cancellation of the request this call was sent as, and the shared publication
+  // layer observes it at the point before anything becomes visible to anyone
+  // else. So stopping one abandons the publication rather than only stopping the
+  // editor waiting for an answer.
+  publishEntity(
+    params: PublishEntityParams,
+    signal?: CancellationSignal,
+  ): Promise<PublishEntityResult>;
+  signArtifacts(
+    params: SignArtifactsParams,
+    signal?: CancellationSignal,
+  ): Promise<SignArtifactsResult>;
+  deprecateArtifact(
+    params: DeprecateArtifactParams,
+    signal?: CancellationSignal,
+  ): Promise<DeprecateArtifactResult>;
   // reportDaemonError routes a failed request's error envelope to the per-code
   // surfaces the extension already has for it — a diagnostic on the document
   // the envelope names, or the toast that offers the remediating command — and
@@ -1246,18 +1283,28 @@ async function pickEntity(
 
 // runCatalogUpload publishes one catalog entity the workspace holds.
 //
-// The entity is chosen before the command is built, because the command takes
-// the entity's path and an invocation carrying none can only produce a usage
-// error. Choosing first is what makes the entry pressable at all, rather than a
-// control that reports a fault the reader had no way to avoid.
+// The entity is chosen before the request is composed, because the operation
+// takes the entity's path and a request carrying none can only be refused.
+// Choosing first is what makes the entry pressable at all, rather than a control
+// that reports a fault the reader had no way to avoid.
 //
 // chosen is the entity a reader already named in the menu beside the control.
 // Where it is absent the chooser is opened here, which is the path a command
 // invoked from the editor's own index takes.
 //
-// It stays a command for the stop, on the same terms as the entry the catalog
-// panel offers for one entity: the publication is reached with no cancellation,
-// and what it lands cannot be recalled from anyone who has already fetched it.
+// It is watched and it can be stopped, and both follow from what the compiler
+// does. The publication bundles the entity and pushes it to a registry, so there
+// is a wait worth showing; and the request's own context is observed at the point
+// before anything becomes visible to anyone else, so the stop offered here
+// abandons the publication rather than only ending this side's wait. That is what
+// makes the stop worth offering on exactly this operation: what it lands cannot
+// be recalled from anyone who has already fetched it.
+//
+// A publication's ending says what is now true for other people, because that is
+// what separates it from every operation above it on the panel: the others change
+// this machine, and this one changes what anyone pulling from that registry
+// resolves. Every fact in it is read off the answer — the reference the entity
+// resolved to, the digest that tag now points at, and the registry addressed.
 async function runCatalogUpload(
   deps: OperationDeps,
   chosen: EntitySubject | null,
@@ -1272,17 +1319,19 @@ async function runCatalogUpload(
     'Aggrega: choose the entity to publish',
   );
   if (!subject) { return; }
-  // A publication's ending says what is now true for other people, because that
-  // is what separates it from every operation above it on the panel: the others
-  // change this machine, and this one changes what anyone pulling from that
-  // registry resolves.
-  await runWatchableCli(
-    deps,
+
+  const out = deps.output;
+  out.show(true);
+  out.appendLine(publicationOpeningLine(subject.label));
+
+  const report = await withCancellableProgress(
     `Aggrega: publishing ${subject.label}`,
-    'The publication',
-    catalogUploadArgs(subject.file),
-    `published ${subject.label}. Anyone pulling it from that registry now resolves this version.`,
+    (signal) => performPublishEntity(deps, subject.file, signal),
   );
+  for (const line of report.lines) {
+    out.appendLine(line);
+  }
+  await reportOutcome(deps, PUBLICATION_SUBJECT, report.outcome, true);
 }
 
 // runSign attaches a signature to one already-published artifact.
@@ -1294,9 +1343,15 @@ async function runCatalogUpload(
 // it went to, so a reference built from it would be a guess — and a guess that
 // fails outright for an entity nobody has published.
 //
-// It stays a command for the stop. The signing walks its references one at a
-// time, resolving each against the registry, and it is reached with no
-// cancellation — so a batch a reader wants to end is ended here.
+// It is watched and it can be stopped. The signing walks its references one at a
+// time, resolving each against the registry, and the request's own context is
+// observed once per reference — before the attach rather than after it, because
+// an attached signature is published and cannot be withdrawn. So a reader who
+// stops a batch stops it between references rather than only stopping the wait.
+//
+// The ending names the digest each signature commits to, which is what makes the
+// answer checkable: a signature commits to a digest string, so naming the
+// reference alone would not say what was signed.
 async function runSign(deps: OperationDeps): Promise<void> {
   const reference = await vscode.window.showInputBox({
     title: 'Aggrega: sign a published artifact',
@@ -1304,28 +1359,40 @@ async function runSign(deps: OperationDeps): Promise<void> {
     ignoreFocusOut: true,
   });
   if (!reference) { return; }
-  await runWatchableCli(
-    deps,
+
+  const out = deps.output;
+  out.show(true);
+  out.appendLine(signatureOpeningLine(reference));
+
+  const report = await withCancellableProgress(
     `Aggrega: signing ${reference}`,
-    'The signature',
-    signArgs(reference),
-    `attached a signature to ${reference}. Anyone verifying that artifact now finds it.`,
+    (signal) => performSignArtifacts(deps, reference, signal),
   );
+  for (const line of report.lines) {
+    out.appendLine(line);
+  }
+  await reportOutcome(deps, SIGNATURE_SUBJECT, report.outcome, true);
 }
 
 // runDeprecate attaches a signed deprecation marker to one already-published
 // artifact.
 //
-// The severity and the reason are collected here and passed as flags. The
-// command asks for them itself at an interactive terminal, and this surface runs
-// it as a subprocess with no terminal to be asked at — so an invocation carrying
-// only the reference would refuse every time, whatever the reader intended. The
-// reference is asked for rather than offered, for the same reason the signature
-// above asks for one.
+// The severity and the reason are collected here and travel on the request. The
+// compiler asks a person for them at an interactive terminal, and this surface
+// has no terminal to be asked at — a request stream has nobody watching it, just
+// as a spawned subprocess had no terminal — so a call carrying only the reference
+// would be refused every time, whatever the reader intended. The reference is
+// asked for rather than offered, for the same reason the signature above asks for
+// one.
 //
-// It stays a command for the stop, on the same terms as the signature above: the
-// withdrawal reaches the registry and is reached with no cancellation, and every
-// consumer resolving that reference afterwards sees the marker.
+// It is watched and it can be stopped: the request's own context is observed
+// ahead of the attach, and a marker is published content, so a withdrawal
+// observed afterwards would withhold the answer while every consumer could
+// already see the marker.
+//
+// The ending names the marker's own digest, which is its identity — a marker is
+// attached as an untagged referrer of its subject, so nothing else addresses it
+// and a withdrawal reported without it names nothing a reader could inspect.
 async function runDeprecate(deps: OperationDeps): Promise<void> {
   const reference = await vscode.window.showInputBox({
     title: 'Aggrega: deprecate a published artifact',
@@ -1347,13 +1414,18 @@ async function runDeprecate(deps: OperationDeps): Promise<void> {
   });
   if (!reason) { return; }
 
-  await runWatchableCli(
-    deps,
+  const out = deps.output;
+  out.show(true);
+  out.appendLine(withdrawalOpeningLine(reference));
+
+  const report = await withCancellableProgress(
     `Aggrega: deprecating ${reference}`,
-    'The deprecation',
-    deprecateArgs(reference, severity.label, reason),
-    `marked ${reference} deprecated at ${severity.label}. Anyone resolving it now sees that marker.`,
+    (signal) => performDeprecateArtifact(deps, reference, severity.label, reason, signal),
   );
+  for (const line of report.lines) {
+    out.appendLine(line);
+  }
+  await reportOutcome(deps, WITHDRAWAL_SUBJECT, report.outcome, true);
 }
 
 // --- the language-server-backed entries ----------------------------------

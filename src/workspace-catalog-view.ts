@@ -12,11 +12,17 @@ import {
   catalogEntityPath,
   catalogLintArgs,
   catalogRowContext,
-  catalogUploadArgs,
   catalogValidateArgs,
 } from './catalog-entity-operations';
 import { CancellationSignal } from './cancellation';
 import { CliOperationDeps, reportOutcome, runWatchableCli } from './cli-operation';
+import {
+  PUBLICATION_SUBJECT,
+  PublishEntityParams,
+  PublishEntityResult,
+  publicationOpeningLine,
+  runPublishEntity,
+} from './publication-request';
 import { outcomeOf } from './operation-outcome';
 import { openDocument } from './open-document';
 import { withCancellableProgress } from './progress';
@@ -39,9 +45,12 @@ const OPEN_COMMAND_TITLE = 'Open the entity file';
 //
 // The two transports both appear here because the operations on this panel are
 // split across them, and which one an operation takes is a property of the
-// compiler rather than a choice this surface makes: an inspection is answered by
-// the language server, while publishing and the two checks are command-line
-// backed. A reader pressing an entry is not told which, and does not need to be.
+// compiler rather than a choice this surface makes: the inspection and the
+// publication are answered by the language server, while the two per-entity
+// checks stay command-line backed — the correctness check because the request
+// channel answers correctness in a different shape, and the conventions check
+// because of where its answer would land, each stated at its own registration
+// below. A reader pressing an entry is not told which, and does not need to be.
 export interface WorkspaceCatalogDeps extends RendersOnReady, CliOperationDeps {
   getWorkspaceRoot(): string | null;
   getBinaryPath(): string;
@@ -50,6 +59,16 @@ export interface WorkspaceCatalogDeps extends RendersOnReady, CliOperationDeps {
   // entityDefinition asks the language server what one entity resolves to,
   // addressed by the name it resolves under.
   entityDefinition(name: string, signal?: CancellationSignal): Promise<unknown>;
+  // publishEntity publishes one entity this panel lists. It is the only
+  // operation here that reaches past this machine, which is why its answer names
+  // the registry it addressed and whether anything landed, and why it takes the
+  // reader's stop: the signal reaches the compiler as the cancellation of the
+  // request this call was sent as, and the publication is abandoned rather than
+  // only waited on.
+  publishEntity(
+    params: PublishEntityParams,
+    signal?: CancellationSignal,
+  ): Promise<PublishEntityResult>;
   output: vscode.OutputChannel;
 }
 
@@ -275,11 +294,19 @@ export function activateWorkspaceCatalogView(
     // press — so what separates it from the checks beside it is put in front of
     // the reader before anything happens rather than explained afterwards.
     //
-    // It stays a command for the stop. The publication bundles the entity and
-    // pushes it to a registry, and it is reached with no cancellation — so a
-    // reader who started one and changed their mind can end it here and could not
-    // over the language server, on an operation whose bytes cannot be recalled
-    // from anyone who has already fetched them.
+    // 🔴 THE CONFIRMATION IS WHOLLY THIS SURFACE'S OWN, AND IT IS ASKED BECAUSE
+    // THE OPERATION REACHES PAST THIS MACHINE RATHER THAN TO SATISFY ANYTHING ON
+    // THE OTHER SIDE. The compiler publishes what it is asked and prompts for
+    // nothing, so declining here is what keeps the request from being sent, and
+    // there is no invocation for an answer to be carried into.
+    //
+    // It is watched and it can be stopped. The publication bundles the entity and
+    // pushes it to a registry, so there is a wait worth showing; and the request's
+    // own context is observed at the point before the bytes become visible to
+    // anyone else, so a reader who started one and changed their mind ends the
+    // publication rather than only ending the wait — which matters most on exactly
+    // this operation, whose bytes cannot be recalled from anyone who has already
+    // fetched them.
     vscode.commands.registerCommand(
       'aggrega.workspaceCatalog.push',
       (node?: WorkspaceCatalogNode) => onPath(node, async (entityPath) => {
@@ -294,13 +321,19 @@ export function activateWorkspaceCatalogView(
           'Publish',
         );
         if (consented !== 'Publish') { return; }
-        await runWatchableCli(
-          deps,
+
+        const out = deps.output;
+        out.show(true);
+        out.appendLine(publicationOpeningLine(entityPath));
+
+        const report = await withCancellableProgress(
           `Aggrega: publishing ${entityPath}`,
-          'The publication',
-          catalogUploadArgs(entityPath),
-          `published ${entityPath}. Anyone pulling it from that registry now resolves this version.`,
+          (signal) => runPublishEntity(deps, entityPath, signal),
         );
+        for (const line of report.lines) {
+          out.appendLine(line);
+        }
+        await reportOutcome(deps, PUBLICATION_SUBJECT, report.outcome, true);
       }),
     ),
   );

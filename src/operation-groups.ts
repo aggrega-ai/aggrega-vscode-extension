@@ -488,39 +488,19 @@ export function releaseScopedArgs(verb: ReleaseScopedVerb, release: string): str
   return [verb, '--release', trimmed];
 }
 
-// catalogUploadArgs builds the publication of one catalog entity. The command
-// takes the entity's path, so an invocation carrying none publishes nothing and
-// reports a usage error.
-export function catalogUploadArgs(entityPath: string): string[] {
-  return withSubject('push', entityPath, 'the path of the entity to publish');
-}
-
-// signArgs builds the signature of one already-published artifact. The subject
-// is a reference to something in a registry, which is why it is asked for rather
-// than taken from the workspace index: the index describes what is authored
-// here, and this command amends what is already published.
-export function signArgs(reference: string): string[] {
-  return withSubject('sign', reference, 'a reference to the artifact to sign');
-}
-
-// deprecateArgs builds the deprecation of one already-published artifact.
+// 🔴 THE PUBLICATION FAMILY COMPOSES NO ARGUMENT LIST, BECAUSE NOTHING IS
+// INVOKED FOR ONE. Publishing an entity, signing what is published and
+// withdrawing it are all language-server requests: the entity is a
+// workspace-relative path and the two others are references in a registry, each
+// sent as a request parameter, and each answer carries what the compiler
+// resolved, the digest it landed or attached, and how far the operation reached.
+// Compositions left standing here would be a second way to reach operations that
+// already have one, and the one nothing exercises is the one that goes stale.
 //
-// The severity and the reason travel as flags rather than being left out. The
-// command asks for them at an interactive terminal when they are absent, and a
-// spawned subprocess has no terminal to be asked at — so an invocation carrying
-// only the reference refuses every time, whatever the reader intended.
-export function deprecateArgs(reference: string, severity: string, reason: string): string[] {
-  const args = withSubject('deprecate', reference, 'a reference to the artifact to deprecate');
-  const trimmedSeverity = severity.trim();
-  if (trimmedSeverity === '') {
-    throw new Error('aggrega deprecate takes a severity, and none was given');
-  }
-  const trimmedReason = reason.trim();
-  if (trimmedReason === '') {
-    throw new Error('aggrega deprecate takes a reason, and none was given');
-  }
-  return [...args, '--severity', trimmedSeverity, '--reason', trimmedReason];
-}
+// The withdrawal's severity and reason are collected by the surface and travel on
+// the request. That is unchanged in substance: the compiler asks a person for
+// them only at an interactive terminal, and this extension has never had one to
+// be asked at.
 
 // 🔴 THE IMPORT COMPOSES NO ARGUMENT LIST, BECAUSE NOTHING IS INVOKED FOR ONE.
 // It is a language-server request: the source is a file the reader chose and the

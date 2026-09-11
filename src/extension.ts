@@ -13,6 +13,14 @@ import type { ImportParams, ImportResult } from './import-request';
 import type { PluginAddParams, PluginAddResult } from './plugin-attachment';
 import type { PluginRemoveParams, PluginRemoveResult } from './plugin-removal';
 import type {
+  DeprecateArtifactParams,
+  DeprecateArtifactResult,
+  PublishEntityParams,
+  PublishEntityResult,
+  SignArtifactsParams,
+  SignArtifactsResult,
+} from './publication-request';
+import type {
   LogoutParams,
   LogoutResult,
   RegistryAddParams,
@@ -373,6 +381,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     build: requestBuild,
     previewBuild: requestBuildPreview,
     importSource: requestImport,
+    publishEntity: requestPublishEntity,
+    signArtifacts: requestSignArtifacts,
+    deprecateArtifact: requestDeprecateArtifact,
     reportDaemonError,
     requestCatalogIndex,
     // Asked with no kind named, which is the request that answers with the kinds
@@ -534,6 +545,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     isLanguageServerRunning,
     requestCatalogIndex,
     entityDefinition: requestEntityDefinition,
+    publishEntity: requestPublishEntity,
     onReady: ready.onReady,
     output: outputChannel,
   });
@@ -2102,6 +2114,67 @@ async function requestPluginRemove(params: PluginRemoveParams): Promise<PluginRe
     throw new Error('the Aggrega language server is not running');
   }
   return await daemon.request<PluginRemoveResult>('aggrega/pluginRemove', params);
+}
+
+// The three publication requests: publishing a catalog entity, signing what is
+// already published, and withdrawing it.
+//
+// 🔴 THEY REACH FURTHER THAN ANYTHING ELSE HERE, WHICH IS WHY EACH ANSWER NAMES
+// ITS REACH. Everything else on these surfaces changes this machine; these change
+// what every consumer of that registry resolves, and neither published bytes nor a
+// signature can be recalled from anyone who has already fetched them. Each answer
+// carries the registry host it addressed and whether anything actually landed, so
+// the ending states what became true rather than that a process exited zero.
+//
+// 🔴 EACH CARRIES CANCELLATION, AND THE STOP REACHES THE WORK. The request's own
+// context is what the shared publication layer observes, at the point before
+// anything becomes visible to anyone else — so a reader's stop abandons the
+// publication rather than only ending this side's wait for an answer. Measured:
+// against a registry that accepts a connection and never answers, the connection
+// is dropped at the moment the stop is sent, and is held indefinitely when none
+// is.
+//
+// 🔴 AND NOTHING IS PROMPTED FOR. The command line asks a person at a terminal for
+// a withdrawal's content, and for a credential when it has none; a request surface
+// has no terminal, so the content travels on the request and an unresolvable
+// credential is refused in the compiler's own words naming what to send. Neither
+// ask was reachable from this extension before either — a spawned subprocess has
+// no terminal to be asked at — so this is the same contract, stated where it can
+// be seen.
+//
+// Each throws when the server is not running, so a caller reports that state
+// rather than presenting an operation that never ran as one that did nothing.
+
+async function requestPublishEntity(
+  params: PublishEntityParams,
+  signal?: CancellationSignal,
+): Promise<PublishEntityResult> {
+  if (!daemon || daemon.getState() !== DaemonState.Running) {
+    throw new Error('the Aggrega language server is not running');
+  }
+  return await daemon.request<PublishEntityResult>('aggrega/publishEntity', params, signal);
+}
+
+async function requestSignArtifacts(
+  params: SignArtifactsParams,
+  signal?: CancellationSignal,
+): Promise<SignArtifactsResult> {
+  if (!daemon || daemon.getState() !== DaemonState.Running) {
+    throw new Error('the Aggrega language server is not running');
+  }
+  return await daemon.request<SignArtifactsResult>('aggrega/signArtifacts', params, signal);
+}
+
+async function requestDeprecateArtifact(
+  params: DeprecateArtifactParams,
+  signal?: CancellationSignal,
+): Promise<DeprecateArtifactResult> {
+  if (!daemon || daemon.getState() !== DaemonState.Running) {
+    throw new Error('the Aggrega language server is not running');
+  }
+  return await daemon.request<DeprecateArtifactResult>(
+    'aggrega/deprecateArtifact', params, signal,
+  );
 }
 
 async function handleCacheMiss<T>(method: string, params: unknown, doc: vscode.TextDocument): Promise<T | null> {
