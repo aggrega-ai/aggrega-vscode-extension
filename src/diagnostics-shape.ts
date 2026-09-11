@@ -185,11 +185,19 @@ export function zeroBasedFromOneBased(n: number): number {
 }
 
 // severityTokenFromString normalizes a severity field arriving from the
-// compiler. Both spellings the compiler uses for the middle tier are
-// accepted: the language server writes "warning", and the conventions
-// linter's structured output writes "warn". Unknown values default to
-// 'error' so unmapped severities surface visibly rather than disappearing
-// into the Information tier.
+// compiler.
+//
+// Both spellings the compiler uses for the middle tier are accepted. The
+// language server writes "warning"; the rules that produce findings write
+// "warn", which is the spelling the command line prints and the one a plugin
+// declares. Every request this extension sends is answered in the first
+// vocabulary, so the second is a tolerance rather than a path in use — kept
+// because the extension mirrors a wire it does not control, and because the
+// unknown-value fallback is 'error': a spelling this refused would render every
+// advisory as an Error squiggle rather than surfacing as a gap.
+//
+// Unknown values default to 'error' so unmapped severities surface visibly
+// rather than disappearing into the Information tier.
 export function severityTokenFromString(s: string): SeverityToken {
   switch (s) {
     case 'error':

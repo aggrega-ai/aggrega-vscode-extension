@@ -43,10 +43,9 @@ export function launchFacilityCount(relativePath: string): number {
 // an absence from a dead instrument. This module is on the same side of the claim
 // as the subjects and moves independently of them.
 //
-// Its own survival is deliberate rather than pending: the operations still behind
-// it are one the compiler does not serve, because its subject is the toolchain
-// rather than a workspace, and one whose command-line run can be stopped in a way
-// no request could be.
+// Its own survival is deliberate rather than pending: the one operation still
+// behind it is the plugin listing, which the compiler does not serve over the
+// request surface because its subject is the toolchain rather than a workspace.
 export const LAUNCHING_CONTROL = 'src/cli-json.ts';
 
 // assertCensusInstrumentFires proves the pattern still detects a launch before
@@ -141,16 +140,18 @@ export const RECORDED_LAUNCH_SITES: Readonly<Record<LaunchHelper, ReadonlyArray<
     ['cli-operation.ts', 2],
     ['plugins-view.ts', 1],
   ],
-  // The declaration, the publishing-conventions check over the catalog, and the
-  // plugin listing the compiler does not serve.
+  // The declaration, and the plugin listing the compiler does not serve.
   runCliJson: [
     ['cli-json.ts', 1],
-    ['lint.ts', 1],
     ['plugins-view.ts', 1],
   ],
-  // The declaration, and every operation whose shared operation is reached with
-  // no cancellation. Every entry here is now that one case: an operation whose
-  // command-line run can be stopped and whose request could offer no honest stop.
+  // The declaration, and the operations still reached as commands. Most are the
+  // one case where the shared operation takes no cancellation, so a request could
+  // offer no honest stop — but that is no longer what every entry here has in
+  // common, and reading it as though it were would leave one of them looking
+  // settled when it is not. The per-entity conventions check in the workspace
+  // catalog is the exception: its request honours a stop, and what holds it here
+  // is stated at the call, where a reader standing at the launch can see it.
   runWatchableCli: [
     ['cli-operation.ts', 1],
     ['operations.ts', 4],

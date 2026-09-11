@@ -1,163 +1,168 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cognitio S.r.l.
 
+import * as path from 'node:path';
+
 import { CancellationSignal } from './cancellation';
-import { SeverityToken, severityTokenFromString, zeroBasedFromOneBased } from './diagnostics-shape';
+import { ConvertedShape, shapeForDaemonDiagnostic } from './diagnostics-shape';
 import { outcomeOf, terminalLine } from './operation-outcome';
+import { DaemonDiagnostic } from './types';
 import { NO_ANCHORED_WORKSPACE_MESSAGE } from './workspace';
 
-// LINT_DIAGNOSTIC_SOURCE names the conventions linter as the origin of every
-// finding it publishes. It is deliberately distinct from the language server's
-// source so the Problems panel groups conventions findings apart from
-// validation results, and a reader can tell which of the two spoke.
-export const LINT_DIAGNOSTIC_SOURCE = 'aggrega lint';
+// --- wire shapes (mirror the aggrega/lint answer) -------------------------
 
-// --- wire shapes (mirror the conventions linter's structured output) ------
-
-// LintLocation is the entity a finding concerns.
+// LintFileFindings is one document's publishing-conventions findings, as the
+// answer groups them.
 //
-// file is an ABSOLUTE path, unlike the IR graph's workspace-relative
-// source_file — so a consumer builds a file URI from it directly and must not
-// resolve it against the workspace root.
-//
-// line and column are 1-based and OPTIONAL: the linter supplies them only when
-// the rule that produced the finding located the issue that precisely.
-// Otherwise the file alone locates it, which is the ordinary case.
-export interface LintLocation {
+// The file is carried beside the entries rather than on each one, because a
+// diagnostic locates a position inside a document and says nothing about which
+// document. It is spelled relative to the workspace root for a document inside
+// it and absolutely for one outside — a catalog directory need not sit under the
+// root — so a consumer resolves it against the root rather than using it as a
+// path directly.
+export interface LintFileFindings {
   file: string;
-  line?: number;
-  column?: number;
+  diagnostics?: DaemonDiagnostic[];
 }
 
-// LintFinding is one finding of the linter's structured output. message is the
-// rule's own text; it is carried through unchanged so the structured and human
-// renderings never word a finding differently.
-export interface LintFinding {
-  severity: string;
-  message: string;
-  ruleId: string;
-  location: LintLocation;
-}
-
-// LintSummary carries the linter's own counts. Every field is optional here
-// because a consumer that reads a count it did not receive would report a
-// number it invented.
-export interface LintSummary {
-  entitiesChecked?: number;
+// LintAnswer is what the compiler answers a publishing-conventions request
+// with.
+//
+// Every field is optional here, and that is the same posture the daemon
+// diagnostic shape takes: the extension mirrors a wire it does not control, and
+// a consumer that reads a count it did not receive reports a number it invented.
+// So an absent count omits its clause rather than defaulting to zero.
+//
+// checked is how many entity documents the run covered, which is what makes a
+// clean answer readable as a corpus rather than only as an empty list: no
+// findings over forty entities and no findings over none are different answers.
+//
+// The per-severity counts and the total are the run's own, derived by the
+// compiler from the findings it produced. They are read rather than recounted
+// here: a second derivation at this boundary would agree with the compiler's
+// until one of the two was edited.
+//
+// halted says whether the run's own verdict refuses publication. It is false for
+// every advisory run, which is what a whole-catalog check always is.
+export interface LintAnswer {
+  entity?: string;
+  release?: string;
+  checked?: number;
   findings?: number;
   errors?: number;
   warnings?: number;
   infos?: number;
+  files?: LintFileFindings[];
+  halted?: boolean;
 }
 
-// LintDocument is the top level of the linter's structured output. Both fields
-// are optional so a document missing either is reported as it arrived rather
-// than crashing the surface that reads it.
-export interface LintDocument {
-  findings?: LintFinding[];
-  summary?: LintSummary;
-}
+// --- conversion -----------------------------------------------------------
 
-// --- conversion ----------------------------------------------------------
-
-// LintFindingShape is the pure conversion of one finding into 0-based VS Code
-// position semantics, carrying the rule that produced it. It depends on no
-// vscode runtime type, so the mapping is testable without the editor.
-export interface LintFindingShape {
-  startLine: number;
-  startChar: number;
-  endLine: number;
-  endChar: number;
-  severity: SeverityToken;
-  // message is the linter's own text, verbatim.
-  message: string;
-  // ruleId travels to the diagnostic's code, so the Problems panel names the
-  // rule that fired alongside the finding.
-  ruleId: string;
-  source: string;
-  // located records whether the linter supplied a line for this finding.
-  //
-  // A VS Code diagnostic must carry a range, so a finding the linter located to
-  // a file and no further is published as a zero-length range at the start of
-  // the document — the editor's own encoding for a file-scoped problem. This
-  // flag is what lets a reader (and a test) tell that encoding apart from a
-  // position the linter actually named: false means no line was implicated, so
-  // nothing downstream may present the range as the linter's own answer.
-  located: boolean;
-}
-
-// shapeForLintFinding produces the pure conversion of one finding.
+// absolutePathFor resolves the document one group of findings concerns.
 //
-// When the linter supplies a positive line the range is point-style at that
-// position, matching the language-server path's fallback for a start-only
-// position. When it does not, the range is the zero-length range at the
-// document start and located is false: no line the linter never named is ever
-// fabricated into a position.
-export function shapeForLintFinding(f: LintFinding): LintFindingShape {
-  const rawLine = f.location?.line;
-  const rawColumn = f.location?.column;
-  const hasLine = typeof rawLine === 'number' && rawLine > 0;
-  const line = hasLine ? zeroBasedFromOneBased(rawLine!) : 0;
-  const character =
-    hasLine && typeof rawColumn === 'number' && rawColumn > 0
-      ? zeroBasedFromOneBased(rawColumn)
-      : 0;
-  return {
-    startLine: line,
-    startChar: character,
-    endLine: line,
-    endChar: character,
-    severity: severityTokenFromString(f.severity),
-    message: f.message,
-    ruleId: f.ruleId,
-    source: LINT_DIAGNOSTIC_SOURCE,
-    located: hasLine,
-  };
+// The answer spells a contained document relative to the workspace root and one
+// outside it absolutely, so resolution against the root covers both: an already
+// absolute path resolves to itself. This is the single place the two spellings
+// are reconciled, so nothing downstream has to know which of them it holds.
+function absolutePathFor(workspaceRoot: string, file: string): string {
+  return path.resolve(workspaceRoot, file);
 }
 
-// findingsByFile groups a document's findings by the absolute file each one
-// concerns, preserving the linter's own order within a file so a second run
-// over unchanged content produces the same reading order.
+// findingsByFile groups the answer's findings by the absolute path of the
+// document each concerns, preserving the compiler's own order within a group so
+// a second run over unchanged content produces the same reading order.
 //
-// A finding carrying no file names no entity to navigate to, so it is left out
-// of the grouping; countUnlocatable reports how many were dropped, and the
-// caller surfaces them in the log rather than discarding them silently.
-export function findingsByFile(doc: LintDocument): Map<string, LintFindingShape[]> {
-  const byFile = new Map<string, LintFindingShape[]>();
-  for (const finding of doc.findings ?? []) {
-    const file = finding.location?.file;
-    if (!file) { continue; }
-    const shapes = byFile.get(file);
-    if (shapes) {
-      shapes.push(shapeForLintFinding(finding));
+// Each entry converts through the extension's one home for a compiler
+// diagnostic, so a conventions finding and a validation result reach the
+// Problems panel by the same position, severity and code rules. The source
+// stays whatever the compiler stamped, which is what keeps the Problems panel's
+// grouping a property of the answer rather than of this module.
+//
+// A group naming no document names no entity to navigate to, so it is left out;
+// countUnlocatable reports how many entries were dropped, and the caller
+// surfaces them in the log rather than discarding them silently.
+export function findingsByFile(
+  answer: LintAnswer,
+  workspaceRoot: string,
+): Map<string, ConvertedShape[]> {
+  const byFile = new Map<string, ConvertedShape[]>();
+  for (const group of answer.files ?? []) {
+    if (!group.file) { continue; }
+    const shapes = (group.diagnostics ?? []).map(shapeForDaemonDiagnostic);
+    if (shapes.length === 0) { continue; }
+    const file = absolutePathFor(workspaceRoot, group.file);
+    const existing = byFile.get(file);
+    if (existing) {
+      existing.push(...shapes);
     } else {
-      byFile.set(file, [shapeForLintFinding(finding)]);
+      byFile.set(file, shapes);
     }
   }
   return byFile;
 }
 
-// countUnlocatable reports how many findings named no file. Such a finding
-// cannot be published against any document, so the count is what keeps it from
+// countUnlocatable reports how many findings named no document. Such a finding
+// cannot be published against any file, so the count is what keeps it from
 // vanishing without trace.
-export function countUnlocatable(doc: LintDocument): number {
-  return (doc.findings ?? []).filter((f) => !f.location?.file).length;
+export function countUnlocatable(answer: LintAnswer): number {
+  let n = 0;
+  for (const group of answer.files ?? []) {
+    if (group.file) { continue; }
+    n += (group.diagnostics ?? []).length;
+  }
+  return n;
 }
 
-// summaryLine renders the run's outcome for the reader, from the linter's own
-// counts and the findings actually published — so the number a reader sees
-// here is the number of entries in the Problems panel.
+// reportLines renders the run's findings in the compiler's own report format:
+// the document, then one line per finding carrying its severity, the rule that
+// produced it, and the rule's own text.
 //
-// The entity clause is omitted when the linter reported no count, rather than
-// showing a zero it never sent.
-export function summaryLine(doc: LintDocument): string {
-  const published = (doc.findings ?? []).length;
-  const checked = doc.summary?.entitiesChecked;
+// It is composed from the answer's values rather than from a rendering the
+// compiler wrote, because the request surface answers with the facts and leaves
+// the human formatting to whichever surface a reader is looking at. Every value
+// in it is the compiler's own and none is re-worded — in particular the message
+// is carried through byte for byte, so the remediation the rule named is never
+// replaced by a friendlier sentence.
+//
+// The document is named by its absolute path, which is the path a reader can
+// open and the one the rules' own message text already quotes.
+//
+// A finding whose producer assigned no rule identity is rendered without one
+// rather than with an empty identifier, since an empty name states nothing.
+export function reportLines(answer: LintAnswer, workspaceRoot: string): string[] {
+  const lines: string[] = [];
+  for (const group of answer.files ?? []) {
+    const diagnostics = group.diagnostics ?? [];
+    if (diagnostics.length === 0) { continue; }
+    lines.push(`${group.file ? absolutePathFor(workspaceRoot, group.file) : '(no entity file)'}:`);
+    for (const d of diagnostics) {
+      lines.push(d.code ? `[${d.severity}] ${d.code}: ${d.message}` : `[${d.severity}] ${d.message}`);
+    }
+  }
+  return lines;
+}
+
+// summaryLine renders the run's outcome for the reader, from the compiler's own
+// counts.
+//
+// Both clauses are omitted when the count behind them is absent, rather than
+// showing a zero the compiler never sent — a run that reported no corpus size
+// and a run that checked nothing are different answers.
+//
+// The finding count is the run's own total, which includes any finding that
+// named no document; those are accounted for separately in the log, so the two
+// readings together add up rather than disagreeing.
+export function summaryLine(answer: LintAnswer): string {
+  const checked = answer.checked;
   const scope = typeof checked === 'number' ? ` across ${checked} entities checked` : '';
-  if (published === 0) {
+  const found = answer.findings;
+  if (typeof found !== 'number') {
+    return `Aggrega lint: run complete${scope}.`;
+  }
+  if (found === 0) {
     return `Aggrega lint: no findings${scope}.`;
   }
-  return `Aggrega lint: ${published} finding(s)${scope} — see the Problems panel.`;
+  return `Aggrega lint: ${found} finding(s)${scope} — see the Problems panel.`;
 }
 
 // --- the run ---------------------------------------------------------------
@@ -168,46 +173,49 @@ export function summaryLine(doc: LintDocument): string {
 // exactly the findings an author would have seen in the Problems panel.
 export interface LintSink {
   // replace makes byFile the whole published set, dropping the previous run's.
-  replace(byFile: Map<string, LintFindingShape[]>): void;
+  replace(byFile: Map<string, ConvertedShape[]>): void;
 }
 
-// LintLog is the reader-visible log the run appends to — the product's own
-// human report, verbatim.
+// LintLog is the reader-visible log the run appends to — the compiler's own
+// findings, in the compiler's own report format.
 export interface LintLog {
   appendLine(text: string): void;
   show(): void;
 }
 
 // LintRunDeps supplies the run's surfaces: the anchored root that decides
-// whether the linter can be invoked at all, the structured invocation itself,
-// the collection findings land in, the log, and the reader notification.
+// whether the check can be asked for at all and the paths in the answer are
+// resolved against, the request itself, the collection findings land in, the
+// log, and the reader notification.
 export interface LintRunDeps {
   getWorkspaceRoot(): string | null;
-  // runLintJson invokes the linter's structured output. It resolves the parsed
-  // document together with the report the product wrote to stderr, and rejects
-  // with the product's own message when the linter could not run.
+  // lint asks the compiler for the publishing-conventions findings over every
+  // catalog entity the workspace configures, and rejects with the compiler's own
+  // message when the check could not run.
   //
-  // The signal is how a reader stops it. The linter walks every catalog entity,
-  // so a run on a large catalog is one a reader may want to stop; stopping it
-  // terminates the run rather than leaving it walking with nobody waiting.
-  runLintJson(signal?: CancellationSignal): Promise<{ doc: LintDocument; stderr: string }>;
+  // The signal is how a reader stops it, and the stop reaches the work rather
+  // than only this side's wait: the request's own context is what the walk and
+  // the per-entity loop observe, so stopping abandons the remaining entities
+  // instead of leaving the compiler walking with nobody waiting.
+  lint(signal?: CancellationSignal): Promise<LintAnswer>;
   sink: LintSink;
   log: LintLog;
   // notify surfaces one short status to the reader. The 'error' tier carries
-  // the product's own message, so nothing re-words a compiler failure.
+  // the compiler's own message, so nothing re-words a failure.
   notify(message: string, tier: 'info' | 'error'): void;
 }
 
-// runLint invokes the conventions linter and publishes its findings as
+// LINT_SUBJECT is the check in the reader's terms, used for the sentence a
+// stopped run leaves behind. One spelling, so every ending names the same thing.
+export const LINT_SUBJECT = 'The lint';
+
+// runLint asks for the publishing-conventions findings and publishes them as
 // navigable diagnostics.
 //
-// Three properties of the linter's structured output shape this run:
-// the exit status is 0 even when there are findings (conventions findings are
-// advisory and never halt), so only the parsed document says whether any
-// exist; a failure to run leaves stdout empty and writes the reason to stderr,
-// which is what the rejection carries; and a successful run also writes its
-// human report to stderr, which is appended to the log verbatim so a reader
-// wanting the full report gets the product's own rendering of it.
+// Two properties of the answer shape this run: findings are advisory, so an
+// answer carrying them is a success and not a failure; and a check that could
+// not run at all rejects with the compiler's own message, which is what the
+// failure branch surfaces.
 //
 // A run that could not execute leaves the previous run's findings in place. It
 // learned nothing, so clearing them would destroy a result the author has not
@@ -217,49 +225,48 @@ export interface LintRunDeps {
 // leaves the previous findings in place for the same reason a failed run does:
 // it learned nothing, so there is nothing to replace them with.
 export async function runLint(deps: LintRunDeps, signal?: CancellationSignal): Promise<void> {
-  if (!deps.getWorkspaceRoot()) {
-    // The shared no-anchor message, so the reader learns the linter was never
-    // invoked rather than reading an empty result as a clean catalog — and
+  const workspaceRoot = deps.getWorkspaceRoot();
+  if (!workspaceRoot) {
+    // The shared no-anchor message, so the reader learns the check was never
+    // asked for rather than reading an empty result as a clean catalog — and
     // learns it in the same words every other surface uses.
     deps.notify(NO_ANCHORED_WORKSPACE_MESSAGE, 'info');
     return;
   }
 
-  let result: { doc: LintDocument; stderr: string };
+  let answer: LintAnswer;
   try {
-    result = await deps.runLintJson(signal);
+    answer = await deps.lint(signal);
   } catch (err) {
     const outcome = outcomeOf(err);
     if (outcome.kind === 'cancelled') {
-      const line = terminalLine('The lint', outcome);
+      const line = terminalLine(LINT_SUBJECT, outcome);
       deps.log.appendLine(line);
       deps.notify(line, 'info');
       return;
     }
-    // The message is the linter's own stderr text. It is surfaced as-is: a
-    // re-worded wrapper would hide the remediation the compiler already named.
+    // The message is the compiler's own text. It is surfaced as-is: a re-worded
+    // wrapper would hide the remediation the compiler already named.
     deps.log.appendLine(outcome.message);
     deps.log.show();
     deps.notify(outcome.message, 'error');
     return;
   }
 
-  const byFile = findingsByFile(result.doc);
-  deps.sink.replace(byFile);
+  deps.sink.replace(findingsByFile(answer, workspaceRoot));
 
-  const report = result.stderr.trim();
-  if (report) {
-    deps.log.appendLine(report);
+  for (const line of reportLines(answer, workspaceRoot)) {
+    deps.log.appendLine(line);
   }
 
-  const dropped = countUnlocatable(result.doc);
+  const dropped = countUnlocatable(answer);
   if (dropped > 0) {
-    // A finding naming no file cannot be published against any document, so it
+    // A finding naming no document cannot be published against any file, so it
     // is named in the log rather than lost.
     deps.log.appendLine(
       `${dropped} finding(s) named no entity file, so they appear only in this log.`,
     );
   }
 
-  deps.notify(summaryLine(result.doc), 'info');
+  deps.notify(summaryLine(answer), 'info');
 }

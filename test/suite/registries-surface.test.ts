@@ -326,16 +326,15 @@ describe('the registries panel and the catalog search reach the compiler without
     assert.deepStrictEqual(imported.sort(), ['./error-surfaces', './workspace']);
   });
 
-  it('🔴 THE SURVIVING LAUNCH HELPER HAS EXACTLY TWO CONSUMERS, EACH DELIBERATE', () => {
+  it('🔴 THE SURVIVING LAUNCH HELPER HAS EXACTLY ONE CONSUMER, AND IT IS DELIBERATE', () => {
     // A COUNT rather than a presence, and over the whole source tree rather than
     // over a module: the claim is that ONE execution path is left per operation,
-    // and a third consumer appearing anywhere would be a second path for
+    // and a second consumer appearing anywhere would be a second path for
     // something.
     //
-    // The two that remain survive for stated reasons rather than by omission —
-    // one operation the compiler does not serve, because its subject is the
-    // toolchain rather than a workspace, and one whose command-line run can be
-    // stopped in a way no request could be.
+    // The one that remains survives for a stated reason rather than by omission:
+    // the compiler does not serve it over the request surface, because its
+    // subject is the toolchain rather than a workspace.
     const dir = path.join(EXTENSION_ROOT, 'src');
     const importers = fs.readdirSync(dir)
       .filter((f) => f.endsWith('.ts'))
@@ -343,7 +342,7 @@ describe('the registries panel and the catalog search reach the compiler without
       .sort();
     assert.deepStrictEqual(
       importers,
-      ['lint.ts', 'plugins-view.ts'],
+      ['plugins-view.ts'],
       'the structured-run helper gained or lost a consumer; each one is a process launch and '
       + 'each needs a stated reason to exist',
     );

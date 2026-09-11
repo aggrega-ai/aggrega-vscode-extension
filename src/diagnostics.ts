@@ -10,7 +10,6 @@ import {
   groupDiagnosticsBySource,
   shapeForDaemonDiagnostic,
 } from './diagnostics-shape';
-import { LintFindingShape } from './lint-run';
 
 // convertDaemonDiagnostic maps the daemon's per-file diagnostic
 // wire shape to a vscode.Diagnostic. Delegates the position/severity
@@ -139,45 +138,32 @@ export function publishShapes(
 // entries wholesale: sharing one would make a validation publish drop a file's
 // lint findings, and a lint run erase every validation result.
 //
-// Keys are the absolute paths the linter reported, used directly as file URIs —
-// they are not resolved against the workspace root.
+// Keys are absolute paths, already resolved by the caller against the workspace
+// root, and are used directly as file URIs.
 export function replaceLintFindings(
   collection: vscode.DiagnosticCollection,
-  byFile: Map<string, LintFindingShape[]>,
+  byFile: Map<string, ConvertedShape[]>,
 ): void {
   collection.clear();
   for (const [file, shapes] of byFile) {
-    collection.set(vscode.Uri.file(file), shapes.map(diagnosticFromLintShape));
+    collection.set(vscode.Uri.file(file), shapes.map(diagnosticFromShape));
   }
-}
-
-// diagnosticFromLintShape constructs the editor diagnostic for one finding.
-// The rule id becomes the diagnostic's code and the linter its source, so the
-// Problems panel names which rule fired and groups conventions findings apart
-// from validation results. The message is the linter's own text, unchanged.
-function diagnosticFromLintShape(shape: LintFindingShape): vscode.Diagnostic {
-  const diag = diagnosticFromShape(shape);
-  diag.code = shape.ruleId;
-  return diag;
 }
 
 // diagnosticFromShape builds the editor diagnostic every publish path goes
 // through, so the position and severity translation happens in one place
-// whichever surface produced the shape. ConvertedShape and LintFindingShape
-// are structurally compatible in the fields read here.
+// whichever layer produced the shape.
 //
 // The code slot is filled from the shape's identifiers through the shared
 // decision, which is where what a reader can DO with a code is decided. Where the
 // entry names a registered condition the slot carries the quotable code together
 // with the address that condition is explained at, which is what makes the code in
 // the Problems panel a link the reader can follow; where it names a class of
-// finding the slot carries that identifier alone, with nothing to follow; and
-// where it names nothing the slot is left unset, so the diagnostic is exactly the
-// one this extension published before any of these fields existed.
-//
-// A lint finding overwrites the slot with its rule id afterwards, which is
-// deliberate rather than an oversight — see diagnosticFromLintShape.
-function diagnosticFromShape(shape: ConvertedShape | LintFindingShape): vscode.Diagnostic {
+// finding the slot carries that identifier alone, with nothing to follow — which
+// is the case a conventions rule's identity falls into; and where it names
+// nothing the slot is left unset, so the diagnostic is exactly the one this
+// extension published before any of these fields existed.
+function diagnosticFromShape(shape: ConvertedShape): vscode.Diagnostic {
   const range = new vscode.Range(
     new vscode.Position(shape.startLine, shape.startChar),
     new vscode.Position(shape.endLine, shape.endChar),

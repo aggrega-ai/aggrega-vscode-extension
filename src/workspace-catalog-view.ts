@@ -234,8 +234,17 @@ export function activateWorkspaceCatalogView(
     // two scopes of one question, and a row names an entity rather than a buffer
     // or a Release — so there is nothing here to send the entity to yet.
     //
-    // The conventions check is reached with no cancellation, so it stays a command
-    // for the stop, on the same terms as the catalog-wide form of it.
+    // 🔴 THE CONVENTIONS CHECK BELOW STAYS A COMMAND FOR A REASON THAT IS NOT THE
+    // STOP, AND THE DISTINCTION MATTERS BECAUSE THE STOP USED TO BE THE REASON.
+    // The request channel answers this question for one named entity and honours a
+    // stop that reaches the work, so neither of those is what keeps this row on a
+    // command. What does is where the answer would land: the conventions findings
+    // published into the Problems panel are replaced WHOLESALE by the catalog-wide
+    // form of this check, so a per-entity answer published into the same place
+    // would erase every other document's findings — and one published nowhere
+    // would be a reader pressing a row and seeing less than the panel already
+    // shows. That is a question about what a reader should see, not about what the
+    // compiler can do, so it is left as it is rather than answered here.
     vscode.commands.registerCommand(
       'aggrega.workspaceCatalog.validate',
       (node?: WorkspaceCatalogNode) => onPath(node, (entityPath) =>

@@ -2,23 +2,23 @@
 // Copyright 2026 Cognitio S.r.l.
 
 import * as vscode from 'vscode';
-import { runCliJson } from './cli-json';
+import { CancellationSignal } from './cancellation';
 import { replaceLintFindings } from './diagnostics';
-import { LintDocument, runLint } from './lint-run';
+import { LintAnswer, runLint } from './lint-run';
 import { withCancellableProgress } from './progress';
 
-// LintRunner is the handle the operation surface holds. Invoking run() lints
-// the workspace and republishes the linter's findings.
+// LintRunner is the handle the operation surface holds. Invoking run() checks
+// the workspace's publishing conventions and republishes what was found.
 export interface LintRunner {
   run(): Promise<void>;
 }
 
 // LintDeps is the live extension state the runner reads: the anchored root the
-// linter runs in, the configured binary path, and the shared output channel
-// that carries the product's own report.
+// check runs over, the way to ask the compiler for it, and the shared output
+// channel that carries the findings.
 export interface LintDeps {
   getWorkspaceRoot(): string | null;
-  getBinaryPath(): string;
+  lint(signal?: CancellationSignal): Promise<LintAnswer>;
   output: vscode.OutputChannel;
 }
 
@@ -35,21 +35,22 @@ export function activateLint(context: vscode.ExtensionContext, deps: LintDeps): 
   const collection = vscode.languages.createDiagnosticCollection('aggrega-lint');
   context.subscriptions.push(collection);
 
-  // The linter walks every catalog entity, so the run is watched and can be
+  // The check walks every catalog entity, so the run is watched and can be
   // stopped — behind the same indicator, with the same button, as every other
   // long operation on the surface.
   //
-  // It is invoked as a command for that stop. The walk covers every entity the
-  // configured catalog directories hold, so its cost grows with the catalog and a
-  // reader who started one by mistake has something worth ending; and it is
-  // reached with no cancellation, so the stop exists while it runs as a command
-  // and could not be offered honestly over the language server. The signal below
-  // is what reaches the walk.
+  // 🔴 THE STOP IS OFFERED BECAUSE THE COMPILER CAN HONOUR ONE, WHICH IS READ OFF
+  // THE COMPILER RATHER THAN ASSUMED. The request's own context is what the tree
+  // walk and the per-entity loop observe, so a reader's stop abandons the
+  // remaining entities rather than only ending this side's wait for an answer.
+  // The cost is the reason it matters: the walk covers every entity the
+  // configured catalog directories hold, so it grows with the catalog and a
+  // reader who started one by mistake has something worth ending.
   return {
     run: () => withCancellableProgress('Aggrega: checking publishing conventions', (signal) =>
       runLint({
         getWorkspaceRoot: deps.getWorkspaceRoot,
-        runLintJson: (s) => runCliJson<LintDocument>(deps, ['lint', '-o', 'json'], s, 'The lint'),
+        lint: (s) => deps.lint(s),
         sink: { replace: (byFile) => replaceLintFindings(collection, byFile) },
         log: {
           appendLine: (text) => deps.output.appendLine(text),
