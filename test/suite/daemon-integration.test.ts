@@ -10,8 +10,8 @@ import { CHECKED_DOCUMENT, ValidateResponse } from '../../src/types';
 import { buildValidateParams } from '../../src/validate-request';
 import {
   brokenManifestWorkspaceRoot,
-  ensureAggregaBinary,
   fixtureWorkspaceRoot,
+  requireAggregaBinary,
 } from '../helpers/build-aggrega';
 
 // Integration tests that exercise the Daemon class against a real
@@ -27,16 +27,7 @@ describe('Daemon integration (real aggrega serve)', function () {
   let workspaceRoot: string;
 
   before(function () {
-    try {
-      binaryPath = ensureAggregaBinary();
-    } catch (err) {
-      // Skip the whole suite when the aggrega-cli source tree or the
-      // go toolchain is unavailable in this environment. CI without
-      // the submodule checked out should not fail on these tests.
-      // eslint-disable-next-line no-console
-      console.warn(`Skipping daemon integration suite: ${(err as Error).message}`);
-      this.skip();
-    }
+    binaryPath = requireAggregaBinary(this, 'daemon integration suite');
     workspaceRoot = fixtureWorkspaceRoot();
   });
 

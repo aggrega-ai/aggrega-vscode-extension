@@ -546,7 +546,7 @@
     "compile": "tsc -p ./ && npm run copy-vendor-assets",
     "copy-vendor-assets": "node build/copy-vendor-assets.js",
     "watch": "tsc -watch -p ./",
-    "build-fixtures": "mkdir -p out/test-fixtures && cd ../aggrega-cli && CGO_ENABLED=0 go build -o ../aggrega-vscode-extension/out/test-fixtures/aggrega ./cmd/aggrega",
+    "build-fixtures": "node out/test/helpers/build-aggrega.js",
     "pretest": "npm run compile && npm run build-fixtures",
     "test": "mocha out/test/suite/**/*.test.js",
     "test:integration": "npm run compile && vscode-test"

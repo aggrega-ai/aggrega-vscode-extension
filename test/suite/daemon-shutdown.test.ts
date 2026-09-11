@@ -7,9 +7,40 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { EventEmitter } from 'node:events';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
-import { Daemon, DaemonState } from '../../src/daemon';
+import {
+  Daemon,
+  DaemonState,
+  SHUTDOWN_DRAIN_GRACE_MS,
+  ShutdownNarration,
+} from '../../src/daemon';
+import type { Settings } from '../../src/settings';
 import { settingsFromObject } from '../../src/settings';
-import { ensureAggregaBinary, fixtureWorkspaceRoot } from '../helpers/build-aggrega';
+import { fixtureWorkspaceRoot, requireAggregaBinary } from '../helpers/build-aggrega';
+
+// recordShutdown builds a Daemon that keeps everything it reports, so a case can
+// read WHICH step of the shutdown ladder the daemon left on instead of inferring
+// it from how long stop() took. The lines are imported from the daemon rather
+// than spelled out here, so a rewording cannot leave a case quietly matching
+// text the daemon no longer writes.
+//
+// The liveness bound for every case using this is the suite timeout: a stop()
+// that never returns fails there, which is the one thing a clock was genuinely
+// needed for.
+function recordShutdown(settings: Settings): { daemon: Daemon; narration: string[] } {
+  const narration: string[] = [];
+  return { daemon: new Daemon(settings, msg => narration.push(msg)), narration };
+}
+
+// reachedAnOutcome reports whether the ladder ran to one of its three ways out,
+// rather than the daemon having gone before it started or the ladder having
+// stopped somewhere with no exit at all.
+function reachedAnOutcome(narration: string[]): boolean {
+  return (
+    narration.includes(ShutdownNarration.cooperativeExit) ||
+    narration.includes(ShutdownNarration.abandonedExit) ||
+    narration.includes(ShutdownNarration.osTermination)
+  );
+}
 
 // Cooperative-shutdown integration tests for the new stop() phase
 // ordering. Two scenarios:
@@ -27,18 +58,12 @@ describe('Daemon cooperative shutdown', function () {
   let workspaceRoot: string;
 
   before(function () {
-    try {
-      binaryPath = ensureAggregaBinary();
-    } catch (err) {
-      // eslint-disable-next-line no-console
-      console.warn(`Skipping daemon shutdown suite: ${(err as Error).message}`);
-      this.skip();
-    }
+    binaryPath = requireAggregaBinary(this, 'daemon shutdown suite');
     workspaceRoot = fixtureWorkspaceRoot();
   });
 
   it('cooperative path: real daemon honors aggrega/shutdown and exits cleanly', async function () {
-    const daemon = new Daemon(
+    const { daemon, narration } = recordShutdown(
       settingsFromObject({
         binaryPath,
         respawnAttempts: 3,
@@ -47,16 +72,21 @@ describe('Daemon cooperative shutdown', function () {
     );
     await daemon.start(workspaceRoot);
     assert.strictEqual(daemon.getState(), DaemonState.Running);
-    const start = Date.now();
     await daemon.stop();
-    const elapsed = Date.now() - start;
     assert.strictEqual(daemon.getState(), DaemonState.Stopped);
-    // Cooperative path should complete well under the 5s worst-case
-    // window (3s cooperative grace + 2s SIGTERM). Real daemon
-    // typically exits within ~100-500ms of receiving the notification.
-    // Generous bound: < 3 seconds → cooperative path won, SIGTERM
-    // didn't fire.
-    assert.ok(elapsed < 3000, `cooperative stop took ${elapsed}ms; expected < 3000ms`);
+
+    // WHICH step the ladder left on is the discriminator. The daemon answering
+    // the first cooperative request IS the cooperative path winning — the same
+    // claim a sub-grace elapsed time only implied, and implied through a bound a
+    // loaded machine could breach while the daemon behaved perfectly.
+    assert.ok(
+      narration.includes(ShutdownNarration.cooperativeExit),
+      `expected the daemon to exit on the first cooperative request; ladder reported:\n${narration.join('\n')}`,
+    );
+    assert.ok(
+      !narration.includes(ShutdownNarration.osTermination),
+      `expected no fallback to operating-system termination; ladder reported:\n${narration.join('\n')}`,
+    );
   });
 
   it('falls-through path: non-cooperative subprocess escalates to SIGTERM', async function () {
@@ -70,6 +100,18 @@ describe('Daemon cooperative shutdown', function () {
     ];
     const { spawn } = await import('child_process');
     const stub = spawn(process.execPath, stubArgs, { stdio: ['pipe', 'pipe', 'pipe'] });
+
+    // Registered before stop() so the exit cannot be missed between the call
+    // returning and the listener attaching. Node populates exitCode and
+    // signalCode as it emits 'exit', so awaiting this is what makes reading
+    // them afterwards a fact rather than a race.
+    const stubExited = new Promise<void>(resolve => {
+      if (stub.exitCode !== null || stub.signalCode !== null) {
+        resolve();
+        return;
+      }
+      stub.once('exit', () => resolve());
+    });
 
     // Construct the daemon via the test-only __forTesting factory:
     // the factory installs the stub as the subprocess, transitions
@@ -89,22 +131,36 @@ describe('Daemon cooperative shutdown', function () {
     try {
       assert.strictEqual(daemon.getState(), DaemonState.Running);
 
-      const start = Date.now();
       await daemon.stop();
-      const elapsed = Date.now() - start;
+      await stubExited;
 
-      // The stub ignores both aggrega/shutdown notifications, so both
-      // cooperative graces (drain ~3s, then abort ~2.5s) must expire
-      // before SIGTERM fires; the stub then exits immediately on SIGTERM
-      // (POSIX). Total elapsed ≈ 3 + 2.5 + sub-second SIGTERM grace.
-      // Bound: 5s ≤ elapsed < 8s.
-      assert.ok(
-        elapsed >= 5000,
-        `falls-through path exited too quickly (${elapsed}ms); both cooperative graces should have expired`,
+      // How the stub DIED is the discriminator, and it is exact where a
+      // wall-clock window was only suggestive. The stub ignores both
+      // aggrega/shutdown notifications and never exits on its own, so:
+      //
+      //   - a null signalCode with a set exitCode would mean it exited
+      //     cooperatively, which it cannot do;
+      //   - SIGTERM means both cooperative graces expired and the escalation
+      //     fired, then the stub honored it;
+      //   - SIGKILL would mean SIGTERM was sent and ignored.
+      //
+      // Reading the signal says which of those happened. The elapsed time only
+      // implied it, and implied it through two bounds that a loaded machine
+      // could breach from above and an unexpectedly fast path from below.
+      //
+      // Liveness is the suite timeout above: a stop() that never returns, or a
+      // stub that never dies, fails there rather than against a clock read
+      // here.
+      assert.strictEqual(
+        stub.signalCode,
+        'SIGTERM',
+        `expected the stub to be terminated by SIGTERM after both cooperative graces expired; ` +
+        `got signal=${stub.signalCode} code=${stub.exitCode}`,
       );
-      assert.ok(
-        elapsed < 8000,
-        `falls-through path exceeded grace window (${elapsed}ms); SIGTERM/SIGKILL escalation should have fired`,
+      assert.strictEqual(
+        stub.exitCode,
+        null,
+        'a stub killed by signal carries no exit code; a set exitCode means it exited on its own',
       );
     } finally {
       if (stub.exitCode === null && stub.signalCode === null) {
@@ -145,13 +201,7 @@ describe('Daemon cooperative shutdown under load', function () {
   const scaffoldedRoots: string[] = [];
 
   before(function () {
-    try {
-      binaryPath = ensureAggregaBinary();
-    } catch (err) {
-      // eslint-disable-next-line no-console
-      console.warn(`Skipping under-load shutdown suite: ${(err as Error).message}`);
-      this.skip();
-    }
+    binaryPath = requireAggregaBinary(this, 'under-load shutdown suite');
     workspaceRoot = fixtureWorkspaceRoot();
   });
 
@@ -196,7 +246,7 @@ describe('Daemon cooperative shutdown under load', function () {
     '  components: []\n';
 
   it('drain-cleanly: 10 fast in-flight requests under load, daemon exits within drain budget', async function () {
-    const daemon = new Daemon(
+    const { daemon, narration } = recordShutdown(
       settingsFromObject({
         binaryPath,
         respawnAttempts: 3,
@@ -224,26 +274,28 @@ describe('Daemon cooperative shutdown under load', function () {
       requests.push(p);
     }
 
-    const start = Date.now();
     await daemon.stop();
-    const elapsed = Date.now() - start;
 
     await Promise.all(requests);
     assert.strictEqual(daemon.getState(), DaemonState.Stopped);
 
-    // Drain-cleanly: fast handlers finish quickly. Under drain-then-abort
-    // the first shutdown carries no drain-timer floor, so the daemon exits
-    // as soon as the pool drains — well within the drain grace and with no
-    // SIGTERM escalation. The 3000ms bound is the drain grace; a clean
-    // drain returns comfortably under it.
+    // Drain-cleanly: fast handlers finish quickly. Under drain-then-abort the
+    // first shutdown carries no drain-timer floor, so the daemon exits as soon
+    // as the pool drains and answers that first request. Reading the step it
+    // left on says exactly that, where an elapsed time under the drain grace
+    // only stood in for it.
     assert.ok(
-      elapsed < 3000,
-      `drain-cleanly took ${elapsed}ms; expected < 3000ms (within the drain grace, no escalation)`,
+      narration.includes(ShutdownNarration.cooperativeExit),
+      `expected the drained daemon to exit on the first cooperative request; ladder reported:\n${narration.join('\n')}`,
+    );
+    assert.ok(
+      !narration.includes(ShutdownNarration.osTermination),
+      `expected no escalation past the cooperative request; ladder reported:\n${narration.join('\n')}`,
     );
   });
 
   it('drain-bound: slow in-flight requests under load, daemon exits within drain budget + handler-completion grace', async function () {
-    const daemon = new Daemon(
+    const { daemon, narration } = recordShutdown(
       settingsFromObject({
         binaryPath,
         respawnAttempts: 3,
@@ -267,27 +319,32 @@ describe('Daemon cooperative shutdown under load', function () {
       requests.push(p);
     }
 
-    const start = Date.now();
     await daemon.stop();
-    const elapsed = Date.now() - start;
 
     await Promise.all(requests);
     assert.strictEqual(daemon.getState(), DaemonState.Stopped);
 
-    // Drain-bound: heavier in-flight work still drains to completion
-    // under the first shutdown. stop() returns bounded by the cooperative
-    // force ladder — drain grace (~3s), then abort grace (~2.5s), then
-    // SIGTERM/SIGKILL — never hanging on the full handler queue. Upper
-    // bound (8000ms) is that worst-case ladder plus margin; the small
-    // lower bound proves real drain work occurred rather than an instant
-    // exit.
+    // Drain-bound: heavier in-flight work still drains under the first
+    // shutdown, and stop() walks the ladder rather than hanging on the handler
+    // queue. Two things carry that, and neither reads a clock.
+    //
+    // The daemon was ALIVE and had to be asked. terminateSubprocess returns
+    // immediately, reporting nothing, when the subprocess has already gone, so
+    // the cooperative request appearing at all is what distinguishes a real
+    // shutdown from a return against a daemon that was no longer there.
     assert.ok(
-      elapsed >= 200,
-      `drain-bound completed implausibly fast (${elapsed}ms); expected the heavy load to take real drain time`,
+      narration.includes(ShutdownNarration.cooperativeRequest),
+      `expected the running daemon to be asked to exit cooperatively; ladder reported:\n${narration.join('\n')}`,
     );
+    // The ladder RAN OUT, one way or another, instead of settling somewhere
+    // without an exit. Which way is deliberately not pinned: under a heavy queue
+    // the daemon may answer the first request, answer the second, or neither,
+    // and all three are the ladder working. Absence of deadlock is the suite
+    // timeout's job, and a suite timeout is not breached by the contention that
+    // breaches a few-second ceiling.
     assert.ok(
-      elapsed < 8000,
-      `drain-bound took ${elapsed}ms; expected < 8000ms (bounded by the cooperative force ladder, no deadlock)`,
+      reachedAnOutcome(narration),
+      `expected the shutdown ladder to run to one of its outcomes; ladder reported:\n${narration.join('\n')}`,
     );
   });
 
@@ -376,10 +433,13 @@ describe('Daemon cooperative shutdown under load', function () {
   }
 
   // measureTier4Runtime starts a daemon, runs one Tier-4 validate to
-  // completion, and returns the wall-clock time. Used to decide whether
-  // the fixture is heavy enough on this machine to exercise mid-pipeline
-  // cancellation (the run must exceed the drain budget, else cancellation
-  // is untestable here and the cancellation assertion would be vacuous).
+  // completion, and returns the wall-clock time.
+  //
+  // This clock measures the MACHINE, not the daemon: it answers "is this
+  // fixture heavy enough here for draining to be distinguishable from cutting
+  // short", which is a question about how fast the hardware is, and a clock is
+  // the right instrument for that. The case's own claim is read from the
+  // shutdown ladder instead, so no clock decides whether the daemon behaved.
   async function measureTier4Runtime(
     root: string,
     aggregateFile: string,
@@ -407,53 +467,67 @@ describe('Daemon cooperative shutdown under load', function () {
     // This is the inverse of the previously-expected cut-short bound.
     const ws = scaffoldTier4Workspace(40000);
 
-    // Calibrate: the drain-to-completion property is only observable when
-    // one uncancelled Tier-4 run takes meaningfully longer than the old
-    // cut-short budget. On hardware fast enough to finish near-instantly,
-    // "drained, not cut short" is indistinguishable — skip rather than
-    // assert vacuously.
+    // Calibrate against the drain grace itself. The observable claim below is
+    // that the daemon was STILL WORKING when the grace closed — it kept the
+    // validate rather than dropping it — and that is only observable when one
+    // uncancelled run outlasts the grace. On hardware fast enough to finish
+    // inside it the daemon answers the first request, which is correct
+    // behaviour and indistinguishable from cutting short, so skip rather than
+    // assert something this machine cannot show.
+    //
+    // The threshold is the daemon's own SHUTDOWN_DRAIN_GRACE_MS rather than a
+    // number chosen here, so retuning the grace cannot leave the calibration
+    // pointed at a window that no longer exists.
     const baseline = await measureTier4Runtime(ws.root, ws.aggregateFile, ws.aggregateContent);
-    if (baseline <= 2500) {
+    if (baseline <= SHUTDOWN_DRAIN_GRACE_MS) {
       // eslint-disable-next-line no-console
       console.warn(
-        `Skipping tier-4 shutdown case: single Tier-4 run took ${baseline}ms (<=2500ms); fixture too fast on this machine to distinguish drain-to-completion`,
+        `Skipping tier-4 shutdown case: one Tier-4 run took ${baseline}ms, inside the ${SHUTDOWN_DRAIN_GRACE_MS}ms drain grace; this machine is too fast for the fixture to show draining rather than cutting short`,
       );
       this.skip();
       return;
     }
 
-    const daemon = new Daemon(
+    const { daemon, narration } = recordShutdown(
       settingsFromObject({ binaryPath, respawnAttempts: 3, respawnWindowSeconds: 60 }),
     );
     await daemon.start(ws.root);
     assert.strictEqual(daemon.getState(), DaemonState.Running);
 
-    // Fire one Tier-4 validate (~baseline ms, > 2500ms), then request
-    // shutdown. The first shutdown drains, so the daemon lets the validate
-    // finish and exits when it does — stop() lands near baseline, NOT cut
-    // short to the old sub-budget bound. The abort (second shutdown) and
-    // SIGTERM/SIGKILL force still cap the worst case, so stop() never
-    // hangs beyond the cooperative ladder.
+    // Fire one Tier-4 validate the calibration has shown outlasts the drain
+    // grace, then request shutdown. The first shutdown drains, so the daemon
+    // keeps the validate rather than dropping it, and the grace closes with the
+    // validate still running. The abort and the force signals still cap the
+    // worst case, so stop() never hangs on the validate.
     const pending = daemon
       .request('aggrega/validate', { file: ws.aggregateFile, content: ws.aggregateContent })
       .catch((err: unknown) => err);
 
-    const start = Date.now();
     await daemon.stop();
-    const elapsed = Date.now() - start;
     await pending;
 
     assert.strictEqual(daemon.getState(), DaemonState.Stopped);
-    // Drained, not cut short: the in-flight validate ran past the old
-    // cut-short budget rather than being aborted under it.
+    // Drained, not cut short — and the ladder says so outright. The second
+    // request is only ever sent because the drain grace closed with the daemon
+    // still alive, so its presence IS "the daemon kept the in-flight validate
+    // instead of dropping it and leaving". A daemon that cut the validate short
+    // would have answered the first request and the ladder would have stopped
+    // there, which an elapsed time can only reach at from outside the process.
+    //
+    // The calibration above is what makes this sound: it establishes that one
+    // uncancelled run outlasts the grace on this machine, so the daemon cannot
+    // legitimately have finished inside it.
     assert.ok(
-      elapsed > 2500,
-      `tier-4 shutdown took ${elapsed}ms; expected > 2500ms — the first shutdown must drain the in-flight validate to completion, not cut it short`,
+      narration.includes(ShutdownNarration.abandonRequest),
+      `expected the drain grace to close with the validate still running — the daemon must keep in-flight work rather than drop it on the first request; ladder reported:\n${narration.join('\n')}`,
     );
-    // Bounded by the cooperative force ladder plus a margin.
+    // Bounded: the ladder ran out rather than hanging on the validate. Which
+    // way out it took is deliberately unpinned — a validate long enough will
+    // outlast the abort grace too and be terminated, which is the ladder
+    // working, not a failure. The liveness bound is the suite timeout.
     assert.ok(
-      elapsed < baseline + 8000,
-      `tier-4 shutdown took ${elapsed}ms; expected < ${baseline + 8000}ms — bounded by the cooperative force ladder`,
+      reachedAnOutcome(narration),
+      `expected the shutdown ladder to run to one of its outcomes rather than hang on the validate; ladder reported:\n${narration.join('\n')}`,
     );
   });
 });
@@ -507,8 +581,9 @@ class FakeChild extends EventEmitter {
 
 // Drain-then-abort escalation ordering. These cases drive the extension's
 // terminateSubprocess ladder against a fake subprocess so the exact
-// sequence of stdin writes and force signals is observable — coverage the
-// real-daemon timing tests above cannot provide.
+// sequence of stdin writes and force signals is observable — the cases above
+// read which step a real daemon left on, which says nothing about what was
+// written to reach it.
 describe('Daemon drain-then-abort escalation ordering', function () {
   this.timeout(30_000);
 

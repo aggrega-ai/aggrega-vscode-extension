@@ -6,7 +6,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { loadAttachmentsModel } from '../../src/graph-payload';
-import { ensureAggregaBinary, sensitivityFixtureRoot } from '../helpers/build-aggrega';
+import { requireAggregaBinary, sensitivityFixtureRoot } from '../helpers/build-aggrega';
 
 // THE WITHHELD MARKER HAS ONE DEFINITION AND IT IS THE COMPILER'S. This suite
 // is what makes that true rather than aspirational.
@@ -41,18 +41,7 @@ describe('withheld marker conformance (compiler output against this reader)', fu
   let model: Record<string, unknown>;
 
   before(function () {
-    let binaryPath: string;
-    try {
-      binaryPath = ensureAggregaBinary();
-    } catch (err) {
-      // Without the sibling source tree or a Go toolchain there is no compiler
-      // to compare against. Skipping is right here: the alternative is a
-      // failure that reports on the environment rather than on the marker.
-      // eslint-disable-next-line no-console
-      console.warn(`Skipping withheld marker conformance: ${(err as Error).message}`);
-      this.skip();
-      return;
-    }
+    const binaryPath = requireAggregaBinary(this, 'withheld marker conformance');
 
     const fixture = sensitivityFixtureRoot();
     if (!fs.existsSync(path.join(fixture, 'release.yaml'))) {

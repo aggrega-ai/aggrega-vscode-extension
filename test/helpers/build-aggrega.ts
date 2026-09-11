@@ -8,6 +8,61 @@ import * as path from 'path';
 const BINARY_NAME = 'aggrega';
 const SOURCE_TREE_RELATIVE = path.join('..', 'aggrega-cli');
 
+// COMPILER_FIXTURE_ENV names the variable that opts a run into the compiler
+// fixture: building the aggrega binary from the sibling source tree, and running
+// the specs that drive the editor against it.
+//
+// It is off by default, and the default is what keeps the expensive half of this
+// package's suite out of a run that did not ask for it. `npm test` runs `pretest`
+// before a single spec is selected, so a fixture build wired unconditionally into
+// that hook costs a Go build of the whole compiler on every test-grade run of this
+// package, whatever that run goes on to execute. Reading an explicit opt-in here
+// is what keeps the cost with the run that wants the coverage.
+//
+// One variable drives both halves. The fixture build reads it here, and the specs
+// that need the binary read it through requireAggregaBinary below, so a run cannot
+// end up with the specs selected and no binary built, or a binary built for specs
+// that will not run.
+export const COMPILER_FIXTURE_ENV = 'AGGREGA_EDITOR_COMPILER_FIXTURE';
+
+// compilerFixtureRequested reports whether this run opted into the compiler
+// fixture. Any value other than the empty string and '0' enables it, so both
+// `=1` and a bare assignment read as a request.
+export function compilerFixtureRequested(): boolean {
+  const raw = process.env[COMPILER_FIXTURE_ENV];
+  return raw !== undefined && raw !== '' && raw !== '0';
+}
+
+// COVERAGE_BOUND states, in one sentence, what a run without the fixture does not
+// cover. It is printed by every spec that stands itself down, because a skip that
+// says nothing is indistinguishable from a spec that does not exist — which is the
+// state this gate is built to stay out of.
+const COVERAGE_BOUND =
+  `the editor-against-compiler seam is NOT covered in this run; ` +
+  `set ${COMPILER_FIXTURE_ENV}=1 to build the compiler fixture and cover it`;
+
+// requireAggregaBinary is the entry point for a spec that cannot run without the
+// compiler binary. It returns the binary's path, or stands the calling suite down
+// with an explicit line saying so.
+//
+// A run that did NOT ask for the fixture skips and says why. A run that DID ask
+// and then cannot build the binary FAILS: the request is the caller's statement
+// that they want this coverage, so silently downgrading it to a skip would hand
+// back a green that covers nothing.
+export function requireAggregaBinary(ctx: Mocha.Context, suiteName: string): string {
+  if (!compilerFixtureRequested()) {
+    // eslint-disable-next-line no-console
+    console.log(`[compiler fixture] SKIPPING ${suiteName}: ${COVERAGE_BOUND}`);
+    ctx.skip();
+    // ctx.skip() throws to abandon the suite, so control never reaches here. The
+    // throw is what tells the compiler's return-path analysis the same thing.
+    throw new Error('unreachable: ctx.skip() does not return');
+  }
+  // eslint-disable-next-line no-console
+  console.log(`[compiler fixture] RUNNING ${suiteName} against the built aggrega binary`);
+  return ensureAggregaBinary();
+}
+
 // extensionRoot is the absolute path of the aggrega-vscode-extension
 // directory. After compilation this file lives at
 // out/test/helpers/build-aggrega.js, so three parent hops are
@@ -151,4 +206,30 @@ export function sensitivityFixtureRoot(): string {
 // is what proves the error envelope carries that key's span end to end.
 export function brokenManifestWorkspaceRoot(): string {
   return path.resolve(extensionRoot(), 'test', 'fixtures', 'broken-manifest-reference');
+}
+
+// Invoked directly, this module IS the package's fixture-build step: it builds the
+// compiler binary when the run asked for it and announces that it did not when the
+// run did not. Running the step through this module rather than through a shell
+// line in the package manifest is what keeps one home for the decision — the
+// manifest cannot consult an environment variable without restating the rule that
+// reads it, and a restated rule is one that drifts from the specs it must agree
+// with.
+//
+// It exits 0 in both directions. Declining to build is an outcome of the step, not
+// a failure of it, and a non-zero exit here would fail the whole run for having
+// asked for the cheap shape.
+if (require.main === module) {
+  if (!compilerFixtureRequested()) {
+    // eslint-disable-next-line no-console
+    console.log(
+      `[compiler fixture] not building the aggrega binary: ${COVERAGE_BOUND}`,
+    );
+  } else {
+    // eslint-disable-next-line no-console
+    console.log('[compiler fixture] building the aggrega binary from the sibling source tree');
+    const built = ensureAggregaBinary();
+    // eslint-disable-next-line no-console
+    console.log(`[compiler fixture] built ${built}`);
+  }
 }

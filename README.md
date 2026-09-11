@@ -287,9 +287,15 @@ extension's workspace discovery matches the daemon's. When `aggrega-cli` is not
 present (a standalone clone of just this repo), the parity test skips with a
 notice and the rest of the suite runs normally.
 
+Four of this package's spec files drive the extension against a real `aggrega`
+binary, which means building the compiler from that same sibling tree. That
+build is off by default, so `npm test` does not pay for it: those specs stand
+down and each says which coverage it skipped. Set
+`AGGREGA_EDITOR_COMPILER_FIXTURE=1` to build the binary and run them.
+
 ## Lifecycle
 
-The extension manages the daemon process's full lifecycle. On shutdown — when the editor closes, when the user restarts the language server, or when a configuration change requires a fresh daemon — the extension first asks the daemon to exit cooperatively. If the daemon does not respond within a short grace window, the extension falls back to OS-level termination. The semantics are identical across POSIX and Windows hosts. See `src/daemon.ts` for implementation detail.
+The extension manages the daemon process's full lifecycle. On shutdown — when the editor closes, when the user restarts the language server, or when a configuration change requires a fresh daemon — the extension first asks the daemon to exit cooperatively, which lets in-flight work finish. If the daemon is still working when that grace window closes, it is asked once more — this time to abandon that work rather than finish it. If it still has not exited, the extension falls back to OS-level termination. Each of these steps is reported to the Aggrega output channel, so a slow shutdown shows which step is taking the time and whether the daemon answered at all. The semantics are identical across POSIX and Windows hosts. See `src/daemon.ts` for implementation detail.
 
 ## License
 

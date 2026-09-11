@@ -78,7 +78,11 @@ const INITIALIZE_TIMEOUT_MS = 30000;
 // the daemon accepting new work and lets in-flight work finish; the
 // daemon then exits on its own. A daemon with no in-flight work exits
 // almost immediately.
-const SHUTDOWN_DRAIN_GRACE_MS = 3000;
+//
+// Exported because a caller that wants to know whether a workload is long
+// enough to outlast the drain would otherwise carry its own copy of this
+// number, and a copy agrees until this one is retuned.
+export const SHUTDOWN_DRAIN_GRACE_MS = 3000;
 
 // SHUTDOWN_ABORT_GRACE_MS bounds the wait after the SECOND aggrega/shutdown
 // (abort) before escalating to SIGTERM. The abort cancels in-flight work,
@@ -94,6 +98,33 @@ const SIGTERM_GRACE_MS = 2000;
 // STARTUP_QUEUE_LIMIT caps the requests queued while the subprocess
 // is starting. Excess requests fail with a queue-overflow error.
 const STARTUP_QUEUE_LIMIT = 100;
+
+// ShutdownNarration is what terminateSubprocess reports as it walks the
+// graceful-then-forced ladder: one line for each request it makes of the daemon
+// and one for each way the daemon can leave. A reader watching a slow shutdown
+// sees which step is taking the time and whether the daemon answered at all.
+//
+// It is the single home for those lines, and it is exported for the same reason
+// frameMessage is: a caller that wants to know which step a shutdown reached
+// would otherwise match against its own copy of the wording, and a copy keeps
+// matching nothing quietly once the wording changes. Reading the step back is
+// what makes a claim about how a daemon stopped assertable without timing it.
+export const ShutdownNarration = {
+  // The first request: stop accepting work, finish what is in flight, exit.
+  cooperativeRequest: 'asking the daemon to exit cooperatively',
+  // The daemon answered that first request within its grace window.
+  cooperativeExit: 'the daemon exited cooperatively',
+  // The grace window closed with the daemon still working, so it is asked
+  // again — this time to give up the work rather than finish it.
+  abandonRequest: 'the daemon is still working; asking it to abandon in-flight work',
+  // The daemon answered the second request.
+  abandonedExit: 'the daemon exited after abandoning in-flight work',
+  // No cooperative answer is coming, or none was asked for: the process is
+  // taken down by the operating system instead.
+  osTermination: 'the daemon is still running; terminating it at the operating-system level',
+  // Even that was not honored within its grace window.
+  forcedTermination: 'the daemon did not stop; forcing termination',
+} as const;
 
 // RespawnTracker counts unexpected exits within a sliding window
 // and reports whether a fresh respawn attempt is permitted.
@@ -652,25 +683,43 @@ export class Daemon extends EventEmitter {
     // the initialize-failure path, where cooperative shutdown does not
     // help an unhealthy daemon.
     if (cooperative) {
-      // Phase 1: DRAIN. Send the first aggrega/shutdown and wait
+      // DRAIN. Send the first aggrega/shutdown and wait
       // SHUTDOWN_DRAIN_GRACE_MS. The daemon stops accepting new work, lets
-      // in-flight work finish, then exits on its own — later phases are
+      // in-flight work finish, then exits on its own — the later steps are
       // skipped when it does.
-      if (this.writeShutdown(proc) && (await waitForExit(proc, SHUTDOWN_DRAIN_GRACE_MS))) {
-        this.proc = null;
-        return;
+      //
+      // Each step reports itself through ShutdownNarration, and the request is
+      // reported only once it was actually written: an unwritable stdin falls
+      // through to the next step, and narrating a request that never left would
+      // make the daemon look unresponsive to something nobody asked it.
+      if (this.writeShutdown(proc)) {
+        this.log(ShutdownNarration.cooperativeRequest);
+        if (await waitForExit(proc, SHUTDOWN_DRAIN_GRACE_MS)) {
+          this.log(ShutdownNarration.cooperativeExit);
+          this.proc = null;
+          return;
+        }
       }
 
-      // Phase 2: ABORT. The drain did not complete in time; send a second
+      // ABORT. The drain did not complete in time; send a second
       // aggrega/shutdown, which cancels in-flight work, and wait
       // SHUTDOWN_ABORT_GRACE_MS for the daemon to exit.
-      if (this.writeShutdown(proc) && (await waitForExit(proc, SHUTDOWN_ABORT_GRACE_MS))) {
-        this.proc = null;
-        return;
+      if (this.writeShutdown(proc)) {
+        this.log(ShutdownNarration.abandonRequest);
+        if (await waitForExit(proc, SHUTDOWN_ABORT_GRACE_MS)) {
+          this.log(ShutdownNarration.abandonedExit);
+          this.proc = null;
+          return;
+        }
       }
     }
 
-    // Phase 3: SIGTERM with SIGTERM_GRACE_MS budget. Phase 4: SIGKILL.
+    // SIGTERM with SIGTERM_GRACE_MS budget, then SIGKILL. Reached either
+    // because both cooperative requests went unanswered, or because the caller
+    // asked for no cooperative attempt at all — restart and the
+    // initialize-failure path, where asking an unhealthy daemon nicely helps
+    // nobody. The line is worded to be true of both.
+    this.log(ShutdownNarration.osTermination);
     await new Promise<void>(resolve => {
       let resolved = false;
       const done = () => { if (!resolved) { resolved = true; resolve(); } };
@@ -681,7 +730,7 @@ export class Daemon extends EventEmitter {
       // grace window before SIGKILL escalates.
       setTimeout(() => {
         if (proc.exitCode === null && proc.signalCode === null) {
-          // Phase 4: SIGKILL.
+          this.log(ShutdownNarration.forcedTermination);
           proc.kill('SIGKILL');
         }
         setTimeout(done, 100);

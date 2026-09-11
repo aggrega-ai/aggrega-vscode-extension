@@ -9,7 +9,7 @@ import { ConvertedShape } from '../../src/diagnostics-shape';
 import { handleDaemonError, isJsonRpcError } from '../../src/error-surfaces';
 import { settingsFromObject } from '../../src/settings';
 import { ERR_ENTITY_NOT_RESOLVABLE } from '../../src/types';
-import { brokenManifestWorkspaceRoot, ensureAggregaBinary } from '../helpers/build-aggrega';
+import { brokenManifestWorkspaceRoot, requireAggregaBinary } from '../helpers/build-aggrega';
 
 // The whole point of this file is that neither half is written by hand. The
 // payload comes out of a real aggrega serve subprocess, and the range comes
@@ -25,16 +25,7 @@ describe('Error-envelope span, daemon to editor range', function () {
   let workspaceRoot: string;
 
   before(function () {
-    try {
-      binaryPath = ensureAggregaBinary();
-    } catch (err) {
-      // Matches the convention the other real-subprocess suite follows: skip
-      // where the source tree or the toolchain is unavailable rather than
-      // failing a checkout that never had them.
-      // eslint-disable-next-line no-console
-      console.warn(`Skipping error-envelope span suite: ${(err as Error).message}`);
-      this.skip();
-    }
+    binaryPath = requireAggregaBinary(this, 'error-envelope span suite');
     workspaceRoot = brokenManifestWorkspaceRoot();
   });
 
