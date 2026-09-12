@@ -72,6 +72,7 @@ const ATTACHED: PluginAddResult = {
     machineWide: false,
     workspaceRoot: '/work/project',
   },
+  written: true,
 };
 
 // A provider binding as the compiler answers it: the artifact identity it bound
@@ -85,6 +86,7 @@ const BOUND: PluginAddResult = {
     machineWide: false,
     workspaceRoot: '/work/project',
   },
+  written: true,
 };
 
 // The compiler's own refusal for a term matching more than one plugin, quoted
@@ -342,6 +344,7 @@ describe('the ending is composed from the answer', () => {
       type: 'importer',
       identity: 'importer/langflow:2.0.0',
       scope: ATTACHED.scope,
+      written: true,
     };
     assert.strictEqual(
       attachmentDetail(importer),
@@ -377,7 +380,7 @@ describe('the ending is composed from the answer', () => {
     // No type this surface offers produces such an answer, and a sentence built from
     // a missing field would read as a plugin called undefined. What is said is what
     // is certain.
-    const neither: PluginAddResult = { type: 'linter', scope: ATTACHED.scope };
+    const neither: PluginAddResult = { type: 'linter', scope: ATTACHED.scope, written: true };
     const line = attachmentDetail(neither);
     assert.strictEqual(
       line,
@@ -662,5 +665,239 @@ describe('a retraction reaches the reader in the ending, not in a channel', () =
       + "/work/project/aggrega.yaml, this project's own configuration file."
       + ' Retracted and not selected: 2.0.0 (withdrawn in favour of a successor).',
     );
+  });
+});
+
+// --- where the withdrawal records came from ------------------------------
+
+// 🔴 A WITHDRAWAL A READER CANNOT DATE IS A WITHDRAWAL THEY CANNOT ACT ON, which
+// is why these run as their own group rather than as a variation of the ones
+// above. Records read while the attachment ran speak to now; a snapshot can be
+// older than the withdrawal it is being asked about, and only the second leaves
+// the reader anything to do about the gap. A reader told neither is not merely
+// under-informed — they weigh a stale answer as a current one.
+describe('the ending says where the withdrawal records came from', () => {
+  // The same substitution as above, with the source of the records attached: the
+  // compiler's own spelling of where the screen read them, and when the snapshot
+  // behind them was taken.
+  const SOURCED: PluginAddResult = {
+    ...ATTACHED,
+    retraction: {
+      reference: 'hub.aggrega.ai/plugin/linter/publishing-conventions',
+      selected: '1.4.0',
+      excluded: [{ version: '2.0.0', reason: 'withdrawn in favour of a successor' }],
+      provenance: {
+        source: 'hub.aggrega.ai referrer listing',
+        lastUpdated: '2026-09-11T08:00:00Z',
+      },
+    },
+  };
+
+  const OPENING =
+    'The attachment added linter/publishing-conventions:1.4.0 as a linter plugin in '
+    + "/work/project/aggrega.yaml, this project's own configuration file.";
+
+  it('reaches the reader through the ending, on the path a reader actually meets', async () => {
+    // 🔴 THE INVOCATION PROOF, AND IT IS DRIVEN RATHER THAN READ OFF THE COMPOSER.
+    // The answer travels the whole way — through the operation, into the outcome,
+    // into the sentence — so what is asserted is what a reader is handed, not what
+    // a function a test called directly returned.
+    const { deps } = recorder(SOURCED);
+    const outcome = await runPluginAttachment(deps, { type: 'linter', query: 'publishing' });
+    assert.strictEqual(outcome.kind, 'ok');
+    assert.strictEqual(
+      terminalLine(ATTACHMENT_SUBJECT, outcome),
+      `${OPENING} Retracted and not selected: 2.0.0 (withdrawn in favour of a successor).`
+      + ' Withdrawal records from hub.aggrega.ai referrer listing, last updated 2026-09-11T08:00:00Z.',
+    );
+  });
+
+  it('qualifies a screening that could not run, which is the condition that needs it most', () => {
+    // 🔴 THE BRANCH A ONE-SIDED WIRING WOULD LEAVE UNQUALIFIED. A reader told the
+    // screen could not run has been told the least of any reader here, and naming
+    // the records it failed to read is what tells them whether the gap is one they
+    // can close. A clause appended to the exclusions alone would pass every
+    // assertion above and leave this reader exactly as badly off as before.
+    const unscreenedAndSourced: PluginAddResult = {
+      ...ATTACHED,
+      retraction: {
+        reference: 'hub.aggrega.ai/plugin/linter/publishing-conventions',
+        unscreened: 'the registry refused the referrer listing',
+        provenance: {
+          source: 'hub.aggrega.ai referrer listing',
+          lastUpdated: '2026-09-11T08:00:00Z',
+        },
+      },
+    };
+    assert.strictEqual(
+      terminalLine(ATTACHMENT_SUBJECT, { kind: 'ok', detail: attachmentDetail(unscreenedAndSourced) }),
+      `${OPENING} Published versions were not screened for retraction: the registry refused the`
+      + ' referrer listing. Withdrawal records from hub.aggrega.ai referrer listing, last updated'
+      + ' 2026-09-11T08:00:00Z.',
+    );
+  });
+
+  it('names the source verbatim rather than a spelling of this surface\'s own', () => {
+    // The source is the compiler's characters. A surface that mapped it onto a
+    // friendlier name would still name a source, so the assertion is on the
+    // characters — and it uses a spelling nothing here would invent.
+    const odd: PluginAddResult = {
+      ...ATTACHED,
+      retraction: {
+        ...SOURCED.retraction!,
+        provenance: { source: 'an offline mirror taken at image build' },
+      },
+    };
+    const line = attachmentDetail(odd);
+    assert.ok(
+      line.includes('Withdrawal records from an offline mirror taken at image build.'),
+      `the source is not carried through verbatim: ${line}`,
+    );
+  });
+
+  it('says where without saying when, for records that carry no such time', () => {
+    // 🔴 ABSENT IS NOT STALE AND NOT UNKNOWN. Records read while the attachment ran
+    // have no snapshot time to report at all, so a phrase standing in for the
+    // missing one would report an uncertainty the compiler never claimed — and a
+    // reader would weigh it. What is said is only what was measured.
+    const noTime: PluginAddResult = {
+      ...ATTACHED,
+      retraction: {
+        ...SOURCED.retraction!,
+        provenance: { source: 'the registry, read while the attachment ran' },
+      },
+    };
+    const line = terminalLine(ATTACHMENT_SUBJECT, { kind: 'ok', detail: attachmentDetail(noTime) });
+    assert.strictEqual(
+      line,
+      `${OPENING} Retracted and not selected: 2.0.0 (withdrawn in favour of a successor).`
+      + ' Withdrawal records from the registry, read while the attachment ran.',
+    );
+    assert.ok(!line.includes('undefined'), 'an absent snapshot time reaches the reader as undefined');
+    assert.ok(!line.includes('last updated'), 'a snapshot time is claimed where none was reported');
+  });
+
+  it('appends nothing at all when the compiler reported no source, in either condition', () => {
+    // 🔴 THE CONTROL, AND IT IS AN EQUALITY RATHER THAN A CONTAINMENT. A containment
+    // check passes on a line that appended an empty clause, a dangling separator or
+    // the word undefined — every one of which a reader meets as damage. Both
+    // conditions are read, because a clause defaulted into one of them would satisfy
+    // either taken alone.
+    const unsourcedExcluded: PluginAddResult = {
+      ...ATTACHED,
+      retraction: {
+        reference: 'hub.aggrega.ai/plugin/linter/publishing-conventions',
+        selected: '1.4.0',
+        excluded: [{ version: '2.0.0', reason: 'withdrawn in favour of a successor' }],
+      },
+    };
+    assert.strictEqual(
+      terminalLine(ATTACHMENT_SUBJECT, { kind: 'ok', detail: attachmentDetail(unsourcedExcluded) }),
+      `${OPENING} Retracted and not selected: 2.0.0 (withdrawn in favour of a successor).`,
+    );
+    const unsourcedUnscreened: PluginAddResult = {
+      ...ATTACHED,
+      retraction: {
+        reference: 'hub.aggrega.ai/plugin/linter/publishing-conventions',
+        unscreened: 'the registry refused the referrer listing',
+      },
+    };
+    assert.strictEqual(
+      terminalLine(ATTACHMENT_SUBJECT, { kind: 'ok', detail: attachmentDetail(unsourcedUnscreened) }),
+      `${OPENING} Published versions were not screened for retraction: the registry refused the`
+      + ' referrer listing.',
+    );
+  });
+
+  it('leaves an ordinary attachment one sentence, source or no source', () => {
+    // An advisory that concluded nothing is still nothing to qualify, so a source
+    // arriving beside it changes no ending. Without this the clause could be
+    // appended to every attachment ever made, which teaches a reader to read past
+    // the one sentence that matters.
+    const concludedNothing: PluginAddResult = {
+      ...ATTACHED,
+      retraction: {
+        reference: 'hub.aggrega.ai/plugin/linter/publishing-conventions',
+        excluded: [],
+        provenance: { source: 'hub.aggrega.ai referrer listing' },
+      },
+    };
+    assert.strictEqual(
+      terminalLine(ATTACHMENT_SUBJECT, { kind: 'ok', detail: attachmentDetail(concludedNothing) }),
+      OPENING,
+    );
+    assert.strictEqual(
+      terminalLine(ATTACHMENT_SUBJECT, { kind: 'ok', detail: attachmentDetail(ATTACHED) }),
+      OPENING,
+    );
+  });
+});
+
+// --- the answer shape, read back whole -----------------------------------
+
+// 🔴 A FIXTURE CARRYING EVERY FIELD THE ANSWER DECLARES, TYPED AS THE ANSWER. A
+// typed object literal may not carry a property its type does not declare, so a
+// field dropped from the shape stops this file compiling. That is the strongest
+// hold available on the two fields nothing on this surface reads, and it is the
+// reason they are declared at all.
+//
+// It is a shape rather than an answer: the compiler fills exactly one of the three
+// identity fields and never both conditions of a retraction at once. Read it as
+// the full field list, never as a reply anything produces.
+//
+// ⚠️ AND IT HOLDS THE SHAPE AGAINST THIS FIXTURE, NEVER AGAINST THE COMPILER.
+// Nothing compares the two, so a field the answer gains and this fixture does not
+// know about is invisible here. What this catches is a field going missing from
+// this side — not one arriving on the other.
+const WHOLE_ANSWER: PluginAddResult = {
+  type: 'linter',
+  identity: 'linter/publishing-conventions:1.4.0',
+  uri: 'oci://registry.example.test/plugin/linter/publishing-conventions',
+  capability: 'helm',
+  reference: 'hub.aggrega.ai/plugin/linter/publishing-conventions:1.4.0',
+  scope: {
+    configFile: '/work/project/aggrega.yaml',
+    machineWide: false,
+    workspaceRoot: '/work/project',
+  },
+  written: true,
+  content: 'plugins:\n  linters:\n    - linter/publishing-conventions:1.4.0\n',
+  retraction: {
+    reference: 'hub.aggrega.ai/plugin/linter/publishing-conventions',
+    selected: '1.4.0',
+    excluded: [{ version: '2.0.0', reason: 'withdrawn in favour of a successor' }],
+    unscreened: 'the registry refused the referrer listing',
+    provenance: {
+      source: 'hub.aggrega.ai referrer listing',
+      lastUpdated: '2026-09-11T08:00:00Z',
+    },
+  },
+};
+
+describe('the answer shape carries every field the compiler sends', () => {
+  it('reads back the whole field list, at each of the three levels', () => {
+    // The key sets are independent literals, so dropping a field from the shape
+    // fails twice over: the fixture above stops compiling, and this stops passing.
+    assert.deepStrictEqual(
+      Object.keys(WHOLE_ANSWER).sort(),
+      ['capability', 'content', 'identity', 'reference', 'retraction', 'scope', 'type', 'uri', 'written'],
+    );
+    assert.deepStrictEqual(
+      Object.keys(WHOLE_ANSWER.retraction ?? {}).sort(),
+      ['excluded', 'provenance', 'reference', 'selected', 'unscreened'],
+    );
+    assert.deepStrictEqual(
+      Object.keys(WHOLE_ANSWER.retraction?.provenance ?? {}).sort(),
+      ['lastUpdated', 'source'],
+    );
+  });
+
+  it('declares the always-sent field as one that is always there', () => {
+    // The compiler sends this one on every answer rather than omitting it when
+    // false, so it is not a field a reader of this shape has to test for. Declaring
+    // it optional would let a caller treat an absence as meaningful, and there is
+    // no absence to read.
+    assert.strictEqual(WHOLE_ANSWER.written, true);
+    assert.ok('written' in WHOLE_ANSWER);
   });
 });

@@ -39,9 +39,10 @@ import { PLUGIN_TYPE_GOVERNANCE, PLUGIN_TYPE_PROVIDER, PluginAttachment } from '
 // would have to go and open.
 //
 // What is composed here is the wording alone. Which versions were withdrawn, the
-// reason recorded against each, and which version was pinned instead are all the
-// compiler's own, carried across unchanged — so this surface can say it in the
-// words its reader is reading without being able to disagree about the facts.
+// reason recorded against each, which version was pinned instead, and where the
+// withdrawal records were read from are all the compiler's own, carried across
+// unchanged — so this surface can say it in the words its reader is reading
+// without being able to disagree about the facts.
 
 // ATTACHMENT_SUBJECT is the operation in the reader's terms, used for the
 // sentence every ending produces. One spelling, so a completion and a failure
@@ -113,6 +114,17 @@ export interface PluginAddResult {
   capability?: string;
   reference?: string;
   scope: ConfigWriteScope;
+  // written and content are the answer's two halves of one choice: whether the
+  // compiler put the configuration on disk or handed it back instead. A write
+  // leaves content empty, because the file is already at the path scope names; a
+  // report leaves written false and returns the document in content. The two are
+  // never both meaningful.
+  //
+  // This surface composes no such choice, so every attachment it sends writes and
+  // both fields say the same thing on every answer it reads. They are declared so
+  // the shape driven here is the shape the wire has, and read by nothing.
+  written: boolean;
+  content?: string;
   // retraction is what the compiler's withdrawal screen concluded about the
   // version that was pinned, and is absent whenever it concluded nothing — which
   // is every ordinary attachment. It is optional for that reason rather than
@@ -127,6 +139,24 @@ export interface PluginAddResult {
 export interface PluginRetractionExclusion {
   version: string;
   reason?: string;
+}
+
+// PluginRetractionProvenance says where the compiler's withdrawal screen got its
+// facts and how current they are.
+//
+// source is the screen's own spelling for where it read them, carried across
+// unchanged. Naming it in words of this surface's own would let the two come to
+// call one source by two names, and a reader comparing them would have no way to
+// tell that is what happened.
+//
+// lastUpdated is when the snapshot behind those facts was taken. It is absent
+// whenever there is no such time to report — facts read while the attachment ran
+// have none, and a snapshot may carry no build time — so an absent one is not a
+// stale one, and the sentence composed from it says nothing about currency rather
+// than guessing at it.
+export interface PluginRetractionProvenance {
+  source: string;
+  lastUpdated?: string;
 }
 
 // PluginRetraction is the compiler's conclusion about the version an attachment
@@ -145,6 +175,13 @@ export interface PluginRetraction {
   selected?: string;
   excluded?: PluginRetractionExclusion[];
   unscreened?: string;
+  // provenance qualifies whichever of those two conditions arrived, and is absent
+  // when selection ran with no screen at all — where nothing was consulted there
+  // is no source to report. A reader acting on a withdrawal needs it: facts read
+  // while the attachment ran speak to now, while a snapshot can be older than the
+  // withdrawal it is being asked about, and only the second leaves the reader
+  // anything to do about the gap.
+  provenance?: PluginRetractionProvenance;
 }
 
 // PluginAttachmentDeps is the one thing an attachment needs: a way to ask the
@@ -287,21 +324,28 @@ export function attachmentDetail(result: PluginAddResult): string {
 // attachment.
 //
 // Every value in it is the compiler's own, rendered verbatim: the versions, the
-// reasons recorded against them, and the fault a failed screening read reported.
-// What this composes is the sentence around them, which is this surface's own
-// because the reader is reading this surface — and composing it from the values
-// rather than re-stating the compiler's line is what keeps the two from drifting
-// into disagreement about the facts.
+// reasons recorded against them, the fault a failed screening read reported, and
+// the source those records came from. What this composes is the sentence around
+// them, which is this surface's own because the reader is reading this surface —
+// and composing it from the values rather than re-stating the compiler's line is
+// what keeps the two from drifting into disagreement about the facts.
+//
+// 🔴 THE SOURCE CLAUSE QUALIFIES BOTH CONDITIONS, AND WIRING IT INTO ONE WOULD
+// LEAVE THE WORSE CASE UNQUALIFIED. A reader told that the screen could not run
+// still needs to know which records it could not read, because that is what says
+// whether the gap is one they can close. So it is composed once and appended to
+// whichever condition spoke.
 export function retractionNote(retraction?: PluginRetraction): string {
   if (!retraction) {
     return '';
   }
+  const source = provenanceNote(retraction.provenance);
   // The unscreened case is answered first and on its own, because it is the one
   // that would otherwise pass as silence: it carries no exclusions by definition,
   // so a check that looked at those first would find none and say nothing at all —
   // which reads exactly like an attachment that screened cleanly.
   if (retraction.unscreened) {
-    return ` Published versions were not screened for retraction: ${retraction.unscreened}.`;
+    return ` Published versions were not screened for retraction: ${retraction.unscreened}.${source}`;
   }
   const excluded = retraction.excluded ?? [];
   if (excluded.length === 0) {
@@ -310,5 +354,27 @@ export function retractionNote(retraction?: PluginRetraction): string {
   const named = excluded
     .map((x) => (x.reason ? `${x.version} (${x.reason})` : x.version))
     .join(', ');
-  return ` Retracted and not selected: ${named}.`;
+  return ` Retracted and not selected: ${named}.${source}`;
+}
+
+// provenanceNote names where the withdrawal records came from, and when they were
+// last refreshed where there is such a time.
+//
+// It says where rather than how good, because how current a source is is a
+// judgement about the source and this surface has no grounds for one: what it can
+// tell the reader is the two facts the compiler measured, in the compiler's own
+// spelling of each.
+//
+// An absent time is left unsaid rather than described. It means there is no such
+// time to report — facts read while the attachment ran have none — so a phrase
+// standing in for it would report an uncertainty the compiler never claimed, and
+// a reader would weigh it as though it had.
+function provenanceNote(provenance?: PluginRetractionProvenance): string {
+  if (!provenance) {
+    return '';
+  }
+  if (provenance.lastUpdated) {
+    return ` Withdrawal records from ${provenance.source}, last updated ${provenance.lastUpdated}.`;
+  }
+  return ` Withdrawal records from ${provenance.source}.`;
 }
