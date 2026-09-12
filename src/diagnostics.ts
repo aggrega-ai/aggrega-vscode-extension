@@ -10,6 +10,7 @@ import {
   groupDiagnosticsBySource,
   shapeForDaemonDiagnostic,
 } from './diagnostics-shape';
+import { LintPublication, applyLintPublication } from './lint-run';
 
 // convertDaemonDiagnostic maps the daemon's per-file diagnostic
 // wire shape to a vscode.Diagnostic. Delegates the position/severity
@@ -129,25 +130,34 @@ export function publishShapes(
   collection.set(uri, shapes.map(diagnosticFromShape));
 }
 
-// replaceLintFindings makes byFile the whole content of the lint collection:
-// every entry the previous run published is dropped first, so a finding the
-// author has since fixed disappears instead of accumulating across runs.
+// replaceLintFindings carries one publication onto the lint collection.
+//
+// It is the editor-coupled half and it decides nothing: which entries a run
+// supersedes was settled where the publication was composed, so what is left
+// here is turning paths into URIs and shapes into diagnostics. That split is
+// what makes the decision assertable without an extension host, which is where
+// this surface's behaviour is pinned.
 //
 // The collection passed here is the conventions linter's own, never the
 // language server's. The two are kept apart because each replaces its own
-// entries wholesale: sharing one would make a validation publish drop a file's
-// lint findings, and a lint run erase every validation result.
+// entries: sharing one would make a validation publish drop a file's lint
+// findings, and a lint run erase every validation result.
 //
-// Keys are absolute paths, already resolved by the caller against the workspace
+// Paths are absolute, already resolved by the caller against the workspace
 // root, and are used directly as file URIs.
 export function replaceLintFindings(
   collection: vscode.DiagnosticCollection,
-  byFile: Map<string, ConvertedShape[]>,
+  publication: LintPublication,
 ): void {
-  collection.clear();
-  for (const [file, shapes] of byFile) {
-    collection.set(vscode.Uri.file(file), shapes.map(diagnosticFromShape));
-  }
+  applyLintPublication(
+    {
+      clearAll: () => collection.clear(),
+      clearFile: (file) => collection.delete(vscode.Uri.file(file)),
+      setFile: (file, shapes) =>
+        collection.set(vscode.Uri.file(file), shapes.map(diagnosticFromShape)),
+    },
+    publication,
+  );
 }
 
 // diagnosticFromShape builds the editor diagnostic every publish path goes

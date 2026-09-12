@@ -164,28 +164,34 @@ export const RECORDED_LAUNCH_SITES: Readonly<Record<LaunchHelper, ReadonlyArray<
     ['cli-json.ts', 1],
     ['plugins-view.ts', 1],
   ],
-  // The declaration, the dependency resolution, and the two per-entity checks.
+  // The declaration, the dependency resolution, and the per-entity correctness
+  // check.
   //
   // 🔴 NO SINGLE REASON HOLDS THE REMAINDER, AND READING IT AS THOUGH ONE DID IS
   // HOW AN ENTRY COMES TO LOOK SETTLED WHEN IT IS NOT. Each survivor carries its
   // own reason at its own call site, which is where a reader standing at a launch
   // can see it. In `workspace-catalog-view.ts`: the per-entity correctness check,
-  // whose request answers a different shape, and the per-entity conventions check,
-  // held by where its answer would land rather than by anything the compiler
-  // cannot do. In `operations.ts`: the dependency resolution, held by a stop the
-  // request surface cannot match — the closure walk resolves each entity through a
-  // catalog lookup that takes no context, so the registry fetch inside the walk
-  // runs on one nothing can cancel, while ending the process ends it.
+  // whose request answers correctness in a different shape — over a document's
+  // bytes or a Release's closure, neither of which a row names. In
+  // `operations.ts`: the dependency resolution, held by a stop the request surface
+  // cannot match — the closure walk resolves each entity through a catalog lookup
+  // that takes no context, so the registry fetch inside the walk runs on one
+  // nothing can cancel, while ending the process ends it.
   //
-  // 🔴 THE REGISTRY INDEX BUILD IS GONE FROM THIS TABLE AND ITS ABSENCE IS THE
-  // MEASUREMENT. Its walk observes the request's own context once per registry and
-  // carries it into every network call, so the stop survived the move. An entry
-  // reappearing in `registries-view.ts` is a regression rather than a survivor, and
-  // this comparison is what says so.
+  // 🔴 TWO OPERATIONS ARE ABSENT FROM THIS TABLE AND THEIR ABSENCE IS THE
+  // MEASUREMENT. The registry index build is absent because its walk observes the
+  // request's own context once per registry and carries it into every network
+  // call, so the stop survives on the request surface. The per-entity conventions
+  // check is absent because a publish carries the subject it was about, so an
+  // answer covering one entity replaces that entity's entries rather than the
+  // whole panel — which is the only thing that kept it on a command. An entry
+  // appearing in `registries-view.ts`, or a second one in
+  // `workspace-catalog-view.ts`, is a regression rather than a survivor, and this
+  // comparison is what says so.
   runWatchableCli: [
     ['cli-operation.ts', 1],
     ['operations.ts', 1],
-    ['workspace-catalog-view.ts', 2],
+    ['workspace-catalog-view.ts', 1],
   ],
 };
 

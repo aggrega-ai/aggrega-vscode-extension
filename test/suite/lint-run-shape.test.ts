@@ -3,11 +3,14 @@
 
 import * as assert from 'node:assert';
 import {
+  CATALOG_WIDE,
   LintAnswer,
   countUnlocatable,
   findingsByFile,
+  lintPublication,
   reportLines,
   summaryLine,
+  unlocatableNote,
 } from '../../src/lint-run';
 import { SeverityToken, shapeForDaemonDiagnostic } from '../../src/diagnostics-shape';
 
@@ -271,10 +274,15 @@ describe('reportLines — the compiler\'s own report format, composed from the a
   });
 });
 
+// 🔴 EVERY SENTENCE BELOW IS A LITERAL THE WHOLE-CATALOG ARM ALREADY PRODUCED,
+// CARRIED THROUGH UNCHANGED. The subject clause is what was added, and it is
+// reached only by an answer that names an entity — so an answer that names none
+// reads exactly as it did, and a sentence here changing is the signal that the
+// whole-catalog arm moved.
 describe('summaryLine', () => {
   it('reports the finding count and the corpus the run covered', () => {
     assert.strictEqual(
-      summaryLine(MEASURED_ANSWER),
+      summaryLine(MEASURED_ANSWER, WORKSPACE_ROOT),
       'Aggrega lint: 1 finding(s) across 127 entities checked — see the Problems panel.',
     );
   });
@@ -283,28 +291,137 @@ describe('summaryLine', () => {
   // ANSWERS, so a clean run states its corpus rather than staying silent.
   it('states a clean run over a named corpus', () => {
     assert.strictEqual(
-      summaryLine({ checked: 127, findings: 0, files: [] }),
+      summaryLine({ checked: 127, findings: 0, files: [] }, WORKSPACE_ROOT),
       'Aggrega lint: no findings across 127 entities checked.',
     );
   });
 
   it('distinguishes a clean run over nothing from a clean run over a catalog', () => {
     assert.notStrictEqual(
-      summaryLine({ checked: 0, findings: 0, files: [] }),
-      summaryLine({ checked: 127, findings: 0, files: [] }),
+      summaryLine({ checked: 0, findings: 0, files: [] }, WORKSPACE_ROOT),
+      summaryLine({ checked: 127, findings: 0, files: [] }, WORKSPACE_ROOT),
     );
     assert.strictEqual(
-      summaryLine({ checked: 0, findings: 0, files: [] }),
+      summaryLine({ checked: 0, findings: 0, files: [] }, WORKSPACE_ROOT),
       'Aggrega lint: no findings across 0 entities checked.',
     );
   });
 
   // A count the compiler never sent is never shown.
   it('omits the corpus clause when the answer carried no count', () => {
-    assert.strictEqual(summaryLine({ findings: 0 }), 'Aggrega lint: no findings.');
+    assert.strictEqual(summaryLine({ findings: 0 }, WORKSPACE_ROOT), 'Aggrega lint: no findings.');
   });
 
   it('omits every count when the answer carried none', () => {
-    assert.strictEqual(summaryLine({}), 'Aggrega lint: run complete.');
+    assert.strictEqual(summaryLine({}, WORKSPACE_ROOT), 'Aggrega lint: run complete.');
+  });
+
+  // 🔴 THE FIELD THE ANSWER HAS ALWAYS CARRIED AND NOTHING READ. A run about one
+  // entity and a whole-catalog run over a one-entity catalog report the same
+  // count, so the count cannot tell them apart; the echoed subject can, and it is
+  // what a reader who pressed a row needs back.
+  it('names the entity an answer says it was about', () => {
+    assert.strictEqual(
+      summaryLine(
+        { entity: MEASURED_RELATIVE_FILE, checked: 1, findings: 1, files: [] },
+        WORKSPACE_ROOT,
+      ),
+      `Aggrega lint: 1 finding(s) in /ws/${MEASURED_RELATIVE_FILE} — see the Problems panel.`,
+    );
+  });
+
+  it('tells a one-entity run apart from a whole-catalog run over one entity', () => {
+    // The discriminator is the field's presence, never the count: both answers
+    // below report one entity checked and no findings.
+    assert.notStrictEqual(
+      summaryLine({ entity: MEASURED_RELATIVE_FILE, checked: 1, findings: 0 }, WORKSPACE_ROOT),
+      summaryLine({ checked: 1, findings: 0 }, WORKSPACE_ROOT),
+    );
+  });
+
+  // The count is the compiler's own and includes findings that named no
+  // document; those cannot be published against any file, so the panel shows
+  // fewer than the sentence states. Excluding them would mean recounting a number
+  // the compiler owns, so the difference is explained instead.
+  it('explains a count the Problems panel cannot match', () => {
+    assert.strictEqual(
+      summaryLine(
+        {
+          checked: 127,
+          findings: 2,
+          files: [
+            { file: 'x.yaml', diagnostics: [{ line: 1, column: 1, severity: 'warning', message: 'located', source: 'aggrega-lint' }] },
+            { file: '', diagnostics: [{ line: 1, column: 1, severity: 'warning', message: 'nowhere', source: 'aggrega-lint' }] },
+          ],
+        },
+        WORKSPACE_ROOT,
+      ),
+      'Aggrega lint: 2 finding(s) across 127 entities checked — see the Problems panel.'
+      + ' 1 finding(s) named no entity file, so they appear only in the Aggrega output channel.',
+    );
+  });
+
+  it('says nothing about unlocatable findings when there are none', () => {
+    assert.strictEqual(unlocatableNote(MEASURED_ANSWER), '');
+  });
+});
+
+// --- what one answer replaces --------------------------------------------
+
+describe('lintPublication', () => {
+  const ENTITY = { kind: 'entity' as const, entityPath: MEASURED_RELATIVE_FILE };
+
+  it('replaces everything for a whole-catalog run, which is every document it covered', () => {
+    const publication = lintPublication(CATALOG_WIDE, MEASURED_ANSWER, WORKSPACE_ROOT);
+    assert.strictEqual(publication.clearAll, true);
+    assert.deepStrictEqual(publication.clear, []);
+    assert.deepStrictEqual([...publication.set.keys()], [`/ws/${MEASURED_RELATIVE_FILE}`]);
+  });
+
+  it('drops only the entity it was about, so the rest of the panel stands', () => {
+    const publication = lintPublication(
+      ENTITY,
+      { entity: MEASURED_RELATIVE_FILE, checked: 1, findings: 0, files: [] },
+      WORKSPACE_ROOT,
+    );
+    assert.strictEqual(publication.clearAll, false);
+    assert.deepStrictEqual(publication.clear, [`/ws/${MEASURED_RELATIVE_FILE}`]);
+    assert.strictEqual(publication.set.size, 0);
+  });
+
+  // 🔴 THE UNION, NOT THE SUBJECT ALONE. Findings are grouped by their own
+  // location, so an answer about one entity may name another document — and a
+  // group arriving empty says that document is now clean, which only a drop
+  // expresses.
+  it('drops the union of its subject and every document the answer names', () => {
+    const publication = lintPublication(
+      ENTITY,
+      {
+        entity: MEASURED_RELATIVE_FILE,
+        checked: 1,
+        findings: 0,
+        files: [{ file: 'elsewhere.yaml', diagnostics: [] }],
+      },
+      WORKSPACE_ROOT,
+    );
+    assert.deepStrictEqual(
+      publication.clear,
+      [`/ws/${MEASURED_RELATIVE_FILE}`, '/ws/elsewhere.yaml'],
+    );
+  });
+
+  it('names a document once when the subject is also the document the answer carries', () => {
+    const publication = lintPublication(ENTITY, MEASURED_ANSWER, WORKSPACE_ROOT);
+    assert.deepStrictEqual(publication.clear, [`/ws/${MEASURED_RELATIVE_FILE}`]);
+    assert.deepStrictEqual([...publication.set.keys()], [`/ws/${MEASURED_RELATIVE_FILE}`]);
+  });
+
+  it('drops nothing for a group that names no document, having nothing to drop it from', () => {
+    const publication = lintPublication(
+      ENTITY,
+      { entity: MEASURED_RELATIVE_FILE, files: [{ file: '', diagnostics: [] }] },
+      WORKSPACE_ROOT,
+    );
+    assert.deepStrictEqual(publication.clear, [`/ws/${MEASURED_RELATIVE_FILE}`]);
   });
 });

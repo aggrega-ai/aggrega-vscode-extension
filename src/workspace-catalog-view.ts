@@ -10,7 +10,6 @@ import {
 import {
   catalogEntityName,
   catalogEntityPath,
-  catalogLintArgs,
   catalogRowContext,
   catalogValidateArgs,
 } from './catalog-entity-operations';
@@ -45,12 +44,12 @@ const OPEN_COMMAND_TITLE = 'Open the entity file';
 //
 // The two transports both appear here because the operations on this panel are
 // split across them, and which one an operation takes is a property of the
-// compiler rather than a choice this surface makes: the inspection and the
-// publication are answered by the language server, while the two per-entity
-// checks stay command-line backed — the correctness check because the request
-// channel answers correctness in a different shape, and the conventions check
-// because of where its answer would land, each stated at its own registration
-// below. A reader pressing an entry is not told which, and does not need to be.
+// compiler rather than a choice this surface makes: the inspection, the
+// publication and the conventions check are answered by the language server,
+// while the correctness check stays command-line backed, because the request
+// channel answers correctness in a different shape. The reason is stated at that
+// one registration below. A reader pressing an entry is not told which transport
+// it takes, and does not need to be.
 export interface WorkspaceCatalogDeps extends RendersOnReady, CliOperationDeps {
   getWorkspaceRoot(): string | null;
   getBinaryPath(): string;
@@ -69,6 +68,12 @@ export interface WorkspaceCatalogDeps extends RendersOnReady, CliOperationDeps {
     params: PublishEntityParams,
     signal?: CancellationSignal,
   ): Promise<PublishEntityResult>;
+  // lintEntity checks one entity's publishing conventions and republishes what
+  // it found. It is handed in as a whole run rather than as a request, because
+  // the findings land in a collection this panel does not own: the check answers
+  // one question whichever surface asked it, and a second collection here would
+  // be a second layer in the Problems panel for one set of rules.
+  lintEntity(entityPath: string): Promise<void>;
   output: vscode.OutputChannel;
 }
 
@@ -241,29 +246,16 @@ export function activateWorkspaceCatalogView(
     // that row, so the path is always given: the wider question is a different
     // one, and it is already offered where it belongs.
     //
-    // Both are invoked as commands, for different reasons.
-    //
-    // The correctness check below is the only operation on this surface the
-    // compiler answers in a different SHAPE rather than not at all. Checking one
-    // entity on its own reads that entity from disk and checks it as the kind it
-    // declares — which for a Recipe means compiling it against a generated minimal
-    // deployment, so an author sees its output before it is wired into any
-    // Aggregate. The request channel answers correctness over a document's own
-    // bytes and, where one is named, over a Release's resolved closure. Those are
-    // two scopes of one question, and a row names an entity rather than a buffer
-    // or a Release — so there is nothing here to send the entity to yet.
-    //
-    // 🔴 THE CONVENTIONS CHECK BELOW STAYS A COMMAND FOR A REASON THAT IS NOT THE
-    // STOP, AND THE DISTINCTION MATTERS BECAUSE THE STOP USED TO BE THE REASON.
-    // The request channel answers this question for one named entity and honours a
-    // stop that reaches the work, so neither of those is what keeps this row on a
-    // command. What does is where the answer would land: the conventions findings
-    // published into the Problems panel are replaced WHOLESALE by the catalog-wide
-    // form of this check, so a per-entity answer published into the same place
-    // would erase every other document's findings — and one published nowhere
-    // would be a reader pressing a row and seeing less than the panel already
-    // shows. That is a question about what a reader should see, not about what the
-    // compiler can do, so it is left as it is rather than answered here.
+    // 🔴 THE CORRECTNESS CHECK BELOW IS THE ONE OPERATION ON THIS SURFACE THE
+    // COMPILER ANSWERS IN A DIFFERENT SHAPE RATHER THAN NOT AT ALL, WHICH IS WHY
+    // IT ALONE IS STILL INVOKED AS A COMMAND. Checking one entity on its own
+    // reads that entity from disk and checks it as the kind it declares — which
+    // for a Recipe means compiling it against a generated minimal deployment, so
+    // an author sees its output before it is wired into any Aggregate. The
+    // request channel answers correctness over a document's own bytes and, where
+    // one is named, over a Release's resolved closure. Those are two scopes of one
+    // question, and a row names an entity rather than a buffer or a Release — so
+    // there is nothing here to send the entity to yet.
     vscode.commands.registerCommand(
       'aggrega.workspaceCatalog.validate',
       (node?: WorkspaceCatalogNode) => onPath(node, (entityPath) =>
@@ -276,16 +268,26 @@ export function activateWorkspaceCatalogView(
         )),
     ),
 
+    // The conventions check is a request, and it publishes into the same
+    // collection the whole-catalog form of this check writes to.
+    //
+    // 🔴 WHAT MAKES PUBLISHING INTO A SHARED COLLECTION SAFE IS THAT A PUBLISH
+    // CARRIES THE SUBJECT IT WAS ABOUT. A publish that replaced the collection
+    // wholesale would let an answer about one entity erase every other document's
+    // findings — a cost invisible until a reader loses a result they were reading.
+    // A run drops what its own subject and answer supersede, so a row press
+    // refreshes its own entity and the rest stand. Giving the row a collection of
+    // its own is the other way to reach that and is worse: two conventions layers
+    // in one Problems panel is a thing a reader has to learn in order to read what
+    // one set of rules produced.
+    //
+    // The run itself is not composed here. It is handed in whole, because the
+    // collection belongs to the surface that created it and this panel is one of
+    // two places the same check is asked from.
     vscode.commands.registerCommand(
       'aggrega.workspaceCatalog.lint',
       (node?: WorkspaceCatalogNode) => onPath(node, (entityPath) =>
-        runWatchableCli(
-          deps,
-          `Aggrega: checking the publishing conventions for ${entityPath}`,
-          'The conventions check',
-          catalogLintArgs(entityPath),
-          `checked the publishing conventions for ${entityPath}.`,
-        )),
+        deps.lintEntity(entityPath)),
     ),
 
     // Publishing confirms first, and the confirmation names what the change

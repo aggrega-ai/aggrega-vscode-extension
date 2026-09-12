@@ -7,10 +7,10 @@ import {
   CATALOG_NO_DOCUMENT_ROW_CONTEXT,
   catalogEntityName,
   catalogEntityPath,
-  catalogLintArgs,
   catalogRowContext,
   catalogValidateArgs,
 } from '../../src/catalog-entity-operations';
+import { entityLintSubject, lintRequestParams } from '../../src/lint-run';
 import { publishEntityRequest } from '../../src/publication-request';
 import {
   CatalogIndexEntity,
@@ -186,10 +186,24 @@ describe('the invocations a workspace-catalog row composes', () => {
     );
   });
 
-  it('checks one entity\'s publishing conventions by its path', () => {
+  it('checks one entity\'s publishing conventions by its path, as a request', () => {
+    // The row's own value travels unconverted: the compiler resolves a document
+    // parameter relative to the workspace root, which is the spelling the row
+    // already carries. Converting it here would send a path the request refuses.
     assert.deepStrictEqual(
-      catalogLintArgs('catalog/components/api-server.yaml'),
-      ['lint', 'catalog/components/api-server.yaml'],
+      lintRequestParams(entityLintSubject('catalog/components/api-server.yaml')),
+      { entity: 'catalog/components/api-server.yaml' },
+    );
+  });
+
+  it('asks for no pre-publication comparison, so a finding cannot fail the run', () => {
+    // An equality on the WHOLE parameter object rather than a check that the
+    // mode is absent: the comparison is the only mode whose verdict refuses, and
+    // it is also the only one that reaches a registry, so a key arriving here
+    // would change both what the run costs and what its outcome means.
+    assert.deepStrictEqual(
+      Object.keys(lintRequestParams(entityLintSubject('catalog/components/api-server.yaml'))),
+      ['entity'],
     );
   });
 
@@ -205,9 +219,9 @@ describe('the invocations a workspace-catalog row composes', () => {
     // so a subject dropped on the way to the compiler would not fail — it would
     // silently run the wider operation instead of the one the row names. That is
     // why the composition refuses rather than defaulting, and it holds on both
-    // transports: the publication is a request and refuses on exactly the same
-    // ground.
-    for (const compose of [catalogValidateArgs, catalogLintArgs, publishEntityRequest]) {
+    // transports: two of the three are requests and refuse on exactly the same
+    // ground as the invocation beside them.
+    for (const compose of [catalogValidateArgs, entityLintSubject, publishEntityRequest]) {
       assert.throws(() => compose(''), /and none was given/);
       assert.throws(() => compose('   '), /and none was given/);
     }

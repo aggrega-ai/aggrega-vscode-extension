@@ -5,8 +5,13 @@ import * as assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import {
+  CATALOG_WIDE,
   LINT_SUBJECT,
   LintAnswer,
+  LintPublication,
+  LintSubject,
+  applyLintPublication,
+  entityLintSubject,
   runLint,
 } from '../../src/lint-run';
 import { ConvertedShape } from '../../src/diagnostics-shape';
@@ -19,15 +24,30 @@ import {
   launchFacilityCount,
 } from '../helpers/launch-census';
 
-// FakeSink records what each run published, so a test reads back exactly the
-// findings an author would have seen in the Problems panel — including the
-// replacement semantics, which are only visible across two runs.
+// FakeSink is a model of the Problems panel: it holds what is currently on
+// screen and carries each publication onto it, so a test reads back exactly the
+// entries an author would have seen — including the replacement semantics, which
+// are only visible across two runs.
+//
+// It applies the publication through the same applier the editor-coupled publish
+// uses, which is deliberate: the decision under test is what a publication SAYS,
+// and re-implementing the application here would test a second applier nothing
+// ships. What keeps that from blinding the assertions is that every expectation
+// below is a literal, so a defect planted in the decision moves the actual and
+// leaves the expected where it was.
 class FakeSink {
   published: Map<string, ConvertedShape[]> = new Map();
   replaceCalls = 0;
-  replace(byFile: Map<string, ConvertedShape[]>): void {
+  replace(publication: LintPublication): void {
     this.replaceCalls++;
-    this.published = byFile;
+    applyLintPublication(
+      {
+        clearAll: () => this.published.clear(),
+        clearFile: (file) => { this.published.delete(file); },
+        setFile: (file, shapes) => { this.published.set(file, shapes); },
+      },
+      publication,
+    );
   }
 }
 
@@ -45,11 +65,13 @@ interface Harness {
   notices: Array<{ message: string; tier: 'info' | 'error' }>;
   invocations: number;
   signals: Array<CancellationSignal | undefined>;
+  subjects: LintSubject[];
 }
 
 // harness builds the run's dependency set over recorders and a caller-supplied
-// answer for the request. Every signal handed to the request is kept, so what
-// reached the compiler is a measurement rather than an inference.
+// answer for the request. Every signal and every subject handed to the request
+// is kept, so what reached the compiler is a measurement rather than an
+// inference.
 function harness(root: string | null, answer: () => Promise<LintAnswer>): Harness {
   const sink = new FakeSink();
   const log = new FakeLog();
@@ -59,10 +81,12 @@ function harness(root: string | null, answer: () => Promise<LintAnswer>): Harnes
     notices: [],
     invocations: 0,
     signals: [],
+    subjects: [],
     deps: {
       getWorkspaceRoot: () => root,
-      lint: (signal) => {
+      lint: (subject, signal) => {
         h.invocations++;
+        h.subjects.push(subject);
         h.signals.push(signal);
         return answer();
       },
@@ -110,11 +134,80 @@ const CLEAN: LintAnswer = {
   checked: 127, findings: 0, errors: 0, warnings: 0, infos: 0, files: [], halted: false,
 };
 
+// --- a second entity, for the per-entity cases ----------------------------
+
+const OTHER_MESSAGE =
+  'Component at "/ws/catalog/component/core/compute/worker/1.0.0/component.yaml" declares metadata.name="worker" but its path derives name="core/compute/worker"; standard-catalog convention requires the name to mirror the directory';
+const OTHER_RELATIVE = 'catalog/component/core/compute/worker/1.0.0/component.yaml';
+const OTHER_ABSOLUTE = `/ws/${OTHER_RELATIVE}`;
+
+// A whole-catalog answer carrying one finding in each of two documents. It is
+// what the panel holds before a row is pressed, and it is the state the
+// per-entity cases below are measured against.
+const TWO_ENTITIES: LintAnswer = {
+  checked: 127,
+  findings: 2,
+  errors: 0,
+  warnings: 2,
+  infos: 0,
+  files: [
+    {
+      file: CATEGORY_RELATIVE,
+      diagnostics: [{
+        line: 1, column: 1, severity: 'warning', message: CATEGORY_MESSAGE,
+        code: 'category-matches-directory', source: 'aggrega-lint',
+      }],
+    },
+    {
+      file: OTHER_RELATIVE,
+      diagnostics: [{
+        line: 1, column: 1, severity: 'warning', message: OTHER_MESSAGE,
+        code: 'name-mirrors-directory', source: 'aggrega-lint',
+      }],
+    },
+  ],
+  halted: false,
+};
+
+// 🔴 THE ANSWER A RE-CHECK OF A NOW-FIXED ENTITY GIVES, AND IT IS THE CASE A
+// NAIVE IMPLEMENTATION FAILS. It names no document at all, so an implementation
+// that only SETS leaves the stale entry standing and a reader sees a fixed entity
+// still flagged. Only dropping the subject first removes it.
+const ENTITY_NOW_CLEAN: LintAnswer = {
+  entity: CATEGORY_RELATIVE,
+  checked: 1,
+  findings: 0,
+  errors: 0,
+  warnings: 0,
+  infos: 0,
+  files: [],
+  halted: false,
+};
+
+// The same entity re-checked and still failing, with the rule's text changed so
+// the entry on screen after the second run is distinguishable from the first's.
+const ENTITY_STILL_FAILING: LintAnswer = {
+  entity: CATEGORY_RELATIVE,
+  checked: 1,
+  findings: 1,
+  errors: 0,
+  warnings: 1,
+  infos: 0,
+  files: [{
+    file: CATEGORY_RELATIVE,
+    diagnostics: [{
+      line: 4, column: 3, severity: 'warning', message: 'a second reading of the same entity',
+      code: 'category-matches-directory', source: 'aggrega-lint',
+    }],
+  }],
+  halted: false,
+};
+
 describe('runLint', () => {
   it('publishes one navigable entry per finding, keyed by the entity document', async () => {
     const h = harness('/ws', () => Promise.resolve(ONE_FINDING));
 
-    await runLint(h.deps);
+    await runLint(h.deps, CATALOG_WIDE);
 
     assert.strictEqual(h.invocations, 1, 'the check must actually be asked for');
     assert.deepStrictEqual([...h.sink.published.keys()], [CATEGORY_ABSOLUTE]);
@@ -131,7 +224,7 @@ describe('runLint', () => {
   it('publishes findings without reporting the run as a failure', async () => {
     const h = harness('/ws', () => Promise.resolve(ONE_FINDING));
 
-    await runLint(h.deps);
+    await runLint(h.deps, CATALOG_WIDE);
 
     assert.strictEqual(h.sink.published.size, 1);
     assert.deepStrictEqual(
@@ -147,7 +240,7 @@ describe('runLint', () => {
   it('writes the compiler\'s report into the log', async () => {
     const h = harness('/ws', () => Promise.resolve(ONE_FINDING));
 
-    await runLint(h.deps);
+    await runLint(h.deps, CATALOG_WIDE);
 
     assert.deepStrictEqual(h.log.lines, [
       `${CATEGORY_ABSOLUTE}:`,
@@ -159,7 +252,7 @@ describe('runLint', () => {
   it('reports a clean run rather than leaving the reader with nothing', async () => {
     const h = harness('/ws', () => Promise.resolve(CLEAN));
 
-    await runLint(h.deps);
+    await runLint(h.deps, CATALOG_WIDE);
 
     assert.strictEqual(h.sink.replaceCalls, 1);
     assert.strictEqual(h.sink.published.size, 0);
@@ -175,7 +268,7 @@ describe('runLint', () => {
     let answer = ONE_FINDING;
     const h = harness('/ws', () => Promise.resolve(answer));
 
-    await runLint(h.deps);
+    await runLint(h.deps, CATALOG_WIDE);
     assert.deepStrictEqual([...h.sink.published.keys()], [CATEGORY_ABSOLUTE]);
 
     answer = {
@@ -186,7 +279,7 @@ describe('runLint', () => {
         diagnostics: [{ line: 1, column: 1, severity: 'warning', message: 'a different entity', code: 'name-shape', source: 'aggrega-lint' }],
       }],
     };
-    await runLint(h.deps);
+    await runLint(h.deps, CATALOG_WIDE);
 
     assert.strictEqual(h.invocations, 2);
     assert.strictEqual(h.sink.replaceCalls, 2);
@@ -201,11 +294,11 @@ describe('runLint', () => {
     let answer = ONE_FINDING;
     const h = harness('/ws', () => Promise.resolve(answer));
 
-    await runLint(h.deps);
+    await runLint(h.deps, CATALOG_WIDE);
     assert.strictEqual(h.sink.published.size, 1);
 
     answer = CLEAN;
-    await runLint(h.deps);
+    await runLint(h.deps, CATALOG_WIDE);
 
     assert.strictEqual(h.sink.published.size, 0, 'a fixed finding must disappear');
   });
@@ -218,7 +311,7 @@ describe('runLint', () => {
       'OPS_ERROR: whole-catalog conventions check needs catalog directories to scan; pass --catalog or set `workspace.catalog_dirs` in .aggrega-config.yaml (or check a specific Release with --release)';
     const h = harness('/ws', () => Promise.reject(new Error(productMessage)));
 
-    await runLint(h.deps);
+    await runLint(h.deps, CATALOG_WIDE);
 
     assert.deepStrictEqual(h.notices, [{ message: productMessage, tier: 'error' }]);
     assert.ok(h.log.lines.includes(productMessage));
@@ -233,11 +326,11 @@ describe('runLint', () => {
       fail ? Promise.reject(new Error('OPS_ERROR: could not run')) : Promise.resolve(ONE_FINDING),
     );
 
-    await runLint(h.deps);
+    await runLint(h.deps, CATALOG_WIDE);
     assert.strictEqual(h.sink.published.size, 1);
 
     fail = true;
-    await runLint(h.deps);
+    await runLint(h.deps, CATALOG_WIDE);
 
     assert.strictEqual(h.sink.replaceCalls, 1, 'a failed run must not republish');
     assert.deepStrictEqual([...h.sink.published.keys()], [CATEGORY_ABSOLUTE]);
@@ -246,7 +339,7 @@ describe('runLint', () => {
   it('does not ask for the check when no workspace is anchored', async () => {
     const h = harness(null, () => Promise.resolve(ONE_FINDING));
 
-    await runLint(h.deps);
+    await runLint(h.deps, CATALOG_WIDE);
 
     assert.strictEqual(h.invocations, 0, 'no anchor means nothing is asked');
     assert.strictEqual(h.sink.replaceCalls, 0);
@@ -262,7 +355,7 @@ describe('runLint', () => {
       }),
     );
 
-    await runLint(h.deps);
+    await runLint(h.deps, CATALOG_WIDE);
 
     assert.strictEqual(h.sink.published.size, 0);
     assert.ok(
@@ -286,7 +379,7 @@ describe('a reader\'s stop', () => {
     };
     const h = harness('/ws', () => Promise.resolve(ONE_FINDING));
 
-    await runLint(h.deps, signal);
+    await runLint(h.deps, CATALOG_WIDE, signal);
 
     assert.deepStrictEqual(h.signals, [signal], 'the reader\'s signal did not reach the request');
   });
@@ -294,7 +387,7 @@ describe('a reader\'s stop', () => {
   it('is reported as stopped rather than as a failure', async () => {
     const h = harness('/ws', () => Promise.reject(new OperationCancelled(LINT_SUBJECT)));
 
-    await runLint(h.deps, {
+    await runLint(h.deps, CATALOG_WIDE, {
       isCancellationRequested: true,
       onCancellationRequested: () => ({ dispose: () => undefined }),
     });
@@ -313,14 +406,160 @@ describe('a reader\'s stop', () => {
       stop ? Promise.reject(new OperationCancelled(LINT_SUBJECT)) : Promise.resolve(ONE_FINDING),
     );
 
-    await runLint(h.deps);
+    await runLint(h.deps, CATALOG_WIDE);
     assert.strictEqual(h.sink.published.size, 1);
 
     stop = true;
-    await runLint(h.deps);
+    await runLint(h.deps, CATALOG_WIDE);
 
     assert.strictEqual(h.sink.replaceCalls, 1, 'a stopped run must not republish');
     assert.deepStrictEqual([...h.sink.published.keys()], [CATEGORY_ABSOLUTE]);
+  });
+});
+
+// --- a check about one entity ---------------------------------------------
+
+// 🔴 EVERY EXPECTATION IN THIS BLOCK IS A LITERAL. The sink applies the same
+// publication the editor-coupled publish applies, so an expectation DERIVED from
+// the run would move with a defect planted in the decision and the comparison
+// would go green over a broken one. Written out, the expected panel contents are
+// fixed independently of whatever the decision produces.
+describe('a conventions check about one entity', () => {
+  // afterRowPress drives the sequence a reader actually performs: the
+  // whole-catalog check, then the row press on the first of the two entities it
+  // reported. It returns the harness with the panel model in its final state.
+  async function afterRowPress(second: LintAnswer): Promise<Harness> {
+    let answer: LintAnswer = TWO_ENTITIES;
+    const h = harness('/ws', () => Promise.resolve(answer));
+
+    await runLint(h.deps, CATALOG_WIDE);
+    assert.deepStrictEqual(
+      onScreen(h),
+      [CATEGORY_ABSOLUTE, OTHER_ABSOLUTE],
+      'the whole-catalog run did not put both entities on screen, so the press below proves nothing',
+    );
+
+    answer = second;
+    await runLint(h.deps, entityLintSubject(CATEGORY_RELATIVE));
+    return h;
+  }
+
+  // onScreen reads the documents the panel holds, in a fixed order.
+  //
+  // Sorted, because the model's own order is the order entries were inserted and
+  // a document that is dropped and set again therefore moves to the end — an
+  // artifact of the recorder, not something a reader can observe: the editor
+  // orders the Problems panel itself. Sorting is what keeps these equalities
+  // about WHICH documents are on screen, which is the claim.
+  function onScreen(h: Harness): string[] {
+    return [...h.sink.published.keys()].sort();
+  }
+
+  it('sends the row\'s own path unconverted, which is the spelling the request takes', async () => {
+    const h = await afterRowPress(ENTITY_STILL_FAILING);
+    assert.deepStrictEqual(
+      h.subjects,
+      [{ kind: 'catalog' }, { kind: 'entity', entityPath: CATEGORY_RELATIVE }],
+    );
+  });
+
+  // 🔴 THE CASE A NAIVE IMPLEMENTATION FAILS.
+  it('removes the entity\'s stale findings when it comes back clean', async () => {
+    const h = await afterRowPress(ENTITY_NOW_CLEAN);
+    assert.strictEqual(
+      h.sink.published.has(CATEGORY_ABSOLUTE),
+      false,
+      'a fixed entity is still flagged: the answer named no document, so only clearing the '
+      + 'subject can remove what the previous run published',
+    );
+  });
+
+  // Its companion. The same press, read from the other side.
+  it('leaves every other entity\'s findings standing through that press', async () => {
+    const h = await afterRowPress(ENTITY_NOW_CLEAN);
+    assert.deepStrictEqual(onScreen(h), [OTHER_ABSOLUTE]);
+    assert.deepStrictEqual(
+      h.sink.published.get(OTHER_ABSOLUTE)!.map((s) => s.message),
+      [OTHER_MESSAGE],
+      'the other entity\'s finding was replaced by a run that never looked at it',
+    );
+  });
+
+  it('replaces its own entity\'s findings when it comes back with a new one', async () => {
+    const h = await afterRowPress(ENTITY_STILL_FAILING);
+    assert.deepStrictEqual(onScreen(h), [CATEGORY_ABSOLUTE, OTHER_ABSOLUTE]);
+    assert.deepStrictEqual(
+      h.sink.published.get(CATEGORY_ABSOLUTE)!.map((s) => s.message),
+      ['a second reading of the same entity'],
+      'the first run\'s finding survived beside the second\'s',
+    );
+    assert.deepStrictEqual(
+      h.sink.published.get(OTHER_ABSOLUTE)!.map((s) => s.message),
+      [OTHER_MESSAGE],
+    );
+  });
+
+  // The repair the move owes: a count with no subject reads identically to a
+  // whole-catalog run over a one-entity catalog, which is exactly the confusion a
+  // reader who pressed a row would hit.
+  it('names the entity in the ending rather than reporting a bare count', async () => {
+    const h = await afterRowPress(ENTITY_STILL_FAILING);
+    assert.deepStrictEqual(
+      h.notices[1],
+      {
+        message: `Aggrega lint: 1 finding(s) in ${CATEGORY_ABSOLUTE} — see the Problems panel.`,
+        tier: 'info',
+      },
+    );
+  });
+
+  it('names the entity on a clean re-check too, so "no findings" says what was checked', async () => {
+    const h = await afterRowPress(ENTITY_NOW_CLEAN);
+    assert.deepStrictEqual(
+      h.notices[1],
+      { message: `Aggrega lint: no findings in ${CATEGORY_ABSOLUTE}.`, tier: 'info' },
+    );
+  });
+
+  // Findings are advisory on every mode this surface asks for, so a press that
+  // finds something is a run that succeeded. A red notice here would teach a
+  // reader that a convention violation blocks them, which it does not.
+  it('ends a findings-bearing run in an information notice, never an error one', async () => {
+    const h = await afterRowPress(ENTITY_STILL_FAILING);
+    assert.deepStrictEqual(h.notices.map((n) => n.tier), ['info', 'info']);
+  });
+
+  // The count the compiler owns can exceed what the panel shows, and the channel
+  // that used to carry the explanation no longer opens on a press.
+  it('explains a finding the panel cannot show, where the reader is now looking', async () => {
+    const h = await afterRowPress({
+      entity: CATEGORY_RELATIVE,
+      checked: 1,
+      findings: 2,
+      files: [
+        {
+          file: CATEGORY_RELATIVE,
+          diagnostics: [{
+            line: 1, column: 1, severity: 'warning', message: 'located', source: 'aggrega-lint',
+          }],
+        },
+        {
+          file: '',
+          diagnostics: [{
+            line: 1, column: 1, severity: 'warning', message: 'nowhere', source: 'aggrega-lint',
+          }],
+        },
+      ],
+    });
+    assert.deepStrictEqual(
+      h.notices[1],
+      {
+        message: `Aggrega lint: 2 finding(s) in ${CATEGORY_ABSOLUTE} — see the Problems panel.`
+          + ' 1 finding(s) named no entity file, so they appear only in the Aggrega output channel.',
+        tier: 'info',
+      },
+      'a reader is told two findings and shown one, with nothing saying where the other went',
+    );
   });
 });
 
@@ -343,6 +582,11 @@ describe('the conventions check reaches the compiler without a launch', () => {
     // Read as the WHOLE import list, so a module added to it has to be looked at —
     // including one that could start a process and one that would carry the editor
     // in, which is what keeps the run's decisions readable without a host.
+    //
+    // operation-groups is on the list because the blank-subject refusal has its one
+    // home there: it neither starts a process nor imports an editor type, and its
+    // own imports reach neither, so admitting it costs the property this reading
+    // exists to protect nothing at all.
     const source = fs.readFileSync(path.join(EXTENSION_ROOT, 'src/lint-run.ts'), 'utf8');
     const imported = [...source.matchAll(/from\s+'([^']+)'/g)].map((m) => m[1]);
     assert.deepStrictEqual(
@@ -350,6 +594,7 @@ describe('the conventions check reaches the compiler without a launch', () => {
       [
         './cancellation',
         './diagnostics-shape',
+        './operation-groups',
         './operation-outcome',
         './types',
         './workspace',
@@ -383,23 +628,51 @@ describe('the conventions check reaches the compiler without a launch', () => {
     // A tree-wide COUNT rather than a check of the module that composed it, because
     // a call left behind elsewhere would not compile while the composition itself
     // would read as though it were still the path.
+    //
+    // 🔴 TWO SHAPES, BECAUSE THE BRACKET READING ALONE IS BLIND TO HALF THE
+    // COMPOSITIONS THERE ARE. A verb sent through the shared subject guard never
+    // appears as a literal array, so a composition made that way is invisible to
+    // that reading — which is the shape a per-entity command line for this check
+    // takes.
+    //
+    // The guard reading is a NAMED SET rather than a zero, and the distinction is
+    // the whole point: the guard returns an argument-list shape whichever
+    // transport asks for it, so the verb appearing there says a subject was
+    // refused-or-trimmed, not that a command line exists. What would make it one is
+    // a launch helper reading it, and the census above is what says none does.
+    // Naming the one module that may reach it is what makes a SECOND appearance
+    // fail — and an equality against a non-empty literal is its own control, since
+    // a pattern that stopped matching yields an empty list.
     const dir = path.join(EXTENSION_ROOT, 'src');
-    const composers = fs.readdirSync(dir)
+    const matching = (pattern: RegExp): string[] => fs.readdirSync(dir)
       .filter((f) => f.endsWith('.ts'))
-      .filter((f) => /\[\s*'lint'\s*,/.test(fs.readFileSync(path.join(dir, f), 'utf8')))
+      .filter((f) => pattern.test(fs.readFileSync(path.join(dir, f), 'utf8')))
       .sort();
-    assert.deepStrictEqual(composers, []);
-    // The positive control for this sweep: the pattern shape still finds an
-    // argument list that legitimately remains, so the absence above is an absence.
-    const remaining = fs.readdirSync(dir)
-      .filter((f) => f.endsWith('.ts'))
-      .filter((f) => /\[\s*'plugin'\s*,/.test(fs.readFileSync(path.join(dir, f), 'utf8')))
-      .sort();
+
+    assert.deepStrictEqual(matching(/\[\s*'lint'\s*,/), []);
+    assert.deepStrictEqual(matching(/withSubject\(\s*'lint'\s*,/), ['lint-run.ts']);
+
+    // The positive control for the bracket sweep: the pattern shape still finds a
+    // composition that legitimately remains, so the absence above is an absence.
     assert.notDeepStrictEqual(
-      remaining,
+      matching(/\[\s*'plugin'\s*,/),
       [],
       'the argument-list pattern no longer matches a composition that provably exists, so the '
       + 'absence above would pass vacuously',
     );
+  });
+
+  it('gives both subjects of the check one collection to publish into', () => {
+    // The row press and the whole-catalog entry answer one question, so they
+    // write into one layer of the Problems panel. Two collections would be two
+    // layers for one set of rules, which is a thing a reader has to learn in
+    // order to read what is already there — and it is invisible from either
+    // run's own output, so it is read off the module that creates them.
+    const source = fs.readFileSync(path.join(EXTENSION_ROOT, 'src/lint.ts'), 'utf8');
+    const created = (source.match(/createDiagnosticCollection\s*\(/g) ?? []).length;
+    assert.strictEqual(created, 1, 'the conventions check creates more than one collection');
+    // And both entries are driven from one dependency set, so neither can be
+    // given a sink of its own without this reading changing.
+    assert.strictEqual((source.match(/sink:/g) ?? []).length, 1);
   });
 });

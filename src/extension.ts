@@ -132,7 +132,7 @@ import { openAuthoringReleaseConfig, createActiveReleaseMarker } from './release
 import { activateOperations, OperationsView } from './operations';
 import { SWITCH_ANCHOR_COMMAND } from './selector-rows';
 import { activateLint, LintRunner } from './lint';
-import { LintAnswer } from './lint-run';
+import { LintAnswer, LintSubject, lintRequestParams } from './lint-run';
 import { activateGraphView, GraphView } from './graph-view';
 import { activateCatalogViews } from './catalog-views';
 import { activateGetStarted } from './get-started';
@@ -556,6 +556,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     requestCatalogIndex,
     entityDefinition: requestEntityDefinition,
     publishEntity: requestPublishEntity,
+    // The conventions check on a row runs through the same runner the Commands
+    // panel's whole-catalog entry uses, so both write into one collection and a
+    // row press refreshes its own entity instead of standing up a second layer.
+    lintEntity: (entityPath) => lintRunner?.runEntity(entityPath) ?? Promise.resolve(),
     onReady: ready.onReady,
     output: outputChannel,
   });
@@ -2049,30 +2053,35 @@ async function requestRegistrySearch(params: RegistrySearchParams): Promise<Sear
 }
 
 // requestLint asks the language server for the publishing-conventions findings
-// over every catalog entity the workspace's configured catalog directories hold.
+// over the subject it is given: every catalog entity the workspace's configured
+// catalog directories hold, or one entity named by its workspace-relative path.
 //
-// It names neither an entity nor a Release, which is how the request asks for the
-// whole catalog — the same subject the command line's bare invocation names, and
-// the one the editor's control offers.
+// The parameters are composed from the subject rather than written here, so the
+// two questions the surface asks are one request with one shape — the same two
+// subjects the command line addresses, one with a path and one without.
 //
-// It reaches no registry. Only the mode that reads local content runs; the
-// comparison against a previously published version is a different subject that a
-// request has to ask for by name, and this one does not.
+// It reaches no registry under either subject. Only the mode that reads local
+// content runs; the comparison against a previously published version is a
+// different question a request has to ask for by name, and neither of these does.
 //
-// 🔴 IT CARRIES CANCELLATION, AND THE STOP REACHES THE WORK. This request's own
-// context is what the catalog tree walk and the per-entity rule dispatch observe,
-// so a reader's stop abandons the entities not yet reached rather than only
-// ending this side's wait. That matters here more than on most operations: the
-// walk's cost grows with the catalog, and it is the one operation on this surface
-// whose run is measured in seconds rather than in a round trip.
+// 🔴 IT CARRIES CANCELLATION, AND WHAT THE STOP REACHES DIFFERS BY SUBJECT. Over
+// the whole catalog this request's own context is what the tree walk and the
+// per-entity rule dispatch observe, so a reader's stop abandons the entities not
+// yet reached rather than only ending this side's wait — which matters because
+// that walk's cost grows with the catalog. Over one entity the same context is
+// observed once, immediately before the rules run, so a stop abandons the rules
+// rather than the remaining corpus.
 //
 // Throws when the server is not running, so a caller reports that state rather
 // than presenting a check that never ran as one that found nothing.
-async function requestLint(signal?: CancellationSignal): Promise<LintAnswer> {
+async function requestLint(
+  subject: LintSubject,
+  signal?: CancellationSignal,
+): Promise<LintAnswer> {
   if (!daemon || daemon.getState() !== DaemonState.Running) {
     throw new Error('the Aggrega language server is not running');
   }
-  return await daemon.request<LintAnswer>('aggrega/lint', {}, signal);
+  return await daemon.request<LintAnswer>('aggrega/lint', lintRequestParams(subject), signal);
 }
 
 // requestPluginAdd asks the language server to resolve a search term to one

@@ -11,10 +11,10 @@ import { withSubject } from './operation-groups';
 // without an extension host: a test reads back the exact argument list a press
 // would compose, and the exact value the manifest targets a row with.
 //
-// The publication is not composed here and no longer passes through here. It is a
-// language-server request taking the row's own workspace-relative path as a
-// request parameter, so there is no argument list for this module to own or to
-// re-export; the panel reaches it directly.
+// The publication and the publishing-conventions check are not composed here and
+// no longer pass through here. Each is a language-server request taking the row's
+// own workspace-relative path as a request parameter, so there is no argument
+// list for this module to own or to re-export; the panel reaches both directly.
 
 // The two values a row of this panel carries, and the reason there are two.
 //
@@ -78,17 +78,10 @@ export function catalogEntityName(node: WorkspaceCatalogNode): string | null {
   return node.row.name;
 }
 
-// catalogLintArgs composes the publishing-conventions check for one entity. The
-// command takes the entity's path; without one it checks every entity in the
-// catalog instead, which is a different question and is already offered
-// elsewhere, so the path is required here rather than defaulted.
-export function catalogLintArgs(entityPath: string): string[] {
-  return withSubject('lint', entityPath, 'the path of the entity to check');
-}
-
-// catalogValidateArgs composes the correctness check for one entity. As with the
-// conventions check, the pathless form of this command addresses the whole
-// catalog rather than this row, so the path is required.
+// catalogValidateArgs composes the correctness check for one entity. The
+// pathless form of this command addresses the whole catalog rather than this
+// row, which is a different question and is already offered elsewhere, so the
+// path is required here rather than defaulted.
 export function catalogValidateArgs(entityPath: string): string[] {
   return withSubject('validate', entityPath, 'the path of the entity to check');
 }
