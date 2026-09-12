@@ -18,9 +18,6 @@ import { ConvertedShape, DIAGNOSTIC_SOURCE_FALLBACK } from './diagnostics-shape'
 // aggrega pull is the canonical lockfile-generation entry point —
 // its short description reads "Resolve catalog and source
 // dependencies into the cache and write the per-Release lockfile."
-// An earlier draft of this extension referenced a non-existent
-// `aggrega lockfile generate` subcommand; this constant carries
-// the correct command name now that the daemon-side trigger ships.
 const LOCKFILE_GENERATE_COMMAND = 'aggrega pull';
 
 // LOCKFILE_GENERATE_TOOLTIP is the operator-facing clarification
