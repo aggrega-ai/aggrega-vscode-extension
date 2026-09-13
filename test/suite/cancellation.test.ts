@@ -197,7 +197,16 @@ describe('stopping a subprocess operation terminates the child', () => {
     // the compiler actually stopped. The child sleeps far longer than the test,
     // so an assertion that it has exited cannot pass by the child finishing on
     // its own.
-    const child = spawn('/bin/sh', ['-c', 'sleep 120']);
+    //
+    // Spawned directly rather than through a shell, and that is load-bearing for
+    // the runner rather than for the assertions here: a shell forks the sleep as
+    // a grandchild and hands it the stdio created for the child, so terminating
+    // the shell leaves the grandchild holding those pipes open. The runner's
+    // event loop cannot drain while they are, so it sits idle — every spec
+    // reported, nothing failing — until the sleep elapses. One process also makes
+    // the assertions below mean what they say: the pid signalled is the pid that
+    // must be gone.
+    const child = spawn('sleep', ['120']);
     await new Promise<void>((resolve) => child.once('spawn', () => resolve()));
     const pid = child.pid!;
     assert.ok(pid > 0);
