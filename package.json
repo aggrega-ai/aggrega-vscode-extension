@@ -543,7 +543,8 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
-    "compile": "tsc -p ./ && npm run copy-vendor-assets",
+    "build-wire-contract": "npm --prefix ../aggrega-abi/typescript install && npm --prefix ../aggrega-abi/typescript run build",
+    "compile": "npm run build-wire-contract && tsc -p ./ && npm run copy-vendor-assets",
     "copy-vendor-assets": "node build/copy-vendor-assets.js",
     "watch": "tsc -watch -p ./",
     "build-fixtures": "node out/test/helpers/build-aggrega.js",
@@ -552,6 +553,7 @@
     "test:integration": "npm run compile && vscode-test"
   },
   "devDependencies": {
+    "@aggrega-ai/aggrega-abi": "file:../aggrega-abi/typescript",
     "@types/mocha": "^10.0.0",
     "@types/node": "^20.0.0",
     "@types/semver": "^7.5.0",

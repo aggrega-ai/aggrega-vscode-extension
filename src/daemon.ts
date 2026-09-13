@@ -8,6 +8,8 @@ import {
   JsonRpcNotification,
   JsonRpcRequest,
   JsonRpcResponse,
+  RequestId,
+  RequestMethod,
   ServerEncoding,
   ServerInitMetadata,
 } from './types';
@@ -171,7 +173,7 @@ interface PendingRequest {
 }
 
 interface QueuedRequest {
-  method: string;
+  method: RequestMethod;
   params: unknown;
   resolve: (value: unknown) => void;
   reject: (reason: JsonRpcError | Error) => void;
@@ -199,7 +201,11 @@ export interface DaemonEvents {
 export class Daemon extends EventEmitter {
   private state: DaemonState = DaemonState.Stopped;
   private proc: ChildProcessWithoutNullStreams | null = null;
-  private pending = new Map<number, PendingRequest>();
+  // Keyed by the published identifier type rather than by number. Every id this
+  // client allocates is a number, but an answer carries back whatever the
+  // request named, and the protocol admits a string there — so keying on the
+  // published type is what keeps the lookup honest about what may arrive.
+  private pending = new Map<RequestId, PendingRequest>();
   private startupQueue: QueuedRequest[] = [];
   private nextId = 1;
   private serverEncoding: ServerEncoding = 'utf-16';
@@ -306,7 +312,7 @@ export class Daemon extends EventEmitter {
   // format in a second place and make a second send path the obvious next step,
   // and it is the send that has to be right — a caller that merely stopped
   // waiting would leave the compiler working.
-  request<T>(method: string, params: unknown, signal?: CancellationSignal): Promise<T> {
+  request<T>(method: RequestMethod, params: unknown, signal?: CancellationSignal): Promise<T> {
     params = this.withWorkspaceRoot(params);
     return new Promise<T>((resolve, reject) => {
       const wrappedResolve = (v: unknown) => resolve(v as T);
@@ -495,7 +501,7 @@ export class Daemon extends EventEmitter {
   }
 
   private dispatch(
-    method: string,
+    method: RequestMethod,
     params: unknown,
     resolve: (v: unknown) => void,
     reject: (r: JsonRpcError | Error) => void,

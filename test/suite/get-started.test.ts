@@ -29,8 +29,11 @@ import {
 } from '../../src/get-started-steps';
 import { escapeHtml } from '../../src/html';
 import {
+  WIRE_CONTRACT,
   assertCensusInstrumentFires,
   launchFacilityCount,
+  typeOnlyImports,
+  valueImports,
 } from '../helpers/launch-census';
 import {
   MET_LABEL,
@@ -1608,12 +1611,17 @@ describe('the welcome panel seeds a configuration without starting a process', (
     // rather than as an absence, so a module added to it has to be looked at —
     // including one that could reach a process, and one that would carry the
     // editor in, which is what keeps this decision readable without a host.
-    const source = fs.readFileSync(path.join(EXTENSION_ROOT, 'src/config-seeding.ts'), 'utf8');
-    const imported = [...source.matchAll(/from\s+'([^']+)'/g)].map((m) => m[1]);
+    // 🔴 THE VALUE LIST, WHICH IS WHAT THE CLAIM IS ABOUT. The wire shapes come
+    // from the published contract rather than being restated here, and they come
+    // as declarations alone — erased before anything runs, so the module reaches
+    // no code through them. Asserted separately below, because a reading that
+    // folded the two together would let a later change from one kind to the other
+    // pass unnoticed.
     assert.deepStrictEqual(
-      imported.sort(),
+      valueImports('src/config-seeding.ts'),
       ['./config-write-scope', './operation-outcome', './registration-outcome'],
     );
+    assert.deepStrictEqual(typeOnlyImports('src/config-seeding.ts'), [WIRE_CONTRACT]);
     assert.strictEqual(launchFacilityCount('src/config-seeding.ts'), 0);
     // The shared homes are on the same side of the claim, so each is measured too
     // rather than trusted for being small.

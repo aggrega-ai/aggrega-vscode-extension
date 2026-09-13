@@ -20,8 +20,11 @@ import { terminalLine } from '../../src/operation-outcome';
 import { NO_ANCHORED_WORKSPACE_MESSAGE } from '../../src/workspace';
 import {
   EXTENSION_ROOT,
+  WIRE_CONTRACT,
   assertCensusInstrumentFires,
   launchFacilityCount,
+  typeOnlyImports,
+  valueImports,
 } from '../helpers/launch-census';
 
 // FakeSink is a model of the Problems panel: it holds what is currently on
@@ -274,10 +277,14 @@ describe('runLint', () => {
     answer = {
       checked: 127,
       findings: 1,
+      errors: 0,
+      warnings: 1,
+      infos: 0,
       files: [{
         file: 'other.yaml',
         diagnostics: [{ line: 1, column: 1, severity: 'warning', message: 'a different entity', code: 'name-shape', source: 'aggrega-lint' }],
       }],
+      halted: false,
     };
     await runLint(h.deps, CATALOG_WIDE);
 
@@ -351,7 +358,11 @@ describe('runLint', () => {
       Promise.resolve({
         checked: 3,
         findings: 1,
+        errors: 0,
+        warnings: 1,
+        infos: 0,
         files: [{ file: '', diagnostics: [{ line: 1, column: 1, severity: 'warning', message: 'no entity', code: 'a', source: 'aggrega-lint' }] }],
+        halted: false,
       }),
     );
 
@@ -536,6 +547,10 @@ describe('a conventions check about one entity', () => {
       entity: CATEGORY_RELATIVE,
       checked: 1,
       findings: 2,
+      errors: 0,
+      warnings: 2,
+      infos: 0,
+      halted: false,
       files: [
         {
           file: CATEGORY_RELATIVE,
@@ -587,20 +602,29 @@ describe('the conventions check reaches the compiler without a launch', () => {
     // home there: it neither starts a process nor imports an editor type, and its
     // own imports reach neither, so admitting it costs the property this reading
     // exists to protect nothing at all.
-    const source = fs.readFileSync(path.join(EXTENSION_ROOT, 'src/lint-run.ts'), 'utf8');
-    const imported = [...source.matchAll(/from\s+'([^']+)'/g)].map((m) => m[1]);
+    // 🔴 THE VALUE LIST, WHICH IS WHAT THE CLAIM IS ABOUT. The wire shapes come
+    // from the published contract rather than being restated here, and they come
+    // as declarations alone — erased before anything runs, so the module reaches
+    // no code through them. Asserted separately below, because a reading that
+    // folded the two together would let a later change from one kind to the other
+    // pass unnoticed.
+    //
+    // The module that gathered this surface's own statement of the wire shapes is
+    // no longer on the list, because there is no longer a statement to gather: the
+    // shapes come from the published contract instead, which is a narrowing of what
+    // this module reaches rather than a widening.
     assert.deepStrictEqual(
-      imported.sort(),
+      valueImports('src/lint-run.ts'),
       [
         './cancellation',
         './diagnostics-shape',
         './operation-groups',
         './operation-outcome',
-        './types',
         './workspace',
         'node:path',
       ],
     );
+    assert.deepStrictEqual(typeOnlyImports('src/lint-run.ts'), [WIRE_CONTRACT]);
   });
 
   it('asks for the check from exactly one place', () => {

@@ -16,6 +16,7 @@
 //
 // It holds no editor type, so the join is assertable without an extension host.
 
+import type * as wire from '@aggrega-ai/aggrega-abi/dist/servewire_gen';
 import {
   ConfigControl,
   ConfigSection,
@@ -36,18 +37,11 @@ export const DEFAULTS_SOURCE = '(built-in defaults)';
 export const ENV_SOURCE_PREFIX = 'env:';
 
 // EffectiveSetting is one row of the compiler's configuration report.
-export interface EffectiveSetting {
-  field: string;
-  value: string;
-  source: string;
-}
+export type EffectiveSetting = wire.EffectiveConfigurationSetting;
 
 // EffectiveConfiguration is the compiler's configuration report: the layers that
 // contributed, lowest precedence first, and every setting it attributes.
-export interface EffectiveConfiguration {
-  layers: string[];
-  settings: EffectiveSetting[];
-}
+export type EffectiveConfiguration = wire.EffectiveConfigurationResult;
 
 // Provenance is what the surface can honestly say about where a value came from.
 //

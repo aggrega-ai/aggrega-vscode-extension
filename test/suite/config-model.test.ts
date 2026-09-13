@@ -60,7 +60,7 @@ describe('joining a schema against what the compiler resolved', () => {
     });
     assert.ok(read);
     assert.deepStrictEqual(read.layers, ['/etc/aggrega/config.yaml', 'env:AGGREGA_OFFLINE']);
-    assert.strictEqual(read.settings.length, 1);
+    assert.strictEqual((read.settings ?? []).length, 1);
 
     // A response this cannot read yields nothing rather than something partly
     // populated: the surface then draws every setting as unattributed, which is

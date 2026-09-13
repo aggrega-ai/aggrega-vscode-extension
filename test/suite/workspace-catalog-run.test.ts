@@ -211,7 +211,7 @@ describe('workspaceCatalogNodes', () => {
     );
     assert.deepStrictEqual(groups.map((g) => g.rows.length), [1, 2, 1, 1]);
     // Every entity is reachable through a heading and none is dropped.
-    assert.strictEqual(flatRows(await h.nodes()).length, MEASURED_DOCUMENT.entities.length);
+    assert.strictEqual(flatRows(await h.nodes()).length, (MEASURED_DOCUMENT.entities ?? []).length);
   });
 
   it('names the entity and renders its labels as key=value', async () => {
@@ -281,7 +281,7 @@ describe('workspaceCatalogNodes', () => {
       assert.ok(path.isAbsolute(openPath), `${row.label} resolves to an absolute path`);
       assert.strictEqual(
         path.relative(WORKSPACE_ROOT, openPath),
-        MEASURED_DOCUMENT.entities[i].file,
+        (MEASURED_DOCUMENT.entities ?? [])[i].file,
       );
     });
   });
@@ -491,7 +491,7 @@ describe('workspaceCatalogNodes', () => {
     // The recorded response is what pins these. They are values on a wire this
     // side cannot import, so a change to either on the server's side is caught
     // by re-recording the response rather than by anything the compiler sees.
-    const origins = MEASURED_TWO_ORIGIN_DOCUMENT.entities.map((e) => e.origin);
+    const origins = (MEASURED_TWO_ORIGIN_DOCUMENT.entities ?? []).map((e) => e.origin);
     assert.deepStrictEqual(origins, ['workspace', 'catalog', 'catalog']);
     assert.strictEqual(ENTITY_ORIGIN_WORKSPACE, 'workspace');
     assert.strictEqual(ENTITY_ORIGIN_CATALOG, 'catalog');

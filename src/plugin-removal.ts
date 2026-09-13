@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cognitio S.r.l.
 
-import { ConfigWriteScope, reachPhrase } from './config-write-scope';
+import type * as wire from '@aggrega-ai/aggrega-abi/dist/servewire_gen';
+import { reachPhrase } from './config-write-scope';
 import { OperationOutcome, outcomeOf } from './operation-outcome';
 import { withSubject } from './operation-groups';
 
@@ -47,10 +48,7 @@ import { withSubject } from './operation-groups';
 // project's configuration and a command extension to the global one. Which file
 // a removal targets is the operator's setting to make, and pinning it here would
 // decide it for them.
-export interface PluginRemoveParams {
-  type: string;
-  query: string;
-}
+export type PluginRemoveParams = Required<Pick<wire.PluginRemoveParams, 'type' | 'query'>>;
 
 // PluginRemoveResult is the answer a removal produces.
 //
@@ -58,11 +56,7 @@ export interface PluginRemoveParams {
 // than in a status: the type and the query are echoed as the compiler matched
 // them, and the scope names the file the removal actually wrote and how far that
 // file reaches. Every field is read from the answer; none is assumed.
-export interface PluginRemoveResult {
-  type: string;
-  query: string;
-  scope: ConfigWriteScope;
-}
+export type PluginRemoveResult = wire.PluginRemoveResult;
 
 // PluginRemovalDeps is the one thing a removal needs: a way to ask the compiler.
 //

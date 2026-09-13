@@ -2,9 +2,10 @@
 // Copyright 2026 Cognitio S.r.l.
 
 import * as path from 'path';
+import type * as wire from '@aggrega-ai/aggrega-abi/dist/servewire_gen';
 import { NO_ANCHORED_WORKSPACE_TREE_LABEL } from './workspace';
 
-// --- wire shapes (mirror the language server's workspace entity index) ----
+// --- the workspace entity index, as the compiler publishes it -------------
 
 // CatalogIndexEntity is one entity the language server reported for the open
 // workspace, reported exactly as its author wrote it: the index derives nothing
@@ -13,9 +14,10 @@ import { NO_ANCHORED_WORKSPACE_TREE_LABEL } from './workspace';
 // Every field is always present. The server sends each key carrying its empty
 // value when the document declares nothing for it, so a reader distinguishes
 // "the author declared no description" from "this build sends no description
-// field" without guessing — which is why nothing here treats a field as
-// optional and nothing defends against a null. labels arrives as an empty
-// object for the same reason.
+// field" without guessing — which is why nothing here is optional. labels is
+// declared nullable because the published shape admits null there, and the
+// compiler states it sends an empty object instead; a reader coalesces rather
+// than relying on the stronger of the two statements.
 //
 // origin says where the entity was read from, and file is read together with it
 // rather than alone: an entity read from a workspace document reports that
@@ -24,22 +26,15 @@ import { NO_ANCHORED_WORKSPACE_TREE_LABEL } from './workspace';
 // rather than a gap — the only path such an entity has names a location on the
 // machine the server runs on, which resolves against nothing on this side of
 // the connection — and origin is the field that makes it readable as such.
-export interface CatalogIndexEntity {
-  kind: string;
-  name: string;
-  apiVersion: string;
-  description: string;
-  labels: Record<string, string>;
-  file: string;
-  origin: string;
-}
+export type CatalogIndexEntity = wire.CatalogEntity;
 
 // The origin values the server sends.
 //
 // These are a DELIBERATE second copy of values the server declares, recorded as
-// one so nobody later unifies them away as an accident: they arrive as strings
-// on a wire, in a language that cannot import the server's own declaration, so
-// there is nothing here to call and no shared declaration to read.
+// one so nobody later unifies them away as an accident. The shape above is the
+// compiler's own, consumed rather than restated — but it types this member as a
+// plain string and publishes no closed set of the values it takes, so there is
+// still nothing here to import and nothing to unify with.
 //
 // Two things hold the copies in step, and the second matters more than the
 // first. The suite reads them back from a response RECORDED from the running
@@ -52,12 +47,11 @@ export interface CatalogIndexEntity {
 export const ENTITY_ORIGIN_WORKSPACE = 'workspace';
 export const ENTITY_ORIGIN_CATALOG = 'catalog';
 
-// CatalogIndexDoc is the top level of the index response. entities is always an
-// array — empty rather than absent when the workspace declares no entity, so a
-// reader iterates it without a presence check.
-export interface CatalogIndexDoc {
-  entities: CatalogIndexEntity[];
-}
+// CatalogIndexDoc is the top level of the index response. The compiler states it
+// sends an array rather than null when the workspace declares no entity; the
+// published shape admits null, so a reader coalesces rather than relying on the
+// stronger of the two statements.
+export type CatalogIndexDoc = wire.CatalogIndexResult;
 
 // --- reader-facing wording -----------------------------------------------
 
@@ -216,7 +210,7 @@ export function rowForEntity(
   workspaceRoot: string,
   entity: CatalogIndexEntity,
 ): WorkspaceEntityRow {
-  const labels = labelSegments(entity.labels);
+  const labels = labelSegments(entity.labels ?? {});
   const fromWorkspace = entity.origin === ENTITY_ORIGIN_WORKSPACE;
   const originLabel = entity.origin === ENTITY_ORIGIN_CATALOG ? CATALOG_ORIGIN_LABEL : '';
   // A document is what both the open target and every path-taking operation
@@ -276,11 +270,12 @@ export function nodesForDocument(
   workspaceRoot: string,
   doc: CatalogIndexDoc,
 ): WorkspaceCatalogNode[] {
-  if (doc.entities.length === 0) {
+  const entities = doc.entities ?? [];
+  if (entities.length === 0) {
     return [{ kind: 'message', label: EMPTY_LABEL }];
   }
   const groups: { kind: 'group'; label: string; rows: WorkspaceEntityRow[] }[] = [];
-  for (const entity of doc.entities) {
+  for (const entity of entities) {
     const open = groups[groups.length - 1];
     if (!open || open.label !== entity.kind) {
       groups.push({ kind: 'group', label: entity.kind, rows: [] });

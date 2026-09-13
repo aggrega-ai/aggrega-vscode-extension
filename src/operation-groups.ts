@@ -706,13 +706,17 @@ function subjectFor(entity: CatalogIndexEntity): EntitySubject {
 // which entities the workspace authored — the index reports that separately, and
 // inferring it from an empty path would be a second answer to a question already
 // answered.
-export function publishableSubjects(entities: CatalogIndexEntity[]): EntitySubject[] {
-  return entities.filter((entity) => entity.file.trim() !== '').map(subjectFor);
+export function publishableSubjects(entities: CatalogIndexEntity[] | null): EntitySubject[] {
+  return (entities ?? []).filter((entity) => entity.file.trim() !== '').map(subjectFor);
 }
 
 // inspectableSubjects offers the entities an inspection can name. An inspection
 // is addressed by identity rather than by path, so an entity the workspace holds
 // no file for is still answerable and is offered.
-export function inspectableSubjects(entities: CatalogIndexEntity[]): EntitySubject[] {
-  return entities.filter((entity) => entity.name.trim() !== '').map(subjectFor);
+//
+// Both projectors take the index's own collection, which reaches the wire as
+// null when the workspace declares no entity — the same answer an empty list
+// gives, and the same offer: none.
+export function inspectableSubjects(entities: CatalogIndexEntity[] | null): EntitySubject[] {
+  return (entities ?? []).filter((entity) => entity.name.trim() !== '').map(subjectFor);
 }

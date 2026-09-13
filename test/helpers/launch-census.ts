@@ -61,6 +61,55 @@ export function assertCensusInstrumentFires(
   );
 }
 
+// --- what a module imports, with the two kinds told apart -----------------
+
+// 🔴 A TYPE-ONLY IMPORT AND A VALUE IMPORT ARE DIFFERENT CLAIMS ABOUT WHAT A
+// MODULE CAN REACH, AND A READING THAT CANNOT TELL THEM APART MAKES THE WEAKER
+// ONE. A type-only import is erased before anything runs: it names no code at
+// run time, requires nothing, and therefore cannot start a process or carry the
+// editor in whatever the module it names contains. A value import of the same
+// module can do all three.
+//
+// So the census reports the two separately, and the claims below are made
+// against the VALUE list. Folding the type-only ones into it would let a later
+// change from one kind to the other pass unnoticed, which is exactly the change
+// worth catching — the published wire contract carries encoders and decoders, so
+// importing it as a value would put them in the packaged extension.
+//
+// It is built fresh per call for the reason every pattern here is: a global
+// expression carries a lastIndex, and a shared one makes a reading depend on the
+// order the specs happened to run in.
+function importFrom(): RegExp {
+  return /(?:^|\n)\s*(?:import|export)(\s+type)?\b[^;]*?from\s+['"]([^'"]+)['"]/g;
+}
+
+function specifiers(relativePath: string, typeOnly: boolean): string[] {
+  const source = fs.readFileSync(path.join(EXTENSION_ROOT, relativePath), 'utf8');
+  return [...source.matchAll(importFrom())]
+    .filter((m) => (m[1] !== undefined) === typeOnly)
+    .map((m) => m[2])
+    .sort();
+}
+
+// valueImports reports every module one module names in a way that reaches code
+// at run time.
+export function valueImports(relativePath: string): string[] {
+  return specifiers(relativePath, false);
+}
+
+// typeOnlyImports reports every module one module names for its declarations
+// alone, which the compiler erases before anything runs.
+export function typeOnlyImports(relativePath: string): string[] {
+  return specifiers(relativePath, true);
+}
+
+// WIRE_CONTRACT is the published request-and-answer contract every module that
+// speaks to the compiler consumes its shapes from. It is named once here so a
+// spec asserting that a module takes its shapes from the published contract
+// rather than restating them cannot spell the path differently from its
+// neighbour.
+export const WIRE_CONTRACT = '@aggrega-ai/aggrega-abi/dist/servewire_gen';
+
 // --- the whole-tree census -----------------------------------------------
 
 // SOURCE_DIR is the directory the census reads. It is the extension's own source

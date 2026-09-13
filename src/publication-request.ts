@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cognitio S.r.l.
 
+import type * as wire from '@aggrega-ai/aggrega-abi/dist/servewire_gen';
 import { CancellationSignal } from './cancellation';
 import { OperationOutcome, outcomeOf } from './operation-outcome';
 import { withSubject } from './operation-groups';
@@ -57,9 +58,12 @@ import { withSubject } from './operation-groups';
 //
 // The path is workspace-relative. That is the form the row and the index already
 // carry, and the form every path-naming request parameter takes.
-export interface PublishEntityParams {
-  entity: string;
-}
+//
+// It is a projection of the published request shape rather than a copy of one
+// member of it, which is what keeps the narrowing deliberate AND checked: the
+// member's name and type are the compiler's, and a member this surface names
+// that the compiler stops declaring does not compile.
+export type PublishEntityParams = Required<Pick<wire.PublishEntityParams, 'entity'>>;
 
 // SignArtifactsParams is what this client sends to sign already-published
 // artifacts.
@@ -72,9 +76,7 @@ export interface PublishEntityParams {
 // It is a list because the operation is a batch and one authentication serves
 // the whole of it. This surface sends one, and sending it as the list the
 // operation takes is what keeps the shape the wire has.
-export interface SignArtifactsParams {
-  references: readonly string[];
-}
+export type SignArtifactsParams = Required<Pick<wire.SignArtifactsParams, 'references'>>;
 
 // DeprecateArtifactParams is what this client sends to withdraw an
 // already-published artifact.
@@ -87,11 +89,9 @@ export interface SignArtifactsParams {
 //
 // The optional replacement and the separate message are not sent. This surface
 // asks for neither, and a declared field is a field a later call site will fill.
-export interface DeprecateArtifactParams {
-  reference: string;
-  severity: string;
-  reason: string;
-}
+export type DeprecateArtifactParams = Required<
+  Pick<wire.DeprecateArtifactParams, 'reference' | 'severity' | 'reason'>
+>;
 
 // --- the answer shapes ----------------------------------------------------
 
@@ -102,10 +102,7 @@ export interface DeprecateArtifactParams {
 // status lines states. The compiler derives it from what the operation actually
 // did rather than from what the request asked for, so an ending cannot describe
 // a dry run as a publication or the reverse.
-export interface PublicationReach {
-  registry: string;
-  beyondThisMachine: boolean;
-}
+export type PublicationReach = wire.PublicationReach;
 
 // PublishEntityResult is the answer publishing one entity produces.
 //
@@ -118,57 +115,29 @@ export interface PublicationReach {
 // sizeText is the compiler's own rendering of size. It is read rather than
 // recomputed, so this surface does not carry a second copy of the rounding rule
 // that formatter owns.
-export interface PublishEntityResult {
-  reference: string;
-  tag: string;
-  kind: string;
-  mediaType: string;
-  size: number;
-  sizeText: string;
-  pluginSize?: number;
-  pluginSizeText?: string;
-  digest: string;
-  signed: boolean;
-  alreadyPublished: boolean;
-  dryRun: boolean;
-  reach: PublicationReach;
-}
+export type PublishEntityResult = wire.PublishEntityResult;
 
 // SignedArtifact is one signed reference and the digest its signature commits
 // to. The digest is what makes the answer checkable: a signature commits to a
 // digest string, so naming the reference alone would not say what was signed.
-export interface SignedArtifact {
-  reference: string;
-  digest: string;
-}
+export type SignedArtifact = wire.SignedArtifact;
 
 // SignArtifactsResult is the answer a signing batch produces.
 //
 // It reports successes only. A batch in which any reference failed arrives as a
 // failure naming each one rather than as a result with a short list, so a
 // shorter list here is never a partial batch being read as a whole one.
-export interface SignArtifactsResult {
-  signed: readonly SignedArtifact[];
-  reach: PublicationReach;
-}
+export type SignArtifactsResult = wire.SignArtifactsResult;
 
 // DeprecationMarked is one attached marker: what it withdraws, the severity it
 // carries, when it was issued, and the marker's own manifest digest.
 //
 // The digest is the marker's identity — a marker is attached as an untagged
 // referrer of its subject, so nothing else addresses it.
-export interface DeprecationMarked {
-  reference: string;
-  severity: string;
-  issuedOn: string;
-  digest: string;
-}
+export type DeprecationMarked = wire.DeprecationMarked;
 
 // DeprecateArtifactResult is the answer a withdrawal produces.
-export interface DeprecateArtifactResult {
-  marked: readonly DeprecationMarked[];
-  reach: PublicationReach;
-}
+export type DeprecateArtifactResult = wire.DeprecateArtifactResult;
 
 // --- what an operation needs ----------------------------------------------
 
@@ -329,7 +298,17 @@ export function publicationLines(result: PublishEntityResult): readonly string[]
 // signatureLines lists each reference the batch signed with the digest its
 // signature commits to, in the command line's own form for the same fact.
 export function signatureLines(result: SignArtifactsResult): readonly string[] {
-  return result.signed.map((a) => `  signature attached: ${a.reference} (${a.digest})`);
+  return signedArtifacts(result).map((a) => `  signature attached: ${a.reference} (${a.digest})`);
+}
+
+// A batch that signed or marked nothing answers with null rather than an empty
+// list, and the two say the same thing — so each is coalesced in one place here.
+function signedArtifacts(result: SignArtifactsResult): readonly SignedArtifact[] {
+  return result.signed ?? [];
+}
+
+function attachedMarkers(result: DeprecateArtifactResult): readonly DeprecationMarked[] {
+  return result.marked ?? [];
 }
 
 // withdrawalLines lists each marker attached, with the severity it carries, when
@@ -340,7 +319,7 @@ export function signatureLines(result: SignArtifactsResult): readonly string[] {
 // marker is addressed by nothing else, so a withdrawal reported without its
 // digest names nothing a reader could go and look at.
 export function withdrawalLines(result: DeprecateArtifactResult): readonly string[] {
-  return result.marked.map(
+  return attachedMarkers(result).map(
     (m) => `  marker attached: ${m.reference} — ${m.severity}, issued ${m.issuedOn} (${m.digest})`,
   );
 }
@@ -401,11 +380,12 @@ export function publicationOutcome(result: PublishEntityResult): OperationOutcom
 // an absence: a batch that signed nothing is a result, and leaving it unsaid
 // reads exactly like one that never ran.
 export function signatureOutcome(result: SignArtifactsResult): OperationOutcome {
-  if (result.signed.length === 0) {
+  const signed = signedArtifacts(result);
+  if (signed.length === 0) {
     return { kind: 'ok', detail: 'signed nothing. Nothing left this machine.' };
   }
-  if (result.signed.length === 1) {
-    const only = result.signed[0];
+  if (signed.length === 1) {
+    const only = signed[0];
     return {
       kind: 'ok',
       detail: `attached a signature to ${only.reference}, committing to ${only.digest}.`
@@ -414,7 +394,7 @@ export function signatureOutcome(result: SignArtifactsResult): OperationOutcome 
   }
   return {
     kind: 'ok',
-    detail: `attached ${result.signed.length} signatures. ${reachPhrase(result.reach)}`,
+    detail: `attached ${signed.length} signatures. ${reachPhrase(result.reach)}`,
   };
 }
 
@@ -425,11 +405,12 @@ export function signatureOutcome(result: SignArtifactsResult): OperationOutcome 
 // says the marker carries it, and reporting the request's value would state as
 // done something nothing confirmed.
 export function withdrawalOutcome(result: DeprecateArtifactResult): OperationOutcome {
-  if (result.marked.length === 0) {
+  const marked = attachedMarkers(result);
+  if (marked.length === 0) {
     return { kind: 'ok', detail: 'attached no marker. Nothing left this machine.' };
   }
-  if (result.marked.length === 1) {
-    const only = result.marked[0];
+  if (marked.length === 1) {
+    const only = marked[0];
     return {
       kind: 'ok',
       detail: `marked ${only.reference} deprecated at ${only.severity}, as ${only.digest}.`
@@ -438,7 +419,7 @@ export function withdrawalOutcome(result: DeprecateArtifactResult): OperationOut
   }
   return {
     kind: 'ok',
-    detail: `attached ${result.marked.length} markers. ${reachPhrase(result.reach)}`,
+    detail: `attached ${marked.length} markers. ${reachPhrase(result.reach)}`,
   };
 }
 

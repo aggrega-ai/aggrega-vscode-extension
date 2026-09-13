@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cognitio S.r.l.
 
+import type * as wire from '@aggrega-ai/aggrega-abi/dist/servewire_gen';
 import {
   ConfigWriteDestination,
-  ConfigWriteScope,
   configWriteOverrides,
   reachOfDestination,
   reachPhrase,
 } from './config-write-scope';
 import { OperationOutcome, outcomeOf } from './operation-outcome';
-import { TrustFetchOutcome, registrationSentence } from './registration-outcome';
+import { registrationSentence } from './registration-outcome';
 import { withSubject } from './operation-groups';
 
 // This module is the whole of what changing the configured registries means on
@@ -99,11 +99,9 @@ export function removalConsentDetail(destination: ConfigWriteDestination): strin
 // them. Exactly one is true on any request, decided by one value in one place,
 // so the pair cannot express the combination the compiler refuses nor the absence
 // that would silently take a default instead of the reader's answer.
-export interface RegistryAddParams {
-  host: string;
-  global: boolean;
-  workspace: boolean;
-}
+export type RegistryAddParams = Required<
+  Pick<wire.RegistryAddParams, 'host' | 'global' | 'workspace'>
+>;
 
 // RegistryAddResult is the answer a registration produces.
 //
@@ -112,11 +110,7 @@ export interface RegistryAddParams {
 // names the file the write actually landed in and how far that file reaches, and
 // the trust outcome says what the registry advertised. Every field is read from
 // the answer; none is assumed.
-export interface RegistryAddResult {
-  host: string;
-  scope: ConfigWriteScope;
-  trust: TrustFetchOutcome;
-}
+export type RegistryAddResult = wire.RegistryAddResult;
 
 // RegistryRemoveParams is what this client sends to drop a registry's entry.
 //
@@ -125,18 +119,13 @@ export interface RegistryAddResult {
 // verbatim rather than resolved here, and a token matching nothing is refused by
 // the compiler in its own words instead of being pre-judged by a set this side
 // holds.
-export interface RegistryRemoveParams {
-  registry: string;
-  global: boolean;
-  workspace: boolean;
-}
+export type RegistryRemoveParams = Required<
+  Pick<wire.RegistryRemoveParams, 'registry' | 'global' | 'workspace'>
+>;
 
 // RegistryRemoveResult is the answer a removal produces: the host as the
 // compiler resolved the token, and the file the removal wrote.
-export interface RegistryRemoveResult {
-  host: string;
-  scope: ConfigWriteScope;
-}
+export type RegistryRemoveResult = wire.RegistryRemoveResult;
 
 // LogoutParams is what this client sends to remove a stored credential.
 //
@@ -148,9 +137,7 @@ export interface RegistryRemoveResult {
 //
 // The value is a host rather than a friendly alias: the store is keyed by the
 // address a client authenticates to and holds no alias to resolve.
-export interface LogoutParams {
-  registry: string;
-}
+export type LogoutParams = Required<Pick<wire.LogoutParams, 'registry'>>;
 
 // LogoutResult is the answer a credential removal produces.
 //
@@ -161,9 +148,7 @@ export interface LogoutParams {
 // workspace is a discriminator for a caller holding several sessions, which this
 // one is not. The confirmation asked beforehand is where the reader is told how
 // far the store reaches.
-export interface LogoutResult {
-  registry: string;
-}
+export type LogoutResult = Pick<wire.LogoutResult, 'registry'>;
 
 // RegistryConfigureDeps is what this family needs: a way to ask the compiler for
 // each of the three changes.

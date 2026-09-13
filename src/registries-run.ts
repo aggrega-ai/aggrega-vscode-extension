@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cognitio S.r.l.
 
+import type * as wire from '@aggrega-ai/aggrega-abi/dist/servewire_gen';
 import { describeError } from './error-surfaces';
 import { NO_ANCHORED_WORKSPACE_TREE_LABEL } from './workspace';
 
@@ -18,15 +19,13 @@ import { NO_ANCHORED_WORKSPACE_TREE_LABEL } from './workspace';
 // local computation and there is nothing a reader would want to interrupt. No
 // signal is accepted anywhere in this module.
 
-// --- wire shapes (mirror the aggrega/registryList answer) -----------------
+// --- the aggrega/registryList answer, as the compiler publishes it --------
 
 // RegistryTrust is the registry's trust posture as discrete fields. The
 // structured output carries the posture this way deliberately, in place of the
 // sentence the table renders, so a consumer reads a value rather than parsing
 // prose.
-export interface RegistryTrust {
-  signaturesRequired?: boolean;
-}
+export type RegistryTrust = wire.RegistryTrust;
 
 // RegistryEntry is one configured registry.
 //
@@ -38,26 +37,15 @@ export interface RegistryTrust {
 // authState reports credential PRESENCE ONLY. It says whether a credential for
 // this host exists in the shared credential store — nothing about the credential
 // itself, and nothing about whether the registry would accept it, which cannot
-// be known without contacting the registry. Every field is optional because a
-// consumer that reads a state the product did not send would report a fact it
-// invented.
-export interface RegistryEntry {
-  host: string;
-  name?: string;
-  default?: boolean;
-  authState?: string;
-  trust?: RegistryTrust;
-}
+// be known without contacting the registry.
+export type RegistryEntry = wire.Registry;
 
 // RegistryListDoc is the top level of the answer.
 //
 // The answer also states that the credential state it reports is a machine-wide
-// fact rather than a property of this workspace. That is not declared here:
-// naming the reach of a credential to a reader is a decision about what these
-// rows say, and a declared field is a field a later call site will read.
-export interface RegistryListDoc {
-  registries?: RegistryEntry[];
-}
+// fact rather than a property of this workspace. Nothing here reads it: naming
+// the reach of a credential to a reader is a decision about what these rows say.
+export type RegistryListDoc = wire.RegistryListResult;
 
 // --- row shaping ---------------------------------------------------------
 

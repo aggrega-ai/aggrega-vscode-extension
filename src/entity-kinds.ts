@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cognitio S.r.l.
 
+import type * as wire from '@aggrega-ai/aggrega-abi/dist/servewire_gen';
+
 // This module reads the compiler's answer to a schema request that names no
 // kind, and it holds no editor type — so what a reader is offered is read back
 // by a test with no extension host.
@@ -20,14 +22,10 @@
 // does work — lowercasing the value a document carries — is a derivation the
 // compiler owns: performing it here would leave this surface as the one place to
 // correct the day a token stopped being its document value lowercased.
-export interface EntityKind {
-  // kind is the token a request naming this kind takes, and it is what the
-  // drafting request sends.
-  kind: string;
-  // documentKind is the value the document itself carries, and it is what a
-  // reader reads.
-  documentKind: string;
-}
+// kind is the token a request naming this kind takes, and it is what the
+// drafting request sends. documentKind is the value the document itself carries,
+// and it is what a reader reads.
+export type EntityKind = wire.EntityKindDescriptor;
 
 // readEntityKinds reports the kinds an author may write a document of, from the
 // compiler's answer to a schema request that named none.

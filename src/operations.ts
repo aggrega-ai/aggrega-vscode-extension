@@ -765,17 +765,21 @@ async function runBuild(deps: OperationDeps, dials: readonly string[]): Promise<
   for (const notice of result.notices ?? []) {
     out.appendLine(notice.class ? `  ${notice.class}: ${notice.text}` : `  ${notice.text}`);
   }
-  for (const file of result.files) {
+  // A build that wrote nothing answers with null rather than an empty list, and
+  // the two say the same thing, so the list is coalesced once here and read
+  // from below.
+  const files = result.files ?? [];
+  for (const file of files) {
     out.appendLine(`  ${file}`);
   }
   // The closing line is the command line's own summary of a completed build,
   // in the same words: the two surfaces perform one operation, so a reader who
   // has seen one report should not have to work out that the other is the same.
   out.appendLine(
-    `Build completed: ${result.files.length} files written to ${result.outputDirectory}/`,
+    `Build completed: ${files.length} files written to ${result.outputDirectory}/`,
   );
   void vscode.window.showInformationMessage(
-    `Aggrega: built ${release} — ${result.files.length} file(s) written to ${result.outputDirectory}/.`,
+    `Aggrega: built ${release} — ${files.length} file(s) written to ${result.outputDirectory}/.`,
   );
 }
 
@@ -838,7 +842,10 @@ async function runPreview(deps: OperationDeps): Promise<void> {
   for (const notice of result.notices ?? []) {
     out.appendLine(notice.class ? `  ${notice.class}: ${notice.text}` : `  ${notice.text}`);
   }
-  for (const file of result.files) {
+  // A build that would write nothing answers with null rather than an empty
+  // list, and the two say the same thing.
+  const files = result.files ?? [];
+  for (const file of files) {
     out.appendLine(`  ${file}`);
   }
   // The count is followed by where the files go, because the names above are
@@ -846,12 +853,12 @@ async function runPreview(deps: OperationDeps): Promise<void> {
   // is given, so a reader comparing this list against a build's output finds the
   // same names one level down rather than at the workspace root.
   out.appendLine(
-    result.files.length === 1
+    files.length === 1
       ? 'A build of this Release writes 1 file, under the output directory it is given.'
-      : `A build of this Release writes ${result.files.length} files, under the output directory it is given.`,
+      : `A build of this Release writes ${files.length} files, under the output directory it is given.`,
   );
   void vscode.window.showInformationMessage(
-    `Aggrega: a build of ${release} writes ${result.files.length} file(s). Nothing was written.`,
+    `Aggrega: a build of ${release} writes ${files.length} file(s). Nothing was written.`,
   );
 }
 
@@ -1014,19 +1021,23 @@ export async function performCacheOperation(
     case 'status': {
       const result = await deps.cacheStatus();
       out.appendLine('\nCache report. Nothing is removed.');
-      for (const cacheClass of result.classes) {
+      // Every collection in a cache answer reaches the wire as null when it is
+      // empty, which says the same thing an empty list does. Each is coalesced
+      // where it is read rather than defended against at every use.
+      for (const cacheClass of result.classes ?? []) {
         const reclaimable = cacheClass.prunable ? ', reclaimable by prune' : '';
+        const elements = cacheClass.elements ?? [];
         out.appendLine(
-          `  ${cacheClass.name} (${cacheClass.reach}${reclaimable}) — ${countOf(cacheClass.elements.length, 'entry', 'entries')}`,
+          `  ${cacheClass.name} (${cacheClass.reach}${reclaimable}) — ${countOf(elements.length, 'entry', 'entries')}`,
         );
-        for (const element of cacheClass.elements) {
+        for (const element of elements) {
           const note = element.note ? ` — ${element.note}` : '';
           out.appendLine(`    ${element.label}  ${element.sizeText}${note}`);
         }
       }
-      for (const record of result.provenance) {
+      for (const record of result.provenance ?? []) {
         const shared = record.sharedBy ? ` (shared by ${record.sharedBy})` : '';
-        out.appendLine(`  recorded plugin identities: ${record.identities.join(', ')}${shared}`);
+        out.appendLine(`  recorded plugin identities: ${(record.identities ?? []).join(', ')}${shared}`);
       }
       appendCacheScope(out, result.scope);
       return `listed ${countOf(result.totalCount, 'entry', 'entries')} holding ${result.totalSizeText}.`;
@@ -1034,7 +1045,8 @@ export async function performCacheOperation(
     case 'prune': {
       const result = await deps.cachePrune();
       out.appendLine('\nRemoving cache entries no lockfile references.');
-      appendCacheRemovals(out, result.removed);
+      const pruned = result.removed ?? [];
+      appendCacheRemovals(out, pruned);
       out.appendLine(`  kept, still referenced: ${countOf(result.retainedCount, 'entry', 'entries')}`);
       if (result.unattributedCount > 0) {
         out.appendLine(
@@ -1044,13 +1056,13 @@ export async function performCacheOperation(
       // The compiler names, per shortfall, the operations that would reclaim
       // what a prune has no basis to touch. That is its own guidance about what
       // to run next, so it is passed on rather than summarised away.
-      for (const shortfall of result.notPruneEligible) {
+      for (const shortfall of result.notPruneEligible ?? []) {
         out.appendLine(
-          `  left in ${shortfall.class} (${shortfall.reach}): ${countOf(shortfall.count, 'entry', 'entries')}, ${shortfall.sizeText} — reclaimed by ${shortfall.reclaimedBy.join(', ')}`,
+          `  left in ${shortfall.class} (${shortfall.reach}): ${countOf(shortfall.count, 'entry', 'entries')}, ${shortfall.sizeText} — reclaimed by ${(shortfall.reclaimedBy ?? []).join(', ')}`,
         );
       }
       appendCacheScope(out, result.scope);
-      return `removed ${countOf(result.removed.length, 'entry', 'entries')} and reclaimed ${result.reclaimedBytesText}.`;
+      return `removed ${countOf(pruned.length, 'entry', 'entries')} and reclaimed ${result.reclaimedBytesText}.`;
     }
     case 'evict': {
       const result = await deps.cacheEvict(maxSize);
@@ -1061,20 +1073,22 @@ export async function performCacheOperation(
         appendCacheScope(out, result.scope);
         return `removed nothing: the cache held ${result.totalBeforeText}, already within the ${result.capBytesText} cap.`;
       }
-      appendCacheRemovals(out, result.removed);
+      const evicted = result.removed ?? [];
+      appendCacheRemovals(out, evicted);
       out.appendLine(`  held before: ${result.totalBeforeText}`);
       out.appendLine(`  holds now: ${result.remainingBytesText}, under a cap of ${result.capBytesText}`);
       appendCacheScope(out, result.scope);
-      return `removed ${countOf(result.removed.length, 'entry', 'entries')} and reclaimed ${result.reclaimedBytesText}.`;
+      return `removed ${countOf(evicted.length, 'entry', 'entries')} and reclaimed ${result.reclaimedBytesText}.`;
     }
     case 'clear': {
       const result = await deps.cacheClear();
       out.appendLine('\nEmptying every cache this session addresses.');
-      for (const cleared of result.cleared) {
-        out.appendLine(`  emptied ${cleared.class} (${cleared.reach})  ${cleared.sizeText}`);
+      const cleared = result.cleared ?? [];
+      for (const subtree of cleared) {
+        out.appendLine(`  emptied ${subtree.class} (${subtree.reach})  ${subtree.sizeText}`);
       }
       appendCacheScope(out, result.scope);
-      return `emptied ${countOf(result.cleared.length, 'cache', 'caches')} and reclaimed ${result.reclaimedBytesText}. They repopulate on the next build.`;
+      return `emptied ${countOf(cleared.length, 'cache', 'caches')} and reclaimed ${result.reclaimedBytesText}. They repopulate on the next build.`;
     }
   }
 }
@@ -1102,10 +1116,11 @@ function appendCacheRemovals(out: vscode.OutputChannel, removed: CacheRemoval[])
 // wants, and leaving it out would make the widest case and the narrowest case
 // look the same on the channel.
 function appendCacheScope(out: vscode.OutputChannel, scope: CacheScope): void {
+  const machineWide = scope.machineWideClasses ?? [];
   out.appendLine(
-    scope.machineWideClasses.length === 0
+    machineWide.length === 0
       ? '  Nothing shared with other projects on this machine was reached.'
-      : `  Reached beyond this workspace, shared by every project on this machine: ${scope.machineWideClasses.join(', ')}.`,
+      : `  Reached beyond this workspace, shared by every project on this machine: ${machineWide.join(', ')}.`,
   );
   if (scope.workspaceRoot !== '') {
     out.appendLine(`  Workspace: ${scope.workspaceRoot}`);

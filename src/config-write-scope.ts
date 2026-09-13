@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cognitio S.r.l.
 
+import type * as wire from '@aggrega-ai/aggrega-abi/dist/servewire_gen';
+
 // This module is the one home of "which configuration file, and how far does it
 // reach" — both directions: the destination a request ASKS for, and the reach an
 // answer REPORTS.
@@ -29,11 +31,7 @@
 // machineWide is the fact a reader most needs and has no other way to get. It is
 // derived from the file the write actually resolved to rather than from the
 // request, so it cannot describe a machine-wide change as a local one.
-export interface ConfigWriteScope {
-  configFile: string;
-  machineWide: boolean;
-  workspaceRoot: string;
-}
+export type ConfigWriteScope = wire.ConfigWriteScope;
 
 // ConfigWriteDestination is which configuration file a request ASKS a write to
 // land in.

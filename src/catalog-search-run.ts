@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cognitio S.r.l.
 
+import type * as wire from '@aggrega-ai/aggrega-abi/dist/servewire_gen';
 import { describeError } from './error-surfaces';
 import { EMPTY_LABEL } from './registries-run';
 import { shortUri } from './uri-display';
@@ -40,14 +41,10 @@ import { NO_ANCHORED_WORKSPACE_MESSAGE } from './workspace';
 // The operation also accepts a single-registry narrowing and an
 // include-retracted override, and this client offers neither, so neither is
 // declared here: a declared field is a field a later call site will fill.
-export interface RegistrySearchParams {
-  query?: string;
-  kinds?: string[];
-  selector?: string;
-  capabilities?: string[];
-  pluginType?: string;
-  limit?: number;
-}
+export type RegistrySearchParams = Pick<
+  wire.SearchParams,
+  'query' | 'kinds' | 'selector' | 'capabilities' | 'pluginType' | 'limit'
+>;
 
 // IndexRecord is one record of the search answer. Only uri, name and version are
 // dependable; the rest is optional so a record missing a field is rendered as it
@@ -57,22 +54,15 @@ export interface RegistrySearchParams {
 // That is not declared here: presenting screened-out versions is a decision
 // about what this list shows, and a declared field is a field a later call site
 // will read.
-export interface IndexRecord {
-  uri: string;
-  name: string;
-  version: string;
-  kind?: string;
-  description?: string;
-  category?: string;
-}
+export type IndexRecord = Pick<
+  wire.RegistrySearchRecord,
+  'uri' | 'name' | 'version' | 'kind' | 'description' | 'category'
+>;
 
 // SearchIndex is one searched registry's freshness. lastUpdated is absent rather
 // than zero when the snapshot carries no timestamp, so "not recorded" is
 // distinguishable from a date.
-export interface SearchIndex {
-  host: string;
-  lastUpdated?: string;
-}
+export type SearchIndex = wire.RegistrySearchIndex;
 
 // SearchDoc is the answer one search produced.
 //
@@ -82,17 +72,11 @@ export interface SearchIndex {
 // consulted, how old each snapshot is, which configured registries could not be
 // consulted at all, and whether the compiler judges any of them stale.
 //
-// registriesConfigured is read as false ONLY when the answer says so. A
-// workspace that configures no registry is a different answer from a search that
-// matched nothing, and treating a missing field as either would report a fact the
-// compiler did not send.
-export interface SearchDoc {
-  records?: IndexRecord[];
-  indexes?: SearchIndex[];
-  missingIndexHosts?: string[];
-  stale?: boolean;
-  registriesConfigured?: boolean;
-}
+// registriesConfigured is read off the answer and never inferred. A workspace
+// that configures no registry is a different answer from a search that matched
+// nothing, and deriving one from the other would report a fact the compiler did
+// not send.
+export type SearchDoc = wire.SearchResult;
 
 // --- the filter ----------------------------------------------------------
 

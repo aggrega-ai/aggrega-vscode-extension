@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cognitio S.r.l.
 
+import type * as wire from '@aggrega-ai/aggrega-abi/dist/servewire_gen';
 import { describeError } from './error-surfaces';
 import { convertPosition } from './translator';
 import { LspPosition, ServerEncoding } from './types';
@@ -65,10 +66,9 @@ export interface AttachmentSite {
 // The whole request is those two, and that is why the shape is named here
 // rather than spelled at the call site: there is nothing else for this side to
 // supply, so a third field could only be something this side had composed.
-export interface AttachmentContainerRequest {
-  graphNode: string;
-  release: string;
-}
+export type AttachmentContainerRequest = Required<
+  Pick<wire.AttachmentContainerParams, 'graphNode' | 'release'>
+>;
 
 // LocatedContainer is the compiler's answer about where an attachment for one
 // node belongs: the document it was authored in, and the structural path to the
@@ -79,10 +79,7 @@ export interface AttachmentContainerRequest {
 // identifier are composed with the same separator, so any joined form is
 // ambiguous the moment something tries to read structure back out of it —
 // handing the segments straight on leaves nothing to split.
-export interface LocatedContainer {
-  file: string;
-  container: string[];
-}
+export type LocatedContainer = Pick<wire.AttachmentContainerResult, 'file' | 'container'>;
 
 // AttachmentName is the name an attachment for one node is written under, or
 // the reason it cannot be written at all.
@@ -92,17 +89,18 @@ export type AttachmentName =
 
 // Insertion is the compiler's answer about one document: where the entry goes
 // and what the caller has to write to put it there.
-export interface Insertion {
-  file: string;
-  positionEncoding: string;
-  position: { line: number; character: number };
-  precededByLineBreak: boolean;
-  missingContainerKeys: string[];
-  entryIndent: number;
-  indentStep: number;
-  indentStepMeasured: boolean;
-  entryShape: string;
-}
+export type Insertion = Pick<
+  wire.InsertionPointResult,
+  | 'file'
+  | 'positionEncoding'
+  | 'position'
+  | 'precededByLineBreak'
+  | 'missingContainerKeys'
+  | 'entryIndent'
+  | 'indentStep'
+  | 'indentStepMeasured'
+  | 'entryShape'
+>;
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -297,7 +295,9 @@ export function composeInsertionText(insertion: Insertion, entryLines: string[])
     parts.push('\n');
   }
 
-  const missing = insertion.missingContainerKeys;
+  // A document already carrying the whole path names no missing key, and an
+  // empty list of them reaches the wire as null.
+  const missing = insertion.missingContainerKeys ?? [];
   const outermost = insertion.entryIndent - missing.length * insertion.indentStep;
   for (let i = 0; i < missing.length; i++) {
     parts.push(' '.repeat(outermost + i * insertion.indentStep));

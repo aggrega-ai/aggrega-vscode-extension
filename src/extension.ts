@@ -118,6 +118,7 @@ import {
   ERR_FILE_NOT_VALIDATED,
   PublishDiagnosticsParams,
   ReleaseCandidatesResponse,
+  RequestMethod,
   ScaffoldEntityResponse,
   ValidateParams,
   ValidateResponse,
@@ -772,7 +773,9 @@ async function ensureDaemonAt(
     refreshGraphView();
     if (!diagnosticCollections) { return; }
     const uri = vscode.Uri.file(params.file);
-    publishDiagnostics(diagnosticCollections, uri, params.diagnostics);
+    // An empty finding list reaches the wire as null, and it means the same
+    // thing an empty array does: this file is now clean, so clear it.
+    publishDiagnostics(diagnosticCollections, uri, params.diagnostics ?? []);
   });
 
   const anchorContext = currentAnchored.length >= 2
@@ -1495,7 +1498,7 @@ async function toggleBuildOnInspect(): Promise<void> {
 }
 
 async function navigationRequest(
-  method: string,
+  method: RequestMethod,
   doc: vscode.TextDocument,
   position: vscode.Position,
   buildParams: (uri: string, pos: { line: number; character: number }, content: string, enc: 'utf-8' | 'utf-16') => unknown,
@@ -1542,7 +1545,7 @@ async function loadTargetContent(uri: string, encoding: 'utf-8' | 'utf-16'): Pro
   }
 }
 
-async function tryRequest<T>(method: string, params: unknown, doc: vscode.TextDocument): Promise<T | null> {
+async function tryRequest<T>(method: RequestMethod, params: unknown, doc: vscode.TextDocument): Promise<T | null> {
   if (!daemon) { return null; }
   try {
     return await daemon.request<T>(method, params);
@@ -1635,7 +1638,8 @@ async function requestReleaseCandidates(): Promise<string[]> {
     throw new Error('the Aggrega daemon is not running');
   }
   const resp = await daemon.request<ReleaseCandidatesResponse>('aggrega/releaseCandidates', {});
-  return resp.releases;
+  // A workspace holding no Release answers with null rather than an empty list.
+  return resp.releases ?? [];
 }
 
 // requestActiveRelease asks the language server which Release this workspace
@@ -2229,7 +2233,7 @@ async function requestRegistryUpdate(
   return await daemon.request<RegistryUpdateResult>('aggrega/registryUpdate', params, signal);
 }
 
-async function handleCacheMiss<T>(method: string, params: unknown, doc: vscode.TextDocument): Promise<T | null> {
+async function handleCacheMiss<T>(method: RequestMethod, params: unknown, doc: vscode.TextDocument): Promise<T | null> {
   if (!daemon) { return null; }
   const settings = getSettings();
   if (!settings.autoRevalidate) {

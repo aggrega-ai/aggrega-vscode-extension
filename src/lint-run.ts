@@ -3,14 +3,14 @@
 
 import * as path from 'node:path';
 
+import type * as wire from '@aggrega-ai/aggrega-abi/dist/servewire_gen';
 import { CancellationSignal } from './cancellation';
 import { ConvertedShape, shapeForDaemonDiagnostic } from './diagnostics-shape';
 import { withSubject } from './operation-groups';
 import { outcomeOf, terminalLine } from './operation-outcome';
-import { DaemonDiagnostic } from './types';
 import { NO_ANCHORED_WORKSPACE_MESSAGE } from './workspace';
 
-// --- wire shapes (mirror the aggrega/lint answer) -------------------------
+// --- the aggrega/lint answer, as the compiler publishes it ----------------
 
 // LintFileFindings is one document's publishing-conventions findings, as the
 // answer groups them.
@@ -21,18 +21,10 @@ import { NO_ANCHORED_WORKSPACE_MESSAGE } from './workspace';
 // it and absolutely for one outside — a catalog directory need not sit under the
 // root — so a consumer resolves it against the root rather than using it as a
 // path directly.
-export interface LintFileFindings {
-  file: string;
-  diagnostics?: DaemonDiagnostic[];
-}
+export type LintFileFindings = wire.LintFileFindings;
 
 // LintAnswer is what the compiler answers a publishing-conventions request
 // with.
-//
-// Every field is optional here, and that is the same posture the daemon
-// diagnostic shape takes: the extension mirrors a wire it does not control, and
-// a consumer that reads a count it did not receive reports a number it invented.
-// So an absent count omits its clause rather than defaulting to zero.
 //
 // checked is how many entity documents the run covered, which is what makes a
 // clean answer readable as a corpus rather than only as an empty list: no
@@ -45,17 +37,12 @@ export interface LintFileFindings {
 //
 // halted says whether the run's own verdict refuses publication. It is false for
 // every advisory run, which is what a whole-catalog check always is.
-export interface LintAnswer {
-  entity?: string;
-  release?: string;
-  checked?: number;
-  findings?: number;
-  errors?: number;
-  warnings?: number;
-  infos?: number;
-  files?: LintFileFindings[];
-  halted?: boolean;
-}
+//
+// Every count is present on the published answer, so a clause composed from one
+// reports the compiler's figure rather than an invented zero. The subject names
+// — the entity and the Release — are the members that may genuinely be absent,
+// and each arm of the subject union below says which of them it expects.
+export type LintAnswer = wire.LintResult;
 
 // --- the subject one run is about -----------------------------------------
 

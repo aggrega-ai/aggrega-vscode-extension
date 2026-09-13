@@ -38,9 +38,15 @@ interface Harness {
   sent(): RegistrySearchParams[];
 }
 
+// 🔴 A FIXTURE HERE CARRIES ONLY THE MEMBERS THE TEST UNDER IT IS ABOUT. The
+// published answer carries every one of them, so each fixture below is narrower
+// than anything the compiler sends — deliberately, because a whole answer
+// restated per test hides which member the test is actually about. The widening
+// happens here and at `partialDoc` below, in one place each, so no fixture
+// carries a cast of its own.
 function harness(
   root: string | null,
-  answer: () => Promise<SearchDoc>,
+  answer: () => Promise<Partial<SearchDoc>>,
 ): Harness {
   const log = new FakeLog();
   const seen: RegistrySearchParams[] = [];
@@ -53,7 +59,7 @@ function harness(
           getWorkspaceRoot: () => root,
           runSearch: (params) => {
             seen.push(params);
-            return answer();
+            return answer() as Promise<SearchDoc>;
           },
           log,
         },
@@ -66,6 +72,12 @@ function harness(
 // classified on its records rather than on the no-registry branch. Written out
 // per answer where it matters, because the branch order is itself asserted.
 const CONFIGURED = { registriesConfigured: true } as const;
+
+// partialDoc widens a fixture to the published answer, for the readers that take
+// one directly rather than through the harness above.
+function partialDoc(doc: Partial<SearchDoc>): SearchDoc {
+  return doc as SearchDoc;
+}
 
 const RECORD: IndexRecord = {
   uri: 'oci://hub.aggrega.ai/component/core/service:1.2.0',
@@ -529,7 +541,7 @@ describe('catalog-search-run: outcomes', () => {
 describe('catalog-search-run: freshness', () => {
   it('a consulted snapshot names its host and its timestamp', () => {
     assert.deepStrictEqual(
-      freshnessReport({ indexes: [{ host: 'hub.aggrega.ai', lastUpdated: '2026-08-26T10:00:00Z' }] }),
+      freshnessReport(partialDoc({ indexes: [{ host: 'hub.aggrega.ai', lastUpdated: '2026-08-26T10:00:00Z' }] })),
       ['Index for hub.aggrega.ai last updated 2026-08-26T10:00:00Z'],
     );
   });
@@ -538,14 +550,14 @@ describe('catalog-search-run: freshness', () => {
     // "not recorded" and a date are different facts, and an absent timestamp
     // must not read as the epoch.
     assert.deepStrictEqual(
-      freshnessReport({ indexes: [{ host: 'hub.aggrega.ai' }] }),
+      freshnessReport(partialDoc({ indexes: [{ host: 'hub.aggrega.ai' }] })),
       ['Index for hub.aggrega.ai last updated (timestamp unavailable)'],
     );
   });
 
   it('a configured registry with no snapshot is named, with the editor’s own repair', () => {
     assert.deepStrictEqual(
-      freshnessReport({ missingIndexHosts: ['other.example.test'] }),
+      freshnessReport(partialDoc({ missingIndexHosts: ['other.example.test'] })),
       [
         'registry other.example.test: no local index has been built.',
         REFRESH_REMEDIATION,
@@ -556,16 +568,16 @@ describe('catalog-search-run: freshness', () => {
   it('the compiler’s staleness verdict is REPORTED, never re-derived from a timestamp', () => {
     // Judging a snapshot old is the compiler's call. A rule of its own here
     // would be free to disagree with it.
-    const fresh = freshnessReport({
+    const fresh = freshnessReport(partialDoc({
       indexes: [{ host: 'h', lastUpdated: '1999-01-01T00:00:00Z' }],
       stale: false,
-    });
+    }));
     assert.deepStrictEqual(fresh, ['Index for h last updated 1999-01-01T00:00:00Z']);
 
-    const stale = freshnessReport({
+    const stale = freshnessReport(partialDoc({
       indexes: [{ host: 'h', lastUpdated: '2026-09-08T00:00:00Z' }],
       stale: true,
-    });
+    }));
     assert.deepStrictEqual(stale, [
       'Index for h last updated 2026-09-08T00:00:00Z',
       'One or more indexes are stale.',
@@ -574,10 +586,10 @@ describe('catalog-search-run: freshness', () => {
   });
 
   it('the repair is named ONCE however many registries need it', () => {
-    const lines = freshnessReport({
+    const lines = freshnessReport(partialDoc({
       missingIndexHosts: ['a.example.test', 'b.example.test'],
       stale: true,
-    });
+    }));
     assert.strictEqual(
       lines.filter((l) => l === REFRESH_REMEDIATION).length,
       1,
@@ -586,16 +598,16 @@ describe('catalog-search-run: freshness', () => {
   });
 
   it('a healthy answer produces no repair line at all', () => {
-    const lines = freshnessReport({
+    const lines = freshnessReport(partialDoc({
       indexes: [{ host: 'h', lastUpdated: '2026-09-08T00:00:00Z' }],
       stale: false,
       missingIndexHosts: [],
-    });
+    }));
     assert.ok(!lines.includes(REFRESH_REMEDIATION), lines.join(' | '));
   });
 
   it('an answer carrying no provenance produces no lines', () => {
-    assert.deepStrictEqual(freshnessReport({}), []);
+    assert.deepStrictEqual(freshnessReport(partialDoc({})), []);
   });
 
   it('the freshness reaches the channel even when nothing matched', async () => {
@@ -616,12 +628,12 @@ describe('catalog-search-run: freshness', () => {
   it('a host with no timestamp is still reported, where the command line drops it', () => {
     // The structured answer names every consulted host and omits only the
     // timestamp, so a snapshot with no date is visible rather than absent.
-    const hosts = freshnessReport({
+    const hosts = freshnessReport(partialDoc({
       indexes: [
         { host: 'dated.example.test', lastUpdated: '2026-08-26T10:00:00Z' },
         { host: 'undated.example.test' },
       ],
-    });
+    }));
     assert.strictEqual(hosts.length, 2);
     assert.ok(hosts[1].includes('undated.example.test'), hosts[1]);
   });

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cognitio S.r.l.
 
+import type * as wire from '@aggrega-ai/aggrega-abi/dist/servewire_gen';
 import { CancellationSignal } from './cancellation';
 import { OperationOutcome, outcomeOf } from './operation-outcome';
 import { withSubject } from './operation-groups';
@@ -91,33 +92,21 @@ export const IMPORT_OUTPUT_DIR = '.';
 // The operation's product is a set of authoring files an author goes on editing,
 // and asking for them as content would mean this surface deciding where they land
 // — which is the decision the destination above already makes once.
-export interface ImportParams {
-  source: string;
-  outputDir: string;
-}
+export type ImportParams = Required<Pick<wire.ImportParams, 'source' | 'outputDir'>>;
 
 // ImportedFile is one drafted file as the answer carries it: the path it is for,
 // relative to the destination, and its content.
 //
-// The content is declared because the answer carries it, and it is read by nothing
-// here: the drafts are written by the compiler, so this surface reports the paths
-// rather than placing the bytes. It stays declared so the shape a test drives is
-// the shape the wire has.
-export interface ImportedFile {
-  path: string;
-  content: string;
-}
+// The content is read by nothing here: the drafts are written by the compiler, so
+// this surface reports the paths rather than placing the bytes.
+export type ImportedFile = wire.ImportedFile;
 
 // ImportDiagnostic is one importer diagnostic as the answer carries it.
 //
 // The code is present only where the importer assigned one, which is a fact about
 // the diagnostic rather than a gap — so it is optional here and rendered only when
 // it is there.
-export interface ImportDiagnostic {
-  severity: string;
-  message: string;
-  code?: string;
-}
+export type ImportDiagnostic = wire.ImportDiagnostic;
 
 // ImportResult is the answer an import produces.
 //
@@ -134,14 +123,7 @@ export interface ImportDiagnostic {
 // an operation that did not complete, which is what the command line reports for
 // the same import, and the diagnostics are on the channel where the reader can act
 // on them.
-export interface ImportResult {
-  format: string;
-  outputDir: string;
-  written: readonly string[];
-  files: readonly ImportedFile[];
-  diagnostics: readonly ImportDiagnostic[];
-  halted: boolean;
-}
+export type ImportResult = wire.ImportResult;
 
 // ImportRequestDeps is the one thing an import needs: a way to ask the compiler,
 // carrying the reader's stop.
@@ -260,9 +242,20 @@ export function writtenLine(path: string): string {
 // the same reason a build's positionless advisories are written here.
 export function importLines(result: ImportResult): readonly string[] {
   return [
-    ...result.diagnostics.map(diagnosticLine),
-    ...result.written.map(writtenLine),
+    ...draftingDiagnostics(result).map(diagnosticLine),
+    ...draftedPaths(result).map(writtenLine),
   ];
+}
+
+// An empty collection reaches the wire as null rather than as an empty list, and
+// the two say the same thing — so each is coalesced in one place here and read
+// through that rather than defended against at every use.
+function draftedPaths(result: ImportResult): readonly string[] {
+  return result.written ?? [];
+}
+
+function draftingDiagnostics(result: ImportResult): readonly ImportDiagnostic[] {
+  return result.diagnostics ?? [];
 }
 
 // importOutcome decides what the reader is told an import did.
@@ -308,8 +301,9 @@ function problemCount(count: number): string {
 // nothing was written to would answer a question the reader did not ask, and the
 // count already says nothing arrived.
 export function importDetail(result: ImportResult): string {
-  const drafted = `drafted ${fileCount(result.written.length)}, recognised as ${result.format}`;
-  if (result.written.length === 0) {
+  const written = draftedPaths(result);
+  const drafted = `drafted ${fileCount(written.length)}, recognised as ${result.format}`;
+  if (written.length === 0) {
     return `${drafted}, and nothing was written.`;
   }
   return `${drafted}, in ${result.outputDir}.`;
@@ -324,12 +318,13 @@ export function importDetail(result: ImportResult): string {
 // partial, and what was nonetheless written, because those files are on disk and a
 // reader needs to know before they run it again.
 export function haltedMessage(result: ImportResult): string {
-  const problems = `${problemCount(result.diagnostics.length)} listed above`;
-  if (result.written.length === 0) {
+  const written = draftedPaths(result);
+  const problems = `${problemCount(draftingDiagnostics(result).length)} listed above`;
+  if (written.length === 0) {
     return `the importer could not convert the source, recognised as ${result.format}`
       + ` — ${problems}. Nothing was written.`;
   }
   return `the importer could not convert all of the source, recognised as ${result.format}`
-    + ` — ${problems}. The ${fileCount(result.written.length)} it could draft`
-    + ` ${result.written.length === 1 ? 'was' : 'were'} written to ${result.outputDir}.`;
+    + ` — ${problems}. The ${fileCount(written.length)} it could draft`
+    + ` ${written.length === 1 ? 'was' : 'were'} written to ${result.outputDir}.`;
 }

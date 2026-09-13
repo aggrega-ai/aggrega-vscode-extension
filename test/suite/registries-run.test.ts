@@ -5,6 +5,7 @@ import * as assert from 'node:assert';
 import {
   EMPTY_LABEL,
   FAILURE_LABEL,
+  RegistryEntry,
   RegistryListDoc,
   RegistryNode,
   RegistryRow,
@@ -14,6 +15,16 @@ import {
 } from '../../src/registries-run';
 import { indexBuildRequest } from '../../src/registry-index-request';
 import { NO_ANCHORED_WORKSPACE_TREE_LABEL } from '../../src/workspace';
+
+// The published listing shape says an entry always carries its default flag, its
+// credential state and its trust posture, so a fixture omitting one of them is
+// not something this compiler can send. These fixtures omit them deliberately:
+// the rendering's defence against a peer that is NOT this compiler is what they
+// exercise, and an untested defence is one nobody can show working. The cast is
+// what lets an unreachable state be driven at all.
+function fromANonConformingPeer(entry: Partial<RegistryEntry> & { host: string }): RegistryEntry {
+  return entry as RegistryEntry;
+}
 
 class FakeLog {
   lines: string[] = [];
@@ -90,6 +101,7 @@ const MEASURED_DOCUMENT: RegistryListDoc = {
       trust: { signaturesRequired: true },
     },
   ],
+  credentialStateIsMachineWide: true,
 };
 
 describe('registryNodes', () => {
@@ -149,6 +161,7 @@ describe('registryNodes', () => {
         { host: 'alpha.example.test', default: false, authState: 'none', trust: { signaturesRequired: false } },
         { host: 'zulu.example.test', default: false, authState: 'none', trust: { signaturesRequired: false } },
       ],
+      credentialStateIsMachineWide: true,
     }));
     const rows = rowsOf(await h.nodes());
 
@@ -160,7 +173,12 @@ describe('registryNodes', () => {
 
   it('renders a credential state it has no phrase for as itself, never as "none"', async () => {
     const h = harness('/ws', ok({
-      registries: [{ host: 'a.example.test', authState: 'from-helper', trust: { signaturesRequired: false } }],
+      registries: [fromANonConformingPeer({
+        host: 'a.example.test',
+        authState: 'from-helper',
+        trust: { signaturesRequired: false },
+      })],
+      credentialStateIsMachineWide: true,
     }));
     const rows = rowsOf(await h.nodes());
 
@@ -170,7 +188,10 @@ describe('registryNodes', () => {
   });
 
   it('says nothing about a state the product did not report', async () => {
-    const h = harness('/ws', ok({ registries: [{ host: 'a.example.test' }] }));
+    const h = harness('/ws', ok({
+      registries: [fromANonConformingPeer({ host: 'a.example.test' })],
+      credentialStateIsMachineWide: true,
+    }));
     const rows = rowsOf(await h.nodes());
 
     assert.strictEqual(rows[0].label, 'a.example.test');
@@ -179,7 +200,7 @@ describe('registryNodes', () => {
   });
 
   it('a configuration naming no registry is a successful empty answer, in the product\'s own words', async () => {
-    const h = harness('/ws', ok({ registries: [] }));
+    const h = harness('/ws', ok({ registries: [], credentialStateIsMachineWide: true }));
     assert.deepStrictEqual(await h.nodes(), [{ kind: 'message', label: EMPTY_LABEL }]);
     assert.strictEqual(EMPTY_LABEL, 'No registries configured.');
   });
@@ -204,11 +225,20 @@ describe('registryNodes', () => {
   });
 
   it('asks again on every enumeration, so a refresh repopulates from the compiler', async () => {
-    let doc: RegistryListDoc = { registries: [{ host: 'a.example.test' }] };
+    let doc: RegistryListDoc = {
+      registries: [fromANonConformingPeer({ host: 'a.example.test' })],
+      credentialStateIsMachineWide: true,
+    };
     const h = harness('/ws', () => Promise.resolve(doc));
 
     assert.deepStrictEqual(labelsOf(await h.nodes()), ['a.example.test']);
-    doc = { registries: [{ host: 'a.example.test' }, { host: 'b.example.test' }] };
+    doc = {
+      registries: [
+        fromANonConformingPeer({ host: 'a.example.test' }),
+        fromANonConformingPeer({ host: 'b.example.test' }),
+      ],
+      credentialStateIsMachineWide: true,
+    };
     assert.deepStrictEqual(labelsOf(await h.nodes()), ['a.example.test', 'b.example.test']);
     assert.strictEqual(h.invocations(), 2);
   });
@@ -243,18 +273,21 @@ describe('registryNodes', () => {
 
 describe('rowForRegistry', () => {
   it('treats a missing default flag as no claim of being the default', () => {
-    const row = rowForRegistry({ host: 'a.example.test', trust: { signaturesRequired: true } });
+    const row = rowForRegistry(fromANonConformingPeer({
+      host: 'a.example.test',
+      trust: { signaturesRequired: true },
+    }));
     assert.strictEqual(row.description, 'signatures required');
     assert.strictEqual(row.icon, 'cloud');
   });
 
   it('uses the command\'s own words for both trust postures', () => {
     assert.ok(
-      rowForRegistry({ host: 'a', trust: { signaturesRequired: true } })
+      rowForRegistry(fromANonConformingPeer({ host: 'a', trust: { signaturesRequired: true } }))
         .description.includes('signatures required'),
     );
     assert.ok(
-      rowForRegistry({ host: 'a', trust: { signaturesRequired: false } })
+      rowForRegistry(fromANonConformingPeer({ host: 'a', trust: { signaturesRequired: false } }))
         .description.includes('signatures optional'),
     );
   });
@@ -263,7 +296,11 @@ describe('rowForRegistry', () => {
     // The subject an operation is invoked with is read from this field. Were it
     // read back off the label, a later change to what a row displays would
     // silently change what its operations act on.
-    const row = rowForRegistry({ host: 'a.example.test', name: 'alias', default: true });
+    const row = rowForRegistry(fromANonConformingPeer({
+      host: 'a.example.test',
+      name: 'alias',
+      default: true,
+    }));
     assert.strictEqual(row.host, 'a.example.test');
   });
 });
@@ -284,7 +321,10 @@ describe('registrySubject', () => {
     // The three message states in turn. Each is a real, reachable row, and an
     // operation invoked on one could only be invoked with no subject — which is
     // an invocation that cannot succeed, so none is offered.
-    const configuredNone = await harness('/ws', ok({ registries: [] })).nodes();
+    const configuredNone = await harness('/ws', ok({
+      registries: [],
+      credentialStateIsMachineWide: true,
+    })).nodes();
     const failed = await harness('/ws', () => Promise.reject(new Error('boom'))).nodes();
     const unanchored = await harness(null, ok(MEASURED_DOCUMENT)).nodes();
 

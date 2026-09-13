@@ -120,6 +120,16 @@ export function lspHoverToHover(
   return { uri, position: convertPosition(documentContent, lspPosition, 'utf-16', serverEncoding) };
 }
 
+// lspCompletionToCompletion composes the completion request.
+//
+// The trigger character travels inside the request's context member, which is
+// where the compiler reads it from — the protocol's own CompletionContext
+// shape, carried rather than flattened. A trigger character placed beside the
+// position instead reaches the compiler as a key it does not read, so the
+// narrowing it exists to drive simply never happens and nothing reports that.
+//
+// triggerKind is the protocol's own: 2 says this completion was raised by a
+// character the reader typed, which is the only case that carries one here.
 export function lspCompletionToCompletion(
   uri: string,
   lspPosition: LspPosition,
@@ -132,10 +142,15 @@ export function lspCompletionToCompletion(
     position: convertPosition(documentContent, lspPosition, 'utf-16', serverEncoding),
   };
   if (triggerCharacter !== undefined) {
-    params.triggerCharacter = triggerCharacter;
+    params.context = { triggerKind: COMPLETION_TRIGGERED_BY_CHARACTER, triggerCharacter };
   }
   return params;
 }
+
+// COMPLETION_TRIGGERED_BY_CHARACTER is the protocol's triggerKind for a
+// completion raised by a character the reader typed, as against one invoked
+// outright or re-raised over an incomplete list.
+const COMPLETION_TRIGGERED_BY_CHARACTER = 2;
 
 // locationToLspLocation converts a daemon-encoded Location back to
 // VS Code's UTF-16 Location. When the target document's encoding

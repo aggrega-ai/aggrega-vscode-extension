@@ -411,7 +411,9 @@ async function attachFeature(
     // The document and the container path both come from that answer, and both
     // are passed on untouched. Reading either one back into parts is the guess
     // this request exists to remove.
-    const answer = await deps.requestInsertionPoint(located.file, located.container);
+    // A node whose attachment container is the document root names no path, and
+    // an empty path reaches the wire as null.
+    const answer = await deps.requestInsertionPoint(located.file, located.container ?? []);
     const insertion = readInsertion(answer);
     if (insertion === null) {
       void postAttachOutcome(panel, site.nodeId, attachRefusal(

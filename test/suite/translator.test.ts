@@ -71,9 +71,20 @@ describe('request-direction translators (utf-8 server)', () => {
     assert.deepStrictEqual(out, { uri, position: { line: 0, character: 6 } });
   });
 
-  it('lspCompletionToCompletion forwards trigger character when provided', () => {
+  // 🔴 THE TRIGGER CHARACTER TRAVELS INSIDE THE CONTEXT MEMBER, WHICH IS WHERE
+  // THE COMPILER READS IT FROM. Carried beside the position instead, it reaches
+  // the compiler as a key the request shape does not declare — so it is dropped,
+  // the narrowing it exists to drive never runs, and nothing anywhere reports
+  // that. The equality is over the whole request rather than over the one member,
+  // because a check that the character is present somewhere would pass on exactly
+  // the shape that loses it.
+  it('lspCompletionToCompletion carries the trigger character where the compiler reads it', () => {
     const out = lspCompletionToCompletion(uri, pos, content, 'utf-8', '/');
-    assert.deepStrictEqual(out, { uri, position: { line: 0, character: 6 }, triggerCharacter: '/' });
+    assert.deepStrictEqual(out, {
+      uri,
+      position: { line: 0, character: 6 },
+      context: { triggerKind: 2, triggerCharacter: '/' },
+    });
   });
 
   it('lspCompletionToCompletion omits trigger character when undefined', () => {

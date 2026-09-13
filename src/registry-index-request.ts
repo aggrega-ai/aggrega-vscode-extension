@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cognitio S.r.l.
 
+import type * as wire from '@aggrega-ai/aggrega-abi/dist/servewire_gen';
 import { CancellationSignal } from './cancellation';
 import { OperationOutcome, outcomeOf } from './operation-outcome';
 
@@ -62,9 +63,7 @@ import { OperationOutcome, outcomeOf } from './operation-outcome';
 // already cached — is not declared, because a declared field is a field a later
 // call site will fill. Omitting it takes the conditional refresh, which is what a
 // reader gets from a bare command line.
-export interface RegistryUpdateParams {
-  registry?: string;
-}
+export type RegistryUpdateParams = Pick<wire.RegistryUpdateParams, 'registry'>;
 
 // SkippedRepository is one repository the walk could not read, and why.
 //
@@ -72,10 +71,7 @@ export interface RegistryUpdateParams {
 // not abandon the walk: the index that results is incomplete, and a reader acting
 // on it needs to know which repositories are missing from it rather than reading a
 // short answer as a complete one.
-export interface SkippedRepository {
-  repo: string;
-  reason: string;
-}
+export type SkippedRepository = wire.SkippedRepo;
 
 // DeprecationMet is one deprecation marker the walk met, and what it did with it.
 //
@@ -87,13 +83,7 @@ export interface SkippedRepository {
 //
 // reason carries the compiler's own account of why a marker was not recorded, so
 // a reader is told which of the two ways it declined rather than only that it did.
-export interface DeprecationMet {
-  repo: string;
-  version: string;
-  recorded: boolean;
-  severity?: string;
-  reason?: string;
-}
+export type DeprecationMet = wire.DeprecationNote;
 
 // IndexedHost is what an index build did for one registry.
 //
@@ -104,15 +94,7 @@ export interface DeprecationMet {
 //
 // error carries a host-level failure as text, so a walk over several registries
 // reports which of them failed without a reader having to correlate anything.
-export interface IndexedHost {
-  host: string;
-  indexed: number;
-  deprecationsExamined: boolean;
-  deprecationsRecorded: number;
-  skipped: readonly SkippedRepository[];
-  deprecations: readonly DeprecationMet[];
-  error?: string;
-}
+export type IndexedHost = wire.HostUpdate;
 
 // RegistryUpdateResult is the answer an index build produces.
 //
@@ -131,13 +113,7 @@ export interface IndexedHost {
 // registriesConfigured distinguishes "nothing is configured" from "every
 // configured registry was indexed and none held anything", which are different
 // answers to a reader deciding what to do next.
-export interface RegistryUpdateResult {
-  hosts: readonly IndexedHost[];
-  failed: readonly string[];
-  indexRoot: string;
-  registriesConfigured: boolean;
-  reachedRegistries: boolean;
-}
+export type RegistryUpdateResult = wire.RegistryUpdateResult;
 
 // RegistryIndexDeps is the one thing an index build needs: a way to ask the
 // compiler, carrying the reader's stop.
@@ -249,9 +225,12 @@ export function hostLines(host: IndexedHost): readonly string[] {
     return [`  ${host.host}: ${host.error}`];
   }
   const lines: string[] = [];
+  // Every collection in this answer reaches the wire as null when it is empty,
+  // which says the same thing an empty list does.
+  const skipped = host.skipped ?? [];
   let headline = `  ${host.host}: ${countOf(host.indexed, 'entity', 'entities')}`;
-  if (host.skipped.length > 0) {
-    headline += `, ${countOf(host.skipped.length, 'repository', 'repositories')}`
+  if (skipped.length > 0) {
+    headline += `, ${countOf(skipped.length, 'repository', 'repositories')}`
       + ' could not be read';
   }
   lines.push(headline);
@@ -264,10 +243,10 @@ export function hostLines(host: IndexedHost): readonly string[] {
     lines.push('    deprecation markers not examined: signature verification is disabled'
       + ' for this registry');
   }
-  for (const skipped of host.skipped) {
-    lines.push(skippedLine(skipped));
+  for (const one of skipped) {
+    lines.push(skippedLine(one));
   }
-  for (const met of host.deprecations) {
+  for (const met of host.deprecations ?? []) {
     lines.push(deprecationLine(met));
   }
   return lines;
@@ -293,10 +272,11 @@ export function indexBuildLines(result: RegistryUpdateResult): readonly string[]
     return ['  no registries are configured'];
   }
   const lines: string[] = [];
-  for (const host of result.hosts) {
+  const hosts = result.hosts ?? [];
+  for (const host of hosts) {
     lines.push(...hostLines(host));
   }
-  if (result.indexRoot !== '' && result.hosts.some((host) => !host.error)) {
+  if (result.indexRoot !== '' && hosts.some((host) => !host.error)) {
     lines.push(`  index written to ${result.indexRoot}`);
   }
   return lines;
@@ -333,9 +313,10 @@ export function indexBuildOutcome(result: RegistryUpdateResult): OperationOutcom
       detail: 'found no configured registries, so there was nothing to index.',
     };
   }
-  const reached = result.hosts.filter((host) => !host.error);
-  const missed = result.hosts.filter((host) => host.error).map((host) => host.host);
-  const entities = countOf(indexedEntities(result.hosts), 'entity', 'entities');
+  const hosts = result.hosts ?? [];
+  const reached = hosts.filter((host) => !host.error);
+  const missed = hosts.filter((host) => host.error).map((host) => host.host);
+  const entities = countOf(indexedEntities(hosts), 'entity', 'entities');
   if (missed.length > 0) {
     const indexed = reached.length === 0
       ? 'nothing was indexed'

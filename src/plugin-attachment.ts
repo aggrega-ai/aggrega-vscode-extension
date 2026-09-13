@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cognitio S.r.l.
 
+import type * as wire from '@aggrega-ai/aggrega-abi/dist/servewire_gen';
 import { CancellationSignal } from './cancellation';
-import { ConfigWriteScope, reachPhrase } from './config-write-scope';
+import { reachPhrase } from './config-write-scope';
 import { OperationOutcome, outcomeOf } from './operation-outcome';
 import { withSubject } from './operation-groups';
 import { PLUGIN_TYPE_GOVERNANCE, PLUGIN_TYPE_PROVIDER, PluginAttachment } from './plugins-run';
@@ -81,17 +82,12 @@ export function attachmentProgressTitle(type: string): string {
 // does not offer; the shared operation refuses that field outright on every other
 // type, naming it as applying to that one type alone. So sending it would not
 // grant a consent nobody gave — it would halt the attachment.
-export interface PluginAddParams {
-  type: string;
-  query: string;
-  // capability is the capability a provider binding serves. The provider type
-  // requires it and no other type accepts it, so it is present on exactly those
-  // requests rather than sent empty.
-  capability?: string;
-  // role is the pipeline role a governance attachment is bound at, on the same
-  // present-or-absent terms as the capability above.
-  role?: string;
-}
+// capability is the capability a provider binding serves. The provider type
+// requires it and no other type accepts it, so it is present on exactly those
+// requests rather than sent empty. role is the pipeline role a governance
+// attachment is bound at, on the same present-or-absent terms.
+export type PluginAddParams = Required<Pick<wire.PluginAddParams, 'type' | 'query'>> &
+  Pick<wire.PluginAddParams, 'capability' | 'role'>;
 
 // PluginAddResult is the answer an attachment produces.
 //
@@ -104,42 +100,31 @@ export interface PluginAddParams {
 // chosen from the answer rather than re-derived from the type that was sent: a
 // config socket carries the version-pinned entity identity, and a provider
 // binding carries the plugin's artifact identity and the capability it now
-// serves. The third field the wire declares, reference, is filled only by the
-// command-extension install this surface does not offer — it is declared so the
-// shape driven here is the shape the wire has, and read by nothing.
-export interface PluginAddResult {
-  type: string;
-  identity?: string;
-  uri?: string;
-  capability?: string;
-  reference?: string;
-  scope: ConfigWriteScope;
-  // written and content are the answer's two halves of one choice: whether the
-  // compiler put the configuration on disk or handed it back instead. A write
-  // leaves content empty, because the file is already at the path scope names; a
-  // report leaves written false and returns the document in content. The two are
-  // never both meaningful.
-  //
-  // This surface composes no such choice, so every attachment it sends writes and
-  // both fields say the same thing on every answer it reads. They are declared so
-  // the shape driven here is the shape the wire has, and read by nothing.
-  written: boolean;
-  content?: string;
-  // retraction is what the compiler's withdrawal screen concluded about the
-  // version that was pinned, and is absent whenever it concluded nothing — which
-  // is every ordinary attachment. It is optional for that reason rather than
-  // because a client may ignore it.
-  retraction?: PluginRetraction;
-}
+// serves. reference is filled only by the command-extension install this surface
+// does not offer, and is read by nothing here.
+//
+// written and content are the answer's two halves of one choice: whether the
+// compiler put the configuration on disk or handed it back instead. A write
+// leaves content empty, because the file is already at the path scope names; a
+// report leaves written false and returns the document in content. The two are
+// never both meaningful, and this surface composes no such choice, so every
+// attachment it sends writes.
+//
+// retraction is what the compiler's withdrawal screen concluded about the
+// version that was pinned, and is absent whenever it concluded nothing — which
+// is every ordinary attachment.
+//
+// 🔴 The shape is no longer declared here at all. It was declared member by
+// member so that what this surface drives would be what the wire has, with
+// members carried purely to keep the copy faithful — which is the discipline a
+// copy needs and a consumed contract does not.
+export type PluginAddResult = wire.PluginAddResult;
 
 // PluginRetractionExclusion is one published version the compiler withdrew from
 // selection, with the reason recorded against it. The reason is optional because a
 // withdrawal record is not required to carry prose, so an absent one means none was
 // recorded rather than that this side failed to read it.
-export interface PluginRetractionExclusion {
-  version: string;
-  reason?: string;
-}
+export type PluginRetractionExclusion = wire.PluginRetractionExclusion;
 
 // PluginRetractionProvenance says where the compiler's withdrawal screen got its
 // facts and how current they are.
@@ -154,10 +139,7 @@ export interface PluginRetractionExclusion {
 // have none, and a snapshot may carry no build time — so an absent one is not a
 // stale one, and the sentence composed from it says nothing about currency rather
 // than guessing at it.
-export interface PluginRetractionProvenance {
-  source: string;
-  lastUpdated?: string;
-}
+export type PluginRetractionProvenance = wire.PluginRetractionProvenance;
 
 // PluginRetraction is the compiler's conclusion about the version an attachment
 // pinned.
@@ -170,19 +152,13 @@ export interface PluginRetractionProvenance {
 // been withdrawn. Reading an empty excluded as "nothing was withdrawn" without
 // looking at unscreened first is the mistake that turns the second case silent,
 // which is the exact silence this field exists to end.
-export interface PluginRetraction {
-  reference: string;
-  selected?: string;
-  excluded?: PluginRetractionExclusion[];
-  unscreened?: string;
-  // provenance qualifies whichever of those two conditions arrived, and is absent
-  // when selection ran with no screen at all — where nothing was consulted there
-  // is no source to report. A reader acting on a withdrawal needs it: facts read
-  // while the attachment ran speak to now, while a snapshot can be older than the
-  // withdrawal it is being asked about, and only the second leaves the reader
-  // anything to do about the gap.
-  provenance?: PluginRetractionProvenance;
-}
+// provenance qualifies whichever of those two conditions arrived, and is absent
+// when selection ran with no screen at all — where nothing was consulted there is
+// no source to report. A reader acting on a withdrawal needs it: facts read while
+// the attachment ran speak to now, while a snapshot can be older than the
+// withdrawal it is being asked about, and only the second leaves the reader
+// anything to do about the gap.
+export type PluginRetraction = wire.PluginRetraction;
 
 // PluginAttachmentDeps is the one thing an attachment needs: a way to ask the
 // compiler, carrying the reader's stop.

@@ -167,6 +167,15 @@ describe('the conventions findings on their way to the Problems panel', () => {
   });
 });
 
+
+// The published answer carries every count and the halt verdict on every run.
+// The fixtures below carry only the members the test under them is about, so
+// each stays a statement of one fact rather than a whole answer restated; the
+// cast is what lets a fixture be that narrow.
+function partialAnswer(a: Partial<LintAnswer>): LintAnswer {
+  return a as LintAnswer;
+}
+
 describe('findingsByFile', () => {
   // 🔴 THE ANSWER SPELLS A CONTAINED DOCUMENT RELATIVE TO THE WORKSPACE ROOT.
   // A key used unresolved would build a file URI against the extension host's
@@ -180,17 +189,17 @@ describe('findingsByFile', () => {
   // A catalog directory need not sit under the workspace root, and the answer
   // spells a document outside it absolutely. Resolution must leave that alone.
   it('leaves an absolute document path outside the workspace root unchanged', () => {
-    const answer: LintAnswer = {
+    const answer = partialAnswer({
       files: [{
         file: '/elsewhere/catalog/component.yaml',
         diagnostics: [{ line: 1, column: 1, severity: 'warning', message: 'x', source: 'aggrega-lint' }],
       }],
-    };
+    });
     assert.deepStrictEqual([...findingsByFile(answer, WORKSPACE_ROOT).keys()], ['/elsewhere/catalog/component.yaml']);
   });
 
   it('preserves the compiler\'s order within a document', () => {
-    const answer: LintAnswer = {
+    const answer = partialAnswer({
       files: [
         {
           file: 'x.yaml',
@@ -204,30 +213,30 @@ describe('findingsByFile', () => {
           diagnostics: [{ line: 1, column: 1, severity: 'warning', message: 'other', source: 'aggrega-lint' }],
         },
       ],
-    };
+    });
     const byFile = findingsByFile(answer, WORKSPACE_ROOT);
     assert.deepStrictEqual([...byFile.keys()], ['/ws/x.yaml', '/ws/y.yaml']);
     assert.deepStrictEqual(byFile.get('/ws/x.yaml')!.map((s) => s.message), ['first', 'second']);
   });
 
   it('publishes nothing for an answer carrying no findings', () => {
-    assert.strictEqual(findingsByFile({ checked: 127, findings: 0, files: [] }, WORKSPACE_ROOT).size, 0);
+    assert.strictEqual(findingsByFile(partialAnswer({ checked: 127, findings: 0, files: [] }), WORKSPACE_ROOT).size, 0);
   });
 
   it('tolerates an answer missing the files key', () => {
-    assert.strictEqual(findingsByFile({}, WORKSPACE_ROOT).size, 0);
-    assert.strictEqual(countUnlocatable({}), 0);
+    assert.strictEqual(findingsByFile(partialAnswer({}), WORKSPACE_ROOT).size, 0);
+    assert.strictEqual(countUnlocatable(partialAnswer({})), 0);
   });
 
   // The answer groups a finding whose rule named no document under the empty
   // path, which is how it says "this one locates nothing" rather than dropping it.
   it('drops the group that names no document and counts its entries instead', () => {
-    const answer: LintAnswer = {
+    const answer = partialAnswer({
       files: [
         { file: '', diagnostics: [{ line: 1, column: 1, severity: 'warning', message: 'nowhere', source: 'aggrega-lint' }] },
         { file: 'x.yaml', diagnostics: [{ line: 1, column: 1, severity: 'warning', message: 'somewhere', source: 'aggrega-lint' }] },
       ],
-    };
+    });
     assert.deepStrictEqual([...findingsByFile(answer, WORKSPACE_ROOT).keys()], ['/ws/x.yaml']);
     assert.strictEqual(countUnlocatable(answer), 1);
   });
@@ -263,14 +272,14 @@ describe('reportLines — the compiler\'s own report format, composed from the a
   });
 
   it('renders a finding whose producer assigned no rule identity without an empty one', () => {
-    const answer: LintAnswer = {
+    const answer = partialAnswer({
       files: [{ file: 'x.yaml', diagnostics: [{ line: 1, column: 1, severity: 'warning', message: 'no rule', source: 'aggrega-lint' }] }],
-    };
+    });
     assert.deepStrictEqual(reportLines(answer, WORKSPACE_ROOT), ['/ws/x.yaml:', '[warning] no rule']);
   });
 
   it('writes nothing for an answer with no findings', () => {
-    assert.deepStrictEqual(reportLines({ checked: 127, findings: 0, files: [] }, WORKSPACE_ROOT), []);
+    assert.deepStrictEqual(reportLines(partialAnswer({ checked: 127, findings: 0, files: [] }), WORKSPACE_ROOT), []);
   });
 });
 
@@ -291,29 +300,29 @@ describe('summaryLine', () => {
   // ANSWERS, so a clean run states its corpus rather than staying silent.
   it('states a clean run over a named corpus', () => {
     assert.strictEqual(
-      summaryLine({ checked: 127, findings: 0, files: [] }, WORKSPACE_ROOT),
+      summaryLine(partialAnswer({ checked: 127, findings: 0, files: [] }), WORKSPACE_ROOT),
       'Aggrega lint: no findings across 127 entities checked.',
     );
   });
 
   it('distinguishes a clean run over nothing from a clean run over a catalog', () => {
     assert.notStrictEqual(
-      summaryLine({ checked: 0, findings: 0, files: [] }, WORKSPACE_ROOT),
-      summaryLine({ checked: 127, findings: 0, files: [] }, WORKSPACE_ROOT),
+      summaryLine(partialAnswer({ checked: 0, findings: 0, files: [] }), WORKSPACE_ROOT),
+      summaryLine(partialAnswer({ checked: 127, findings: 0, files: [] }), WORKSPACE_ROOT),
     );
     assert.strictEqual(
-      summaryLine({ checked: 0, findings: 0, files: [] }, WORKSPACE_ROOT),
+      summaryLine(partialAnswer({ checked: 0, findings: 0, files: [] }), WORKSPACE_ROOT),
       'Aggrega lint: no findings across 0 entities checked.',
     );
   });
 
   // A count the compiler never sent is never shown.
   it('omits the corpus clause when the answer carried no count', () => {
-    assert.strictEqual(summaryLine({ findings: 0 }, WORKSPACE_ROOT), 'Aggrega lint: no findings.');
+    assert.strictEqual(summaryLine(partialAnswer({ findings: 0 }), WORKSPACE_ROOT), 'Aggrega lint: no findings.');
   });
 
   it('omits every count when the answer carried none', () => {
-    assert.strictEqual(summaryLine({}, WORKSPACE_ROOT), 'Aggrega lint: run complete.');
+    assert.strictEqual(summaryLine(partialAnswer({}), WORKSPACE_ROOT), 'Aggrega lint: run complete.');
   });
 
   // 🔴 THE FIELD THE ANSWER HAS ALWAYS CARRIED AND NOTHING READ. A run about one
@@ -323,7 +332,7 @@ describe('summaryLine', () => {
   it('names the entity an answer says it was about', () => {
     assert.strictEqual(
       summaryLine(
-        { entity: MEASURED_RELATIVE_FILE, checked: 1, findings: 1, files: [] },
+        partialAnswer({ entity: MEASURED_RELATIVE_FILE, checked: 1, findings: 1, files: [] }),
         WORKSPACE_ROOT,
       ),
       `Aggrega lint: 1 finding(s) in /ws/${MEASURED_RELATIVE_FILE} — see the Problems panel.`,
@@ -334,8 +343,8 @@ describe('summaryLine', () => {
     // The discriminator is the field's presence, never the count: both answers
     // below report one entity checked and no findings.
     assert.notStrictEqual(
-      summaryLine({ entity: MEASURED_RELATIVE_FILE, checked: 1, findings: 0 }, WORKSPACE_ROOT),
-      summaryLine({ checked: 1, findings: 0 }, WORKSPACE_ROOT),
+      summaryLine(partialAnswer({ entity: MEASURED_RELATIVE_FILE, checked: 1, findings: 0 }), WORKSPACE_ROOT),
+      summaryLine(partialAnswer({ checked: 1, findings: 0 }), WORKSPACE_ROOT),
     );
   });
 
@@ -346,14 +355,14 @@ describe('summaryLine', () => {
   it('explains a count the Problems panel cannot match', () => {
     assert.strictEqual(
       summaryLine(
-        {
+        partialAnswer({
           checked: 127,
           findings: 2,
           files: [
             { file: 'x.yaml', diagnostics: [{ line: 1, column: 1, severity: 'warning', message: 'located', source: 'aggrega-lint' }] },
             { file: '', diagnostics: [{ line: 1, column: 1, severity: 'warning', message: 'nowhere', source: 'aggrega-lint' }] },
           ],
-        },
+        }),
         WORKSPACE_ROOT,
       ),
       'Aggrega lint: 2 finding(s) across 127 entities checked — see the Problems panel.'
@@ -381,7 +390,7 @@ describe('lintPublication', () => {
   it('drops only the entity it was about, so the rest of the panel stands', () => {
     const publication = lintPublication(
       ENTITY,
-      { entity: MEASURED_RELATIVE_FILE, checked: 1, findings: 0, files: [] },
+      partialAnswer({ entity: MEASURED_RELATIVE_FILE, checked: 1, findings: 0, files: [] }),
       WORKSPACE_ROOT,
     );
     assert.strictEqual(publication.clearAll, false);
@@ -396,12 +405,12 @@ describe('lintPublication', () => {
   it('drops the union of its subject and every document the answer names', () => {
     const publication = lintPublication(
       ENTITY,
-      {
+      partialAnswer({
         entity: MEASURED_RELATIVE_FILE,
         checked: 1,
         findings: 0,
         files: [{ file: 'elsewhere.yaml', diagnostics: [] }],
-      },
+      }),
       WORKSPACE_ROOT,
     );
     assert.deepStrictEqual(
@@ -419,7 +428,7 @@ describe('lintPublication', () => {
   it('drops nothing for a group that names no document, having nothing to drop it from', () => {
     const publication = lintPublication(
       ENTITY,
-      { entity: MEASURED_RELATIVE_FILE, files: [{ file: '', diagnostics: [] }] },
+      partialAnswer({ entity: MEASURED_RELATIVE_FILE, files: [{ file: '', diagnostics: [] }] }),
       WORKSPACE_ROOT,
     );
     assert.deepStrictEqual(publication.clear, [`/ws/${MEASURED_RELATIVE_FILE}`]);

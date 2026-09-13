@@ -23,8 +23,11 @@ import {
 } from '../../src/publication-request';
 import {
   EXTENSION_ROOT,
+  WIRE_CONTRACT,
   assertCensusInstrumentFires,
   launchFacilityCount,
+  typeOnlyImports,
+  valueImports,
 } from '../helpers/launch-census';
 
 // A publication answer as the compiler sends one, with every field present so a
@@ -371,13 +374,19 @@ describe('the publication family reaches the compiler without a launch', () => {
     // Read as the WHOLE import list, so a module added to it has to be looked at —
     // including one that could start a process and one that would carry the editor
     // in, which is what keeps every publication decision readable without a host.
-    const source = fs.readFileSync(
-      path.join(EXTENSION_ROOT, 'src/publication-request.ts'), 'utf8',
-    );
-    const imported = [...source.matchAll(/from\s+'([^']+)'/g)].map((m) => m[1]);
+    // 🔴 THE VALUE LIST, WHICH IS WHAT THE CLAIM IS ABOUT. The wire shapes come
+    // from the published contract rather than being restated here, and they come
+    // as declarations alone — erased before anything runs, so the module reaches
+    // no code through them. Asserted separately below, because a reading that
+    // folded the two together would let a later change from one kind to the other
+    // pass unnoticed.
     assert.deepStrictEqual(
-      imported.sort(),
+      valueImports('src/publication-request.ts'),
       ['./cancellation', './operation-groups', './operation-outcome'],
+    );
+    assert.deepStrictEqual(
+      typeOnlyImports('src/publication-request.ts'),
+      [WIRE_CONTRACT],
     );
   });
 

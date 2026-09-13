@@ -14,7 +14,12 @@ import {
   runPluginRemoval,
 } from '../../src/plugin-removal';
 import { terminalLine } from '../../src/operation-outcome';
-import { EXTENSION_ROOT } from '../helpers/launch-census';
+import {
+  EXTENSION_ROOT,
+  WIRE_CONTRACT,
+  typeOnlyImports,
+  valueImports,
+} from '../helpers/launch-census';
 
 // A DAEMON REFUSAL IS AN ENVELOPE OBJECT, NOT AN ERROR. The client rejects a
 // refused request with the raw JSON-RPC error member, so anything that reads a
@@ -313,12 +318,17 @@ describe('the removal reaches the compiler without a launch', () => {
     // — including one that could start a process and one that would carry the
     // editor in, which is what keeps the removal decision readable without a
     // host.
-    const source = fs.readFileSync(path.join(EXTENSION_ROOT, 'src/plugin-removal.ts'), 'utf8');
-    const imported = [...source.matchAll(/from\s+'([^']+)'/g)].map((m) => m[1]);
+    // 🔴 THE VALUE LIST, WHICH IS WHAT THE CLAIM IS ABOUT. The wire shapes come
+    // from the published contract rather than being restated here, and they come
+    // as declarations alone — erased before anything runs, so the module reaches
+    // no code through them. Asserted separately below, because a reading that
+    // folded the two together would let a later change from one kind to the other
+    // pass unnoticed.
     assert.deepStrictEqual(
-      imported.sort(),
+      valueImports('src/plugin-removal.ts'),
       ['./config-write-scope', './operation-groups', './operation-outcome'],
     );
+    assert.deepStrictEqual(typeOnlyImports('src/plugin-removal.ts'), [WIRE_CONTRACT]);
   });
 
   // The tree-wide reading of which modules still invoke the compiler as a

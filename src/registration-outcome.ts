@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cognitio S.r.l.
 
+import type * as wire from '@aggrega-ai/aggrega-abi/dist/servewire_gen';
 import { ConfigWriteScope, reachPhrase } from './config-write-scope';
 
 // This module is the one rendering of what registering a registry produced.
@@ -23,13 +24,7 @@ import { ConfigWriteScope, reachPhrase } from './config-write-scope';
 // fields rather than as a sentence, so this surface reads a value instead of
 // parsing prose. A registry that advertises nothing is not a failure: the
 // registration proceeds on the built-in baseline and says so.
-export interface TrustFetchOutcome {
-  pinned: boolean;
-  notAdvertised?: boolean;
-  skipped?: boolean;
-  identities?: number;
-  reason?: string;
-}
+export type TrustFetchOutcome = wire.TrustFetchOutcome;
 
 // trustPhrase says what the advertised-trust fetch found.
 //

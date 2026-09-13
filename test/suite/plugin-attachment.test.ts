@@ -18,8 +18,11 @@ import { CancellationSignal, OperationCancelled } from '../../src/cancellation';
 import { terminalLine } from '../../src/operation-outcome';
 import {
   EXTENSION_ROOT,
+  WIRE_CONTRACT,
   assertCensusInstrumentFires,
   launchFacilityCount,
+  typeOnlyImports,
+  valueImports,
 } from '../helpers/launch-census';
 
 // This spec drives the whole attachment decision with no transport, no editor and
@@ -465,10 +468,14 @@ describe('the attachment reaches the compiler without a launch', () => {
     // Read as the WHOLE import list, so a module added to it has to be looked at —
     // including one that could start a process and one that would carry the editor
     // in, which is what keeps the attachment decision readable without a host.
-    const source = fs.readFileSync(path.join(EXTENSION_ROOT, 'src/plugin-attachment.ts'), 'utf8');
-    const imported = [...source.matchAll(/from\s+'([^']+)'/g)].map((m) => m[1]);
+    // 🔴 THE VALUE LIST, WHICH IS WHAT THE CLAIM IS ABOUT. The wire shapes come
+    // from the published contract rather than being restated here, and they come
+    // as declarations alone — erased before anything runs, so the module reaches
+    // no code through them. Asserted separately below, because a reading that
+    // folded the two together would let a later change from one kind to the other
+    // pass unnoticed.
     assert.deepStrictEqual(
-      imported.sort(),
+      valueImports('src/plugin-attachment.ts'),
       [
         './cancellation',
         './config-write-scope',
@@ -477,6 +484,7 @@ describe('the attachment reaches the compiler without a launch', () => {
         './plugins-run',
       ],
     );
+    assert.deepStrictEqual(typeOnlyImports('src/plugin-attachment.ts'), [WIRE_CONTRACT]);
   });
 
   it('sends the attachment from exactly one place', () => {

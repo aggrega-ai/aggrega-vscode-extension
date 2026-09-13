@@ -19,10 +19,18 @@ import {
 import { CancellationSignal, OperationCancelled } from '../../src/cancellation';
 import { terminalLine } from '../../src/operation-outcome';
 import {
+  WIRE_CONTRACT,
   assertCensusInstrumentFires,
   launchFacilityCount,
   readSourceTree,
+  typeOnlyImports,
+  valueImports,
 } from '../helpers/launch-census';
+
+// Exact says whether two key sets are the same set, in both directions. A single
+// `extends` answers only one of them, so a shape that gained a member would still
+// satisfy it — which is the reading that goes quietly permissive.
+type Exact<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
 
 // This spec drives the whole index-build decision with no transport, no editor and
 // no process: every sentence a reader meets is read back here, and every request
@@ -142,19 +150,20 @@ describe('the index-build request is one operation with one scope field', () => 
   it('declares no field for the full re-read that ignores the cache', () => {
     // The conditional refresh is what a bare command line does, and it is what
     // omitting the field takes. A declared field is a field a later call site fills.
-    const sources = new Map(readSourceTree());
-    const module = sources.get('registry-index-request.ts') ?? '';
-    assert.ok(module.length > 0, 'the module was not read, so the absence below means nothing');
-    assert.strictEqual(
-      /^\s*upgrade\??:/m.test(module),
-      false,
-      'upgrade is declared on the request shape, so this surface can ask for it',
-    );
-    assert.ok(
-      /^\s*registry\?: string;/m.test(module),
-      'the field pattern no longer matches the field that provably exists, so the absence '
-      + 'above would pass vacuously',
-    );
+    //
+    // 🔴 THE DECLARATION IS HELD STRUCTURALLY RATHER THAN BY READING THE SOURCE.
+    // The request shape is a projection of the published one naming the members
+    // this surface sends, so the exactness below is a statement the compiler
+    // checks: naming a second member widens the key set, `Exact` yields false, and
+    // the assignment stops compiling. A reading of the source text could not see
+    // that — and it carried its own vacuity guard precisely because a pattern over
+    // prose goes quietly blind, which is the failure mode this replaces rather
+    // than merely detects.
+    const keySetIsExactlyTheScope: Exact<keyof RegistryUpdateParams, 'registry'> = true;
+    assert.ok(keySetIsExactlyTheScope);
+    // And what actually leaves, at both scopes, carries that one key and no other.
+    assert.deepStrictEqual(Object.keys(indexBuildRequest()), []);
+    assert.deepStrictEqual(Object.keys(indexBuildRequest('h.example.test')), ['registry']);
   });
 
   it('sends the scope it was given and hands the signal through, at both scopes', async () => {
@@ -457,10 +466,17 @@ describe('the index build reaches the compiler without a launch', () => {
   });
 
   it('gives that module no way to reach a process or an editor at all', () => {
-    const sources = new Map(readSourceTree());
-    const module = sources.get('registry-index-request.ts') ?? '';
-    const imported = [...module.matchAll(/from\s+'([^']+)'/g)].map((m) => m[1]).sort();
-    assert.deepStrictEqual(imported, ['./cancellation', './operation-outcome']);
+    // The value list is what the claim is about; the wire shapes arrive as
+    // declarations alone and are asserted separately, so a later change from one
+    // kind to the other cannot pass unnoticed.
+    assert.deepStrictEqual(
+      valueImports('src/registry-index-request.ts'),
+      ['./cancellation', './operation-outcome'],
+    );
+    assert.deepStrictEqual(
+      typeOnlyImports('src/registry-index-request.ts'),
+      [WIRE_CONTRACT],
+    );
   });
 
   it('sends the index build from exactly one place', () => {

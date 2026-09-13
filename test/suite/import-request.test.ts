@@ -24,9 +24,12 @@ import { CancellationSignal, OperationCancelled } from '../../src/cancellation';
 import { terminalLine } from '../../src/operation-outcome';
 import {
   EXTENSION_ROOT,
+  WIRE_CONTRACT,
   assertCensusInstrumentFires,
   launchFacilityCount,
   readSourceTree,
+  typeOnlyImports,
+  valueImports,
 } from '../helpers/launch-census';
 
 // This spec drives the whole import decision with no transport, no editor and no
@@ -302,7 +305,7 @@ describe('a partial import is reported as one that did not complete', () => {
     assert.strictEqual(
       terminalLine(IMPORT_SUBJECT, importOutcome({
         ...PARTIAL,
-        diagnostics: [PARTIAL.diagnostics[0]],
+        diagnostics: [(PARTIAL.diagnostics ?? [])[0]],
       })),
       'The import did not complete: the importer could not convert all of the source, '
       + 'recognised as langflow — 1 problem listed above. The 1 file it could draft was '
@@ -487,12 +490,17 @@ describe('the import reaches the compiler without a launch', () => {
     // Read as the WHOLE import list, so a module added to it has to be looked at —
     // including one that could start a process and one that would carry the editor
     // in, which is what keeps the import decision readable without a host.
-    const source = fs.readFileSync(path.join(EXTENSION_ROOT, 'src/import-request.ts'), 'utf8');
-    const imported = [...source.matchAll(/from\s+'([^']+)'/g)].map((m) => m[1]);
+    // 🔴 THE VALUE LIST, WHICH IS WHAT THE CLAIM IS ABOUT. The wire shapes come
+    // from the published contract rather than being restated here, and they come
+    // as declarations alone — erased before anything runs, so the module reaches
+    // no code through them. Asserted separately below, because a reading that
+    // folded the two together would let a later change from one kind to the other
+    // pass unnoticed.
     assert.deepStrictEqual(
-      imported.sort(),
+      valueImports('src/import-request.ts'),
       ['./cancellation', './operation-groups', './operation-outcome'],
     );
+    assert.deepStrictEqual(typeOnlyImports('src/import-request.ts'), [WIRE_CONTRACT]);
   });
 
   it('leaves the operations panel with one watched run and no launch of its own', () => {

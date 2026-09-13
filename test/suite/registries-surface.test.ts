@@ -8,8 +8,11 @@ import { allOperations, commandIdFor } from '../../src/operation-groups';
 import { REGISTRY_ROW_CONTEXT } from '../../src/registries-run';
 import {
   EXTENSION_ROOT,
+  WIRE_CONTRACT,
   assertCensusInstrumentFires,
   launchFacilityCount,
+  typeOnlyImports,
+  valueImports,
 } from '../helpers/launch-census';
 
 // What a reader sees and presses on this panel is not provable here — driving
@@ -289,10 +292,14 @@ describe('the registries panel and the catalog search reach the compiler without
     // looked at — including one that could start a process and one that would
     // carry the editor in, which is what keeps these decisions readable without a
     // host.
-    const source = fs.readFileSync(path.join(EXTENSION_ROOT, 'src/registry-configure.ts'), 'utf8');
-    const imported = [...source.matchAll(/from\s+'([^']+)'/g)].map((m) => m[1]);
+    // 🔴 THE VALUE LIST, WHICH IS WHAT THE CLAIM IS ABOUT. The wire shapes come
+    // from the published contract rather than being restated here, and they come
+    // as declarations alone — erased before anything runs, so the module reaches
+    // no code through them. Asserted separately below, because a reading that
+    // folded the two together would let a later change from one kind to the other
+    // pass unnoticed.
     assert.deepStrictEqual(
-      imported.sort(),
+      valueImports('src/registry-configure.ts'),
       [
         './config-write-scope',
         './operation-groups',
@@ -300,6 +307,7 @@ describe('the registries panel and the catalog search reach the compiler without
         './registration-outcome',
       ],
     );
+    assert.deepStrictEqual(typeOnlyImports('src/registry-configure.ts'), [WIRE_CONTRACT]);
     assert.strictEqual(launchFacilityCount('src/registry-configure.ts'), 0);
   });
 
@@ -309,21 +317,22 @@ describe('the registries panel and the catalog search reach the compiler without
     // whole import list, so a module added to it has to be looked at — including
     // one that could start a process and one that would carry the editor in,
     // which is what keeps the search decision readable without a host.
-    const source = fs.readFileSync(
-      path.join(EXTENSION_ROOT, 'src/catalog-search-run.ts'),
-      'utf8',
-    );
-    const imported = [...source.matchAll(/from\s+'([^']+)'/g)].map((m) => m[1]);
+    // The value list is what the claim is about; the wire shapes arrive as
+    // declarations alone and are asserted separately, so a later change from one
+    // kind to the other cannot pass unnoticed.
     assert.deepStrictEqual(
-      imported.sort(),
+      valueImports('src/catalog-search-run.ts'),
       ['./error-surfaces', './registries-run', './uri-display', './workspace'],
     );
+    assert.deepStrictEqual(typeOnlyImports('src/catalog-search-run.ts'), [WIRE_CONTRACT]);
   });
 
   it('reaches no process-launching helper from the module that owns the listing', () => {
-    const source = fs.readFileSync(path.join(EXTENSION_ROOT, 'src/registries-run.ts'), 'utf8');
-    const imported = [...source.matchAll(/from\s+'([^']+)'/g)].map((m) => m[1]);
-    assert.deepStrictEqual(imported.sort(), ['./error-surfaces', './workspace']);
+    assert.deepStrictEqual(
+      valueImports('src/registries-run.ts'),
+      ['./error-surfaces', './workspace'],
+    );
+    assert.deepStrictEqual(typeOnlyImports('src/registries-run.ts'), [WIRE_CONTRACT]);
   });
 
   it('🔴 THE SURVIVING LAUNCH HELPER HAS EXACTLY ONE CONSUMER, AND IT IS DELIBERATE', () => {

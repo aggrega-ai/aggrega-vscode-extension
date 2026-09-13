@@ -1,13 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cognitio S.r.l.
 
-import { ConfigWriteScope, reachPhrase } from './config-write-scope';
+import type * as wire from '@aggrega-ai/aggrega-abi/dist/servewire_gen';
+import { reachPhrase } from './config-write-scope';
 import { OperationOutcome, outcomeOf } from './operation-outcome';
-import {
-  TrustFetchOutcome,
-  registrationSentence,
-  trustPhrase,
-} from './registration-outcome';
+import { registrationSentence, trustPhrase } from './registration-outcome';
 
 // This module is the whole of what seeding a configuration means on this side:
 // what the request carries, what the answer carries, and the sentences the reader
@@ -58,9 +55,7 @@ import {
 // same default the command line's flag carries. It is OMITTED rather than sent
 // empty when no host is named: an absent key is the honest expression of a
 // request that says nothing about the registry.
-export interface ConfigInitParams {
-  registry?: string;
-}
+export type ConfigInitParams = Pick<wire.ConfigInitParams, 'registry'>;
 
 // ConfigInitResult is the answer a seeding produces.
 //
@@ -70,15 +65,9 @@ export interface ConfigInitParams {
 // read from the answer; none is assumed.
 //
 // The answer also carries the seeded document as content, under the request field
-// this client does not send — so it is not declared here for the same reason that
-// field is not: a declared field is a field a later call site will read, and this
-// one could only ever be read empty.
-export interface ConfigInitResult {
-  host: string;
-  scope: ConfigWriteScope;
-  trust: TrustFetchOutcome;
-  written: boolean;
-}
+// this client does not send, so it is read by nothing here: it could only ever be
+// read empty.
+export type ConfigInitResult = wire.ConfigInitResult;
 
 // ConfigSeedingDeps is the one thing a seeding needs: a way to ask the compiler.
 //
