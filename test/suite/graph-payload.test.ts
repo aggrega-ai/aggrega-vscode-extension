@@ -30,7 +30,7 @@ const PUBLIC_LOCATOR = 'db-creds';
 
 // credentialEntry is an attachment entry in the shape the compiler emits, with
 // all three sensitivity markings populated: the attachment-wide roll-up, the
-// per-delivery-key taint, and the per-authored-leaf marking naming the one leaf
+// per-delivery-key taint, and the per-leaf marking naming the one leaf
 // this deployment authored a declared-sensitive value at.
 function credentialEntry(): Record<string, unknown> {
   return {
@@ -43,7 +43,7 @@ function credentialEntry(): Record<string, unknown> {
     origin: 'explicit',
     sensitive: true,
     sensitive_inject: { env: { DATABASE_PASSWORD: 'password' } },
-    sensitive_authored_leaves: ['values.literalPassword'],
+    sensitive_payload_leaves: ['values.literalPassword'],
   };
 }
 
@@ -126,7 +126,7 @@ describe('the payload handed to the topology view', () => {
     const entry = posted.spec.feature_values_mapping.api.credentials;
 
     assert.strictEqual(entry.sensitive, true);
-    assert.deepStrictEqual(entry.sensitive_authored_leaves, ['values.literalPassword']);
+    assert.deepStrictEqual(entry.sensitive_payload_leaves, ['values.literalPassword']);
     assert.deepStrictEqual(entry.sensitive_inject, { env: { DATABASE_PASSWORD: 'password' } });
     assert.strictEqual(entry.binding, 'credentials');
     assert.deepStrictEqual(entry.labels, { 'feature.aggrega.ai/kind': 'secret' });
@@ -221,7 +221,7 @@ describe('the payload handed to the topology view', () => {
     for (const leaves of [[{}], [1], 'values.literalPassword', {}]) {
       const entry = credentialEntry();
       entry.sensitive = false;
-      entry.sensitive_authored_leaves = leaves;
+      entry.sensitive_payload_leaves = leaves;
       const posted = redact(irGraph({ api: { credentials: entry } }), false);
       assert.ok(
         !appearsAnywhere(posted, SECRET),
@@ -392,7 +392,7 @@ describe('the rule the two sides of the boundary share', () => {
       },
       infra: { size: 'small' },
       sensitive: false,
-      sensitive_authored_leaves: ['values.credentials'],
+      sensitive_payload_leaves: ['values.credentials'],
     };
 
     const withheldBefore = projectOne('credentials', entry)

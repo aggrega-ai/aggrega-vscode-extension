@@ -126,8 +126,8 @@
   // secret.
   //
   // An ABSENT declared-leaf list is not one of those cases: it is the
-  // compiler's own positive finding that no authored leaf on this attachment is
-  // covered by a declaration, which is the same answer the terminal surface
+  // compiler's own positive finding that no leaf of this attachment's payload
+  // is covered by a declaration, which is the same answer the terminal surface
   // reaches from the same declarations.
 
   // recognisedFlag reports whether the attachment-wide sensitivity marking is
@@ -161,7 +161,7 @@
   function withholdsWholly(entry) {
     if (!isPlainObject(entry)) { return true; }
     if (!recognisedFlag(entry.sensitive)) { return true; }
-    if (!recognisedLeafList(entry.sensitive_authored_leaves)) { return true; }
+    if (!recognisedLeafList(entry.sensitive_payload_leaves)) { return true; }
     return false;
   }
 
@@ -283,8 +283,8 @@
   // An attachment withheld wholly has nothing to match: every leaf goes anyway,
   // and reading the list would only invite treating the ones it omits as shown.
   function declaredLeaves(entry, wholly) {
-    return !wholly && Array.isArray(entry.sensitive_authored_leaves)
-      ? entry.sensitive_authored_leaves
+    return !wholly && Array.isArray(entry.sensitive_payload_leaves)
+      ? entry.sensitive_payload_leaves
       : [];
   }
 

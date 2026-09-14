@@ -202,7 +202,7 @@ describe('AggregaAttachments — withholding sensitive material', () => {
           binding: 'password',
           values: { key: 'REDIS_PASSWORD', origin: SECRET },
           sensitive: true,
-          sensitive_authored_leaves: ['values.origin'],
+          sensitive_payload_leaves: ['values.origin'],
         },
       },
     });
@@ -234,7 +234,7 @@ describe('AggregaAttachments — withholding sensitive material', () => {
     // slot the attachment fills, so it is set for an attachment publishing only
     // public locators — a referenced Secret's name and key are both public, yet
     // the slot they fill unquestionably handles secret material. An absent
-    // per-leaf list is the compiler's positive finding that no authored leaf is
+    // per-leaf list is the compiler's positive finding that no payload leaf is
     // covered, and it is not permission withdrawn.
     const a = model.projectAttachment('referenced', {
       type: 'core/referenced-secret',
@@ -253,7 +253,7 @@ describe('AggregaAttachments — withholding sensitive material', () => {
     const a = model.projectAttachment('password', {
       values: { key: 'REDIS_PASSWORD', origin: SECRET },
       sensitive: false,
-      sensitive_authored_leaves: ['values.origin'],
+      sensitive_payload_leaves: ['values.origin'],
     });
 
     assert.ok(!appearsAnywhere(a, SECRET), 'the credential reached the projection');
@@ -269,7 +269,7 @@ describe('AggregaAttachments — withholding sensitive material', () => {
     // children. Matching only the exact path would leave them in the clear.
     const a = model.projectAttachment('db', {
       values: { credentials: { user: 'admin', password: SECRET }, port: 5432 },
-      sensitive_authored_leaves: ['values.credentials'],
+      sensitive_payload_leaves: ['values.credentials'],
     });
 
     assert.ok(!appearsAnywhere(a, SECRET), 'a value beneath a declared path reached the projection');
@@ -283,7 +283,7 @@ describe('AggregaAttachments — withholding sensitive material', () => {
   it('does not let a name-prefix collision withhold an unrelated field', () => {
     const a = model.projectAttachment('cfg', {
       values: { db: 'main', dbPassword: 'shown-because-undeclared' },
-      sensitive_authored_leaves: ['values.db'],
+      sensitive_payload_leaves: ['values.db'],
     });
     const byPath = fieldsByPath(a);
     assert.strictEqual(byPath.get('values.db')!.withheld, model.WITHHELD_DECLARED);
@@ -310,7 +310,7 @@ describe('AggregaAttachments — withholding sensitive material', () => {
       const a = model.projectAttachment('x', {
         values: { key: SECRET },
         sensitive: false,
-        sensitive_authored_leaves: leaves,
+        sensitive_payload_leaves: leaves,
       });
       assert.ok(!appearsAnywhere(a, SECRET), `leaf list ${JSON.stringify(leaves)} leaked the value`);
       assert.strictEqual(a.fields[0].withheld, model.WITHHELD_ATTACHMENT);
