@@ -489,7 +489,7 @@ export type ReleaseScopedVerb = 'pull';
 // written at the call site, in runReleaseScoped, which is where a reader standing
 // at the invocation can see them.
 //
-// ⚠️ It also carries no re-resolution form, and that absence is deliberate: the
+// 🔴 It also carries no re-resolution form, and that absence is deliberate: the
 // form that discards every recorded pin is guarded at the command line by a
 // question a piped invocation is refused without, and this surface has never been
 // able to answer one.

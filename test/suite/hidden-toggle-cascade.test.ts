@@ -208,7 +208,7 @@ function classesMatching(selector: string, elements: Element[]): string[] {
 
 // classesForIdRoute resolves an id-shaped lookup to the classes it can reach.
 //
-// ⚠️ BOUND, stated because an unstated bound reads as precision: the
+// 🔴 BOUND, stated because an unstated bound reads as precision: the
 // `aria-controls` route resolves to EVERY element the document points at with
 // that attribute, which can be broader than the controls one call site handles.
 // The over-approximation is deliberate and its direction is the safe one — a

@@ -853,7 +853,7 @@ describe('the ending says where the withdrawal records came from', () => {
 // identity fields and never both conditions of a retraction at once. Read it as
 // the full field list, never as a reply anything produces.
 //
-// ⚠️ AND IT HOLDS THE SHAPE AGAINST THIS FIXTURE, NEVER AGAINST THE COMPILER.
+// 🔴 AND IT HOLDS THE SHAPE AGAINST THIS FIXTURE, NEVER AGAINST THE COMPILER.
 // Nothing compares the two, so a field the answer gains and this fixture does not
 // know about is invisible here. What this catches is a field going missing from
 // this side — not one arriving on the other.

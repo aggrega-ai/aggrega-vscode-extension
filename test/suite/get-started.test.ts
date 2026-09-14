@@ -150,7 +150,7 @@ const BEYOND_THE_SIMPLE_CASE: readonly string[] = [
 // they are supplied by environment variable or flag when they are needed — so
 // the rationale is false, and it reads well enough to be written back in.
 //
-// ⚠️ IT IS A TOKEN CHECK AND NOT A READING. It matches the vocabulary that
+// 🔴 IT IS A TOKEN CHECK AND NOT A READING. It matches the vocabulary that
 // rationale is written in and cannot judge a sentence that means the same thing
 // in other words; the phrase asserted PRESENT above is what makes the claim
 // self-contradicting for a reader. Both are needed and neither replaces the
@@ -645,7 +645,7 @@ describe('the welcome panel', () => {
     // next refresh while the folds cannot. A reader who had satisfied
     // everything would meet four ticked steps with every explanation showing.
     //
-    // ⚠️ WHAT THIS DOES NOT PROVE, STATED SO THE GREEN IS NOT READ AS WIDER
+    // 🔴 WHAT THIS DOES NOT PROVE, STATED SO THE GREEN IS NOT READ AS WIDER
     // THAN IT IS: that the extension takes its reading at a settled moment.
     // That wiring lives in the module that holds the editor types, which no
     // test in this container can load. Only a person opening a cold window can
