@@ -101,7 +101,7 @@ export type JsonRpcResponse = Partial<wire.SuccessResponse> &
 // aggrega/publishDiagnostics as a notification when diagnostic
 // state changes. The Daemon class routes these by method via its
 // EventEmitter using the convention `notification:<method>`.
-export type JsonRpcNotification = wire.SessionNotification;
+export type JsonRpcNotification = wire.DaemonNotification;
 
 // PublishDiagnosticsParams is the params shape carried by the
 // aggrega/publishDiagnostics notification. An empty diagnostics
