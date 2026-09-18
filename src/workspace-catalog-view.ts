@@ -250,7 +250,7 @@ export function activateWorkspaceCatalogView(
     // COMPILER ANSWERS IN A DIFFERENT SHAPE RATHER THAN NOT AT ALL, WHICH IS WHY
     // IT ALONE IS STILL INVOKED AS A COMMAND. Checking one entity on its own
     // reads that entity from disk and checks it as the kind it declares — which
-    // for a Recipe means compiling it against a generated minimal deployment, so
+    // for a Recipe means compiling it against a generated minimal harness, so
     // an author sees its output before it is wired into any Aggregate. The
     // request channel answers correctness over a document's own bytes and, where
     // one is named, over a Release's resolved closure. Those are two scopes of one

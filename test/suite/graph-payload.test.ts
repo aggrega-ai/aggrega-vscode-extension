@@ -31,7 +31,7 @@ const PUBLIC_LOCATOR = 'db-creds';
 // credentialEntry is an attachment entry in the shape the compiler emits, with
 // all three sensitivity markings populated: the attachment-wide roll-up, the
 // per-delivery-key taint, and the per-leaf marking naming the one leaf
-// this deployment authored a declared-sensitive value at.
+// an author wrote a declared-sensitive value at.
 function credentialEntry(): Record<string, unknown> {
   return {
     type: 'feature.gov/db-credential',
