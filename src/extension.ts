@@ -129,6 +129,7 @@ import {
   AnchoredFolder,
   NO_ANCHORED_WORKSPACE_MESSAGE,
   findAllAnchoredFolders,
+  workspaceRootOf,
 } from './workspace';
 import { openAuthoringReleaseConfig, createActiveReleaseMarker } from './release-actions';
 import { activateOperations, OperationsView } from './operations';
@@ -152,18 +153,36 @@ import {
 import { buildValidateParams } from './validate-request';
 import { SELECT_RELEASE_COMMAND, activateReleaseStatus, ReleaseStatus } from './release-status';
 import {
+  CHOOSE_ANCHOR_ACTION,
+  CHOOSE_ANCHOR_PLACEHOLDER,
   anchorOffers,
   anchorSwitchMessage,
+  anchorsAvailableSentence,
   classifyActivation,
   readSavedAnchor,
   rememberAnchorChoice,
 } from './anchor-picker';
+import { SELECTOR_ROW_LABELS } from './selector-levels';
 
 let daemon: Daemon | null = null;
 let outputChannel: vscode.OutputChannel | null = null;
 // diagnosticCollections holds one collection per compiler layer, so each layer
 // publishes and clears its own findings independently. Created on first anchor.
 let diagnosticCollections: SourcedCollections | null = null;
+// workspaceRootForCommands is the open folder the language server was started
+// at, or null when none is in use.
+//
+// 🔴 IT IS CLEARED WHENEVER THE SERVER IS TAKEN DOWN DELIBERATELY, AND LEFT
+// STANDING WHEN ONE STOPS ON ITS OWN, AND THAT ASYMMETRY IS THE POINT. A
+// deliberate teardown happens exactly where the evaluation of the open folders
+// has concluded that nothing is in use — no workspace reachable, or several
+// with none chosen — so retaining the folder there would leave every surface
+// naming a folder the editor is no longer working in. A server that crashes,
+// exits, or fails to start changes none of that: the reader's workspace is
+// still chosen and it is the SERVER that is absent, which the lifecycle
+// indicator reports and this value must not pretend to. Clearing it there
+// would make a dozen commands refuse with "no Aggrega workspace is available"
+// when one plainly is.
 let workspaceRootForCommands: string | null = null;
 const toastDebounce = new Map<number, true | number>();
 let pendingRestart: RestartHandle | null = null;
@@ -301,7 +320,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // and keeps no copy of it.
   daemonStatusBar = createDaemonStatusBar({
     getDaemonState: () => daemon?.getState() ?? null,
-    isWorkspaceAnchored: () => workspaceRootForCommands !== null,
+    // 🔴 WHETHER ANYTHING IS REACHABLE, NOT WHETHER ANYTHING IS IN USE. The two
+    // readings this decides between are "no folder here is one Aggrega
+    // recognises" and "one is and the server is not attached to it", so the
+    // question is about the population and not about the current choice.
+    // Reading the root in use answers the second question and prints the
+    // first: a window reaching several workspaces with none chosen is told
+    // there are none, and so is one whose server was stopped.
+    isWorkspaceAnchored: () => currentAnchored.length > 0,
     createStatusBarItem: () => createLifecycleStatusBarItem(context),
     alarmBackground: () => new vscode.ThemeColor('statusBarItem.errorBackground'),
   });
@@ -669,7 +695,8 @@ async function reactivate(context: vscode.ExtensionContext): Promise<void> {
     // meets the difference at a moment they cannot connect to a previous
     // session.
     void vscode.window.showInformationMessage(
-      `Aggrega: ${savedAnchor} is no longer an anchored folder, so the remembered choice of workspace was dropped.`,
+      `Aggrega: ${savedAnchor} no longer marks an ${SELECTOR_ROW_LABELS.workspace} in this project, `
+      + `so the remembered choice was dropped.`,
     );
   }
 
@@ -737,9 +764,9 @@ let pendingToastShown = false;
 async function notifyMultipleAnchors(count: number): Promise<void> {
   if (pendingToastShown) { return; }
   pendingToastShown = true;
-  const action = 'Choose folder…';
+  const action = CHOOSE_ANCHOR_ACTION;
   const choice = await vscode.window.showInformationMessage(
-    `Aggrega: ${count} anchored folders found. Choose one to start the daemon.`,
+    `Aggrega: ${anchorsAvailableSentence(count)} Choose one to start the language server.`,
     action,
   );
   pendingToastShown = false;
@@ -769,7 +796,13 @@ async function ensureDaemonAt(
     // a status bar that changes: performing the restart and announcing it are
     // different things, and the surfaces they are looking at all resolve against
     // the folder that is moving.
-    void vscode.window.showInformationMessage(anchorSwitchMessage(targetRoot));
+    // The workspace root is named, not the folder the server is started at.
+    // They differ whenever the marker sits above the folder, and what the
+    // reader chose — and what every request now resolves against — is the
+    // root.
+    void vscode.window.showInformationMessage(
+      anchorSwitchMessage(workspaceRootOf(target)),
+    );
     await stopDaemon();
   }
 
@@ -876,6 +909,19 @@ async function stopDaemon(): Promise<void> {
     daemon = null;
   }
   activeAnchored = null;
+  // The folder goes with the server it was started at. Every caller of this
+  // function has either concluded that nothing is in use or is about to start
+  // a server somewhere else and assign the new folder a few lines later, so
+  // there is no path on which a reader is left looking at a row that names a
+  // folder nothing is working in.
+  //
+  // Readiness is NOT reassessed here, and that is deliberate rather than an
+  // omission: it is answerable only while a server is running, the server has
+  // just been stopped, and its own lifecycle listener has already reported
+  // that. Dropping the root cannot move an answer that is already no, and
+  // reassess() says at its declaration that the lifecycle is the one place
+  // that calls it.
+  workspaceRootForCommands = null;
   if (statusBarItem) {
     statusBarItem.hide();
   }
@@ -988,7 +1034,7 @@ function registerSwitchAnchorCommand(context: vscode.ExtensionContext): void {
       offer: o,
     }));
     const choice = await vscode.window.showQuickPick(offers, {
-      placeHolder: 'Aggrega: choose which folder the editor works in',
+      placeHolder: CHOOSE_ANCHOR_PLACEHOLDER,
       matchOnDescription: true,
       matchOnDetail: true,
     });

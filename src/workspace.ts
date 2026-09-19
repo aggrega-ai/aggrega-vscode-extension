@@ -3,17 +3,35 @@
 
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { SELECTOR_ROW_LABELS } from './selector-levels';
 
 // CONFIG_FILENAME is the single canonical basename of the workspace
 // configuration file, shared across the extension (discovery here,
 // scaffolding in release-actions) so the name has one definition.
 export const CONFIG_FILENAME = '.aggrega-config.yaml';
 
-// NO_ANCHORED_WORKSPACE_MESSAGE is the one message every surface shows when
-// nothing is anchored. One state, one wording: a reader who meets this
-// condition through two different commands must not be told two different
-// things about it, and a wording duplicated per call site drifts the moment
-// either copy is reworded.
+// The state "this project holds nothing Aggrega can work in", written once and
+// rendered four ways below.
+//
+// 🔴 THE IDENTIFIERS BELOW KEEP THE WORD "ANCHORED" AND THE SENTENCES DO NOT,
+// AND THAT DIVERGENCE IS DELIBERATE. Anchoring is what this module does — it is
+// the name of the climb, of the marker, and of the remembered choice — so an
+// identifier that said anything else would describe the mechanism wrongly. It
+// is not, however, a word the reader ever authors or meets anywhere else, and
+// the level they are being told about has a name of its own. So the code keeps
+// its name and the reader gets theirs, and neither is a synonym waiting to be
+// unified with the other.
+//
+// The sentence and the ways out are separate because the four renderings take
+// different subsets of them: a notification carries both, a row carries both on
+// two lines, a tree row carries neither, and the reason a control gives carries
+// only the way out. Holding them apart is what lets each take what it needs
+// without any of them restating the other.
+const NO_AGGREGA_WORKSPACE_STATE =
+  `no ${SELECTOR_ROW_LABELS.workspace} is available in this project`;
+
+// The two ways out of that state, in the order a reader is likeliest to want
+// them: bring one into the window, or make one.
 //
 // It names the config file through CONFIG_FILENAME rather than spelling it
 // again, so the filename the message teaches cannot part company with the one
@@ -21,8 +39,17 @@ export const CONFIG_FILENAME = '.aggrega-config.yaml';
 // anchor; findAggregaWorkspaceAnchor below is the full set, and reciting it here
 // would trade a readable sentence for an inventory that goes stale whenever the
 // set moves.
+const NO_AGGREGA_WORKSPACE_WAYS_OUT =
+  `Open a ${SELECTOR_ROW_LABELS.project} holding ${CONFIG_FILENAME} or a Release file, `
+  + `or create an ${SELECTOR_ROW_LABELS.workspace}.`;
+
+// NO_ANCHORED_WORKSPACE_MESSAGE is the one message every surface shows when
+// nothing is anchored. One state, one wording: a reader who meets this
+// condition through two different commands must not be told two different
+// things about it, and a wording duplicated per call site drifts the moment
+// either copy is reworded.
 export const NO_ANCHORED_WORKSPACE_MESSAGE =
-  `Aggrega: no anchored workspace. Open a folder containing ${CONFIG_FILENAME} or a Release file first.`;
+  `Aggrega: ${NO_AGGREGA_WORKSPACE_STATE}. ${NO_AGGREGA_WORKSPACE_WAYS_OUT}`;
 
 // NO_ANCHORED_WORKSPACE_TREE_LABEL is the same state rendered as a tree row.
 //
@@ -31,19 +58,34 @@ export const NO_ANCHORED_WORKSPACE_MESSAGE =
 // addresses the reader. The two forms live together because they describe one
 // state — a view that grows a row for this condition should find the wording
 // already written rather than invent another.
-export const NO_ANCHORED_WORKSPACE_TREE_LABEL = 'No anchored workspace.';
+export const NO_ANCHORED_WORKSPACE_TREE_LABEL =
+  `No ${SELECTOR_ROW_LABELS.workspace} available.`;
 
 // NO_ANCHORED_WORKSPACE_CONTROL_REASON is the same state again, as the reason a
 // control that needs an anchored folder gives for being unavailable.
 //
-// It is the shortest of the three because of where it is read: beside a control
+// It is the shortest of the four because of where it is read: beside a control
 // the reader is looking at, which already tells them the control cannot run. So
 // it carries only what they cannot see — what to do to make it run — and drops
 // both the product prefix a notification needs and the account of the state a
-// row needs. It lives here with its two siblings for the reason they live
-// together: one state, and a surface that grows a rendering for it should find
-// the wording already written rather than invent another.
-export const NO_ANCHORED_WORKSPACE_CONTROL_REASON = 'Anchor a workspace folder first.';
+// row needs.
+export const NO_ANCHORED_WORKSPACE_CONTROL_REASON =
+  `Open or create an ${SELECTOR_ROW_LABELS.workspace} first.`;
+
+// NO_ANCHORED_WORKSPACE_ROW_TOOLTIP is the same state again, as the hover of the
+// selector row that reports the level.
+//
+// It lives here with its three siblings rather than in the module that draws
+// the row, and that placement is the whole point: a surface that grows a
+// rendering for this state should find the wording already written rather than
+// invent another. A fourth rendering written where it is drawn is how the row
+// and a dozen notifications came to describe one state in two vocabularies.
+//
+// It differs from the notification in one thing only — the ways out sit on a
+// line of their own, because a hover is read as a block and a notification as a
+// sentence.
+export const NO_ANCHORED_WORKSPACE_ROW_TOOLTIP =
+  `Aggrega: ${NO_AGGREGA_WORKSPACE_STATE}.\n${NO_AGGREGA_WORKSPACE_WAYS_OUT}`;
 
 // AGGREGA_DIR and ACTIVE_RELEASE_MARKER_BASENAME name the workspace's
 // .aggrega/ directory and the active-release marker inside it. Both have their
@@ -116,11 +158,33 @@ export interface FolderLike {
   uri: { fsPath: string };
 }
 
-// AnchoredFolder pairs a workspace folder with the marker path that
-// caused findAggregaWorkspaceAnchor to identify it as Aggrega-anchored.
+// AnchoredFolder names one Aggrega workspace the window can reach, together
+// with the open folder the language server is started at in order to reach it.
+//
+// 🔴 THE MARKER IDENTIFIES THE ENTRY; THE FOLDER IS ONLY HOW IT IS REACHED.
+// Discovery climbs, so one marker answers for every open folder beneath it —
+// which means "which folder contains this workspace" has more than one true
+// answer whenever two open folders climb to the same place. The entry is
+// therefore keyed on the marker, and the folder it carries is whichever of
+// those the server can be started at. A caller comparing entries, counting
+// them, or naming one to a reader uses the marker or the root derived from it;
+// only the act of starting a server uses the folder.
 export interface AnchoredFolder<F extends FolderLike = FolderLike> {
   folder: F;
   anchorPath: string;
+}
+
+// workspaceRootOf is the directory a marker makes the root of an Aggrega
+// workspace: the directory the marker sits in.
+//
+// It holds for every tier findAggregaWorkspaceAnchor can answer with — the
+// config file, the .aggrega/ directory and each glob match all sit directly in
+// the root they anchor — and it is written once here so no surface derives the
+// root a second way. The language server climbs to the same place from the
+// folder it is started at, which is why a row drawn from this and a row drawn
+// from the server's own answer name one directory.
+export function workspaceRootOf(anchored: Pick<AnchoredFolder, 'anchorPath'>): string {
+  return path.dirname(anchored.anchorPath);
 }
 
 // findAggregaWorkspaceAnchor walks parent directories from start
@@ -230,19 +294,37 @@ export function releaseParamFor(workspaceRoot: string, releasePath: string): str
   return relative;
 }
 
-// findAllAnchoredFolders runs findAggregaWorkspaceAnchor against
-// each entry in folders, keeping only the folders where a marker was
-// found. The result preserves the input order. Folders without an
-// anchor are silently dropped.
+// findAllAnchoredFolders runs findAggregaWorkspaceAnchor against each entry in
+// folders and answers with one entry per Aggrega workspace reached. The result
+// preserves the input order. Folders without an anchor are silently dropped.
+//
+// 🔴 ONE ENTRY PER WORKSPACE, NOT PER FOLDER, AND THAT IS THE WHOLE CONTRACT.
+// The walk climbs, so two open folders under one marker both reach it; an entry
+// per folder would report that one workspace twice. Everything downstream reads
+// this as a population of things to choose between — the activation decision
+// branches on its length, the panel reports that length as how many Aggrega
+// workspaces are available, and the picker draws one line per entry — so a
+// duplicate makes the extension ask which of two identical answers the reader
+// wants, count two where there is one, and withhold the sentence that says a
+// level holds only one candidate at exactly the moment it is most wanted.
+//
+// The folder kept for a workspace reached from several is the first in the
+// window's own order. Which one it is does not change where the language server
+// ends up: the server climbs from whatever folder it is started at and settles
+// on the same root. So the choice is arbitrary and needs to be stable rather
+// than right, and input order is what makes it stable.
 export async function findAllAnchoredFolders<F extends FolderLike>(
   folders: readonly F[],
 ): Promise<AnchoredFolder<F>[]> {
   const out: AnchoredFolder<F>[] = [];
+  const reached = new Set<string>();
   for (const folder of folders) {
     const anchorPath = await findAggregaWorkspaceAnchor(folder.uri.fsPath);
-    if (anchorPath !== null) {
-      out.push({ folder, anchorPath });
+    if (anchorPath === null || reached.has(anchorPath)) {
+      continue;
     }
+    reached.add(anchorPath);
+    out.push({ folder, anchorPath });
   }
   return out;
 }

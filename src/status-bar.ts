@@ -3,7 +3,12 @@
 
 import * as vscode from 'vscode';
 import { Daemon, DaemonState } from './daemon';
-import { activeFolderLabel } from './anchor-picker';
+import {
+  CHOOSE_ANCHOR_ACTION,
+  CHOOSE_ANCHOR_INVITATION,
+  activeWorkspaceLabel,
+} from './anchor-picker';
+import { SELECTOR_ROW_LABELS } from './selector-levels';
 import { AnchoredFolder } from './workspace';
 import { DaemonStatusItemLike } from './daemon-status';
 
@@ -20,11 +25,11 @@ const STATUS_BAR_PRIORITY = 100;
 // and not a position: that one is on the other side of the bar.
 const LIFECYCLE_STATUS_BAR_PRIORITY = 100;
 
-// AnchorContext carries the active-anchor and full anchored-folder
-// list so the status-bar label can render the multi-anchor disambiguated
-// form `Aggrega · <basename>` (with parent-disambiguation on basename
-// collision). When the workspace has zero or exactly one anchored
-// folder, this is undefined and the single-folder label applies.
+// AnchorContext carries the active choice and the full list of Aggrega
+// workspaces this window reaches, so the status-bar label can render the
+// disambiguated form `Aggrega · <basename>` (with parent-disambiguation on
+// basename collision). When the window reaches zero or exactly one, this is
+// undefined and the single-workspace label applies.
 export interface AnchorContext {
   active: AnchoredFolder<vscode.WorkspaceFolder>;
   anchored: AnchoredFolder<vscode.WorkspaceFolder>[];
@@ -43,9 +48,9 @@ export interface AnchorContext {
 // report the daemon would leave a reader with two answers and no way to tell
 // which is the current one.
 //
-// When anchorContext names 2+ anchored folders, the label switches to
+// When anchorContext names 2+ Aggrega workspaces, the label switches to
 // `Aggrega · <basename>` (with parent-disambiguation on collision) so
-// the user can identify which folder the daemon is attached to.
+// the user can identify which one the language server is working in.
 // Otherwise the label is `Aggrega: <configSource>`.
 export function createAggregaStatusBar(
   context: vscode.ExtensionContext,
@@ -76,7 +81,7 @@ export function createAggregaStatusBar(
       return;
     }
     if (anchorContext && anchorContext.anchored.length >= 2) {
-      item.text = activeFolderLabel(anchorContext.active, anchorContext.anchored);
+      item.text = activeWorkspaceLabel(anchorContext.active, anchorContext.anchored);
     } else {
       item.text = `Aggrega: ${metadata.configSource}`;
     }
@@ -107,8 +112,8 @@ export function createLifecycleStatusBarItem(
 }
 
 // createPendingChoiceStatusBar registers a status bar item that
-// signals "the workspace has 2+ anchored folders, the user has not
-// picked one yet, no daemon is running." Clicking the item invokes
+// signals "this window reaches 2+ Aggrega workspaces, the user has not
+// picked one yet, no language server is running." Clicking the item invokes
 // aggrega.workspace.switchAnchor which opens the same picker the
 // activation-time toast surfaces.
 //
@@ -121,12 +126,19 @@ export function createPendingChoiceStatusBar(
     vscode.StatusBarAlignment.Right,
     STATUS_BAR_PRIORITY,
   );
-  item.text = 'Aggrega: Choose folder…';
-  // The wording matches the workspace row's tooltip and the picker's own
-  // placeholder, because all three describe the one picker this command opens.
-  // A reader who reaches it from the status bar and a reader who reaches it from
-  // the row must not be told two different things about the same choice.
-  item.tooltip = 'Multiple Aggrega-anchored folders found. Click to choose which folder the editor works in.';
+  item.text = CHOOSE_ANCHOR_ACTION;
+  // The offer is READ from the module that owns the choice rather than written
+  // again here, because the selector row and the picker's own placeholder make
+  // the same offer: a reader who reaches it from the status bar and a reader
+  // who reaches it from the row must not be told two different things about
+  // one choice, and three copies kept in step by eye is how they come to be.
+  //
+  // The count is not given, because this item is created without one and
+  // asking for it would put a number here that the list opening underneath is
+  // about to state exactly.
+  item.tooltip =
+    `More than one ${SELECTOR_ROW_LABELS.workspace} is available in this project. `
+    + CHOOSE_ANCHOR_INVITATION;
   item.command = 'aggrega.workspace.switchAnchor';
   context.subscriptions.push(item);
   item.show();

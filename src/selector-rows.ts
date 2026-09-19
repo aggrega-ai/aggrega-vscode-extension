@@ -10,7 +10,8 @@ import {
 } from './selector-levels';
 import { CREATE_WORKSPACE_COMMAND, DRAFT_RELEASE_COMMAND } from './get-started-steps';
 import { SELECT_RELEASE_COMMAND } from './release-status';
-import { CONFIG_FILENAME } from './workspace';
+import { CHOOSE_ANCHOR_INVITATION } from './anchor-picker';
+import { NO_ANCHORED_WORKSPACE_ROW_TOOLTIP } from './workspace';
 
 // SelectorCreate is a row's SECOND control: the one that makes a new value for
 // that level, standing beside the one that chooses among the values there are.
@@ -75,10 +76,13 @@ export interface SelectorRow {
 export interface SelectorCandidates {
   // projectFolders is how many folders the editor currently has open.
   projectFolders: number;
-  // aggregaWorkspaces is how many of those folders Aggrega resolved a workspace
-  // root for. It is not a count of folders that CONTAIN one: the rule climbs,
-  // so the root that answers for a folder may sit above it, and one root can
-  // answer for two open folders at once.
+  // aggregaWorkspaces is how many DISTINCT Aggrega workspaces those folders
+  // reach. It is not a count of folders that CONTAIN one, and it is not a count
+  // of folders at all: the rule climbs, so the root that answers for a folder
+  // may sit above it, and one root answers for every open folder beneath it.
+  // Counting the folders instead would report two where there is one workspace
+  // and suppress the sentence saying a level holds only one candidate at
+  // exactly the moment it is most wanted.
   aggregaWorkspaces: number;
   // releases is how many Releases the last enumeration could name in a request,
   // or null where no enumeration has produced an answer.
@@ -216,9 +220,12 @@ export function workspaceRow(
       return {
         ...base,
         value: 'none available',
-        tooltip:
-          `Aggrega: no ${SELECTOR_ROW_LABELS.workspace} is available in this project.\n`
-          + `Open a ${SELECTOR_ROW_LABELS.project} holding ${CONFIG_FILENAME} or a Release file, or create an ${SELECTOR_ROW_LABELS.workspace}.`,
+        // Read from the one home of this state's wording rather than written
+        // here. The same absence reaches a reader as a notification, as a tree
+        // row and as the reason a control cannot run, and a rendering invented
+        // beside the surface that draws it is how one state came to be
+        // described in two vocabularies.
+        tooltip: NO_ANCHORED_WORKSPACE_ROW_TOOLTIP,
       };
     }
     const sole = candidates === 1 ? `\n${soleCandidateNote('workspace')}` : '';
@@ -246,13 +253,14 @@ export function workspaceRow(
     value: path.basename(anchoredRoot),
     // The closing sentence promises a CHOICE, not a change, and the distinction
     // is what makes it true in every case. A click opens what the editor can
-    // work in together with the way to make another folder available — so the
-    // sentence holds with one folder as much as with several. Promising to
-    // switch would be a promise this row cannot keep for the reader who has
-    // exactly one, and a row that advertises an action and then declines it is
-    // worse than one that says nothing.
+    // work in together with the way to make another workspace available — so
+    // the sentence holds with one as much as with several. Promising to switch
+    // would be a promise this row cannot keep for the reader who has exactly
+    // one, and a row that advertises an action and then declines it is worse
+    // than one that says nothing. It is read from the choice's own module
+    // because the status bar and the chooser make the same offer.
     tooltip:
-      `${SELECTOR_ROW_LABELS.workspace}: ${anchoredRoot}\nThe Releases on offer are the ones inside this folder.${opened}${sole}\nClick to choose which folder the editor works in.`,
+      `${SELECTOR_ROW_LABELS.workspace}: ${anchoredRoot}\nThe Releases on offer are the ones inside this folder.${opened}${sole}\n${CHOOSE_ANCHOR_INVITATION}`,
   };
 }
 

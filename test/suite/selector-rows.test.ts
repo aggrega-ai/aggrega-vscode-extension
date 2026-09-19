@@ -372,17 +372,29 @@ describe('the Aggrega workspace row', () => {
 
   it('promises a choice rather than a change, so the promise holds with one folder', () => {
     // A click opens what is available together with the way to make another
-    // folder available, which "switch" would misdescribe for the reader who has
-    // exactly one — and a row that advertises an action and then declines it is
-    // the defect this closes.
+    // workspace available, which "switch" would misdescribe for the reader who
+    // has exactly one — and a row that advertises an action and then declines
+    // it is the defect this closes.
+    //
+    // The expected sentence is written out rather than read from the module
+    // that now owns it. Reading it would make both sides of the comparison one
+    // value, and the assertion could then no longer fail however the wording
+    // moved; that the row READS it rather than restating it is asserted in the
+    // anchor-picker suite, against that module.
     const row = workspaceRow(ANCHORED, OPENED_INSIDE, 2);
     assert.ok(
-      row.tooltip.includes('Click to choose which folder the editor works in.'),
-      'the row does not say what clicking it does',
+      row.tooltip.includes('Click to choose which Aggrega workspace the editor works in.'),
+      `the row does not say what clicking it does: ${row.tooltip}`,
     );
     assert.ok(
       !/click to switch/i.test(row.tooltip),
-      'a promise to switch cannot be kept for a reader with one folder',
+      'a promise to switch cannot be kept for a reader with one workspace',
+    );
+    // And it does not ask which FOLDER holds the workspace, which is the
+    // question with more than one true answer.
+    assert.ok(
+      !/which folder the editor works in/i.test(row.tooltip),
+      `the row asks a question this level does not ask: ${row.tooltip}`,
     );
   });
 });

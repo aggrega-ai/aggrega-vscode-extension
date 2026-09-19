@@ -6,21 +6,37 @@ import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
 import {
+  CHOOSE_ANCHOR_ACTION,
+  CHOOSE_ANCHOR_INVITATION,
+  CHOOSE_ANCHOR_PLACEHOLDER,
   STATE_KEY,
   WIDEN_ANCHOR_OFFER_DETAIL,
   WorkspaceStateLike,
   anchorOffers,
   anchorSwitchMessage,
+  anchorsAvailableSentence,
   buildPickerItems,
   classifyActivation,
   isSavedAnchorValid,
   readSavedAnchor,
   rememberAnchorChoice,
-  activeFolderLabel,
+  activeWorkspaceLabel,
   widenAnchorOfferLabel,
 } from '../../src/anchor-picker';
-import { findAllAnchoredFolders, AnchoredFolder, FolderLike } from '../../src/workspace';
+import {
+  AnchoredFolder,
+  CONFIG_FILENAME,
+  FolderLike,
+  NO_ANCHORED_WORKSPACE_CONTROL_REASON,
+  NO_ANCHORED_WORKSPACE_MESSAGE,
+  NO_ANCHORED_WORKSPACE_ROW_TOOLTIP,
+  NO_ANCHORED_WORKSPACE_TREE_LABEL,
+  findAggregaWorkspaceAnchor,
+  findAllAnchoredFolders,
+  workspaceRootOf,
+} from '../../src/workspace';
 import { workspaceRow } from '../../src/selector-rows';
+import { SELECTOR_ROW_LABELS, soleCandidateNote } from '../../src/selector-levels';
 
 // fakeFolder produces a structural WorkspaceFolder-shape value from
 // just a fsPath. Sufficient for every helper this suite exercises.
@@ -347,18 +363,18 @@ describe('what the workspace row offers when clicked', () => {
   });
 });
 
-describe('activeFolderLabel', () => {
+describe('activeWorkspaceLabel', () => {
   it('renders Aggrega · <basename> for unique-basename multi-anchor', () => {
     const a = fakeAnchor('/ws/foo', '/ws/foo/.aggrega-config.yaml');
     const b = fakeAnchor('/ws/bar', '/ws/bar/release.yaml');
-    assert.strictEqual(activeFolderLabel(b, [a, b]), 'Aggrega · bar');
+    assert.strictEqual(activeWorkspaceLabel(b, [a, b]), 'Aggrega · bar');
   });
 
   it('renders Aggrega · <basename> (<parent>) on basename collision', () => {
     const a = fakeAnchor('/projects/foo/web', '/projects/foo/web/.aggrega-config.yaml');
     const b = fakeAnchor('/projects/bar/web', '/projects/bar/web/aggregate.yaml');
-    assert.strictEqual(activeFolderLabel(a, [a, b]), 'Aggrega · web (foo)');
-    assert.strictEqual(activeFolderLabel(b, [a, b]), 'Aggrega · web (bar)');
+    assert.strictEqual(activeWorkspaceLabel(a, [a, b]), 'Aggrega · web (foo)');
+    assert.strictEqual(activeWorkspaceLabel(b, [a, b]), 'Aggrega · web (bar)');
   });
 });
 
@@ -596,7 +612,7 @@ describe('changing which folder the editor works in', () => {
     assert.strictEqual(now.rowValue, path.basename(b));
     assert.ok(now.rowTooltip.includes(b));
     assert.ok(!now.rowTooltip.startsWith(`Aggrega workspace: ${a}`));
-    assert.strictEqual(activeFolderLabel(after.target, both), `Aggrega · ${path.basename(b)}`);
+    assert.strictEqual(activeWorkspaceLabel(after.target, both), `Aggrega · ${path.basename(b)}`);
     assert.strictEqual(readSavedAnchor(state), chosen[0].anchorPath);
   });
 
@@ -614,7 +630,7 @@ describe('changing which folder the editor works in', () => {
     const back = classifyActivation(both, readSavedAnchor(state));
     assert.strictEqual(back.kind, 'multiSaved');
     assert.strictEqual(back.target.folder.uri.fsPath, a);
-    assert.strictEqual(activeFolderLabel(back.target, both), `Aggrega · ${path.basename(a)}`);
+    assert.strictEqual(activeWorkspaceLabel(back.target, both), `Aggrega · ${path.basename(a)}`);
   });
 
   it('a folder merely ADDED to the window leaves the reader where they were', async () => {
@@ -651,5 +667,336 @@ describe('changing which folder the editor works in', () => {
     assert.ok(message.includes('/ws/second'), message);
     // And the restart is stated rather than left to be inferred.
     assert.ok(/restart/i.test(message), message);
+  });
+});
+
+// One Aggrega workspace reached from two open folders at once.
+//
+// 🔴 THE QUESTION THIS COVERS IS THE ONE THE SURFACE MUST NOT ASK. Discovery
+// climbs, so a marker one level up answers for every open folder beneath it —
+// and "which folder contains this workspace" then has two true answers. The
+// failure is not that the wrong one is picked; it is that the population is
+// counted as two, so a reader is asked to choose between two entries that are
+// the same workspace, told there are two where there is one, and denied the
+// sentence saying theirs is the only one.
+//
+// It is driven over REAL directories through the real modules, in the order the
+// activation path runs them, because each of those three symptoms surfaces at a
+// different step and asserting any one function alone would miss the others.
+describe('one Aggrega workspace reached from two open folders', () => {
+  let tmpRoot: string;
+  let root: string;
+  let underA: string;
+  let underB: string;
+
+  beforeEach(async () => {
+    tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'aggrega-shared-'));
+    // The marker sits ABOVE both open folders, which is what makes one
+    // workspace answer for both of them.
+    root = path.join(tmpRoot, 'repo');
+    underA = path.join(root, 'services');
+    underB = path.join(root, 'apps');
+    await fs.mkdir(root);
+    await fs.mkdir(underA);
+    await fs.mkdir(underB);
+    await fs.writeFile(path.join(root, '.aggrega-config.yaml'), 'workspace: {}\n');
+  });
+  afterEach(async () => {
+    await fs.rm(tmpRoot, { recursive: true, force: true });
+  });
+
+  it('is one candidate, not two, and is selected silently', async () => {
+    const reached = await findAllAnchoredFolders([fakeFolder(underA), fakeFolder(underB)]);
+
+    assert.strictEqual(
+      reached.length, 1,
+      'two open folders under one marker are reported as two workspaces to choose between',
+    );
+    assert.strictEqual(reached[0].anchorPath, path.join(root, '.aggrega-config.yaml'));
+
+    // A level with exactly one candidate is taken without asking. With the
+    // population counted per folder this reads as multiPrompt, and the reader
+    // meets a concept they have no second thing to apply it to.
+    const decision = classifyActivation(reached, null);
+    assert.strictEqual(
+      decision.kind, 'single',
+      'the reader is asked to choose between two entries that are one workspace',
+    );
+  });
+
+  it('the panel reports one unambiguous answer, and says it is the only one', async () => {
+    const reached = await findAllAnchoredFolders([fakeFolder(underA), fakeFolder(underB)]);
+    // What the language server reports having anchored to: it climbs from
+    // whichever folder it was started at and settles on the same root.
+    const anchoredRoot = workspaceRootOf(reached[0]);
+    assert.strictEqual(anchoredRoot, root);
+
+    const row = workspaceRow(anchoredRoot, underA, reached.length);
+    assert.strictEqual(row.value, path.basename(root));
+    assert.ok(
+      row.tooltip.includes(soleCandidateNote('workspace')),
+      `the row withholds the sole-candidate sentence where there is one candidate: ${row.tooltip}`,
+    );
+  });
+
+  it('the entry a reader reads names the workspace, never the folder it is reached through', async () => {
+    const reached = await findAllAnchoredFolders([fakeFolder(underA), fakeFolder(underB)]);
+    const [item] = buildPickerItems(reached);
+
+    assert.strictEqual(item.label, path.basename(root));
+    assert.strictEqual(item.description, root);
+    // The folder is still carried, because starting a server needs one — it is
+    // only the text that must not name it.
+    assert.strictEqual(item.anchored.folder.uri.fsPath, underA);
+    assert.notStrictEqual(
+      item.label, path.basename(underA),
+      'the entry names an arbitrary one of the folders that reach the workspace',
+    );
+    assert.strictEqual(
+      activeWorkspaceLabel(reached[0], reached), `Aggrega · ${path.basename(root)}`,
+    );
+  });
+
+  it('the folder kept is the first in the window, so the answer does not move on its own', async () => {
+    const forwards = await findAllAnchoredFolders([fakeFolder(underA), fakeFolder(underB)]);
+    const backwards = await findAllAnchoredFolders([fakeFolder(underB), fakeFolder(underA)]);
+    assert.strictEqual(forwards[0].folder.uri.fsPath, underA);
+    assert.strictEqual(backwards[0].folder.uri.fsPath, underB);
+    // Whichever it is, the workspace is the same — which is why choosing the
+    // folder arbitrarily is safe and choosing it unstably would not be.
+    assert.strictEqual(workspaceRootOf(forwards[0]), workspaceRootOf(backwards[0]));
+  });
+
+  it('a second workspace is still a second candidate', async () => {
+    // The de-duplication must collapse one workspace seen twice and nothing
+    // else. Without this the same assertion passes on a function that returned
+    // at most one entry however many workspaces there were.
+    const other = path.join(tmpRoot, 'elsewhere');
+    await fs.mkdir(other);
+    await fs.writeFile(path.join(other, 'aggregate.yaml'), '');
+
+    const reached = await findAllAnchoredFolders([
+      fakeFolder(underA), fakeFolder(underB), fakeFolder(other),
+    ]);
+    assert.strictEqual(reached.length, 2);
+    assert.deepStrictEqual(
+      reached.map(r => workspaceRootOf(r)).sort(), [other, root].sort(),
+    );
+    assert.strictEqual(classifyActivation(reached, null).kind, 'multiPrompt');
+  });
+
+  it('a choice remembered under one folder survives the other being added', async () => {
+    // The entry is keyed on the marker, so the remembered path still matches
+    // after de-duplication however the window's folder list changed.
+    const state = new FakeWorkspaceState();
+    const one = await findAllAnchoredFolders([fakeFolder(underA)]);
+    await rememberAnchorChoice(state, one[0].anchorPath);
+
+    const both = await findAllAnchoredFolders([fakeFolder(underA), fakeFolder(underB)]);
+    assert.ok(isSavedAnchorValid(readSavedAnchor(state), both));
+  });
+});
+
+// 🔴 THE TWO CANDIDATE SEARCHES RUN IN OPPOSITE DIRECTIONS AND NEITHER
+// SUBSUMES THE OTHER, WHICH IS WHY NEITHER CAN SIMPLY REPLACE THE OTHER.
+//
+// Activation CLIMBS from each open folder. The welcome page's chooser DESCENDS,
+// globbing inside the folders the window has open and confirming each hit
+// through the same discovery rule. The case below is one the climb answers and
+// no descending search can: an open folder that holds nothing at all, sitting
+// under a marker one level up. A descending search rooted there has no file to
+// match, whatever its pattern — so scoping the Aggrega workspace level to a
+// descending search would stop recognising this reader's workspace.
+//
+// Pinned here because it is the measurement a later reconciliation of the two
+// searches has to answer to, and a reconciliation argued without it looks
+// obviously right.
+describe('climbing and descending find different populations', () => {
+  let tmpRoot: string;
+
+  beforeEach(async () => {
+    tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'aggrega-direction-'));
+  });
+  afterEach(async () => {
+    await fs.rm(tmpRoot, { recursive: true, force: true });
+  });
+
+  it('a bare folder under a marker is anchored, and holds nothing to descend onto', async () => {
+    const root = path.join(tmpRoot, 'repo');
+    const bare = path.join(root, 'docs');
+    await fs.mkdir(root);
+    await fs.mkdir(bare);
+    await fs.writeFile(path.join(root, '.aggrega-config.yaml'), 'workspace: {}\n');
+
+    assert.strictEqual(
+      await findAggregaWorkspaceAnchor(bare),
+      path.join(root, '.aggrega-config.yaml'),
+      'the climb does not reach the marker above the open folder',
+    );
+    // An empty directory matches no pattern, so this settles the second half
+    // without needing a glob engine: a descending search rooted here returns
+    // nothing whatever it is looking for.
+    assert.deepStrictEqual(
+      await fs.readdir(bare), [],
+      'the folder holds a file, so this no longer measures what it claims to',
+    );
+  });
+});
+
+// The four renderings of "this project holds no Aggrega workspace".
+//
+// They are one state told to a reader four ways — as a notification, as a tree
+// row, as the reason a control cannot run, and as a selector row's hover — and
+// the whole reason they live in one module is that a surface growing a fifth
+// should find the wording rather than invent it. What is asserted here is that
+// each names the level the reader is taught rather than the mechanism the code
+// is named after, and that the four are genuinely four renderings rather than
+// four sentences that happen to be near each other.
+describe('the no-Aggrega-workspace state, in the words the reader is taught', () => {
+  const renderings: ReadonlyArray<readonly [string, string]> = [
+    ['notification', NO_ANCHORED_WORKSPACE_MESSAGE],
+    ['tree row', NO_ANCHORED_WORKSPACE_TREE_LABEL],
+    ['control reason', NO_ANCHORED_WORKSPACE_CONTROL_REASON],
+    ['selector row hover', NO_ANCHORED_WORKSPACE_ROW_TOOLTIP],
+  ];
+
+  it('names the level, never the mechanism the code is named after', () => {
+    for (const [surface, text] of renderings) {
+      assert.ok(
+        text.includes(SELECTOR_ROW_LABELS.workspace),
+        `the ${surface} does not name the level it is about: ${text}`,
+      );
+      assert.ok(
+        !/anchor/i.test(text),
+        `the ${surface} names the climb rather than the reader's situation: ${text}`,
+      );
+    }
+  });
+
+  it('is four renderings and not four sentences', () => {
+    const texts = renderings.map(([, text]) => text);
+    assert.strictEqual(
+      new Set(texts).size, texts.length,
+      'two surfaces render this state identically, so one of them is not shaped for where it is read',
+    );
+    // The notification and the hover carry the same two parts; the difference
+    // between them is where the second sits, which is what makes them two
+    // renderings rather than one duplicated.
+    assert.ok(NO_ANCHORED_WORKSPACE_MESSAGE.includes(CONFIG_FILENAME));
+    assert.ok(NO_ANCHORED_WORKSPACE_ROW_TOOLTIP.includes(CONFIG_FILENAME));
+    assert.ok(
+      NO_ANCHORED_WORKSPACE_ROW_TOOLTIP.includes('\n'),
+      'the hover is read as a block and carries no line of its own',
+    );
+    assert.ok(
+      !NO_ANCHORED_WORKSPACE_MESSAGE.includes('\n'),
+      'the notification is read as a sentence and has been broken across lines',
+    );
+  });
+
+  it('is what the row shows, read rather than written again beside it', () => {
+    assert.strictEqual(
+      workspaceRow(null, null, 0).tooltip,
+      NO_ANCHORED_WORKSPACE_ROW_TOOLTIP,
+      'the row writes its own rendering of this state, which is how one state came to be '
+      + 'described in two vocabularies',
+    );
+  });
+});
+
+// The two facts the activation module holds that no runnable path here can
+// reach, read out of its source.
+//
+// 🔴 THIS IS A WEAKER INSTRUMENT THAN THE SUITES ABOVE AND IT IS USED BECAUSE
+// THE ALTERNATIVE IS NOTHING. Both claims live in the module that builds the
+// editor's surfaces, which cannot be loaded without an extension host; there is
+// no argument to pass and no value to read back. What a reading of the source
+// can still catch is the change that silently undoes either — an assignment
+// removed, or a dependency rewired to the other fact — and that is the whole of
+// what these two assert. Neither claims the behaviour was exercised.
+describe('what the activation module holds about the folder in use', () => {
+  const EXTENSION_ROOT = path.resolve(__dirname, '../../..');
+
+  async function activationSource(): Promise<string> {
+    return fs.readFile(path.join(EXTENSION_ROOT, 'src/extension.ts'), 'utf8');
+  }
+
+  it('drops the folder in use when the language server is taken down deliberately', async () => {
+    const source = await activationSource();
+    const opens = source.indexOf('async function stopDaemon(');
+    assert.notStrictEqual(opens, -1, 'the teardown is not where this reading expects it');
+    const closes = source.indexOf('\n}\n', opens);
+    assert.notStrictEqual(closes, -1, 'the teardown has no closing brace at column 0');
+    const body = source.slice(opens, closes);
+
+    assert.ok(
+      /workspaceRootForCommands = null/.test(body),
+      'the folder is retained through a deliberate teardown, so every surface goes on '
+      + 'naming a folder the editor is no longer working in',
+    );
+    // And exactly two assignments in the whole module: the one that records the
+    // folder and the one that drops it. A third would be a second author of a
+    // fact that has one.
+    assert.strictEqual(
+      (source.match(/\bworkspaceRootForCommands = /g) ?? []).length, 2,
+      'the folder in use is written from somewhere other than the attach and the teardown',
+    );
+  });
+
+  it('decides the lifecycle reading on what is reachable, not on what is in use', async () => {
+    const source = await activationSource();
+    const wiring = /isWorkspaceAnchored: \(\) => ([^,\n]+)/.exec(source);
+    assert.ok(wiring, 'the lifecycle indicator no longer declares this fact where this reading looks');
+    // The indicator's two not-running readings are "nothing here to attach to"
+    // and "something is and the server is not attached". Reading the folder in
+    // use answers the second question and prints the first, which is what this
+    // pins: a window reaching several workspaces with none chosen, and one
+    // whose server was stopped, are both told there are none.
+    assert.ok(
+      wiring[1].includes('currentAnchored'),
+      `the lifecycle reading is taken from ${wiring[1].trim()}, which is not the population it reports on`,
+    );
+    assert.ok(
+      !wiring[1].includes('workspaceRootForCommands'),
+      'the lifecycle reading is taken from the folder in use, so a stopped server reads as no workspace',
+    );
+  });
+});
+
+// The one offer, read by the three surfaces that make it.
+describe('the offer to change which Aggrega workspace the editor works in', () => {
+  it('names the level rather than a folder', () => {
+    for (const text of [
+      CHOOSE_ANCHOR_ACTION,
+      CHOOSE_ANCHOR_INVITATION,
+      CHOOSE_ANCHOR_PLACEHOLDER,
+    ]) {
+      assert.ok(
+        text.includes(SELECTOR_ROW_LABELS.workspace),
+        `"${text}" does not name the level the reader is choosing`,
+      );
+      assert.ok(
+        !/which folder/i.test(text),
+        `"${text}" asks which folder, which is the question this level does not ask`,
+      );
+    }
+  });
+
+  it('is the same offer the row closes with, read rather than restated', () => {
+    const row = workspaceRow('/ws/repo', '/ws/repo', 1);
+    assert.ok(
+      row.tooltip.endsWith(CHOOSE_ANCHOR_INVITATION),
+      `the row writes its own offer: ${row.tooltip}`,
+    );
+  });
+
+  it('counts Aggrega workspaces, in the level\'s own words', () => {
+    const sentence = anchorsAvailableSentence(2);
+    assert.ok(sentence.includes('2'), sentence);
+    assert.ok(sentence.includes(`${SELECTOR_ROW_LABELS.workspace}s`), sentence);
+    assert.ok(
+      !/folders/i.test(sentence),
+      `"${sentence}" reports a number of folders beside a list of workspaces`,
+    );
   });
 });

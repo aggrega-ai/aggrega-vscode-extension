@@ -354,7 +354,9 @@ export function createReleaseSelection(deps: ReleaseSelectionDeps): ReleaseSelec
     choose: async (placeHolder?: string): Promise<string | null> => {
       const root = deps.getWorkspaceRoot();
       if (!root) {
-        deps.reportInfo('Aggrega: no anchored workspace, so there is no Release to select.');
+        deps.reportInfo(
+          `Aggrega: no ${SELECTOR_ROW_LABELS.workspace} is in use, so there is no ${SELECTOR_ROW_LABELS.release} to select.`,
+        );
         return null;
       }
       let gathered;
@@ -419,17 +421,17 @@ function describeDropped(count: number, root: string | null): string {
     return `Aggrega: ${count} ${noun} cannot be offered — the language server has not reported which folder it anchored to, and a Release is named relative to that folder. Restart the language server to try again. The paths are in the Aggrega output channel.`;
   }
   const verb = count === 1 ? 'sits' : 'sit';
-  return `Aggrega: ${count} ${noun} ${verb} outside the anchored folder ${root} and cannot be offered, because a Release is named relative to it. The paths are in the Aggrega output channel.`;
+  return `Aggrega: ${count} ${noun} ${verb} outside the ${SELECTOR_ROW_LABELS.workspace} ${root} and cannot be offered, because a Release is named relative to it. The paths are in the Aggrega output channel.`;
 }
 
 // describeUnnameable explains why a Release this workspace points at could not
-// be taken as the selection. Both branches name the anchored folder, or its
+// be taken as the selection. Both branches name the Aggrega workspace, or its
 // absence, because that is the fact the reader needs in order to act.
 function describeUnnameable(release: string, root: string | null): string {
   if (root === null) {
     return `the language server has not reported which folder it anchored to, so ${release} cannot be named relative to it`;
   }
-  return `${release} sits outside the anchored folder ${root}, and a Release is named relative to it`;
+  return `${release} sits outside the ${SELECTOR_ROW_LABELS.workspace} ${root}, and a Release is named relative to it`;
 }
 
 // describeSelection renders the selection for the two surfaces that display it,
