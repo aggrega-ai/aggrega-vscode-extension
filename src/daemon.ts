@@ -213,6 +213,10 @@ export class Daemon extends EventEmitter {
   private readBuffer = Buffer.alloc(0);
   private respawnTracker: RespawnTracker;
   private workspaceRoot: string | null = null;
+  // The compiler the running subprocess was started from, recorded at the spawn
+  // rather than read from the settings on demand. getLaunchedBinaryPath says why
+  // those are not the same value.
+  private launchedBinaryPath: string | null = null;
 
   constructor(
     private settings: Settings,
@@ -227,6 +231,27 @@ export class Daemon extends EventEmitter {
 
   getState(): DaemonState { return this.state; }
   getServerEncoding(): ServerEncoding { return this.serverEncoding; }
+
+  // getLaunchedBinaryPath returns the compiler the running subprocess was
+  // started from, or null where there is no running subprocess to report on.
+  //
+  // The answer is gated on the subprocess rather than on the recorded path
+  // alone, so a daemon that has stopped reports nothing rather than reporting
+  // the binary it used to run — a surface asking what is in use must not be
+  // handed the answer to what WAS.
+  //
+  // 🔴 IT IS NOT THE CONFIGURED PATH, AND THE TWO GENUINELY DIVERGE. The
+  // configured path is read once, at the moment a subprocess is created;
+  // afterwards the preference can move while this subprocess goes on running the
+  // binary it was started from. A preference change only SCHEDULES a restart,
+  // over a grace window the reader may cancel outright — so between the change
+  // and a restart that may never happen, the configured path names a compiler
+  // nothing is running. Anything reporting on the compiler in use therefore asks
+  // this rather than the settings, or it reports on a binary that is not serving
+  // the reader's requests.
+  getLaunchedBinaryPath(): string | null {
+    return this.proc === null ? null : this.launchedBinaryPath;
+  }
 
   // getServerInitMetadata returns the workspaceRoot + configSource
   // fields the daemon reported in its aggrega/initialize response,
@@ -415,8 +440,9 @@ export class Daemon extends EventEmitter {
 
   private async spawnAndInitialize(): Promise<void> {
     this.setState(DaemonState.Starting);
+    const launching = this.settings.binaryPath;
     try {
-      this.proc = spawn(this.settings.binaryPath, buildServeArgs(this.settings), {
+      this.proc = spawn(launching, buildServeArgs(this.settings), {
         cwd: this.workspaceRoot ?? undefined,
         stdio: ['pipe', 'pipe', 'pipe'],
       });
@@ -424,6 +450,7 @@ export class Daemon extends EventEmitter {
       this.setState(DaemonState.Stopped);
       throw err;
     }
+    this.launchedBinaryPath = launching;
     this.proc.stdout.on('data', (chunk: Buffer) => this.handleStdoutChunk(chunk));
     this.proc.stderr.on('data', (chunk: Buffer) => {
       this.log(`[aggrega serve stderr] ${chunk.toString('utf8').trimEnd()}`);

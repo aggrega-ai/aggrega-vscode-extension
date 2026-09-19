@@ -37,6 +37,7 @@ import {
   SEED_REGISTRY_COMMAND,
   StepId,
   USE_COMPILER_ON_PATH_COMMAND,
+  WELCOME_OPEN_COMMAND,
   WELCOME_PANEL_TITLE,
   WELCOME_SHOW_COMMAND,
   WELCOME_SHOW_SETTING,
@@ -45,9 +46,11 @@ import {
   stepStandings,
 } from './get-started-steps';
 import {
+  VersionStandings,
   dismissHtml,
   initiallyCollapsedStepIds,
   stepsHtml,
+  versionsHtml,
   welcomeDocumentHtml,
 } from './welcome-render';
 
@@ -74,6 +77,18 @@ import {
 // the section and key the settings reader already uses, so the two cannot come
 // to name different preferences.
 const BINARY_PATH_KEY = 'binaryPath';
+
+// PanelReading is everything one pass over the live state read: the four
+// conditions as standings, and what the two pieces of software report about
+// themselves.
+//
+// The two travel together because they are taken together and used together —
+// a path that draws the panel needs both, and a second pass for the versions
+// alone would ask the compiler twice for one drawing.
+interface PanelReading {
+  standings: Record<StepId, boolean>;
+  versions: VersionStandings;
+}
 
 // GetStartedDeps is the live state the panel reads. Every field is a fact some
 // other part of the extension already owns; nothing here keeps a copy, so the
@@ -109,6 +124,17 @@ export interface GetStartedDeps extends RendersOnReady {
   // server is held by the surface that starts it, and passing it in is what lets
   // the reading of that condition be exercised without a compiler.
   listRegistries(): Promise<RegistryListDoc>;
+  // readVersions reports what this extension and the compiler in use say about
+  // themselves.
+  //
+  // It is a dependency rather than something read here for the same reason every
+  // other field is: both readings are owned elsewhere — one by the editor's
+  // record of the installed extension, the other by whichever compiler the
+  // language server is actually running — and a copy of either taken here would
+  // be a second record of something this panel does not own. Passing it in is
+  // also what lets the whole region be read back without an editor or a
+  // compiler.
+  readVersions(): Promise<VersionStandings>;
   output: vscode.OutputChannel;
 }
 
@@ -200,8 +226,9 @@ export function activateGetStarted(
   // recorded reading would therefore be decided from another read's answer,
   // intermittently and invisibly. Decided from the returned value it is decided
   // from the reading the caller actually took, whatever else lands around it.
-  const reread = async (): Promise<Record<StepId, boolean>> => {
-    const read = stepStandings(await readFacts(deps));
+  const reread = async (): Promise<PanelReading> => {
+    const [facts, versions] = await Promise.all([readFacts(deps), deps.readVersions()]);
+    const read = stepStandings(facts);
     // 🔴 THE LIST IS RE-COMPOSED FROM THE STANDINGS JUST READ, IN BOTH
     // DIRECTIONS. A step whose condition has lapsed is composed as still to do
     // again, because nothing here accumulates a previous mark — which is the
@@ -212,7 +239,13 @@ export function activateGetStarted(
     // reader's arrangement to the composition is also what keeps a re-drawing
     // from painting the default shape first and correcting itself afterwards.
     panel?.webview.postMessage({ type: 'steps', html: stepsHtml(read, collapsed) });
-    return read;
+    // The versions go in their own message rather than with the steps, for the
+    // reason the foot control already has one of its own: the regions move on
+    // different events, and one message carrying two regions would redraw a
+    // region nothing had changed. A compiler restarted onto another binary moves
+    // this one and leaves the marks where they are.
+    panel?.webview.postMessage({ type: 'versions', html: versionsHtml(versions) });
+    return { standings: read, versions };
   };
   const refresh = (): void => {
     if (inFlight) { again = true; return; }
@@ -237,8 +270,8 @@ export function activateGetStarted(
   //
   // This is the only place the arrangement is decided from a condition rather
   // than from the reader.
-  const createPanel = (read: Record<StepId, boolean>): void => {
-    collapsed = initiallyCollapsedStepIds(read);
+  const createPanel = (read: PanelReading): void => {
+    collapsed = initiallyCollapsedStepIds(read.standings);
     panel = vscode.window.createWebviewPanel(
       'aggrega.welcome',
       WELCOME_PANEL_TITLE,
@@ -275,9 +308,10 @@ export function activateGetStarted(
     panel.webview.html = welcomeHtml(
       panel.webview,
       context.extensionUri,
-      read,
+      read.standings,
       collapsed,
       opensWithEditor(),
+      read.versions,
     );
   };
 
@@ -346,6 +380,10 @@ export function activateGetStarted(
 
   context.subscriptions.push(
     vscode.commands.registerCommand(WELCOME_SHOW_COMMAND, () => bringBack(openPanel)),
+    // Opening and bringing back are two commands over ONE opening. This is the
+    // opening on its own, which is what the title-bar affordance runs: it shows
+    // the page and leaves the reader's startup preference alone.
+    vscode.commands.registerCommand(WELCOME_OPEN_COMMAND, () => void openPanel()),
     vscode.commands.registerCommand(DISMISS_COMMAND, () => putAway()),
     vscode.commands.registerCommand(CREATE_WORKSPACE_COMMAND, () => createWorkspace(deps, refresh)),
     vscode.commands.registerCommand(CHOOSE_WORKSPACE_COMMAND, () => chooseWorkspace(deps, refresh)),
@@ -407,6 +445,7 @@ function welcomeHtml(
   standings: Record<StepId, boolean>,
   collapsed: readonly StepId[],
   opensWithEditor: boolean,
+  versions: VersionStandings,
 ): string {
   return welcomeDocumentHtml({
     nonce: makeNonce(),
@@ -420,6 +459,7 @@ function welcomeHtml(
     standings,
     collapsed,
     opensWithEditor,
+    versions,
   });
 }
 

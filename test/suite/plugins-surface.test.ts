@@ -4,6 +4,7 @@
 import * as assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { COMMANDS_TITLE_BAR_ENTRIES, commandsPanelTitleBar } from '../helpers/title-bar';
 import { allOperations, commandIdFor } from '../../src/operation-groups';
 import {
   PLUGIN_CONFIG_ENTRY_ROW_CONTEXT,
@@ -257,13 +258,11 @@ describe('the operations the plugins panel contributes', () => {
 
   it('adds nothing to the Commands panel\'s title bar', () => {
     // Its operations arrive on that panel as buttons in the drawn document, not
-    // as title-bar entries — so the cog stays the only thing in that title bar.
-    const onCommands = manifest.contributes.menus['view/title']
-      .filter((m) => m.when === 'view == aggrega.operations')
-      .map((m) => m.command);
+    // as title-bar entries — so that title bar carries only what belongs to the
+    // view, which is named in one place rather than restated here.
     assert.deepStrictEqual(
-      onCommands,
-      ['aggrega.settings.open'],
+      commandsPanelTitleBar(manifest.contributes.menus['view/title']),
+      [...COMMANDS_TITLE_BAR_ENTRIES],
       'the title bar carries what belongs to the view, and the flow carries the operations',
     );
   });

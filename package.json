@@ -53,6 +53,10 @@
     "menus": {
       "commandPalette": [
         {
+          "command": "aggrega.getStarted.open",
+          "when": "false"
+        },
+        {
           "command": "aggrega.getStarted.createWorkspace",
           "when": "false"
         },
@@ -118,6 +122,11 @@
         }
       ],
       "view/title": [
+        {
+          "command": "aggrega.getStarted.open",
+          "when": "view == aggrega.operations",
+          "group": "navigation"
+        },
         {
           "command": "aggrega.settings.open",
           "when": "view == aggrega.operations",
@@ -196,6 +205,12 @@
       {
         "command": "aggrega.getStarted.show",
         "title": "Aggrega: Get started"
+      },
+      {
+        "command": "aggrega.getStarted.open",
+        "title": "Open the welcome page",
+        "category": "Aggrega",
+        "icon": "$(home)"
       },
       {
         "command": "aggrega.getStarted.dismiss",

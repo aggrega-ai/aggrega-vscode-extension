@@ -299,6 +299,54 @@ body {
   cursor: pointer;
 }
 
+/* What is running, at the very foot and centred on the same axis as the switch
+   above it. It sits last because it is the only thing on the page that asks
+   nothing of the reader: the steps are the work, the switch is a decision, and
+   this is a fact to be read when it is wanted.
+
+   🔴 IT IS NEVER PUT AWAY, WHICH IS WHY IT CARRIES NO PAIRED RULE FOR THE
+   ATTRIBUTE THAT WOULD DO IT. A declared `display` outranks the user agent's own
+   rule for that attribute, so an element that can be hidden and declares one
+   needs the pairing spelled out beside it. Nothing hides this region — no script
+   sets the attribute on it and no branch composes it away — so there is no state
+   for a pairing to be about. Adding a way to hide it is what would need one.
+
+   The quiet foreground is the editor's own descriptive colour, which is what the
+   page already uses for text that reports rather than instructs. */
+.welcome-versions {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 0.25rem 1.25rem;
+  margin-top: 0.75rem;
+  margin-bottom: 0;
+  font-size: 0.9em;
+  color: var(--vscode-descriptionForeground, inherit);
+}
+
+/* Each reading keeps its label beside its value, so a wrap moves a whole reading
+   rather than separating one from the words naming it. */
+.version-entry {
+  white-space: nowrap;
+}
+
+/* The value is the part a reader came to read, so it is the part that stands
+   out against the label — and it is set in the editor's fixed-width face
+   because a version is a token to compare character by character rather than
+   prose to read. */
+.version-value {
+  font-family: var(--vscode-editor-font-family, monospace);
+}
+
+/* An absent reading is a sentence rather than a token, so it drops the
+   fixed-width face that would present it as one, and it is set in italic so the
+   difference is visible without depending on colour alone. */
+.version-value-absent {
+  font-family: inherit;
+  font-style: italic;
+}
+
 /* A high-contrast theme leaves many backgrounds absent and separates controls
    by border instead, so a control distinguished only by its background
    disappears there. Both classes are named because the editor adds the dark

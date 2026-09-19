@@ -10,6 +10,7 @@ import {
   DISMISS_COMMAND_TITLE,
   EVERYTHING_MET,
   NOTHING_MET,
+  OPEN_COMMAND_TITLE,
   PANEL_SETTING_COMMANDS,
   PANEL_SETTING_LABEL,
   SHOW_COMMAND_TITLE,
@@ -18,6 +19,7 @@ import {
   StepId,
   WELCOME_DESCRIPTION,
   WELCOME_GREETING,
+  WELCOME_OPEN_COMMAND,
   WELCOME_PANEL_TITLE,
   WELCOME_SHOW_COMMAND,
   WELCOME_SHOW_SETTING,
@@ -32,17 +34,29 @@ import {
   WIRE_CONTRACT,
   assertCensusInstrumentFires,
   launchFacilityCount,
+  readSourceTree,
   typeOnlyImports,
   valueImports,
 } from '../helpers/launch-census';
 import {
+  COMMANDS_PANEL_VIEW,
+  COMMANDS_TITLE_BAR_ENTRIES,
+  MenuContribution,
+  commandsPanelTitleBar,
+} from '../helpers/title-bar';
+import {
+  COMPILER_VERSION_LABEL,
+  EXTENSION_VERSION_LABEL,
   MET_LABEL,
   UNMET_LABEL,
+  VERSION_ABSENT,
+  VersionStandings,
   dismissHtml,
   initiallyCollapsedStepIds,
   inlineHtml,
   stepsHtml,
   toggleLabel,
+  versionsHtml,
   welcomeDocumentHtml,
 } from '../../src/welcome-render';
 import {
@@ -159,8 +173,8 @@ const REFUTED_CREDENTIAL_RATIONALE =
   /(so|keeps?|keeping|rather than)[^.]*\b(credentials?|passwords?|secrets?|tokens?)\b[^.]*\b(out of|committed|shared|checked in|in the repository)\b/i;
 
 interface ViewEntry { id?: unknown; name?: unknown; when?: unknown }
-interface CommandEntry { command?: unknown; title?: unknown }
-interface MenuEntry { command?: unknown; when?: unknown }
+interface CommandEntry { command?: unknown; title?: unknown; category?: unknown; icon?: unknown }
+interface MenuEntry { command?: unknown; when?: unknown; group?: unknown }
 
 function manifest(): {
   activationEvents: string[];
@@ -168,6 +182,8 @@ function manifest(): {
   views: ViewEntry[];
   commands: CommandEntry[];
   palette: MenuEntry[];
+  viewTitleMenus: MenuEntry[];
+  version: string;
   properties: Record<string, {
     type?: unknown;
     default?: unknown;
@@ -183,6 +199,8 @@ function manifest(): {
     views: pkg.contributes.views.aggrega,
     commands: pkg.contributes.commands,
     palette: pkg.contributes.menus.commandPalette ?? [],
+    viewTitleMenus: pkg.contributes.menus['view/title'] ?? [],
+    version: pkg.version,
     properties: pkg.contributes.configuration.properties,
     viewsWelcome: pkg.contributes.viewsWelcome ?? [],
   };
@@ -199,10 +217,16 @@ function manifest(): {
 //
 // opensWithEditor defaults to the preference's own default, so a caller that
 // says nothing about it composes the panel a reader meets on a fresh profile.
+//
+// versions defaults to a pair of readings that were taken, so a caller saying
+// nothing about them composes the panel of a reader whose compiler is running.
+// The default is a value rather than an absence for the same reason
+// opensWithEditor's is: the common case should be what a caller gets for free.
 function renderedPanel(
   standings: Record<StepId, boolean>,
   collapsed: readonly StepId[] = [],
   opensWithEditor = true,
+  versions: VersionStandings = { extension: '9.9.9', compiler: '8.8.8' },
 ): string {
   return welcomeDocumentHtml({
     nonce: 'test-nonce',
@@ -212,6 +236,7 @@ function renderedPanel(
     standings,
     collapsed,
     opensWithEditor,
+    versions,
   });
 }
 
@@ -1268,6 +1293,192 @@ describe('the welcome panel', () => {
         leaked,
         [],
         `these belong to the panel rather than to the palette: ${leaked.join(', ')}`,
+      );
+    });
+  });
+
+  // 🔴 THE PAGE IS REACHABLE FROM SOMEWHERE A READER IS ALREADY LOOKING, AND
+  // THAT IS A DIFFERENT CLAIM FROM THE ONE ABOVE. The palette answers "does this
+  // capability exist"; it does not answer "how do I get back to that page", which
+  // is a question a reader asks while looking at the Aggrega view and expects to
+  // answer by looking at it. A command reachable only by knowing what to type is
+  // one a reader concludes is not there.
+  describe('the way back sits where the reader is looking', () => {
+    it('contributes an entry in the Commands panel title bar, in the row of icons', () => {
+      const entry = manifest().viewTitleMenus.find((m) => m.command === WELCOME_OPEN_COMMAND);
+      assert.ok(
+        entry,
+        `no view/title entry contributes ${WELCOME_OPEN_COMMAND}, so the page is reachable only by `
+        + 'typing its command — which is the state this entry exists to end',
+      );
+      assert.strictEqual(entry.when, COMMANDS_PANEL_VIEW);
+      // navigation is what puts a title-bar action in the row of icons rather
+      // than in the overflow menu, which is the difference between something a
+      // reader sees and something they have to go looking for.
+      assert.strictEqual(entry.group, 'navigation');
+    });
+
+    // A title-bar entry is drawn as an icon with its title as the tooltip,
+    // because the pane's toolbar is constructed with labels off. An entry with
+    // no icon therefore draws as an empty control: present, pressable, and
+    // showing nothing.
+    it('declares an icon, because an entry without one draws as an empty control', () => {
+      const declared = manifest().commands.find((c) => c.command === WELCOME_OPEN_COMMAND);
+      assert.ok(declared, `${WELCOME_OPEN_COMMAND} appears in a menu but is declared in no command`);
+      assert.ok(
+        typeof declared.icon === 'string' && /^\$\([a-z0-9-]+\)$/.test(declared.icon),
+        `${WELCOME_OPEN_COMMAND} declares ${String(declared.icon)} rather than an icon, so the `
+        + 'title bar would carry a control a reader cannot see',
+      );
+      const settings = manifest().commands.find((c) => c.command === 'aggrega.settings.open');
+      assert.ok(settings);
+      assert.notStrictEqual(
+        declared.icon,
+        settings.icon,
+        'the two entries beside each other draw the same glyph, so a reader cannot tell them apart',
+      );
+    });
+
+    // 🔴 ONE ICON, NOT TWO. The version lives on the page rather than behind an
+    // affordance of its own, so the one entry that opens the page is the whole
+    // of what this change adds to the title bar. The claim is an EQUALITY over
+    // the entries on this view rather than a presence, because a presence
+    // reading passes however many entries were added beside it.
+    it('adds exactly one entry, beside the settings cog and nothing else', () => {
+      // The admitted set has one home, shared with the per-panel specs that
+      // assert their own operations are not up here. A copy of it beside this
+      // assertion would be the fifth, and four copies of it already drifted at
+      // once the moment the set grew.
+      assert.deepStrictEqual(
+        commandsPanelTitleBar(manifest().viewTitleMenus as MenuContribution[]),
+        [...COMMANDS_TITLE_BAR_ENTRIES],
+        'the Commands panel title bar carries something other than the way back to the page and '
+        + 'the way to the settings — a second icon for the version is exactly what this refuses, '
+        + 'since the version is on the page the first icon opens',
+      );
+      assert.ok(
+        COMMANDS_TITLE_BAR_ENTRIES.includes(WELCOME_OPEN_COMMAND),
+        'the shared set no longer names the way back, so the equality above would pass over a title '
+        + 'bar that has lost it',
+      );
+    });
+
+    // What the tooltip says is the title, and it is the only sentence a reader
+    // gets before pressing. It names the surface in the words every other
+    // user-visible string uses for it.
+    it('says what it opens, in the words the rest of the surface uses', () => {
+      const declared = manifest().commands.find((c) => c.command === WELCOME_OPEN_COMMAND);
+      assert.ok(declared);
+      assert.strictEqual(declared.title, OPEN_COMMAND_TITLE);
+      assert.match(
+        OPEN_COMMAND_TITLE,
+        /welcome page/,
+        'the title names the surface as something other than the welcome page, so the one sentence '
+        + 'a reader gets before pressing uses a word no other surface uses',
+      );
+      assert.ok(
+        /^[A-Za-z][A-Za-z ']*$/.test(OPEN_COMMAND_TITLE),
+        `the title carries something that is not plain words: ${OPEN_COMMAND_TITLE}`,
+      );
+    });
+
+    // 🔴 PRESSING IT MUST NOT DECIDE ANYTHING ON THE READER'S BEHALF. Whether the
+    // page is reachable and whether it opens by itself are separate questions.
+    // The command in the palette answers both at once, deliberately — undoing a
+    // dismissal is one act — and that is exactly why the title-bar entry cannot
+    // be that command: a reader who turned the page off and then glances at it
+    // would have turned it back on by glancing.
+    it('runs a command that opens the page without moving the startup preference', () => {
+      assert.notStrictEqual(
+        WELCOME_OPEN_COMMAND,
+        WELCOME_SHOW_COMMAND,
+        'the title-bar entry runs the command that also turns the startup preference back on, so '
+        + 'looking at the page re-arms it',
+      );
+      const source = fs.readFileSync(path.join(EXTENSION_ROOT, 'src', 'get-started.ts'), 'utf8');
+      // Both commands are registered by the constants asserted against the
+      // manifest above, so the chain is complete: the manifest names this
+      // constant's value, and the module registers this constant.
+      //
+      // 🔴 THE CALIBRATION IS THE FIRST ASSERTION, NOT A SEPARATE ONE. A pattern
+      // that has stopped matching reports every registration absent, so the
+      // neighbouring registration — which provably exists — is what says the
+      // reading about the new one means anything.
+      const registers = (identifier: string): boolean =>
+        new RegExp(`registerCommand\\(\\s*${identifier}\\b`).test(source);
+      assert.ok(
+        registers('WELCOME_SHOW_COMMAND'),
+        'the instrument no longer finds the registration it was calibrated on, so what it reports '
+        + 'about the entry beside it means nothing',
+      );
+      assert.ok(
+        registers('WELCOME_OPEN_COMMAND'),
+        `${WELCOME_OPEN_COMMAND} is contributed to the title bar and registered nowhere, so the `
+        + 'icon is drawn and pressing it reaches nothing',
+      );
+    });
+  });
+
+  // What the reader is running, on the page they already have a way back to.
+  describe('the page says what is running', () => {
+    it('carries both readings, each beside the word naming it', () => {
+      const html = versionsHtml({ extension: '0.4.2', compiler: '1.9.3-rc1' });
+      assert.match(html, new RegExp(`${EXTENSION_VERSION_LABEL}[^<]*<[^>]*>0\\.4\\.2<`));
+      assert.match(html, new RegExp(`${COMPILER_VERSION_LABEL}[^<]*<[^>]*>1\\.9\\.3-rc1<`));
+    });
+
+    // 🔴 A READING THAT WAS NOT TAKEN KEEPS ITS LABEL. A row that vanished would
+    // leave a reader unable to tell a version they failed to notice from one the
+    // page never had — and the second is the case worth telling them about.
+    it('keeps the label and says so where a reading was not taken', () => {
+      const html = versionsHtml({ extension: '0.4.2', compiler: null });
+      assert.ok(html.includes(COMPILER_VERSION_LABEL));
+      assert.ok(html.includes(VERSION_ABSENT));
+      assert.ok(
+        !html.includes('null') && !html.includes('undefined'),
+        'an absent reading reached the page as the name of its own absence in code',
+      );
+    });
+
+    // 🔴 THE COMPOSITION FOLLOWS THE READING, SHOWN BY COMPOSING TWICE. A
+    // rendering assertion against one value passes on a constant, so what is
+    // asserted here is the difference between two compositions of the whole
+    // page: each carries its own reading and neither carries the other's.
+    it('shows a different version when a different version is read', () => {
+      const first = renderedPanel(stepStandings(EVERYTHING_MET), [], true, {
+        extension: '0.1.0',
+        compiler: '0.6.1-1122-g7a7dd003-dirty',
+      });
+      const second = renderedPanel(stepStandings(EVERYTHING_MET), [], true, {
+        extension: '0.2.0',
+        compiler: '(devel)',
+      });
+      assert.notStrictEqual(first, second, 'two readings composed the same page');
+      assert.ok(first.includes('0.6.1-1122-g7a7dd003-dirty') && first.includes('0.1.0'));
+      assert.ok(second.includes('(devel)') && second.includes('0.2.0'));
+      assert.ok(
+        !first.includes('(devel)') && !second.includes('0.6.1-1122-g7a7dd003-dirty'),
+        'a composition carries a version it was not handed, so something on this page remembers a '
+        + 'reading rather than drawing the one it was given',
+      );
+    });
+
+    // 🔴 THE EXTENSION'S OWN VERSION HAS ONE HOME AND IT IS THE MANIFEST. A
+    // release moves it there; a literal anywhere in the source would be a second
+    // one, correct until the first release that forgot it. This is a census over
+    // the whole source tree rather than a look at the one module that reads it,
+    // because the copy worth catching is the one somebody adds elsewhere.
+    it('holds no copy of its own version anywhere in the source', () => {
+      const declared = manifest().version;
+      assert.match(declared, /^\d+\.\d+\.\d+/, 'the manifest declares no version to compare against');
+      const copies = readSourceTree()
+        .filter(([, source]) => source.includes(`'${declared}'`) || source.includes(`"${declared}"`))
+        .map(([file]) => file);
+      assert.deepStrictEqual(
+        copies,
+        [],
+        `these hold the manifest's own version as a literal, so a release moves one of the two and `
+        + `leaves the other: ${copies.join(', ')}`,
       );
     });
   });

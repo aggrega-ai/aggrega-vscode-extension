@@ -4,6 +4,7 @@
 import * as assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { COMMANDS_TITLE_BAR_ENTRIES, commandsPanelTitleBar } from '../helpers/title-bar';
 
 // Imported as a namespace as well as by name, so the export surface itself can
 // be censused: a claim that no cache operation composes an argument list is a
@@ -301,18 +302,16 @@ describe('the surface the manifest actually contributes', () => {
     );
   });
 
-  it('leaves the cog alone in this panel\'s title bar', () => {
-    const onCommands = manifest.contributes.menus['view/title']
-      .filter((m) => m.when === 'view == aggrega.operations')
-      .map((m) => m.command);
-    // The cog belongs to the VIEW: it opens the reader's own preferences rather
-    // than acting on the workspace, exactly as a refresh belongs to the list it
-    // re-reads. So it stays here and is not duplicated into the flow — and the
-    // operations arriving from the other panels arrive as buttons in the drawn
-    // document, never as title-bar entries.
+  it('keeps this panel\'s title bar to what belongs to the view', () => {
+    // Every entry there belongs to the VIEW rather than to the workspace: one
+    // opens the reader's own preferences, one opens a surface of the extension's
+    // own, and neither acts on anything the panel holds — exactly as a refresh
+    // belongs to the list it re-reads. So they stay and are not duplicated into
+    // the flow, while the operations arriving from the other panels arrive as
+    // buttons in the drawn document, never as title-bar entries.
     assert.deepStrictEqual(
-      onCommands,
-      ['aggrega.settings.open'],
+      commandsPanelTitleBar(manifest.contributes.menus['view/title']),
+      [...COMMANDS_TITLE_BAR_ENTRIES],
       'the title bar carries what belongs to the view, and the flow carries the operations',
     );
   });

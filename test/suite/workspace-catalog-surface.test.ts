@@ -4,6 +4,7 @@
 import * as assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { COMMANDS_TITLE_BAR_ENTRIES, commandsPanelTitleBar } from '../helpers/title-bar';
 import {
   CATALOG_DOCUMENT_ROW_CONTEXT,
   CATALOG_NO_DOCUMENT_ROW_CONTEXT,
@@ -261,12 +262,9 @@ describe('the operations the workspace-catalog panel contributes', () => {
   it('adds nothing to the Commands panel\'s title bar', () => {
     // Its operations arrive on that panel as buttons in the drawn document, not
     // as title-bar entries — so the cog stays the only thing in that title bar.
-    const onCommands = manifest.contributes.menus['view/title']
-      .filter((m) => m.when === 'view == aggrega.operations')
-      .map((m) => m.command);
     assert.deepStrictEqual(
-      onCommands,
-      ['aggrega.settings.open'],
+      commandsPanelTitleBar(manifest.contributes.menus['view/title']),
+      [...COMMANDS_TITLE_BAR_ENTRIES],
       'the title bar carries what belongs to the view, and the flow carries the operations',
     );
   });

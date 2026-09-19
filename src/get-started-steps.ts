@@ -223,6 +223,30 @@ export const WELCOME_SHOW_COMMAND = 'aggrega.getStarted.show';
 // assertion requires it to stay reachable there.
 export const SHOW_COMMAND_TITLE = 'Aggrega: Get started';
 
+// WELCOME_OPEN_COMMAND opens the page and changes nothing else.
+//
+// 🔴 IT IS A SECOND COMMAND BECAUSE IT DOES A DIFFERENT THING, NOT BECAUSE IT
+// REACHES THE PAGE FROM A DIFFERENT PLACE. The command above turns the startup
+// preference back on and then opens the page — one act, which is what undoing a
+// dismissal means. This one opens the page and leaves the preference exactly
+// where the reader put it. Whether the page is REACHABLE and whether it opens BY
+// ITSELF are separate questions, so an affordance whose whole job is the first
+// must not answer the second on the reader's behalf: somebody who turned the
+// page off and then wants to look at it would otherwise have turned it back on
+// by looking.
+//
+// The page-opening itself has one home, which both commands run; what differs is
+// only what each does around it.
+export const WELCOME_OPEN_COMMAND = 'aggrega.getStarted.open';
+
+// OPEN_COMMAND_TITLE is what the reader reads on the control that runs it.
+//
+// It names the surface in the words every other user-visible string uses for it,
+// and it says what pressing it does rather than what it is for — a title-bar
+// entry is drawn as an icon with its title as the tooltip, so this is the only
+// sentence a reader gets before pressing.
+export const OPEN_COMMAND_TITLE = 'Open the welcome page';
+
 // DISMISS_COMMAND_TITLE is how the dismissal is named in the command palette.
 //
 // It is in the palette because the palette is where a reader looks to find out

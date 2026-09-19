@@ -97,7 +97,8 @@ import {
   createPendingChoiceStatusBar,
 } from './status-bar';
 import { scheduleBinaryRestart, RestartHandle } from './binary-restart';
-import { checkDaemonVersion } from './version-check';
+import { checkDaemonVersion, readDaemonVersion } from './version-check';
+import { VersionStandings } from './welcome-render';
 import {
   lspCompletionToCompletion,
   lspDefinitionToResolve,
@@ -586,6 +587,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     onSelectionChange: (listener) => releaseSelection?.onChange(listener),
     seedConfiguration: requestConfigInit,
     listRegistries: requestRegistryList,
+    readVersions: readRunningVersions,
     output: outputChannel,
   });
 
@@ -1404,6 +1406,43 @@ async function runCompatibilityCheck(): Promise<void> {
       outputChannel?.appendLine(`Aggrega version check failed: ${result.err.message}`);
       return;
   }
+}
+
+// readRunningVersions reports what this extension and the compiler in use say
+// about themselves, for the surface that shows them.
+//
+// 🔴 THE EXTENSION'S VERSION IS READ FROM THE EDITOR'S OWN RECORD OF THIS
+// INSTALLATION, never held here. The manifest already declares it, a release
+// moves it there, and a constant beside this line would be a second one somebody
+// would have to remember to move in step — which is exactly the kind of copy
+// that is wrong only after a release.
+//
+// 🔴 AND THE COMPILER IS ASKED THROUGH THE BINARY THE LANGUAGE SERVER WAS
+// ACTUALLY STARTED FROM, NOT THE CONFIGURED ONE. The two diverge whenever the
+// preference has moved and the restart that would apply it has not happened —
+// the restart runs after a grace window the reader can cancel — and in that
+// window the configured path names a compiler nothing is running. Where nothing
+// is running there is no compiler in use to report on, and the absence is
+// reported as an absence rather than substituted for with the configured path's
+// answer.
+//
+// A read that fails is an absent reading rather than a message on the page: the
+// reader cannot act on a spawn error and the page is not where a diagnosis
+// belongs, so the detail goes to the output channel where the rest of this
+// extension's diagnosis goes.
+async function readRunningVersions(): Promise<VersionStandings> {
+  const ext = vscode.extensions.getExtension(EXTENSION_ID);
+  const extensionVersion = (ext?.packageJSON as { version?: string } | undefined)?.version ?? null;
+  const running = daemon?.getLaunchedBinaryPath() ?? null;
+  if (running === null) {
+    return { extension: extensionVersion, compiler: null };
+  }
+  const reading = await readDaemonVersion({ binaryPath: running, spawn: spawnForCompat });
+  if (reading.kind === 'unreadable') {
+    outputChannel?.appendLine(`Aggrega compiler version could not be read: ${reading.err.message}`);
+    return { extension: extensionVersion, compiler: null };
+  }
+  return { extension: extensionVersion, compiler: reading.version };
 }
 
 function spawnForCompat(binaryPath: string, args: string[]): Promise<string> {

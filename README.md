@@ -74,9 +74,24 @@ Turning it off stops the page opening on startup rather than putting it out of r
 a one-way door: **Aggrega: Get started** in the Command Palette turns it back on and opens it, and
 **Aggrega: Stop opening the welcome page on startup** is the palette's own way to the same setting.
 
+**The Commands panel carries a way back to the page, beside the cog.** It is the house icon at the
+top right, and its tooltip reads **Open the welcome page** — so getting back to the page is something
+you find by looking at the Aggrega view rather than something you have to know to type. It opens the
+page and leaves your startup setting exactly where you put it: looking at the page again does not
+turn it back on. The palette command is what does that, because turning it back on is a decision
+rather than a glance.
+
+**The page reports what you are running, at its foot.** Two readings sit there: **Extension**, the
+version of this extension as your editor has it installed, and **Compiler**, what the `aggrega`
+binary the language server is running says about itself. Neither is written into the page — both are
+read when the page is drawn, so a development build reports itself as one rather than showing
+nothing, and restarting onto a different compiler moves the reading. Where a reading cannot be taken
+— nothing is running to ask, or what is running did not answer — the label stays and says the
+version was not reported, so an absent reading is never mistaken for one you failed to notice.
+
 ## Features
 
-- **Welcome page** — Aggrega's own page in its own editor tab, saying what Aggrega is and then listing what the extension needs in this workspace, marking each condition **Met** or **To do**. Each step offers both a way to create the thing and a way to point at one you already have, explains the condition, and a step already met asks you nothing. A step marked **Met** goes back to **To do** if its condition lapses. A step already met opens folded, so the page opens on the work that remains. Its foot carries the checkbox that decides whether it opens on startup, the same switch the settings screen holds. It costs the Aggrega view no space. See [The welcome page](#the-welcome-page).
+- **Welcome page** — Aggrega's own page in its own editor tab, saying what Aggrega is and then listing what the extension needs in this workspace, marking each condition **Met** or **To do**. Each step offers both a way to create the thing and a way to point at one you already have, explains the condition, and a step already met asks you nothing. A step marked **Met** goes back to **To do** if its condition lapses. A step already met opens folded, so the page opens on the work that remains. Its foot carries the checkbox that decides whether it opens on startup, the same switch the settings screen holds, and below that the versions of the extension and of the compiler you are running. A house icon in the Commands panel title bar opens it again at any time. It costs the Aggrega view no space. See [The welcome page](#the-welcome-page).
 - **Language server state** — a status-bar indicator on the left, beside the Release indicator, reading **running**, **starting**, or **not running** in red. It is the one surface that is there whatever the compiler is doing, so it is where you find out that nothing is running rather than being left to infer it from surfaces that have gone quiet — and its tooltip says which of the two reasons applies: no folder here is one Aggrega recognises, or there is one and the server is not attached to it. Clicking it offers **Start** when nothing is running and **Restart** when something is, and does the one you choose. See [When the language server is not running](#when-the-language-server-is-not-running).
 - **Selected Release** — a status-bar indicator and a **Release** row at the top of the Commands panel, each naming the one Release the editor is working on. Everything that acts on a Release — validation, the topology graph, build, preview build and pull — acts on that one, so the Problems panel and the graph always describe the same Release. See [Selecting a Release](#selecting-a-release).
 - **Diagnostics** — YAML and schema validation surfaced inline as you edit, checked against the selected Release.
@@ -245,7 +260,7 @@ they write `.aggrega/active-release` or `.aggrega-config.yaml` rather than an ed
 
 ## Commands
 
-- **Aggrega: Get started** — bring the [welcome page](#the-welcome-page) back after you have turned it off, and open it. It turns `aggrega.getStarted.show` back on, so turning the page off is a choice you can undo rather than a door that locks behind you. Ticking the checkbox at the page's foot runs this same command.
+- **Aggrega: Get started** — bring the [welcome page](#the-welcome-page) back after you have turned it off, and open it. It turns `aggrega.getStarted.show` back on, so turning the page off is a choice you can undo rather than a door that locks behind you. Ticking the checkbox at the page's foot runs this same command. The house icon in the Commands panel title bar is a different thing: it opens the page and changes no setting, so a glance at the page is never also a decision about startup.
 - **Aggrega: Stop opening the welcome page on startup** — stop the [welcome page](#the-welcome-page) opening on startup, by turning `aggrega.getStarted.show` off in your own settings. This stops it arriving unasked rather than putting it out of reach: **Aggrega: Get started** brings it back. Unticking the checkbox at the page's foot runs this same command, so the decision can be taken from where the page is being read as well as from the palette.
 - **Aggrega: Open settings** — open this extension's preferences. Also the cog at the top right of the Commands panel. It opens the editor's own settings page filtered to this extension, so there is one place a preference lives and one place it is written. Distinct from **Show config**, which reports what the *compiler* resolved for the workspace rather than what your editor is set to.
 - **Aggrega: Select Release…** — choose the Release the editor works on. Takes effect at once and re-checks the open files against it; nothing restarts. Also reachable by clicking the Release indicator in the status bar. See [Selecting a Release](#selecting-a-release).

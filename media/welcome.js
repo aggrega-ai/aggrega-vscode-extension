@@ -9,6 +9,7 @@
   const panel = document.querySelector('main.welcome');
   const steps = document.getElementById('steps');
   const dismiss = document.getElementById('dismiss');
+  const versions = document.getElementById('versions');
 
   // remember tells the extension which sections are closed, so the next list it
   // composes arrives already in the shape the reader left rather than in the
@@ -78,9 +79,10 @@
   // foot control arrives already saying what pressing it would now do, because
   // the extension composed each from the reading it had just taken.
   //
-  // The two regions are posted separately because they move on different events:
-  // a condition changing re-draws the steps and leaves the foot alone, and the
-  // preference changing does the reverse.
+  // Each region is posted separately because they move on different events: a
+  // condition changing re-draws the steps and leaves the foot alone, the
+  // preference changing does the reverse, and the compiler being restarted onto
+  // another binary moves only the versions.
   //
   // Each region is named in its own branch rather than looked up in a table
   // keyed by the message. A table indexed by an arriving name answers for every
@@ -110,6 +112,10 @@
     const message = event.data;
     if (!message) { return; }
     if (message.type === 'steps') { steps.innerHTML = message.html; return; }
+    // The versions hold nothing to press and nothing to focus, so they are
+    // swapped outright: there is no control here whose focus a replacement could
+    // take away, which is the one thing the foot has to be careful about.
+    if (message.type === 'versions') { versions.innerHTML = message.html; return; }
     if (message.type === 'dismiss') { replaceFoot(message.html); }
   });
 })();

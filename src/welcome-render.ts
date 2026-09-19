@@ -180,6 +180,55 @@ export function dismissHtml(opensWithEditor: boolean): string {
   return `<input class="dismiss-checkbox" type="checkbox" id="${PANEL_SETTING_CONTROL_ID}"${ticked} data-command="${escapeHtml(panelSettingCommand(opensWithEditor))}"><label class="dismiss-label" for="${PANEL_SETTING_CONTROL_ID}">${escapeHtml(PANEL_SETTING_LABEL)}</label>`;
 }
 
+// VersionStandings is what the page reports about the two pieces of software a
+// reader is actually running.
+//
+// 🔴 NEITHER FIELD HAS A DEFAULT AND NEITHER IS WRITTEN DOWN ANYWHERE. Both are
+// readings taken at the moment the page is composed — one from the editor's own
+// record of this installed extension, the other from asking the compiler that is
+// running. A constant would be a second copy of a number that moves on a release
+// nobody would think to tie to this file, and a copy that is wrong is worse than
+// a reading that is absent.
+//
+// `null` means the reading was not obtained, which is a different statement from
+// any particular version and is drawn as one.
+export interface VersionStandings {
+  extension: string | null;
+  compiler: string | null;
+}
+
+// VERSION_ABSENT is what stands where a reading could not be taken.
+//
+// It says the version was not reported rather than naming a cause, and the
+// restraint is deliberate: the page cannot tell "nothing is running to ask" from
+// "something is running and did not answer", and a word that picked one would be
+// wrong in the other case — on a page that already carries a step reporting
+// whether the compiler answers at all.
+export const VERSION_ABSENT = 'version not reported';
+
+// EXTENSION_VERSION_LABEL and COMPILER_VERSION_LABEL name the two readings.
+//
+// Each label is a word the page already uses for the thing it names, so a reader
+// meets no new vocabulary at the foot of a page they came to for an
+// introduction.
+export const EXTENSION_VERSION_LABEL = 'Extension';
+export const COMPILER_VERSION_LABEL = 'Compiler';
+
+// versionsHtml composes the region reporting both versions.
+//
+// Each reading is drawn as its label and its value, and a missing reading keeps
+// its label: a row that vanished would leave a reader unable to tell a version
+// they failed to notice from one the page never had.
+export function versionsHtml(versions: VersionStandings): string {
+  const entry = (label: string, value: string | null): string => {
+    const known = value !== null && value !== '';
+    const valueClass = known ? 'version-value' : 'version-value version-value-absent';
+    return `<span class="version-entry">${escapeHtml(label)} <span class="${valueClass}">${escapeHtml(known ? value : VERSION_ABSENT)}</span></span>`;
+  };
+  return entry(EXTENSION_VERSION_LABEL, versions.extension)
+    + entry(COMPILER_VERSION_LABEL, versions.compiler);
+}
+
 // WelcomeDocumentOptions carries the addresses the editor resolves for a panel's
 // own resources. They are plain strings so this module keeps no editor types,
 // and the caller passes what the webview gave it.
@@ -199,6 +248,9 @@ export interface WelcomeDocumentOptions {
   // this module holds no editor types, and it is a live reading rather than a
   // remembered one for the reason dismissHtml states.
   opensWithEditor: boolean;
+  // versions is what the two pieces of software report about themselves, read
+  // afresh by the caller for the same reason the standings are.
+  versions: VersionStandings;
 }
 
 // welcomeDocumentHtml composes the whole panel.
@@ -211,6 +263,13 @@ export interface WelcomeDocumentOptions {
 // breadcrumb, no header pointing at it. A reader who opened Aggrega's panel is
 // not partway through someone else's flow, and offering a way "back" to a page
 // they never came from would say they are.
+//
+// The versions sit last, below the foot control, because they are context rather
+// than anything to act on — and because the two things above them are what the
+// page is for. They are on this page rather than behind a control of their own:
+// one affordance already brings a reader here, and a second one whose whole
+// answer is two short strings would be a surface to learn for something that
+// fits on the one they are already looking at.
 export function welcomeDocumentHtml(opts: WelcomeDocumentOptions): string {
   const csp = [
     `default-src 'none'`,
@@ -234,6 +293,7 @@ export function welcomeDocumentHtml(opts: WelcomeDocumentOptions): string {
     <p class="welcome-description">${escapeHtml(WELCOME_DESCRIPTION)}</p>
     <div id="steps" class="steps">${stepsHtml(opts.standings, opts.collapsed)}</div>
     <div id="dismiss" class="welcome-dismiss">${dismissHtml(opts.opensWithEditor)}</div>
+    <p id="versions" class="welcome-versions">${versionsHtml(opts.versions)}</p>
   </main>
   <script nonce="${opts.nonce}" src="${opts.scriptUri}"></script>
 </body>
