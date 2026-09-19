@@ -152,10 +152,11 @@ import {
 import { buildValidateParams } from './validate-request';
 import { SELECT_RELEASE_COMMAND, activateReleaseStatus, ReleaseStatus } from './release-status';
 import {
-  STATE_KEY,
   anchorOffers,
+  anchorSwitchMessage,
   classifyActivation,
   readSavedAnchor,
+  rememberAnchorChoice,
 } from './anchor-picker';
 
 let daemon: Daemon | null = null;
@@ -583,6 +584,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // re-run the activation path rather than waiting for something that will
     // not happen.
     reanchor: () => reactivate(context),
+    // A control through which the reader NAMES a folder records that answer before
+    // re-attaching, so the activation path settles on the folder they chose rather
+    // than on the one this window last remembered.
+    rememberAnchorChoice: (anchorPath) =>
+      rememberAnchorChoice(context.workspaceState, anchorPath),
     onReady: ready.onReady,
     onSelectionChange: (listener) => releaseSelection?.onChange(listener),
     seedConfiguration: requestConfigInit,
@@ -638,9 +644,9 @@ async function reactivate(context: vscode.ExtensionContext): Promise<void> {
 
   const savedAnchor = readSavedAnchor(context.workspaceState);
   if (savedAnchor !== null && !anchored.some(a => a.anchorPath === savedAnchor)) {
-    // Stale saved choice — folder removed or marker deleted. Clear
+    // Stale saved choice — folder removed or marker deleted. Forget it
     // so the multi-prompt branch can re-fire when appropriate.
-    await context.workspaceState.update(STATE_KEY, undefined);
+    await rememberAnchorChoice(context.workspaceState, null);
     // And say so. A remembered choice that quietly stops applying is
     // indistinguishable from one that was never remembered, and the reader
     // meets the difference at a moment they cannot connect to a previous
@@ -732,10 +738,17 @@ async function ensureDaemonAt(
   }
 
   if (daemon) {
+    // The guard above has already established that this is a different folder, so
+    // the language server is about to be torn down and stood back up somewhere
+    // else. The reader is told before it happens rather than left to infer it from
+    // a status bar that changes: performing the restart and announcing it are
+    // different things, and the surfaces they are looking at all resolve against
+    // the folder that is moving.
+    void vscode.window.showInformationMessage(anchorSwitchMessage(targetRoot));
     await stopDaemon();
   }
 
-  await context.workspaceState.update(STATE_KEY, target.anchorPath);
+  await rememberAnchorChoice(context.workspaceState, target.anchorPath);
   workspaceRootForCommands = targetRoot;
   activeAnchored = target;
   // The root is one of the two facts readiness is made of, so it is reported as

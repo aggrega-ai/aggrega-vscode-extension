@@ -47,6 +47,34 @@ export function readSavedAnchor(state: WorkspaceStateLike): string | null {
   return typeof v === 'string' && v.length > 0 ? v : null;
 }
 
+// rememberAnchorChoice records which anchored folder this window works in, and
+// answers with the path it replaced.
+//
+// 🔴 IT IS THE ONE HOME OF THAT WRITE, AND THE READ ABOVE IS WHY. classifyActivation
+// lets a still-valid remembered choice outrank everything else that moved, so a
+// surface through which a reader NAMES a folder has to record the answer here or
+// the reader's choice loses to the one they are trying to leave. The read and the
+// write are one mechanism seen from its two sides; held apart, a surface that
+// offers a choice and a surface that honours one would agree until either was
+// reworded.
+//
+// Returning the previous path is what lets a caller that could not finish the move
+// put it back, rather than leaving the window remembering a folder it never
+// reached — which the next re-evaluation would drop, telling the reader a folder
+// they never chose had stopped being anchored.
+//
+// A null path forgets the choice. It is spelled that way rather than as the
+// editor's own absent-value convention so that callers state an intention instead
+// of a storage detail.
+export async function rememberAnchorChoice(
+  state: WorkspaceStateLike,
+  anchorPath: string | null,
+): Promise<string | null> {
+  const previous = readSavedAnchor(state);
+  await state.update(STATE_KEY, anchorPath ?? undefined);
+  return previous;
+}
+
 // isSavedAnchorValid checks whether the saved path still matches an
 // anchored folder in the current workspace. A saved path that names a
 // folder no longer anchored (folder removed, marker deleted) is
@@ -174,6 +202,24 @@ export function anchorOffers<F extends FolderLike>(
     detail: WIDEN_ANCHOR_OFFER_DETAIL,
   });
   return offers;
+}
+
+// anchorSwitchMessage is what a reader is told when the language server is being
+// restarted at a different folder.
+//
+// THE RESTART IS ANNOUNCED RATHER THAN MERELY PERFORMED, and that is the whole
+// reason this exists. Every request the extension makes is resolved against the
+// anchored folder, so a reader who is not told the folder moved cannot tell a
+// result computed against the folder they left from one computed against the
+// folder they asked for — and a wrong value read as a right one contaminates
+// every judgement made near it. A restart the reader has to infer from a status
+// bar that flickers is one they will not infer.
+//
+// It names the full path rather than a basename: two folders open in one window
+// can share a basename, which is the very collision the folder picker above
+// disambiguates, and a message is read without the picker's side-by-side context.
+export function anchorSwitchMessage(workspaceRoot: string): string {
+  return `Aggrega: now working in ${workspaceRoot}. The language server is restarting there.`;
 }
 
 // activeFolderLabel renders the status-bar text for an attached

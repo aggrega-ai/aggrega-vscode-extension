@@ -10,14 +10,17 @@ import {
   WIDEN_ANCHOR_OFFER_DETAIL,
   WorkspaceStateLike,
   anchorOffers,
+  anchorSwitchMessage,
   buildPickerItems,
   classifyActivation,
   isSavedAnchorValid,
   readSavedAnchor,
+  rememberAnchorChoice,
   activeFolderLabel,
   widenAnchorOfferLabel,
 } from '../../src/anchor-picker';
 import { findAllAnchoredFolders, AnchoredFolder, FolderLike } from '../../src/workspace';
+import { workspaceRow } from '../../src/selector-rows';
 
 // fakeFolder produces a structural WorkspaceFolder-shape value from
 // just a fsPath. Sufficient for every helper this suite exercises.
@@ -485,5 +488,161 @@ describe('folder-add/remove activation cascade', () => {
     // saved was b; b remains.
     const after = classifyActivation([b, c], '/ws/b/aggregate.yaml');
     assert.strictEqual(after.kind, 'multiSaved');
+  });
+});
+
+describe('rememberAnchorChoice', () => {
+  it('records the choice so reading it back answers with it', async () => {
+    const state = new FakeWorkspaceState();
+    await rememberAnchorChoice(state, '/ws/b/aggregate.yaml');
+    assert.strictEqual(readSavedAnchor(state), '/ws/b/aggregate.yaml');
+  });
+
+  it('answers with the path it replaced, so a move that fails can be put back', async () => {
+    const state = new FakeWorkspaceState();
+    await rememberAnchorChoice(state, '/ws/a/.aggrega-config.yaml');
+
+    const previous = await rememberAnchorChoice(state, '/ws/b/aggregate.yaml');
+    assert.strictEqual(previous, '/ws/a/.aggrega-config.yaml');
+    assert.strictEqual(readSavedAnchor(state), '/ws/b/aggregate.yaml');
+
+    // Putting it back restores exactly what was there, which is what the
+    // declined-add path relies on.
+    await rememberAnchorChoice(state, previous);
+    assert.strictEqual(readSavedAnchor(state), '/ws/a/.aggrega-config.yaml');
+  });
+
+  it('forgets the choice when handed null, and reports nothing remembered', async () => {
+    const state = new FakeWorkspaceState();
+    await rememberAnchorChoice(state, '/ws/a/.aggrega-config.yaml');
+
+    const previous = await rememberAnchorChoice(state, null);
+    assert.strictEqual(previous, '/ws/a/.aggrega-config.yaml');
+    assert.strictEqual(readSavedAnchor(state), null);
+    assert.strictEqual(state.get(STATE_KEY), undefined);
+  });
+});
+
+// The whole route a reader takes to change which folder the editor works in,
+// driven end to end over REAL directories and the real modules that decide it.
+//
+// 🔴 IT IS WRITTEN AS THE READER'S SEQUENCE RATHER THAN AS ASSERTIONS ABOUT
+// classifyActivation, and that is what makes it a regression test rather than a
+// restatement of the classifier. The failure this covers was not in the
+// classifier: every step of it was individually right, and the folder the reader
+// named simply never reached the input the classifier reads. Only a reading that
+// runs the steps IN ORDER can see that, which is why each step below carries the
+// surfaces forward instead of asserting one function in isolation.
+describe('changing which folder the editor works in', () => {
+  let tmpRoot: string;
+  let a: string;
+  let b: string;
+
+  // A reading of every surface that names a workspace, taken together, so a
+  // surface that agrees with the others cannot be told apart from one that is
+  // merely not being looked at.
+  function surfaces(attachedRoot: string | null, openedFolder: string) {
+    const row = workspaceRow(attachedRoot, openedFolder);
+    return { attachedRoot, rowValue: row.value, rowTooltip: row.tooltip };
+  }
+
+  beforeEach(async () => {
+    tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'aggrega-switch-'));
+    a = path.join(tmpRoot, 'first');
+    b = path.join(tmpRoot, 'second');
+    await fs.mkdir(a);
+    await fs.mkdir(b);
+    await fs.writeFile(path.join(a, '.aggrega-config.yaml'), 'workspace: {}\n');
+    await fs.writeFile(path.join(b, '.aggrega-config.yaml'), 'workspace: {}\n');
+  });
+  afterEach(async () => {
+    await fs.rm(tmpRoot, { recursive: true, force: true });
+  });
+
+  it('a folder the reader NAMES becomes the one every surface reports', async () => {
+    const state = new FakeWorkspaceState();
+
+    // The reader is working in the first folder: it is the only anchored one, so
+    // attaching records it the way the activation path does.
+    const only = await findAllAnchoredFolders([fakeFolder(a)]);
+    const first = classifyActivation(only, readSavedAnchor(state));
+    assert.strictEqual(first.kind, 'single');
+    await rememberAnchorChoice(state, first.target.anchorPath);
+
+    const before = surfaces(first.target.folder.uri.fsPath, a);
+    assert.strictEqual(before.attachedRoot, a);
+    assert.strictEqual(before.rowValue, path.basename(a));
+    assert.ok(before.rowTooltip.includes(a));
+
+    // The reader names the second folder. Recording that answer is the step the
+    // choose-workspace control performs before anything re-attaches.
+    const chosen = await findAllAnchoredFolders([fakeFolder(b)]);
+    await rememberAnchorChoice(state, chosen[0].anchorPath);
+
+    // The editor then re-evaluates the open folders, both of which are anchored.
+    const both = await findAllAnchoredFolders([fakeFolder(a), fakeFolder(b)]);
+    const after = classifyActivation(both, readSavedAnchor(state));
+    assert.strictEqual(after.kind, 'multiSaved');
+    assert.strictEqual(after.target.folder.uri.fsPath, b);
+
+    // Every surface that names a workspace now names the second folder, and the
+    // first is named by none of them.
+    const now = surfaces(after.target.folder.uri.fsPath, a);
+    assert.strictEqual(now.attachedRoot, b);
+    assert.strictEqual(now.rowValue, path.basename(b));
+    assert.ok(now.rowTooltip.includes(b));
+    assert.ok(!now.rowTooltip.startsWith(`Aggrega workspace: ${a}`));
+    assert.strictEqual(activeFolderLabel(after.target, both), `Aggrega · ${path.basename(b)}`);
+    assert.strictEqual(readSavedAnchor(state), chosen[0].anchorPath);
+  });
+
+  it('switching back is not one-way', async () => {
+    const state = new FakeWorkspaceState();
+    const both = await findAllAnchoredFolders([fakeFolder(a), fakeFolder(b)]);
+
+    await rememberAnchorChoice(state, both[1].anchorPath);
+    const there = classifyActivation(both, readSavedAnchor(state));
+    assert.strictEqual(there.kind, 'multiSaved');
+    if (there.kind !== 'multiSaved') { return; }
+    assert.strictEqual(there.target.folder.uri.fsPath, b);
+
+    await rememberAnchorChoice(state, both[0].anchorPath);
+    const back = classifyActivation(both, readSavedAnchor(state));
+    assert.strictEqual(back.kind, 'multiSaved');
+    assert.strictEqual(back.target.folder.uri.fsPath, a);
+    assert.strictEqual(activeFolderLabel(back.target, both), `Aggrega · ${path.basename(a)}`);
+  });
+
+  it('a folder merely ADDED to the window leaves the reader where they were', async () => {
+    // 🔴 THE OTHER HALF OF THE RULE, AND IT IS NOT THE SAME CLAIM. A reader who
+    // named a folder said which one they want; a reader who added one to their
+    // editor window said nothing about anchoring, and moving the language server
+    // under them would be a new failure wearing this fix's clothes. So the
+    // remembered choice winning is CORRECT here and wrong above, and the
+    // difference is whether anything recorded an answer.
+    const state = new FakeWorkspaceState();
+
+    const only = await findAllAnchoredFolders([fakeFolder(a)]);
+    const first = classifyActivation(only, readSavedAnchor(state));
+    assert.strictEqual(first.kind, 'single');
+    if (first.kind !== 'single') { return; }
+    await rememberAnchorChoice(state, first.target.anchorPath);
+
+    // The second folder appears in the window. Nothing records a choice.
+    const both = await findAllAnchoredFolders([fakeFolder(a), fakeFolder(b)]);
+    const after = classifyActivation(both, readSavedAnchor(state));
+
+    assert.strictEqual(after.kind, 'multiSaved');
+    assert.strictEqual(after.target.folder.uri.fsPath, a);
+    assert.strictEqual(workspaceRow(after.target.folder.uri.fsPath, a).value, path.basename(a));
+  });
+
+  it('the reader is told the language server is restarting, and where', () => {
+    const message = anchorSwitchMessage('/ws/second');
+    // The folder is named in full: two folders open together can share a
+    // basename, and this sentence is read without the picker beside it.
+    assert.ok(message.includes('/ws/second'), message);
+    // And the restart is stated rather than left to be inferred.
+    assert.ok(/restart/i.test(message), message);
   });
 });

@@ -107,6 +107,16 @@ export interface GetStartedDeps extends RendersOnReady {
   // registered only once a language server has been established, so in the very
   // state the compiler step is for there is nothing listening.
   reanchor(): Promise<void>;
+  // rememberAnchorChoice records which anchored folder this window works in, and
+  // answers with the path it replaced.
+  //
+  // It is a dependency for the same reason reanchor is, and it is needed for a
+  // reason reanchor cannot cover: re-evaluating the open folders lets a still-valid
+  // remembered choice outrank everything else, so a control through which the
+  // reader NAMES a folder must record that answer or the re-evaluation settles on
+  // the folder they asked to leave — silently, with every surface going on naming
+  // it.
+  rememberAnchorChoice(anchorPath: string | null): Promise<string | null>;
   onSelectionChange(listener: () => void): void;
   // seedConfiguration asks the language server to seed a working configuration
   // by registering a registry and its signature trust policy.
@@ -585,6 +595,19 @@ async function createWorkspace(deps: GetStartedDeps, refresh: () => void): Promi
     }
   }
 
+  // The sentence below tells the reader this folder is now the workspace root, and
+  // recording the choice is what makes that true. A window with another folder
+  // already anchored and remembered would otherwise go on working there, leaving a
+  // message that names one folder beside surfaces that name another.
+  //
+  // The marker is looked for rather than assumed to be the file just written:
+  // which marker anchors a folder is one rule with one home, and a configuration
+  // higher up can be the one that answers.
+  const anchorPath = await findAggregaWorkspaceAnchor(folder.uri.fsPath);
+  if (anchorPath !== null) {
+    await deps.rememberAnchorChoice(anchorPath);
+  }
+
   await deps.reanchor();
   refresh();
 
@@ -623,6 +646,11 @@ async function chooseWorkspace(deps: GetStartedDeps, refresh: () => void): Promi
     description: c.directory,
     detail: path.basename(c.anchorPath),
     directory: c.directory,
+    // Carried through the pick so the choice can be recorded as the window's
+    // answer without the marker being looked for a second time — the first look
+    // is what confirmed the folder was offerable at all, and a second one could
+    // answer differently.
+    anchorPath: c.anchorPath,
   }));
   const choice = await vscode.window.showQuickPick(items, {
     placeHolder: 'Aggrega: choose the folder to work in',
@@ -630,6 +658,16 @@ async function chooseWorkspace(deps: GetStartedDeps, refresh: () => void): Promi
     matchOnDetail: true,
   });
   if (!choice) { return; }
+
+  // 🔴 THE CHOICE IS RECORDED BEFORE ANYTHING RE-ATTACHES, AND THE ORDER IS THE
+  // WHOLE FIX. The reader has named the folder they want, which is an answer that
+  // outranks whatever this window last remembered; re-evaluating the open folders
+  // without recording it first lets the earlier choice win, and the editor goes on
+  // working in the folder they asked to leave while every surface names it. The
+  // branch below re-attaches on an event this function does not control — the
+  // editor's own, once the folder is added — so an answer recorded afterwards
+  // would arrive after the decision that needed it.
+  const previous = await deps.rememberAnchorChoice(choice.anchorPath);
 
   if (opened.has(choice.directory)) {
     await deps.reanchor();
@@ -645,6 +683,11 @@ async function chooseWorkspace(deps: GetStartedDeps, refresh: () => void): Promi
     { uri: vscode.Uri.file(choice.directory) },
   );
   if (!added) {
+    // The move did not happen, so the answer recorded for it is put back. A window
+    // left remembering a folder it never reached drops that choice on its next
+    // re-evaluation and tells the reader a folder they never chose has stopped
+    // being anchored.
+    await deps.rememberAnchorChoice(previous);
     void vscode.window.showErrorMessage(
       `Aggrega: the editor declined to add ${choice.directory} to this workspace.`,
     );
