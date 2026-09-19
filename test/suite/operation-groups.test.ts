@@ -28,6 +28,7 @@ import {
   unavailableReason,
 } from '../../src/operation-groups';
 import { publishEntityRequest } from '../../src/publication-request';
+import { PROJECT_FOLDER_COMMAND, SWITCH_ANCHOR_COMMAND, selectorRows } from '../../src/selector-rows';
 import {
   NO_RELEASE_SELECTED_CONTROL_REASON,
 } from '../../src/release-selection';
@@ -415,6 +416,46 @@ describe('the surface the manifest actually contributes', () => {
         `the ${op.id} entry runs ${commandIdFor(op)}, which the manifest does not contribute`,
       );
     }
+  });
+
+  it('declares a command for every control on a row, so no row and no + is a dead button', () => {
+    // The editor derives an activation event from each declared command, so a
+    // control naming an undeclared one does NOTHING for a reader whose
+    // workspace has not otherwise started the extension — which is exactly the
+    // reader meeting an empty workspace and reaching for the + that creates one.
+    const declared = new Set<string>(manifest.contributes.commands.map((c) => c.command));
+    const rows = selectorRows(
+      '/ws/project',
+      '/ws/project',
+      { kind: 'unknown' },
+      { projectFolders: 2, aggregaWorkspaces: 2 },
+    );
+    const ours = rows
+      .flatMap((row) => (row.create === null ? [row.command] : [row.command, row.create.command]))
+      .filter((command) => command.startsWith('aggrega.'));
+    // A negative control on the census, because the loop below is satisfied by
+    // an empty list: a filter that matched nothing would pass exactly as a
+    // fully-declared surface does.
+    assert.ok(
+      ours.includes(SWITCH_ANCHOR_COMMAND),
+      'the census sees no row command it certainly should, so its verdict means nothing',
+    );
+    for (const command of ours) {
+      assert.ok(
+        declared.has(command),
+        `a row control runs ${command}, which the manifest does not contribute`,
+      );
+    }
+    // And the one command that is NOT ours is the editor's own, named here so
+    // the filter above is a statement about which level the editor owns rather
+    // than a hole the next undeclared command slips through.
+    assert.deepStrictEqual(
+      rows
+        .flatMap((row) => (row.create === null ? [row.command] : [row.command, row.create.command]))
+        .filter((command) => !command.startsWith('aggrega.')),
+      [PROJECT_FOLDER_COMMAND],
+      'a row control runs something that is neither ours nor the editor\'s own folder command',
+    );
   });
 
   it('puts every contributed operation command on the panel, so none is stranded', () => {

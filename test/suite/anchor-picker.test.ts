@@ -541,8 +541,12 @@ describe('changing which folder the editor works in', () => {
   // A reading of every surface that names a workspace, taken together, so a
   // surface that agrees with the others cannot be told apart from one that is
   // merely not being looked at.
-  function surfaces(attachedRoot: string | null, openedFolder: string) {
-    const row = workspaceRow(attachedRoot, openedFolder);
+  // The count is the caller's own reading of how many folders are anchored at
+  // that moment, rather than a number fixed here: the row says whether there is
+  // anything else to choose between, and a constant would make it say the same
+  // thing before and after the second folder appears.
+  function surfaces(attachedRoot: string | null, openedFolder: string, anchored: number) {
+    const row = workspaceRow(attachedRoot, openedFolder, anchored);
     return { attachedRoot, rowValue: row.value, rowTooltip: row.tooltip };
   }
 
@@ -569,7 +573,7 @@ describe('changing which folder the editor works in', () => {
     assert.strictEqual(first.kind, 'single');
     await rememberAnchorChoice(state, first.target.anchorPath);
 
-    const before = surfaces(first.target.folder.uri.fsPath, a);
+    const before = surfaces(first.target.folder.uri.fsPath, a, only.length);
     assert.strictEqual(before.attachedRoot, a);
     assert.strictEqual(before.rowValue, path.basename(a));
     assert.ok(before.rowTooltip.includes(a));
@@ -587,7 +591,7 @@ describe('changing which folder the editor works in', () => {
 
     // Every surface that names a workspace now names the second folder, and the
     // first is named by none of them.
-    const now = surfaces(after.target.folder.uri.fsPath, a);
+    const now = surfaces(after.target.folder.uri.fsPath, a, both.length);
     assert.strictEqual(now.attachedRoot, b);
     assert.strictEqual(now.rowValue, path.basename(b));
     assert.ok(now.rowTooltip.includes(b));
@@ -634,7 +638,10 @@ describe('changing which folder the editor works in', () => {
 
     assert.strictEqual(after.kind, 'multiSaved');
     assert.strictEqual(after.target.folder.uri.fsPath, a);
-    assert.strictEqual(workspaceRow(after.target.folder.uri.fsPath, a).value, path.basename(a));
+    assert.strictEqual(
+      workspaceRow(after.target.folder.uri.fsPath, a, both.length).value,
+      path.basename(a),
+    );
   });
 
   it('the reader is told the language server is restarting, and where', () => {

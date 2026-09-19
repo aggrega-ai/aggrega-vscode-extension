@@ -21,7 +21,13 @@ import {
   GEN_CATALOG_SCOPES,
 } from '../../src/plugins-run';
 import { NO_RELEASE_SELECTED_CONTROL_REASON } from '../../src/release-selection';
-import { selectorRows } from '../../src/selector-rows';
+import {
+  SELECTOR_ROW_KEYS,
+  SELECTOR_ROW_LABELS,
+  SelectorCandidates,
+  createControlKey,
+  selectorRows,
+} from '../../src/selector-rows';
 
 // The composer holds no editor type, so every assertion here reads back exactly
 // the markup a reader is shown. What no test in this repository can reach is
@@ -34,11 +40,15 @@ import { selectorRows } from '../../src/selector-rows';
 const ANCHORED = '/work/demo';
 const SELECTED = { kind: 'selected', release: 'releases/prod.yaml', absolute: '/work/demo/releases/prod.yaml' } as const;
 const NO_ANSWER_YET = { kind: 'unknown' } as const;
+// Several of each, so a document drawn from this fixture is not silently the
+// one-candidate case — the wording of which is a separate claim with its own
+// assertions in the rows' own suite.
+const SEVERAL: SelectorCandidates = { projectFolders: 3, aggregaWorkspaces: 2 };
 
 function body(over: Partial<OperationsBody> = {}): OperationsBody {
   return {
     layout: 'buttons',
-    selectors: selectorRows(ANCHORED, ANCHORED, SELECTED),
+    selectors: selectorRows(ANCHORED, ANCHORED, SELECTED, SEVERAL),
     unavailable: {},
     collapsed: [],
     focused: null,
@@ -46,6 +56,25 @@ function body(over: Partial<OperationsBody> = {}): OperationsBody {
     ...over,
   };
 }
+
+// What the rows contribute to a count taken over the whole document: one
+// choosing control each, and one create control beside each level that can be
+// created.
+//
+// DERIVED FROM THE ROWS RATHER THAN WRITTEN AS A NUMBER, so a row gained or a
+// create control withdrawn moves every total that depends on it in the same
+// act. A literal here is a number that has to be found and changed by whoever
+// next touches the rows, and the totals it feeds are exactly the assertions
+// that say nothing until they are wrong.
+const ROW_CONTROLS = body().selectors.length
+  + body().selectors.filter((row) => row.create !== null).length;
+
+// And what they contribute to a count of this extension's OWN commands. The
+// project-folder row runs the editor's command rather than one of ours, so it
+// is not among them — which is the distinction this reads rather than assumes.
+const ROW_AGGREGA_COMMANDS = body().selectors
+  .flatMap((row) => (row.create === null ? [row.command] : [row.command, row.create.command]))
+  .filter((command) => command.startsWith('aggrega.')).length;
 
 // occurrences counts a pattern rather than asserting its presence, because
 // several of the rules below are about how MANY of something the document
@@ -77,8 +106,8 @@ function commandsIn(html: string): string[] {
 // has no wrapper to read, which is the whole reason the attribute is there.
 //
 // Requiring data-group to follow data-focus-key is what confines this to the
-// operation controls: the two rows naming the panel's subject carry a command
-// and a focus key and no group, and they must not be counted as members of one.
+// operation controls: the rows naming the panel's subject carry a command and a
+// focus key and no group, and they must not be counted as members of one.
 function groupsInDocument(html: string): Array<[string, string[]]> {
   const runs: Array<[string, string[]]> = [];
   for (const m of html.matchAll(/data-command="([^"]+)" data-focus-key="[^"]*" data-group="([^"]+)"/g)) {
@@ -93,7 +122,7 @@ function groupsInDocument(html: string): Array<[string, string[]]> {
 
 // flowOf slices the flow's own container out of the document, so an assertion
 // about what the flow holds is made against the flow rather than against a
-// document that also carries the two rows above it.
+// document that also carries the rows above it.
 function flowOf(html: string): string {
   const at = html.indexOf('<div class="groups ops-flow"');
   assert.notStrictEqual(at, -1, 'the document draws no flow at all');
@@ -464,24 +493,28 @@ describe('the Commands panel document', () => {
     );
   });
 
-  it('puts the two rows naming the subject ahead of every group, in both shapes', () => {
+  it('puts the rows naming the subject ahead of every group, in both shapes', () => {
     for (const layout of BOTH) {
       const html = operationsBodyHtml(body({ layout }));
       const rows = html.indexOf('class="selectors"');
       const groups = html.indexOf('class="groups');
-      assert.notStrictEqual(rows, -1, 'the two rows are not drawn at all');
+      assert.notStrictEqual(rows, -1, 'the rows are not drawn at all');
       assert.notStrictEqual(groups, -1, 'no group is drawn at all');
       assert.ok(
         rows < groups,
         `the ${layout} shape draws a group before the rows naming what it acts on`,
       );
-      // And neither row is inside the operations, which is what makes the rule
+      // And no row is inside the operations, which is what makes the rule
       // a property of the document rather than one somebody has to remember.
       // Asserted over everything from the operations onward, so it holds for
       // the flow — which has no per-group box for the loop below to slice.
       assert.strictEqual(
         occurrences(html.slice(groups), /class="selector"/), 0,
         `the ${layout} shape puts a selector row among the operations`,
+      );
+      assert.strictEqual(
+        occurrences(html.slice(groups), /class="selector-create"/), 0,
+        `the ${layout} shape puts a create control among the operations`,
       );
       for (const chunk of sectionsOf(html)) {
         assert.strictEqual(
@@ -492,13 +525,13 @@ describe('the Commands panel document', () => {
     }
   });
 
-  it('keeps both rows in front of a reader who has closed every section', () => {
-    // The clause that would fail if either row were inside a group.
+  it('keeps every row in front of a reader who has closed every section', () => {
+    // The clause that would fail if any row were inside a group.
     const html = operationsBodyHtml(body({
       layout: 'sections',
       collapsed: OPERATION_GROUPS.map((group) => group.id),
     }));
-    for (const row of selectorRows(ANCHORED, ANCHORED, SELECTED)) {
+    for (const row of selectorRows(ANCHORED, ANCHORED, SELECTED, SEVERAL)) {
       assert.ok(
         html.includes(`data-focus-key="${row.key}"`),
         `the ${row.label} row is gone once every section is closed`,
@@ -506,8 +539,8 @@ describe('the Commands panel document', () => {
       assert.ok(html.includes(row.value), `the ${row.label} row shows no value`);
     }
     // A negative control: with every section closed, no operation is reachable,
-    // so the two rows above are the only controls left. If an operation were
-    // still drawn as visible content the assertion would be measuring the wrong
+    // so the rows above are the only controls left. If an operation were still
+    // drawn as visible content the assertion would be measuring the wrong
     // document.
     assert.strictEqual(
       occurrences(html, /aria-expanded="true"/), 0,
@@ -525,7 +558,7 @@ describe('the Commands panel document', () => {
     // identity answers that. The full path answers "which one exactly", which
     // is a second question — so it is asked for rather than drawn, and the row
     // costs one line instead of a block.
-    const rows = selectorRows('/work/demo', '/work/demo/services/api', SELECTED);
+    const rows = selectorRows('/work/demo', '/work/demo/services/api', SELECTED, SEVERAL);
     const html = operationsBodyHtml(body({ selectors: rows }));
 
     // Nothing is drawn beneath a row, by class and by count.
@@ -545,36 +578,181 @@ describe('the Commands panel document', () => {
     const drawn = Array.from(html.matchAll(/<button class="selector"[^>]*>(.*?)<\/button>/gs))
       .map((m) => m[1]);
     assert.strictEqual(drawn.length, rows.length, 'a row is not drawn as a control');
+    // Asserted as an EQUALITY over the row's whole drawn text rather than as
+    // two containments, and over every row rather than over one of them. A
+    // containment passes over a row that drew its name, its value AND the full
+    // path beside them, which is the regression this is here for; and an
+    // assertion pinned to a position stops describing the row it was written
+    // about the moment another is added above it.
     for (let at = 0; at < rows.length; at += 1) {
-      assert.ok(drawn[at].includes(rows[at].label), `the ${rows[at].key} row draws no name`);
-      assert.ok(drawn[at].includes(rows[at].value), `the ${rows[at].key} row draws no value`);
+      const text = drawn[at].replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+      assert.strictEqual(
+        text, `${rows[at].label} ${rows[at].value}`,
+        `the ${rows[at].key} row draws something other than its own name and value`,
+      );
     }
+    const workspaceAt = rows.findIndex((row) => row.key === 'workspace');
+    assert.notStrictEqual(workspaceAt, -1, 'there is no workspace row to check');
     assert.ok(
-      !drawn[0].includes('/work/demo/services/api'),
-      'the workspace row still draws the open folder rather than leaving it to the hover',
-    );
-    assert.ok(
-      !drawn[0].includes('Aggrega workspace: /work/demo'),
+      !drawn[workspaceAt].includes('Aggrega workspace: /work/demo'),
       'the workspace row still draws the anchored path rather than leaving it to the hover',
     );
 
-    // And every line of it is on the hover, whole and unfiltered — including
-    // the open folder, which is the fact that only exists when the two differ.
-    // A row that dropped a line would have moved the detail nowhere rather
-    // than onto the hover.
+    // And every line of every row's text is on that row's hover, whole and
+    // unfiltered — including the open folder, which is the fact that only
+    // exists when the two differ. A row that dropped a line would have moved
+    // the detail nowhere rather than onto the hover.
     const hovers = Array.from(html.matchAll(/<button class="selector"[^>]*title="([^"]*)"/gs))
       .map((m) => m[1]);
     assert.strictEqual(hovers.length, rows.length, 'a row carries no hover at all');
     assert.ok(
-      hovers[0].includes('/work/demo/services/api'),
-      'the open folder reaches neither the row nor its hover',
+      hovers[workspaceAt].includes('/work/demo/services/api'),
+      'the open folder reaches neither the workspace row nor its hover',
     );
-    for (const line of rows[0].tooltip.split('\n')) {
-      assert.ok(
-        hovers[0].includes(line),
-        `the hover drops the line ${JSON.stringify(line)}`,
+    for (let at = 0; at < rows.length; at += 1) {
+      for (const line of rows[at].tooltip.split('\n')) {
+        assert.ok(
+          hovers[at].includes(line),
+          `the ${rows[at].key} hover drops the line ${JSON.stringify(line)}`,
+        );
+      }
+    }
+  });
+
+  it('draws three rows, in the order that teaches the containment', () => {
+    // The arrangement IS the teaching: three things nest, and a reader is shown
+    // that by where the rows sit rather than told it in a paragraph. So the
+    // order is asserted over the composed document, not only over the list the
+    // composer was handed — a composer that reordered them would leave that
+    // list right and the reader wrong.
+    for (const layout of BOTH) {
+      const html = operationsBodyHtml(body({ layout }));
+      const drawn = Array.from(html.matchAll(/<span class="selector-label">([^<]*)<\/span>/g))
+        .map((m) => m[1]);
+      assert.deepStrictEqual(
+        drawn,
+        ['Project folder', 'Aggrega workspace', 'Release'],
+        `the ${layout} shape draws the levels in an order that teaches the wrong containment`,
+      );
+      assert.deepStrictEqual(
+        drawn,
+        SELECTOR_ROW_KEYS.map((key) => SELECTOR_ROW_LABELS[key]),
+        `the ${layout} shape draws a name the rows do not declare`,
       );
     }
+  });
+
+  it('gives each row its own value, and none of them a neighbour\'s', () => {
+    // The three levels nest on disk, so a row reading the wrong one still draws
+    // something that looks like an answer. Distinct inputs are what make a
+    // crossed pair visible.
+    const rows = selectorRows('/work/demo', '/work/demo/services/api', SELECTED, SEVERAL);
+    const html = operationsBodyHtml(body({ selectors: rows }));
+    const values = Array.from(html.matchAll(/<span class="selector-value">([^<]*)<\/span>/g))
+      .map((m) => m[1]);
+    assert.deepStrictEqual(values, ['api', 'demo', 'releases/prod.yaml']);
+    assert.strictEqual(
+      new Set(values).size, values.length,
+      'two rows drew the same value, so one of them is reporting the wrong level',
+    );
+  });
+
+  it('draws the create control BESIDE the choosing control and never inside it', () => {
+    // 🔴 THE CLAIM THIS RESTS ON IS THAT A PRESS CANNOT LAND ON THE WRONG ONE.
+    // A press is routed by the nearest enclosing element carrying a command, so
+    // a create control drawn inside the choosing control would be inside that
+    // control's press target and would choose instead of creating — silently,
+    // because nothing tells a reader the target they aimed at is not the one
+    // they hit. The instrument is the choosing control's OWN markup: it carries
+    // exactly one command, and it is the one that chooses.
+    const html = operationsBodyHtml(body());
+    const rows = body().selectors;
+    const choosing = Array.from(html.matchAll(/<button class="selector"[\s\S]*?<\/button>/g))
+      .map((m) => m[0]);
+    assert.strictEqual(choosing.length, rows.length, 'a row is not drawn as a choosing control');
+    for (let at = 0; at < rows.length; at += 1) {
+      assert.deepStrictEqual(
+        commandsIn(choosing[at]), [rows[at].command],
+        `the ${rows[at].key} choosing control carries a command that is not its own`,
+      );
+      assert.strictEqual(
+        occurrences(choosing[at], /<button/), 1,
+        `the ${rows[at].key} choosing control encloses a second control`,
+      );
+    }
+
+    // And the create controls are their own targets, carrying their own command
+    // and their own place for the reader to return to.
+    const creatable = rows.filter((row) => row.create !== null);
+    const creating = Array.from(html.matchAll(/<button class="selector-create"[\s\S]*?<\/button>/g))
+      .map((m) => m[0]);
+    assert.strictEqual(
+      creating.length, creatable.length,
+      'a level that can be created is drawn without a control that creates it',
+    );
+    for (let at = 0; at < creatable.length; at += 1) {
+      const row = creatable[at];
+      assert.deepStrictEqual(commandsIn(creating[at]), [row.create?.command]);
+      assert.ok(
+        creating[at].includes(`data-focus-key="${createControlKey(row.key)}"`),
+        `the ${row.key} create control does not take a place of its own`,
+      );
+      assert.ok(
+        creating[at].includes('type="button"'),
+        `the ${row.key} create control is not a native button, so the platform gives it nothing`,
+      );
+      assert.ok(
+        creating[at].includes(`aria-label="${row.create?.label}"`),
+        `the ${row.key} create control draws no word and announces none either`,
+      );
+    }
+  });
+
+  it('draws no create control on the project-folder row, and still reserves its column', () => {
+    // Bringing a project folder into being is not an Aggrega act, so a control
+    // there would promise a creation nothing performs. The column is reserved
+    // all the same: without it the choosing control on that row is a different
+    // width from the two below, which puts its value out of line with theirs —
+    // and the rows are read down the panel as three answers to one question.
+    const html = operationsBodyHtml(body());
+    const chunks = Array.from(html.matchAll(/<div class="selector-row">([\s\S]*?)<\/div>/g))
+      .map((m) => m[1]);
+    const rows = body().selectors;
+    assert.strictEqual(chunks.length, rows.length, 'a row is not drawn in a row container');
+    for (let at = 0; at < rows.length; at += 1) {
+      const expected = rows[at].create === null ? 0 : 1;
+      assert.strictEqual(
+        occurrences(chunks[at], /class="selector-create"/), expected,
+        `the ${rows[at].key} row draws the wrong number of create controls`,
+      );
+      assert.strictEqual(
+        occurrences(chunks[at], /class="selector-create-gap"/), 1 - expected,
+        `the ${rows[at].key} row does not keep the same two columns as the others`,
+      );
+    }
+    // 🔴 AND THE LITERAL SIDE, WHICH IS WHAT MAKES THE LOOP ABOVE WORTH
+    // RUNNING. Both sides of that loop come from the rows, so it agrees with
+    // itself whatever the rows say — a project-folder row that grew a create
+    // control would move the expectation with it and pass. The level that must
+    // have none is therefore named here, and the total is written out.
+    const project = chunks.find((chunk) => chunk.includes('>Project folder<'));
+    assert.notStrictEqual(project, undefined, 'no row names the project folder at all');
+    assert.strictEqual(
+      occurrences(project ?? '', /class="selector-create"/), 0,
+      'the project-folder row draws a control that would create nothing',
+    );
+    assert.strictEqual(
+      occurrences(html, /class="selector-create"/), 2,
+      'a level gained or lost a create control',
+    );
+
+    // The reserved column is a gap and not a control: it takes no press, no tab
+    // stop and no announcement, so what it adds is width and nothing else.
+    const gap = html.match(/<span class="selector-create-gap"[^>]*>/);
+    assert.notStrictEqual(gap, null, 'no column is reserved at all');
+    assert.ok(gap !== null && gap[0].includes('aria-hidden="true"'));
+    assert.ok(gap !== null && !gap[0].includes('data-command'));
+    assert.ok(gap !== null && !gap[0].includes('data-focus-key'));
   });
 
   it('tracks the reader\'s open and closed sections in what it composes', () => {
@@ -629,7 +807,7 @@ describe('an operation whose invocation cannot succeed', () => {
       const html = operationsBodyHtml(body({ layout, unavailable: noRelease }));
       assert.deepStrictEqual(
         commandsIn(html).filter((c) => c.startsWith('aggrega.')).length,
-        allOperations().length + 2,
+        allOperations().length + ROW_AGGREGA_COMMANDS,
         `the ${layout} shape drew a different number of controls than there are entries and rows`,
       );
       assert.strictEqual(
@@ -722,7 +900,7 @@ describe('what the panel owes a reader who is not using a pointer', () => {
       assert.strictEqual(
         controls,
         allOperations().length
-        + 2
+        + ROW_CONTROLS
         + MENU_OPTIONS_DRAWN
         + DIALS_RULED.length
         + DIALS_DRAWN
@@ -1707,15 +1885,19 @@ describe('the whole document', () => {
   });
 
   it('admits the icon font, without which every icon on the panel is silently absent', () => {
-    // The editor puts no icon font into a document it hosts, and every entry
-    // and both rows name an icon. The font ships beside the stylesheet, so the
-    // policy has to admit it.
+    // The editor puts no icon font into a document it hosts, and every entry,
+    // every row and every control beside a row names an icon. The font ships
+    // beside the stylesheet, so the policy has to admit it.
     const html = document();
     assert.ok(html.includes('font-src vscode-resource:'), 'the content policy admits no font');
     assert.ok(html.includes('codicon.css'), 'the stylesheet naming the font is not loaded');
+    // Counted from the rows themselves rather than from a number written here:
+    // each row draws one icon and each create control beside one draws another,
+    // so a row gained or a create control withdrawn moves this total without
+    // anyone having to remember to move it too.
     assert.strictEqual(
       occurrences(html, /class="codicon codicon-[a-z-]+"/),
-      allOperations().length + 2 + DIALS_RULED.length + DIALS_DRAWN,
+      allOperations().length + ROW_CONTROLS + DIALS_RULED.length + DIALS_DRAWN,
       'a control draws no icon, or one is drawn twice',
     );
   });
@@ -1744,7 +1926,12 @@ describe('the whole document', () => {
     // The rows carry paths and a language server\'s own prose, and neither is
     // this document\'s to interpret.
     const html = document({
-      selectors: selectorRows('/work/<script>x</script>', '/work/<script>x</script>', NO_ANSWER_YET),
+      selectors: selectorRows(
+        '/work/<script>x</script>',
+        '/work/<script>x</script>',
+        NO_ANSWER_YET,
+        SEVERAL,
+      ),
     });
     assert.strictEqual(occurrences(html, /<script>x<\/script>/), 0, 'authored text reached the document as markup');
     assert.ok(html.includes('&lt;script&gt;'), 'authored text was dropped rather than escaped');

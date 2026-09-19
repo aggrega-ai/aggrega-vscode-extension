@@ -380,6 +380,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     getWorkspaceRoot: () => workspaceRootForCommands,
     getAnchoredWorkspaceRoot: anchoredWorkspaceRoot,
     selectionState: () => releaseSelection?.state() ?? { kind: 'unknown' },
+    // Both numbers are already maintained for other reasons and are read here
+    // rather than recomputed: the editor keeps the open folders, and
+    // currentAnchored is what every activation decision is already made from.
+    // Re-deriving either would be a second answer to a question that already
+    // has one, and the second would be the one that went stale.
+    selectorCandidates: () => ({
+      projectFolders: vscode.workspace.workspaceFolders?.length ?? 0,
+      aggregaWorkspaces: currentAnchored.length,
+    }),
     onSelectionChange: (listener) => releaseSelection?.onChange(listener),
     onReady: ready.onReady,
     getBinaryPath: () => getSettings().binaryPath,
@@ -686,6 +695,14 @@ async function reactivate(context: vscode.ExtensionContext): Promise<void> {
   // indicator would otherwise go on reporting whatever it last saw — in the
   // workspace where what it reports matters most.
   daemonStatusBar?.refresh();
+  // And the same again for the Commands panel, whose rows report how many
+  // folders the window has open and how many of them Aggrega resolved a root
+  // for. Both numbers are settled here and by nothing else. The branch that
+  // attaches returns early when the language server is already where it
+  // belongs, so a reader adding a second marker-carrying folder to a window
+  // that already has a remembered choice reaches no other refresh — and the
+  // panel would go on saying there was nothing else to choose between.
+  operationsView?.refresh();
 }
 
 function surfacePendingChoice(

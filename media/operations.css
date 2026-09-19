@@ -32,13 +32,28 @@ body {
   padding: 0.4rem 0 1rem;
 }
 
-/* --- the two rows naming what the panel is acting on --------------------- */
+/* --- the three rows naming what the panel is acting on ------------------- */
 
-/* They are the document's first two elements, above every group, so a reader
-   who has closed every section still has both facts in front of them. */
+/* They are the document's first elements, above every group, so a reader who
+   has closed every section still has all three facts in front of them. */
 .selectors {
   display: flex;
   flex-direction: column;
+  min-width: 0;
+  /* The width the create control occupies, named once so the control and the
+     gap that stands in for it on a row without one cannot come to differ. They
+     differ silently if they do: the rows simply stop lining up, and nothing
+     fails. */
+  --selector-create-size: 1.5rem;
+}
+
+/* A row is the choosing control and the column beside it, and that column is
+   there on every row whether or not it holds a control. A row that left it out
+   would give its choosing control a different width from the rows above and
+   below, putting its value out of line with theirs. */
+.selector-row {
+  display: flex;
+  align-items: center;
   min-width: 0;
 }
 
@@ -51,7 +66,7 @@ body {
   display: flex;
   align-items: center;
   gap: 0.4rem;
-  width: 100%;
+  flex: 1 1 auto;
   min-width: 0;
   text-align: left;
   font-family: inherit;
@@ -63,6 +78,38 @@ body {
   padding: 0.25rem 0.6rem;
   white-space: nowrap;
   cursor: pointer;
+}
+
+/* The control that creates a new one of this level. It is a press target of its
+   own beside the one that chooses, never a mark inside it, so a press that lands
+   on it creates and a press that lands anywhere else on the row chooses. */
+.selector-create {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 var(--selector-create-size);
+  align-self: stretch;
+  color: inherit;
+  background: none;
+  border: none;
+  border-radius: 3px;
+  padding: 0;
+  cursor: pointer;
+}
+
+/* The same width, holding nothing. It is what keeps the row that has no create
+   control in the same two columns as the rows that do. */
+.selector-create-gap {
+  flex: 0 0 var(--selector-create-size);
+}
+
+.selector-create:hover {
+  background: var(--vscode-toolbar-hoverBackground);
+}
+
+.selector-create:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
 }
 
 .selector-label {
@@ -603,11 +650,13 @@ body {
 body.vscode-high-contrast .op,
 body.vscode-high-contrast .op-caret,
 body.vscode-high-contrast .selector,
+body.vscode-high-contrast .selector-create,
 body.vscode-high-contrast .section-head,
 body.vscode-high-contrast .op-menu,
 body.vscode-high-contrast-light .op,
 body.vscode-high-contrast-light .op-caret,
 body.vscode-high-contrast-light .selector,
+body.vscode-high-contrast-light .selector-create,
 body.vscode-high-contrast-light .section-head,
 body.vscode-high-contrast-light .op-menu {
   border: 1px solid var(--vscode-contrastBorder, currentColor);
@@ -616,12 +665,14 @@ body.vscode-high-contrast-light .op-menu {
 body.vscode-high-contrast .op:focus-visible,
 body.vscode-high-contrast .op-caret:focus-visible,
 body.vscode-high-contrast .selector:focus-visible,
+body.vscode-high-contrast .selector-create:focus-visible,
 body.vscode-high-contrast .section-head:focus-visible,
 body.vscode-high-contrast .op-menu-option:focus-visible,
 body.vscode-high-contrast .op-menu-dial:focus-visible,
 body.vscode-high-contrast-light .op:focus-visible,
 body.vscode-high-contrast-light .op-caret:focus-visible,
 body.vscode-high-contrast-light .selector:focus-visible,
+body.vscode-high-contrast-light .selector-create:focus-visible,
 body.vscode-high-contrast-light .section-head:focus-visible,
 body.vscode-high-contrast-light .op-menu-option:focus-visible,
 body.vscode-high-contrast-light .op-menu-dial:focus-visible {

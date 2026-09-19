@@ -292,7 +292,7 @@ function operationsHtml(): string {
       kind: 'selected',
       release: 'releases/prod.yaml',
       absolute: '/work/demo/releases/prod.yaml',
-    }),
+    }, { projectFolders: 1, aggregaWorkspaces: 1 }),
     unavailable: {},
     collapsed: [],
     focused: null,

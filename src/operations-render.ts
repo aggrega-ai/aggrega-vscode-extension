@@ -19,12 +19,12 @@ import {
   menuFor,
 } from './operation-menus';
 import { escapeHtml } from './html';
-import { SelectorRow } from './selector-rows';
+import { SelectorCreate, SelectorRow, createControlKey } from './selector-rows';
 
 // This module composes the Commands panel's document and holds no editor
 // type, so what a reader is shown is assertable without an extension host: the
-// two rows arriving ahead of the operations, one continuous flow of buttons in
-// the button shape, the same groups in the same order in the section shape,
+// three rows arriving ahead of the operations, one continuous flow of buttons
+// in the button shape, the same groups in the same order in the section shape,
 // every control naming the command it runs and the group it belongs to, and an
 // unavailable control carrying the reason it cannot run.
 //
@@ -65,26 +65,70 @@ import { SelectorRow } from './selector-rows';
 // document inside it.
 const PANEL_TITLE = 'Aggrega commands';
 
-// selectorHtml draws one of the two rows naming what the panel acts on. The key
-// is already the row's, and it is reused as the control's focus key so the
-// reader's place survives a re-composition.
+// selectorCreateHtml draws the control that makes a new value for one level,
+// BESIDE that level's own choosing control.
+//
+// 🔴 IT IS A SECOND CONTROL RATHER THAN A MARK INSIDE THE FIRST, AND THAT IS
+// FORCED RATHER THAN CHOSEN. A press anywhere on the choosing control chooses,
+// so a create affordance drawn inside it would sit inside that press target and
+// run the wrong thing — and a control that silently does something other than
+// what a reader aimed at is worse than no control, because nothing tells them
+// they missed.
+//
+// The name says which level it creates, because the control draws no word of
+// its own: a reader meeting it by keyboard is told only what it is called, and
+// the same bare "create" on two rows would announce nothing that distinguishes
+// them. The name is written where the rows are written and is not composed
+// here.
+function selectorCreateHtml(row: SelectorRow, create: SelectorCreate): string {
+  return `<button class="selector-create" type="button" data-command="${escapeHtml(create.command)}" data-focus-key="${escapeHtml(createControlKey(row.key))}" aria-label="${escapeHtml(create.label)}" title="${escapeHtml(create.label)}">
+    <span class="codicon codicon-add" aria-hidden="true"></span>
+  </button>`;
+}
+
+// selectorHtml draws one of the three rows naming what the panel acts on. The
+// key is already the row's, and it is reused as the choosing control's focus
+// key so the reader's place survives a re-composition.
 //
 // THE ROW IS ONE LINE: the concept, then the current answer. Everything else
 // the row's own text carries — the anchored folder's full path, the open folder
-// where the two differ, what pressing it does — reaches the reader on the
-// hover and is drawn nowhere. The row exists so a reader knows WHAT the buttons
-// would act on, and the identity answers that; the path answers "which one
-// exactly", which is a second question and is asked for on demand.
+// where the two differ, whether there is more than one to choose between, what
+// pressing it does — reaches the reader on the hover and is drawn nowhere. The
+// row exists so a reader knows WHAT the buttons would act on, and the identity
+// answers that; the path answers "which one exactly", which is a second
+// question and is asked for on demand.
 //
 // The whole text goes onto the hover unfiltered. Which of its lines matter is
 // not decided here: the module that writes them owns that, and a filter here
 // would be a second editorial judgement over one text.
+//
+// THE ROW IS A CONTAINER RATHER THAN A SINGLE BUTTON, because a level that can
+// be created carries two press targets and buttons do not nest.
+//
+// 🔴 EVERY ROW HAS THE SAME TWO COLUMNS WHETHER OR NOT IT CAN BE CREATED, and a
+// row that cannot reserves the second one with a gap that is not a control. The
+// alternative — leaving the column out where there is nothing to put in it —
+// gives the choosing control on that row a different width from the ones above
+// and below, which moves its value out of line with theirs. The rows are read
+// down the panel as three answers to one question, so a value that does not
+// start and end where its neighbours' do is the arrangement failing at the one
+// job it has.
+//
+// The gap carries no command, no focus key and no name: it is out of the press
+// order, out of the tab order and out of the accessibility tree, so what it
+// adds is width and nothing else.
 function selectorHtml(row: SelectorRow): string {
-  return `<button class="selector" type="button" data-command="${escapeHtml(row.command)}" data-focus-key="${escapeHtml(row.key)}" title="${escapeHtml(row.tooltip)}">
-  <span class="codicon codicon-${escapeHtml(row.icon)}" aria-hidden="true"></span>
-  <span class="selector-label">${escapeHtml(row.label)}</span>
-  <span class="selector-value">${escapeHtml(row.value)}</span>
-</button>`;
+  const beside = row.create === null
+    ? '<span class="selector-create-gap" aria-hidden="true"></span>'
+    : selectorCreateHtml(row, row.create);
+  return `<div class="selector-row">
+  <button class="selector" type="button" data-command="${escapeHtml(row.command)}" data-focus-key="${escapeHtml(row.key)}" title="${escapeHtml(row.tooltip)}">
+    <span class="codicon codicon-${escapeHtml(row.icon)}" aria-hidden="true"></span>
+    <span class="selector-label">${escapeHtml(row.label)}</span>
+    <span class="selector-value">${escapeHtml(row.value)}</span>
+  </button>
+  ${beside}
+</div>`;
 }
 
 // operationHtml draws one entry.
@@ -380,9 +424,9 @@ function groupClasses(group: OperationGroup): string {
   return group.separated ? 'group group-separated' : 'group';
 }
 
-// OperationsBody is what the panel is drawn from: the shape, the two rows, which
-// entries cannot run and why, which groups the reader has closed, and where
-// their focus was.
+// OperationsBody is what the panel is drawn from: the shape, the three rows,
+// which entries cannot run and why, which groups the reader has closed, and
+// where their focus was.
 export interface OperationsBody {
   layout: OperationsLayout;
   selectors: SelectorRow[];
@@ -526,13 +570,13 @@ function rovingKeyFor(body: OperationsBody, container: string[]): string | null 
   return container[0] ?? null;
 }
 
-// operationsBodyHtml composes the panel's body: the two rows naming what the
+// operationsBodyHtml composes the panel's body: the three rows naming what the
 // editor is acting on, then the operations in one of the two shapes.
 //
-// The rows are the document's first two elements — siblings that precede every
+// The rows are the document's first elements — siblings that precede every
 // operation — so "above the operations and never inside a group" is a property
-// of the document's shape. A reader who has closed every section still has both
-// facts in front of them, because neither is inside a section to be closed.
+// of the document's shape. A reader who has closed every section still has all
+// three facts in front of them, because none is inside a section to be closed.
 export function operationsBodyHtml(body: OperationsBody): string {
   const selectors = body.selectors.map(selectorHtml).join('\n  ');
   const reachable = focusKeys(body);

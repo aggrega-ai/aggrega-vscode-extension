@@ -69,7 +69,7 @@ import { withCancellableProgress } from './progress';
 import { SelectionState } from './release-selection';
 import { RendersOnReady } from './readiness';
 import { EXTENSION_ID, SETTINGS_COMMAND, extensionSettingsQuery } from './settings';
-import { selectorRows } from './selector-rows';
+import { SelectorCandidates, selectorRows } from './selector-rows';
 import {
   BuildPreviewResponse,
   BuildResponse,
@@ -108,6 +108,15 @@ export interface OperationDeps extends RendersOnReady {
   // selectionState reports the editor's one selected Release, for the row that
   // displays it. The row renders this and derives nothing of its own.
   selectionState(): SelectionState;
+  // selectorCandidates reports how many candidates each level has, for the
+  // levels where the extension already holds that answer.
+  //
+  // 🔴 IT IS READ, NEVER DISCOVERED. The panel composes synchronously, so a
+  // count that had to be looked for — a directory walk, a question to the
+  // language server — would not have arrived by the time the rows are built.
+  // Each number here is one the extension is already maintaining for its own
+  // reasons, and the rows are re-composed on the same events that change them.
+  selectorCandidates(): SelectorCandidates;
   // onSelectionChange registers a listener fired whenever the selection
   // changes, so the row re-renders without polling.
   onSelectionChange(listener: () => void): void;
@@ -304,7 +313,7 @@ function readPanelState(stored: unknown): PanelState {
 }
 
 // OperationsViewProvider backs the Commands view in the Aggrega activity-bar
-// container: the two selector rows first, then the operation groups in one of
+// container: the three selector rows first, then the operation groups in one of
 // two shapes.
 //
 // The view is a document this extension draws rather than a tree, because the
@@ -314,8 +323,8 @@ function readPanelState(stored: unknown): PanelState {
 // theming are this panel's to get right rather than the editor's; what it buys
 // is the shape the panel exists for.
 //
-// The shape, the two rows and which entries can run all change under the panel,
-// so it is re-composed on each of those events. The facts it draws are read
+// The shape, the three rows and which entries can run all change under the
+// panel, so it is re-composed on each of those events. The facts it draws are read
 // through the getters their owners already expose rather than copied here, so
 // nothing on the panel can come to disagree with the value a request actually
 // carries.
@@ -415,6 +424,7 @@ class OperationsViewProvider implements vscode.WebviewViewProvider {
         this.deps.getAnchoredWorkspaceRoot(),
         this.deps.getWorkspaceRoot(),
         this.deps.selectionState(),
+        this.deps.selectorCandidates(),
       ),
       unavailable,
       collapsed: this.state.collapsed,
@@ -535,20 +545,29 @@ class OperationsViewProvider implements vscode.WebviewViewProvider {
 
   // offeredCommands is what a press on this panel is allowed to run.
   //
-  // It is DERIVED from the operation surface and from the two rows themselves
+  // It is DERIVED from the operation surface and from the rows themselves
   // rather than listed a second time, so a control cannot exist that this does
   // not admit, and this cannot admit one no control offers. The rows are asked
   // for their commands rather than the commands being named here, because a list
   // here would be a second statement of what the rows carry.
+  //
+  // A row that can be created carries TWO commands — the one that chooses and
+  // the one that creates — and both come from the row for the same reason: a
+  // create control admitted by a list written here rather than by the row that
+  // draws it is a control this guard could go on admitting after the row stopped
+  // drawing it.
   private offeredCommands(): string[] {
     const rows = selectorRows(
       this.deps.getAnchoredWorkspaceRoot(),
       this.deps.getWorkspaceRoot(),
       this.deps.selectionState(),
+      this.deps.selectorCandidates(),
     );
     return [
       ...allOperations().map(commandIdFor),
-      ...rows.map((row) => row.command),
+      ...rows.flatMap((row) => (
+        row.create === null ? [row.command] : [row.command, row.create.command]
+      )),
     ];
   }
 

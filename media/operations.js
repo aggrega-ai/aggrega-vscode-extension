@@ -548,7 +548,7 @@
   window.addEventListener('resize', () => { closeMenu(); });
 
   // The extension re-composes the body whenever what it draws may have moved —
-  // the shape, the two rows, or whether an entry can run — and posts it here.
+  // the shape, the three rows, or whether an entry can run — and posts it here.
   //
   // Replacing the fragment destroys focus, and this panel re-draws underneath a
   // reader rather than only when they ask: the control they were on is noted
