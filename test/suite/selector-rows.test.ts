@@ -6,10 +6,9 @@ import * as path from 'path';
 
 import { CREATE_WORKSPACE_COMMAND, DRAFT_RELEASE_COMMAND } from '../../src/get-started-steps';
 import { SELECT_RELEASE_COMMAND } from '../../src/release-status';
+import { SELECTOR_ROW_KEYS, SELECTOR_ROW_LABELS } from '../../src/selector-levels';
 import {
   PROJECT_FOLDER_COMMAND,
-  SELECTOR_ROW_KEYS,
-  SELECTOR_ROW_LABELS,
   SWITCH_ANCHOR_COMMAND,
   SelectorCandidates,
   createControlKey,
@@ -24,8 +23,14 @@ const OPENED_INSIDE = path.join(ANCHORED, 'examples', 'one');
 
 // Several of everything, so a row that says there is only one is saying it
 // because it was told so rather than because that is the default.
-const SEVERAL: SelectorCandidates = { projectFolders: 3, aggregaWorkspaces: 2 };
-const ONE_OF_EACH: SelectorCandidates = { projectFolders: 1, aggregaWorkspaces: 1 };
+const SEVERAL: SelectorCandidates = { projectFolders: 3, aggregaWorkspaces: 2, releases: 4 };
+const ONE_OF_EACH: SelectorCandidates = { projectFolders: 1, aggregaWorkspaces: 1, releases: 1 };
+// NOTHING_AVAILABLE is the other end: every level enumerated, every level
+// empty. It is the state clause after clause in this file distinguishes from a
+// level that simply has not been chosen.
+const NOTHING_AVAILABLE: SelectorCandidates = {
+  projectFolders: 0, aggregaWorkspaces: 0, releases: 0,
+};
 
 const SELECTED = {
   kind: 'selected' as const,
@@ -122,6 +127,34 @@ describe('the control that creates a new one of a level', () => {
     );
   });
 
+  it('announces itself by the exact words a keyboard reader is given', () => {
+    // 🔴 The label is the control's WHOLE accessible name — it draws no word of
+    // its own — so this is the only channel a reader who never sees the glyph
+    // has. The expectation is written out rather than composed from the same
+    // constants the source reads, because a composed one moves with whatever it
+    // is checking and cannot fail.
+    const rows = selectorRows(ANCHORED, OPENED_INSIDE, SELECTED, SEVERAL);
+    assert.strictEqual(rows[1].create?.label, 'Create an Aggrega workspace');
+    assert.strictEqual(rows[2].create?.label, 'Create a Release');
+  });
+
+  it('promises no place, because neither command keeps one', () => {
+    // Writing "here" was tried and removed. One command writes into the first
+    // folder the window has open with no prompt, and the other opens an
+    // untitled draft and writes nothing anywhere — so a word placing the
+    // creation is a promise read on its own, with none of the row around it,
+    // that neither flow honours.
+    for (const candidates of [SEVERAL, ONE_OF_EACH, NOTHING_AVAILABLE]) {
+      for (const row of selectorRows(ANCHORED, OPENED_INSIDE, SELECTED, candidates)) {
+        if (row.create === null) { continue; }
+        assert.ok(
+          !/\bhere\b/i.test(row.create.label),
+          `the ${row.key} create control promises a place: ${row.create.label}`,
+        );
+      }
+    }
+  });
+
   it('names the level it creates, because the control draws no word of its own', () => {
     // A reader meeting it by keyboard is told only what it is called, so the
     // same bare word on two rows would announce nothing that tells them apart.
@@ -173,6 +206,14 @@ describe('a level holding exactly one candidate', () => {
     }
   });
 
+  it('says so on all three, now that all three have a count', () => {
+    const rows = selectorRows(ANCHORED, OPENED_INSIDE, SELECTED, ONE_OF_EACH);
+    assert.ok(
+      rows[2].tooltip.includes('Only one Release is available'),
+      'the Release row does not say it is the only one',
+    );
+  });
+
   it('says nothing of the sort where there is more than one', () => {
     // The sentence is a claim about the world, so it has to be absent whenever
     // it would be false — which is the half a test of the sole case never sees.
@@ -185,21 +226,17 @@ describe('a level holding exactly one candidate', () => {
     }
   });
 
-  it('says nothing of the sort for the Release, because no count of them is held', () => {
-    // Nothing keeps the set of offerable Releases between one choice and the
-    // next, so there is no count to report — and a row that reported one anyway
-    // would be reporting a state nothing can produce.
-    for (const candidates of [ONE_OF_EACH, SEVERAL]) {
-      const rows = selectorRows(ANCHORED, OPENED_INSIDE, SELECTED, candidates);
-      assert.ok(
-        !rows[2].tooltip.includes('no others to choose between'),
-        'the Release row claims to know how many Releases there are',
-      );
-    }
-    assert.strictEqual(
-      releaseRow(SELECTED).tooltip,
-      selectorRows(ANCHORED, OPENED_INSIDE, SELECTED, ONE_OF_EACH)[2].tooltip,
-      'the Release row reads a candidate count from somewhere',
+  it('says nothing of the sort for a Release level nobody has read', () => {
+    // Null is not one and it is not none: nobody looked. A row that drew the
+    // sole-candidate sentence from an unread level would be inventing the
+    // answer it is there to report.
+    const rows = selectorRows(
+      ANCHORED, OPENED_INSIDE, SELECTED,
+      { projectFolders: 1, aggregaWorkspaces: 1, releases: null },
+    );
+    assert.ok(
+      !rows[2].tooltip.includes('no others to choose between'),
+      'the Release row claims to know how many Releases there are',
     );
   });
 });
@@ -216,6 +253,43 @@ describe('the project folder row', () => {
     const row = projectFolderRow(null, 0);
     assert.strictEqual(row.value, 'none open');
     assert.ok(row.tooltip.includes('no Project folder is open'));
+    // The way out of this one is the row's own control, so saying to press it
+    // is the exit rather than an instruction to go hunting.
+    assert.ok(row.tooltip.includes('Click to open one.'));
+  });
+
+  it('does not say nothing is open in a window that has folders open', () => {
+    // 🔴 The plainest falsehood this panel could carry, and the one the count
+    // is passed in to remove: Aggrega settles on a folder only where one of
+    // them carries an Aggrega workspace, so the value can be absent while the
+    // window plainly has folders open.
+    const none = projectFolderRow(null, 0);
+    const someOpen = projectFolderRow(null, 3);
+
+    assert.notStrictEqual(
+      someOpen.value, none.value,
+      'a window with folders open reads exactly like one with none',
+    );
+    assert.strictEqual(someOpen.value, 'none in use');
+    assert.ok(
+      !someOpen.tooltip.includes('no Project folder is open'),
+      `three folders are open and the row says none is; got ${someOpen.tooltip}`,
+    );
+    assert.ok(someOpen.tooltip.includes('3 Project folders are open in this window.'));
+  });
+
+  it('counts in the singular where there is one to count', () => {
+    const one = projectFolderRow(null, 1);
+    assert.ok(one.tooltip.includes('One Project folder is open in this window.'));
+    assert.ok(!one.tooltip.includes('1 Project folders'));
+  });
+
+  it('asserts no cause for none being in use, because more than one state reaches it', () => {
+    // A window whose folders carry no Aggrega workspace reaches this reading,
+    // and so does one carrying several with none of them chosen. Naming either
+    // cause here would be right half the time.
+    const row = projectFolderRow(null, 2);
+    assert.ok(!row.tooltip.includes('Aggrega workspace'));
   });
 });
 
@@ -245,16 +319,55 @@ describe('the Aggrega workspace row', () => {
     // Falling back to the opened folder here is the defect these rows exist to
     // remove, and it would show only in the case hardest to notice.
     const row = workspaceRow(null, OPENED_INSIDE, 2);
-    assert.strictEqual(row.value, 'not reported');
-    assert.ok(!row.value.includes('one'), 'the opened folder is not the anchored folder');
-    assert.ok(row.tooltip.includes('has not reported which folder it anchored to'));
-    assert.ok(row.tooltip.includes(OPENED_INSIDE), 'the reader is still told what is open');
+    assert.strictEqual(row.value, 'none selected');
+    assert.notStrictEqual(
+      row.value, path.basename(OPENED_INSIDE),
+      'the opened folder is not the anchored folder',
+    );
+    assert.ok(row.tooltip.includes('has not reported one it anchored to'));
+    assert.ok(row.tooltip.includes(OPENED_INSIDE), 'the reader is still told what Aggrega last worked in');
+    assert.ok(
+      row.tooltip.includes('The last folder Aggrega worked in is'),
+      'a folder retained after the language server stopped is presented as the current one',
+    );
   });
 
-  it('reports nothing anchored as its own state', () => {
-    const row = workspaceRow(null, null, 0);
-    assert.strictEqual(row.value, 'none anchored');
-    assert.ok(row.tooltip.includes('no anchored workspace'));
+  it('tells nothing available apart from nothing selected, and carries the two exits', () => {
+    // 🔴 A project holding no Aggrega workspace and a project holding several
+    // with none in use are as far apart as two absences get: the first cannot
+    // be resolved by choosing at all, so a reading that invited a choice there
+    // would send the reader to a list that must come back empty.
+    const empty = workspaceRow(null, null, 0);
+    const unchosen = workspaceRow(null, null, 2);
+
+    assert.strictEqual(empty.value, 'none available');
+    assert.strictEqual(unchosen.value, 'none selected');
+    assert.notStrictEqual(empty.tooltip, unchosen.tooltip);
+
+    assert.ok(
+      !/click to choose/i.test(empty.tooltip),
+      `there is nothing to choose and the row says to choose; got ${empty.tooltip}`,
+    );
+    assert.ok(
+      empty.tooltip.includes('Open a Project folder holding'),
+      'the first way out of an empty project is not named',
+    );
+    assert.ok(
+      empty.tooltip.includes('create an Aggrega workspace'),
+      'the second way out of an empty project is not named',
+    );
+    assert.ok(
+      /click to choose/i.test(unchosen.tooltip),
+      'with workspaces available, choosing is exactly the thing to say',
+    );
+  });
+
+  it('names what makes a folder one, so the reader can act on the first exit', () => {
+    // "Open a different Project folder" is unusable without saying which
+    // folders would qualify, and the name of the file that decides it is the
+    // one the discovery rule actually looks for.
+    const empty = workspaceRow(null, null, 0);
+    assert.ok(empty.tooltip.includes('.aggrega-config.yaml'));
   });
 
   it('promises a choice rather than a change, so the promise holds with one folder', () => {
@@ -280,18 +393,61 @@ describe('the Release row', () => {
       kind: 'selected',
       release: path.join('examples', 'one', 'release.yaml'),
       absolute: path.join(OPENED_INSIDE, 'release.yaml'),
-    });
+    }, 2);
     assert.strictEqual(row.value, path.join('examples', 'one', 'release.yaml'));
   });
 
   it('separates no Release selected from no answer obtained', () => {
-    const none = releaseRow({ kind: 'none', reason: 'workspace contains 0 Release file(s)' });
-    const unknown = releaseRow({ kind: 'unknown' });
+    const none = releaseRow({ kind: 'none', reason: 'workspace contains 0 Release file(s)' }, 2);
+    const unknown = releaseRow({ kind: 'unknown' }, null);
     assert.notStrictEqual(
       none.value, unknown.value,
       'only one of those two is something a reader can act on',
     );
     assert.ok(none.tooltip.includes('workspace contains 0 Release file(s)'));
     assert.ok(unknown.tooltip.includes('not running'));
+  });
+
+  it('separates nothing selected from nothing to select, and carries the two exits', () => {
+    const empty = releaseRow({ kind: 'none', reason: '' }, 0);
+    const selectable = releaseRow({ kind: 'none', reason: '' }, 2);
+
+    assert.strictEqual(empty.value, 'none available');
+    assert.strictEqual(selectable.value, 'none selected');
+    assert.notStrictEqual(empty.tooltip, selectable.tooltip);
+
+    assert.ok(
+      !/click to select/i.test(empty.tooltip),
+      `there is nothing to select and the row says to select one; got ${empty.tooltip}`,
+    );
+    assert.ok(
+      empty.tooltip.includes('different Aggrega workspace'),
+      'the exit through the level above is not named',
+    );
+    assert.ok(
+      empty.tooltip.includes('create a Release'),
+      'the exit through creating one is not named',
+    );
+  });
+
+  it('says the count has not been read rather than reading it as none', () => {
+    const unread = releaseRow({ kind: 'none', reason: '' }, null);
+    const empty = releaseRow({ kind: 'none', reason: '' }, 0);
+
+    assert.notStrictEqual(
+      unread.tooltip, empty.tooltip,
+      'a workspace nobody has enumerated reads as one that offers nothing',
+    );
+    assert.ok(unread.tooltip.includes('has not been read'));
+  });
+
+  it('reports the server being down without consulting a count at all', () => {
+    // The count survives a failure that leaves the selection unknown, and with
+    // the server silent what a reader can act on is the server. Four readings
+    // of the count must produce one sentence.
+    const drawn = new Set(
+      [null, 0, 1, 5].map((releases) => releaseRow({ kind: 'unknown' }, releases).tooltip),
+    );
+    assert.strictEqual(drawn.size, 1, 'the unknown state changes with a count it should not read');
   });
 });

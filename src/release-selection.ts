@@ -3,6 +3,7 @@
 
 import * as path from 'path';
 import { ActiveReleaseResponse } from './types';
+import { SELECTOR_ROW_LABELS, soleCandidateNote } from './selector-levels';
 import { releaseParamFor } from './workspace';
 
 // SELECTED_RELEASE_STATE_KEY is the editor-local entry the chosen Release is
@@ -97,6 +98,21 @@ export interface ReleaseSelectionDeps {
 export interface ReleaseSelection {
   // state reports the current selection without contacting the server.
   state(): SelectionState;
+  // offerableCount reports how many Releases the last enumeration could name in
+  // a request, or null where no enumeration has produced an answer.
+  //
+  // 🔴 NULL IS "NOT READ", NEVER "NONE", and the two must not be folded
+  // together: one says this workspace offers nothing to choose and the other
+  // says nobody has looked. A reader acts on the first and can only wait on the
+  // second, so a surface that drew them alike would send someone hunting for a
+  // Release that was never looked for.
+  //
+  // It is as at the last enumeration rather than as of now. The set is read
+  // when a connection resolves the selection and again whenever the reader
+  // opens the chooser; nothing watches the folder in between, so a Release
+  // written after the last read is found by opening the chooser, which is the
+  // act that reads again.
+  offerableCount(): number | null;
   // current is the workspace-relative selection, or null when none is in
   // force. This is the value a request parameter takes.
   current(): string | null;
@@ -133,6 +149,12 @@ export interface ReleaseSelection {
 // createReleaseSelection builds the selection over the supplied dependencies.
 export function createReleaseSelection(deps: ReleaseSelectionDeps): ReleaseSelection {
   let state: SelectionState = { kind: 'unknown' };
+  // offerable is how many Releases the last enumeration could name, or null
+  // where none has produced an answer. It is held beside the selection rather
+  // than derived on demand because the surfaces that read it compose
+  // synchronously: a count they had to go and ask for would not have arrived by
+  // the time they are drawn.
+  let offerable: number | null = null;
   const listeners: Array<() => void> = [];
 
   const announce = (): void => {
@@ -143,6 +165,18 @@ export function createReleaseSelection(deps: ReleaseSelectionDeps): ReleaseSelec
 
   const setState = (next: SelectionState): void => {
     state = next;
+    announce();
+  };
+
+  // setOfferable records what an enumeration found and tells the surfaces.
+  //
+  // It announces on its own rather than relying on the selection changing,
+  // because the two move independently: a reader who opens the chooser and then
+  // dismisses it has changed no selection, and the enumeration that opening it
+  // performed is exactly the answer the surfaces were missing.
+  const setOfferable = (next: number | null): void => {
+    if (offerable === next) { return; }
+    offerable = next;
     announce();
   };
 
@@ -165,9 +199,14 @@ export function createReleaseSelection(deps: ReleaseSelectionDeps): ReleaseSelec
     const candidates = await deps.listReleases();
     const root = deps.getDaemonWorkspaceRoot();
     if (root === null) {
+      // Nothing can be converted, so this walk established no count. It is
+      // recorded as unread rather than as none: a zero here would say the
+      // workspace offers nothing, when what happened is that the editor had no
+      // folder to name anything relative to.
+      setOfferable(null);
       return { offerable: [], dropped: [...candidates], root: null };
     }
-    const offerable: Array<{ release: string; absolute: string }> = [];
+    const named: Array<{ release: string; absolute: string }> = [];
     const dropped: string[] = [];
     for (const absolute of candidates) {
       const release = releaseParamFor(root, absolute);
@@ -175,9 +214,13 @@ export function createReleaseSelection(deps: ReleaseSelectionDeps): ReleaseSelec
         dropped.push(absolute);
         continue;
       }
-      offerable.push({ release, absolute });
+      named.push({ release, absolute });
     }
-    return { offerable, dropped, root };
+    // What is recorded is what can be CHOSEN, not what was reported. A
+    // candidate this editor cannot name in a request is one the chooser will
+    // not offer, so counting it would promise a choice that is not there.
+    setOfferable(named.length);
+    return { offerable: named, dropped, root };
   };
 
   // reportDropped names what could not be offered, with a count and where those
@@ -248,6 +291,8 @@ export function createReleaseSelection(deps: ReleaseSelectionDeps): ReleaseSelec
   return {
     state: () => state,
 
+    offerableCount: () => offerable,
+
     current: () => (state.kind === 'selected' ? state.release : null),
 
     adoptDefault,
@@ -255,6 +300,24 @@ export function createReleaseSelection(deps: ReleaseSelectionDeps): ReleaseSelec
     restore: async (): Promise<void> => {
       const remembered = deps.store.read();
       if (remembered === null) {
+        // There is nothing to re-verify, and the workspace is enumerated all
+        // the same — because whether it offers any Release at all is a fact
+        // the surfaces report from the first moment, and one nobody has asked
+        // for on this path. Without it a reader who has chosen nothing is told
+        // to choose, with no way for the editor to know there is anything to
+        // choose from.
+        //
+        // It runs BEFORE the default is adopted so the announcement that
+        // adopting makes carries both facts at once, rather than redrawing the
+        // surfaces twice with the count half a step behind.
+        try {
+          await gatherOfferable();
+        } catch {
+          // The server is not answering. Nothing is known about what is on
+          // offer, and adopting the default below will meet the same silence
+          // and say so.
+          setOfferable(null);
+        }
         await adoptDefault();
         return;
       }
@@ -262,6 +325,7 @@ export function createReleaseSelection(deps: ReleaseSelectionDeps): ReleaseSelec
       try {
         gathered = await gatherOfferable();
       } catch {
+        setOfferable(null);
         // The candidates cannot be listed, so the remembered value cannot be
         // re-verified — and an unverified value must not become the selection.
         // It is left in the store rather than dropped: a server that is not
@@ -297,6 +361,7 @@ export function createReleaseSelection(deps: ReleaseSelectionDeps): ReleaseSelec
       try {
         gathered = await gatherOfferable();
       } catch {
+        setOfferable(null);
         deps.reportError(
           'Aggrega: cannot list Releases — the language server is not running. Start it and try again.',
         );
@@ -328,7 +393,15 @@ export function createReleaseSelection(deps: ReleaseSelectionDeps): ReleaseSelec
       return chosen.release;
     },
 
-    forget: () => setState({ kind: 'unknown' }),
+    forget: () => {
+      // What was on offer is dropped with the selection and for the same
+      // reason: it was read against the connection that is ending, and the
+      // next one may resolve a different folder entirely. Assigned rather than
+      // set through the helper because the state change below announces once
+      // for both.
+      offerable = null;
+      setState({ kind: 'unknown' });
+    },
 
     onChange: (listener: () => void): void => {
       listeners.push(listener);
@@ -369,27 +442,67 @@ function describeUnnameable(release: string, root: string | null): string {
 // it is showing, so it carries the word Release itself. value is for a surface
 // that already names the field beside it and has room for a path, so it carries
 // the value alone.
+//
+// 🔴 IT TAKES WHAT IS ON OFFER BECAUSE "NOTHING IS SELECTED" AND "THERE IS
+// NOTHING TO SELECT" ARE DIFFERENT STATES A READER ACTS ON DIFFERENTLY. Telling
+// someone to choose a Release in a workspace that offers none sends them to a
+// control whose only possible answer is an empty list, and the press that
+// discovers this is one they have to make to find out. So the empty reading
+// carries the way OUT of the state instead of an instruction to act inside it:
+// a Release is reached by working in a different Aggrega workspace, or by
+// making one here.
+//
+// offerable is null where no enumeration has produced an answer, and that is a
+// third statement rather than a spelling of none — nobody has looked. It is
+// reported as what it is and never guessed at in either direction.
 export function describeSelection(
   state: SelectionState,
+  offerable: number | null,
 ): { label: string; value: string; detail: string } {
+  const sole = offerable === 1 ? `\n${soleCandidateNote('release')}` : '';
   switch (state.kind) {
     case 'selected':
       return {
         label: path.basename(state.absolute),
         value: state.release,
-        detail: `Aggrega selected Release: ${state.absolute}\nClick to select a different one`,
+        detail: `Aggrega selected Release: ${state.absolute}${sole}\nClick to select a different one`,
       };
-    case 'none':
+    case 'none': {
+      // The server's own account of why it named no default travels with the
+      // state, and it is carried into every reading below: it is the only text
+      // that says which of several reasons applied.
+      const because = state.reason ? ` ${state.reason}` : '';
+      if (offerable === 0) {
+        return {
+          label: `${SELECTOR_ROW_LABELS.release}: none available`,
+          value: 'none available',
+          detail:
+            `Aggrega: no ${SELECTOR_ROW_LABELS.release} is available in this ${SELECTOR_ROW_LABELS.workspace}.${because}\n`
+            + `Work in a different ${SELECTOR_ROW_LABELS.workspace}, or create a ${SELECTOR_ROW_LABELS.release}.`,
+        };
+      }
+      if (offerable === null) {
+        return {
+          label: `${SELECTOR_ROW_LABELS.release}: none selected`,
+          value: 'none selected',
+          detail:
+            `Aggrega: no ${SELECTOR_ROW_LABELS.release} is selected.${because}\n`
+            + `What this ${SELECTOR_ROW_LABELS.workspace} offers has not been read.\n`
+            + 'Click to read it and select one.',
+        };
+      }
       return {
-        label: 'Release: none',
+        label: `${SELECTOR_ROW_LABELS.release}: none selected`,
         value: 'none selected',
-        detail: state.reason
-          ? `Aggrega: no Release is selected. ${state.reason}\nClick to select one.`
-          : 'Aggrega: no Release is selected. Click to select one.',
+        detail: `Aggrega: no ${SELECTOR_ROW_LABELS.release} is selected.${because}${sole}\nClick to select one.`,
       };
+    }
     case 'unknown':
+      // What was on offer is not reported here even where a count survives from
+      // moments ago: with the server silent, what the reader can act on is the
+      // server, and a count would invite a choice nothing can currently answer.
       return {
-        label: 'Release: unavailable',
+        label: `${SELECTOR_ROW_LABELS.release}: unavailable`,
         value: 'unavailable',
         detail:
           'Aggrega: the language server is not running, so which Release is selected is unknown.',

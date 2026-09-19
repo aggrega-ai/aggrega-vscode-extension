@@ -1,0 +1,52 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Cognitio S.r.l.
+
+// The three levels the editor works within, named once.
+//
+// They sit apart from the module that draws them as rows because the names are
+// read by surfaces that draw no row: the explanation behind the status-bar
+// indicator names the level a Release sits inside, and the sentence that says a
+// level holds only one candidate is written per level. Keeping the names in the
+// row module would make every one of those surfaces depend on how rows are
+// composed — and for the module that describes a Release selection it is not
+// merely undesirable but impossible, because the row module already reads that
+// description and the dependency would then run both ways.
+
+// SELECTOR_ROW_KEYS names the three levels in display order, and THE ORDER IS
+// THE TEACHING.
+//
+// Three things nest — the folder the editor is working in, the Aggrega
+// workspace reached from it, and the Release chosen inside that — and the
+// arrangement is what shows a reader they nest. Explaining it in a sentence
+// instead was the alternative and it is the wrong repair: the surface a reader
+// meets first already carries more prose than anyone reads, so a fourth
+// paragraph about containment would be read by nobody who needed it.
+export const SELECTOR_ROW_KEYS = ['project', 'workspace', 'release'] as const;
+
+export type SelectorRowKey = (typeof SELECTOR_ROW_KEYS)[number];
+
+// SELECTOR_ROW_LABELS is the one home of the three words a reader is taught, so
+// a row and any sentence written about that row cannot come to call one level
+// two different things.
+//
+// THE MIDDLE ONE CARRIES THE PRODUCT NAME, and that is the point rather than
+// verbosity. "Workspace" on its own already names the set of folders a window
+// has open, so a row labelled with the bare word names two different things at
+// once — which is the confusion these rows exist to remove rather than one to
+// inherit.
+export const SELECTOR_ROW_LABELS: Record<SelectorRowKey, string> = {
+  project: 'Project folder',
+  workspace: 'Aggrega workspace',
+  release: 'Release',
+};
+
+// soleCandidateNote is the sentence a level adds when it holds exactly one
+// candidate.
+//
+// A chooser holding a single entry reads as broken — a reader presses it,
+// meets a list of one, and cannot tell whether that is the answer or a failure
+// to look. So the level says there is only one before they press, and it says
+// it in the level's own name, from the one place those names are written.
+export function soleCandidateNote(key: SelectorRowKey): string {
+  return `Only one ${SELECTOR_ROW_LABELS[key]} is available, so there are no others to choose between.`;
+}

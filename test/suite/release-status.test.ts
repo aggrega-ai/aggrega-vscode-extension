@@ -34,11 +34,19 @@ interface Harness {
   subscriptions: DisposableLike[];
   setState: (next: SelectionState) => void;
   stateReads: number;
+  // offerable is what the last enumeration found, or null for "not read". It is
+  // writable so a test can drive the indicator through the states that differ
+  // only by it.
+  offerable: number | null;
 }
 
 // harness builds the indicator's dependency set over a fake status-bar item and
 // a caller-controlled selection state.
-function harness(root: string | null, initial: SelectionState): Harness {
+function harness(
+  root: string | null,
+  initial: SelectionState,
+  offerable: number | null = null,
+): Harness {
   const item = new FakeStatusBarItem();
   const subscriptions: DisposableLike[] = [];
   let state = initial;
@@ -47,10 +55,12 @@ function harness(root: string | null, initial: SelectionState): Harness {
     item,
     subscriptions,
     stateReads: 0,
+    offerable,
     setState: (next: SelectionState) => { state = next; announce(); },
     deps: {
       getWorkspaceRoot: () => root,
       selectionState: () => { h.stateReads++; return state; },
+      offerableReleases: () => h.offerable,
       createStatusBarItem: () => item,
       onSelectionChange: (listener) => { announce = listener; },
     },
@@ -135,17 +145,69 @@ describe('selected-Release status indicator', () => {
     const h = harness(root, {
       kind: 'none',
       reason: 'no authoring_release configured; workspace contains 0 Release file(s)',
-    });
+    }, 3);
 
     activateReleaseStatus({ subscriptions: h.subscriptions }, h.deps);
 
-    assert.strictEqual(h.item.text, '$(rocket) Release: none');
+    assert.strictEqual(h.item.text, '$(rocket) Release: none selected');
     assert.ok(
       h.item.tooltip.includes('workspace contains 0 Release file(s)'),
       `the tooltip dropped the account it was given; got ${h.item.tooltip}`,
     );
     assert.ok(!h.item.tooltip.includes('marked.yaml'));
     assert.strictEqual(h.item.shown, 1);
+  });
+
+  // The indicator is a tooltip like the panel row is, so the sentence that
+  // sends a reader to a chooser that cannot help them is the same defect here.
+  // One description serves both surfaces precisely so this cannot be fixed on
+  // one and left standing on the other.
+  it('tells nothing selected apart from nothing to select, and offers the way out of the second', () => {
+    const selectable = harness(root, { kind: 'none', reason: '' }, 2);
+    activateReleaseStatus({ subscriptions: selectable.subscriptions }, selectable.deps);
+    const whenSelectable = { text: selectable.item.text, tooltip: selectable.item.tooltip };
+
+    const empty = harness(root, { kind: 'none', reason: '' }, 0);
+    activateReleaseStatus({ subscriptions: empty.subscriptions }, empty.deps);
+
+    assert.notStrictEqual(
+      empty.item.text, whenSelectable.text,
+      'the indicator reads the same whether or not there is a Release to select',
+    );
+    assert.notStrictEqual(empty.item.tooltip, whenSelectable.tooltip);
+    assert.ok(
+      !/click to select/i.test(empty.item.tooltip),
+      `the indicator sends a reader to a chooser that can only answer with an empty list; got ${empty.item.tooltip}`,
+    );
+    assert.ok(
+      empty.item.tooltip.includes('create a Release'),
+      `the indicator states the empty case without naming a way out of it; got ${empty.item.tooltip}`,
+    );
+    assert.ok(
+      empty.item.tooltip.includes('Aggrega workspace'),
+      'the way out runs through the level above, so that level has to be named',
+    );
+    assert.ok(
+      /click to select/i.test(whenSelectable.tooltip),
+      'with Releases on offer, choosing is exactly what the reader should be told to do',
+    );
+  });
+
+  it('says the count has not been read rather than reading it as none', () => {
+    // Null is not zero. A workspace nobody has enumerated and a workspace that
+    // offers nothing look identical to a reader told only that none is
+    // selected, and only one of them is a dead end.
+    const unread = harness(root, { kind: 'none', reason: '' }, null);
+    activateReleaseStatus({ subscriptions: unread.subscriptions }, unread.deps);
+
+    const empty = harness(root, { kind: 'none', reason: '' }, 0);
+    activateReleaseStatus({ subscriptions: empty.subscriptions }, empty.deps);
+
+    assert.notStrictEqual(
+      unread.item.tooltip, empty.item.tooltip,
+      'a workspace nobody has read is reported as one that offers nothing',
+    );
+    assert.ok(unread.item.tooltip.includes('has not been read'));
   });
 
   it('hides itself when no workspace is anchored', () => {

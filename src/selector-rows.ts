@@ -3,37 +3,14 @@
 
 import * as path from 'path';
 import { SelectionState, describeSelection } from './release-selection';
+import {
+  SELECTOR_ROW_LABELS,
+  SelectorRowKey,
+  soleCandidateNote,
+} from './selector-levels';
 import { CREATE_WORKSPACE_COMMAND, DRAFT_RELEASE_COMMAND } from './get-started-steps';
 import { SELECT_RELEASE_COMMAND } from './release-status';
-import { NO_ANCHORED_WORKSPACE_MESSAGE } from './workspace';
-
-// SELECTOR_ROW_KEYS names the three rows in display order, and THE ORDER IS THE
-// TEACHING.
-//
-// Three things nest — the folder the editor is working in, the Aggrega
-// workspace reached from it, and the Release chosen inside that — and the
-// arrangement is what shows a reader they nest. Explaining it in a sentence
-// instead was the alternative and it is the wrong repair: the surface a reader
-// meets first already carries more prose than anyone reads, so a fourth
-// paragraph about containment would be read by nobody who needed it.
-export const SELECTOR_ROW_KEYS = ['project', 'workspace', 'release'] as const;
-
-export type SelectorRowKey = (typeof SELECTOR_ROW_KEYS)[number];
-
-// SELECTOR_ROW_LABELS is the one home of the three words a reader is taught, so
-// a row and any sentence written about that row cannot come to call one level
-// two different things.
-//
-// THE MIDDLE ONE CARRIES THE PRODUCT NAME, and that is the point rather than
-// verbosity. "Workspace" on its own already names the set of folders a window
-// has open, so a row labelled with the bare word names two different things at
-// once — which is the confusion these rows exist to remove rather than one to
-// inherit.
-export const SELECTOR_ROW_LABELS: Record<SelectorRowKey, string> = {
-  project: 'Project folder',
-  workspace: 'Aggrega workspace',
-  release: 'Release',
-};
+import { CONFIG_FILENAME } from './workspace';
 
 // SelectorCreate is a row's SECOND control: the one that makes a new value for
 // that level, standing beside the one that chooses among the values there are.
@@ -82,20 +59,19 @@ export interface SelectorRow {
   create: SelectorCreate | null;
 }
 
-// SelectorCandidates is how many candidates each level has, for the levels
-// where that is a fact the surface already holds.
+// SelectorCandidates is how many candidates each level has.
 //
-// 🔴 THE RELEASE LEVEL IS DELIBERATELY ABSENT, and a field for it must not be
-// added until something produces one. The offerable Releases are gathered
-// inside the two flows that restore and choose a selection, and the set is not
-// kept afterwards — so a field here would be a state nothing can fill, which a
-// reader of this interface would reasonably believe otherwise about.
+// 🔴 THE COUNTS ARRIVE AS FACTS ALREADY READ, never discovered here. The rows
+// are composed synchronously, so a count this module went looking for would be
+// a count that has not arrived at the moment it is wanted; and this module
+// holds no editor type, so the folders a window has open are not reachable from
+// here in any case.
 //
-// THE COUNTS ARRIVE AS FACTS ALREADY READ, never discovered here. The rows are
-// composed synchronously, so a count this module went looking for would be a
-// count that has not arrived at the moment it is wanted; and this module holds
-// no editor type, so the folders a window has open are not reachable from here
-// in any case.
+// What each count is FOR is telling two empty readings apart. A level with
+// nothing to choose and a level with something unchosen look identical to a
+// reader who is only shown that nothing is set, and they are not: one of them
+// is waiting on a decision and the other cannot be answered at this level at
+// all.
 export interface SelectorCandidates {
   // projectFolders is how many folders the editor currently has open.
   projectFolders: number;
@@ -104,17 +80,20 @@ export interface SelectorCandidates {
   // so the root that answers for a folder may sit above it, and one root can
   // answer for two open folders at once.
   aggregaWorkspaces: number;
-}
-
-// soleCandidateNote is the sentence a level adds when it holds exactly one
-// candidate.
-//
-// A chooser holding a single entry reads as broken — a reader presses it,
-// meets a list of one, and cannot tell whether that is the answer or a failure
-// to look. So the row says there is only one before they press, and it says it
-// in the level's own name, from the one place those names are written.
-function soleCandidateNote(key: SelectorRowKey): string {
-  return `Only one ${SELECTOR_ROW_LABELS[key]} is available, so there are no others to choose between.`;
+  // releases is how many Releases the last enumeration could name in a request,
+  // or null where no enumeration has produced an answer.
+  //
+  // 🔴 NULL IS "NOT READ", NEVER "NONE". The offerable set is read when a
+  // connection resolves the selection and again whenever the reader opens the
+  // chooser, and nothing watches the folder in between — so this is the count
+  // as at the last reading rather than as of now, and a Release written since
+  // is found by opening the chooser, which is the act that reads again.
+  //
+  // It counts what can be CHOSEN rather than what the language server reported:
+  // a candidate this editor cannot name relative to the anchored folder is one
+  // the chooser will not offer, so counting it would promise a choice that is
+  // not there.
+  releases: number | null;
 }
 
 // PROJECT_FOLDER_COMMAND changes which folder the editor is working in.
@@ -138,6 +117,17 @@ export const SWITCH_ANCHOR_COMMAND = 'aggrega.workspace.switchAnchor';
 //
 // It is the outermost of the three levels and the only one that is the
 // editor's rather than Aggrega's, which is why it carries no create control.
+//
+// 🔴 IT HAS NO "NONE SELECTED" READING, AND THE ABSENCE IS THE TRUTH RATHER
+// THAN AN OMISSION. Nothing at this level is chosen by the reader — the value
+// is the folder Aggrega settled on — so there is no decision they can be
+// waiting to make and none is invented for them. What it has instead are two
+// empty readings they act on differently: no folder open at all, whose way out
+// is opening one, and folders open with Aggrega working in none of them, which
+// opening another folder does not by itself resolve. Telling those apart is
+// what the count is passed in for; without it the row says "none open" in a
+// window that plainly has folders open, which is the plainest falsehood on this
+// panel.
 export function projectFolderRow(
   openedFolder: string | null,
   candidates: number,
@@ -149,12 +139,29 @@ export function projectFolderRow(
     icon: 'folder-opened',
     create: null,
   };
-  if (openedFolder === null) {
+  if (candidates === 0) {
+    // The way out is the very thing this row's own control does, so saying so
+    // is the exit rather than an instruction to hunt for one elsewhere.
     return {
       ...base,
       value: 'none open',
       tooltip:
         `Aggrega: no ${SELECTOR_ROW_LABELS.project} is open.\nClick to open one.`,
+    };
+  }
+  if (openedFolder === null) {
+    const open = candidates === 1
+      ? `One ${SELECTOR_ROW_LABELS.project} is open in this window.`
+      : `${candidates} ${SELECTOR_ROW_LABELS.project}s are open in this window.`;
+    // Why none of them is in use is deliberately not asserted here. More than
+    // one state reaches this reading — nothing open carries a workspace, and
+    // several do with none of them chosen — and the row below is where that
+    // difference is reported.
+    return {
+      ...base,
+      value: 'none in use',
+      tooltip:
+        `Aggrega: no ${SELECTOR_ROW_LABELS.project} is in use.\n${open}\nClick to open a different one.`,
     };
   }
   const sole = candidates === 1 ? `\n${soleCandidateNote('project')}` : '';
@@ -176,6 +183,14 @@ export function projectFolderRow(
 // thing this row is here to explain. The two coincide whenever the opened
 // folder is itself the anchor; the row earns its place when they do not, which
 // is why the opened folder is named in the explanation whenever it differs.
+//
+// 🔴 ITS TWO EMPTY READINGS ARE NOT ONE STATE. A project holding no Aggrega
+// workspace and a project holding several with none of them in use are as far
+// apart as a surface can put two absences: the first cannot be resolved by
+// choosing at all, and a reading that invited a choice there would send a
+// reader to a list that must come back empty. So the first carries the two ways
+// OUT of it — bring a folder that holds one into the window, or make one — and
+// only the second says to choose.
 export function workspaceRow(
   anchoredRoot: string | null,
   openedFolder: string | null,
@@ -196,22 +211,34 @@ export function workspaceRow(
       label: `Create an ${SELECTOR_ROW_LABELS.workspace}`,
     },
   };
-  if (openedFolder === null) {
-    return {
-      ...base,
-      value: 'none anchored',
-      tooltip: NO_ANCHORED_WORKSPACE_MESSAGE,
-    };
-  }
   if (anchoredRoot === null) {
+    if (candidates === 0) {
+      return {
+        ...base,
+        value: 'none available',
+        tooltip:
+          `Aggrega: no ${SELECTOR_ROW_LABELS.workspace} is available in this project.\n`
+          + `Open a ${SELECTOR_ROW_LABELS.project} holding ${CONFIG_FILENAME} or a Release file, or create an ${SELECTOR_ROW_LABELS.workspace}.`,
+      };
+    }
+    const sole = candidates === 1 ? `\n${soleCandidateNote('workspace')}` : '';
+    // The last folder is named rather than called the current one, because
+    // that is what it is: the value is retained after the language server
+    // stops, so calling it the open folder here would state something that has
+    // stopped being true at exactly the moment the reader is trying to work out
+    // what went wrong.
+    const last = openedFolder === null
+      ? ''
+      : `\nThe last folder Aggrega worked in is ${openedFolder}.`;
     return {
       ...base,
-      value: 'not reported',
+      value: 'none selected',
       tooltip:
-        `Aggrega: the language server has not reported which folder it anchored to, so no Release can be offered.\nThe open folder is ${openedFolder}.\nRestart the language server to try again.`,
+        `Aggrega: no ${SELECTOR_ROW_LABELS.workspace} is selected, and the language server has not reported one it anchored to.${sole}${last}\nClick to choose one.`,
     };
   }
-  const differs = path.resolve(anchoredRoot) !== path.resolve(openedFolder);
+  const differs = openedFolder !== null
+    && path.resolve(anchoredRoot) !== path.resolve(openedFolder);
   const opened = differs ? `\nThe open folder is ${openedFolder}.` : '';
   const sole = candidates === 1 ? `\n${soleCandidateNote('workspace')}` : '';
   return {
@@ -236,11 +263,13 @@ export function workspaceRow(
 // different things about one state. The command is the indicator's own, so
 // there is one way to choose a Release however the reader reaches it.
 //
-// It takes no candidate count, and the absence is the honest shape rather than
-// an omission: nothing holds the set of offerable Releases between one choice
-// and the next, so there is no count to report and none is invented.
-export function releaseRow(state: SelectionState): SelectorRow {
-  const described = describeSelection(state);
+// It takes what is on offer for the same reason the two rows above take a
+// count: "no Release is selected" and "there is no Release to select" are
+// different states and a reader acts on them differently. The count may be
+// null, which is a third statement again — nobody has looked — and it is
+// passed through as it stands rather than read as either of the other two.
+export function releaseRow(state: SelectionState, releases: number | null): SelectorRow {
+  const described = describeSelection(state, releases);
   return {
     key: 'release',
     label: SELECTOR_ROW_LABELS.release,
@@ -269,6 +298,6 @@ export function selectorRows(
   return [
     projectFolderRow(openedFolder, candidates.projectFolders),
     workspaceRow(anchoredRoot, openedFolder, candidates.aggregaWorkspaces),
-    releaseRow(state),
+    releaseRow(state, candidates.releases),
   ];
 }

@@ -50,6 +50,16 @@ export interface ReleaseStatusDeps {
   // higher-precedence input won is exactly why reading one here is wrong, and
   // that reasoning survives the selection moving into this client unchanged.
   selectionState(): SelectionState;
+  // offerableReleases reports how many Releases the last enumeration could
+  // name, or null where none has produced an answer.
+  //
+  // The indicator takes it for the same reason the panel row does: with nothing
+  // selected, an explanation that says to choose one is the wrong sentence in a
+  // workspace that offers none, and the reader cannot tell the two apart from
+  // the indicator alone. Both surfaces read one description, so telling them
+  // apart on one of them and not the other would be the two saying different
+  // things about one state.
+  offerableReleases(): number | null;
   // createStatusBarItem builds the item the indicator drives.
   createStatusBarItem(): StatusBarItemLike;
   // onSelectionChange registers a listener fired whenever the selection
@@ -86,7 +96,10 @@ export function activateReleaseStatus(
       item.hide();
       return;
     }
-    const { label, detail } = describeSelection(deps.selectionState());
+    const { label, detail } = describeSelection(
+      deps.selectionState(),
+      deps.offerableReleases(),
+    );
     item.text = `$(rocket) ${label}`;
     item.tooltip = detail;
     item.show();

@@ -21,9 +21,8 @@ import {
   GEN_CATALOG_SCOPES,
 } from '../../src/plugins-run';
 import { NO_RELEASE_SELECTED_CONTROL_REASON } from '../../src/release-selection';
+import { SELECTOR_ROW_KEYS, SELECTOR_ROW_LABELS } from '../../src/selector-levels';
 import {
-  SELECTOR_ROW_KEYS,
-  SELECTOR_ROW_LABELS,
   SelectorCandidates,
   createControlKey,
   selectorRows,
@@ -43,7 +42,7 @@ const NO_ANSWER_YET = { kind: 'unknown' } as const;
 // Several of each, so a document drawn from this fixture is not silently the
 // one-candidate case — the wording of which is a separate claim with its own
 // assertions in the rows' own suite.
-const SEVERAL: SelectorCandidates = { projectFolders: 3, aggregaWorkspaces: 2 };
+const SEVERAL: SelectorCandidates = { projectFolders: 3, aggregaWorkspaces: 2, releases: 4 };
 
 function body(over: Partial<OperationsBody> = {}): OperationsBody {
   return {

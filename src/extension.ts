@@ -380,14 +380,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     getWorkspaceRoot: () => workspaceRootForCommands,
     getAnchoredWorkspaceRoot: anchoredWorkspaceRoot,
     selectionState: () => releaseSelection?.state() ?? { kind: 'unknown' },
-    // Both numbers are already maintained for other reasons and are read here
-    // rather than recomputed: the editor keeps the open folders, and
-    // currentAnchored is what every activation decision is already made from.
-    // Re-deriving either would be a second answer to a question that already
-    // has one, and the second would be the one that went stale.
+    // Every number here is already maintained for other reasons and is read
+    // rather than recomputed: the editor keeps the open folders,
+    // currentAnchored is what every activation decision is already made from,
+    // and the selection holds what the last enumeration of the workspace could
+    // offer. Re-deriving any of them would be a second answer to a question
+    // that already has one, and the second would be the one that went stale.
     selectorCandidates: () => ({
       projectFolders: vscode.workspace.workspaceFolders?.length ?? 0,
       aggregaWorkspaces: currentAnchored.length,
+      releases: releaseSelection?.offerableCount() ?? null,
     }),
     onSelectionChange: (listener) => releaseSelection?.onChange(listener),
     onReady: ready.onReady,
@@ -612,6 +614,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   releaseStatus = activateReleaseStatus(context, {
     getWorkspaceRoot: () => workspaceRootForCommands,
     selectionState: () => releaseSelection?.state() ?? { kind: 'unknown' },
+    offerableReleases: () => releaseSelection?.offerableCount() ?? null,
     createStatusBarItem: () =>
       vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 99),
     onSelectionChange: (listener) => releaseSelection?.onChange(listener),

@@ -220,6 +220,11 @@ describe('the editor\'s one selected Release', () => {
   });
 
   it('announces every change, so a display cannot fall behind the value being sent', async () => {
+    // The counts are exact, so this is a guard against announcing too often as
+    // much as too seldom — and TWO facts are now observable rather than one.
+    // Adopting the default moves the selection. Choosing moves two: opening the
+    // chooser reads what the workspace offers, which nothing had read, and then
+    // the selection lands. Forgetting drops both together in one.
     const first = path.join(ROOT, 'first.yaml');
     const h = harness({
       candidates: [first, path.join(ROOT, 'second.yaml')],
@@ -231,10 +236,29 @@ describe('the editor\'s one selected Release', () => {
 
     h.pickAnswer = path.join(ROOT, 'second.yaml');
     await h.selection.choose();
-    assert.strictEqual(h.changes, 2);
+    assert.strictEqual(h.changes, 3);
 
     h.selection.forget();
-    assert.strictEqual(h.changes, 3);
+    assert.strictEqual(h.changes, 4);
+  });
+
+  it('announces nothing for a walk that found what it already knew', async () => {
+    // The count is announced when it MOVES, not whenever it is read. A second
+    // chooser over an unchanged workspace would otherwise redraw every surface
+    // for a fact that did not change.
+    const first = path.join(ROOT, 'first.yaml');
+    const h = harness({ candidates: [first, path.join(ROOT, 'second.yaml')] });
+    h.pickAnswer = first;
+    await h.selection.choose();
+    const settled = h.changes;
+
+    h.pickAnswer = undefined;
+    await h.selection.choose();
+
+    assert.strictEqual(
+      h.changes, settled,
+      'the same answer was announced again, so every surface redrew for nothing',
+    );
   });
 
   it('drops the selection with the connection it was resolved against', async () => {
@@ -475,28 +499,136 @@ describe('the selection this editor window remembers', () => {
   });
 });
 
+describe('what the workspace has on offer', () => {
+  it('holds nothing before anything has been enumerated', () => {
+    const h = harness({ candidates: [path.join(ROOT, 'a.yaml')] });
+    assert.strictEqual(
+      h.selection.offerableCount(), null,
+      'a count is reported that no request was made for',
+    );
+    assert.strictEqual(h.listReleasesCalls, 0, 'building the selection must contact nothing');
+  });
+
+  it('reads the workspace on a connection that has nothing remembered', async () => {
+    // 🔴 This is the path nothing enumerated before, and it is the ordinary
+    // one: a reader who has chosen nothing in this window. Without it the
+    // surfaces would have no way to tell a workspace offering no Release from
+    // one they simply have not looked at, on the very first thing they see.
+    const h = harness({
+      remembered: null,
+      candidates: [path.join(ROOT, 'a.yaml'), path.join(ROOT, 'b.yaml')],
+    });
+
+    await h.selection.restore();
+
+    assert.strictEqual(h.selection.offerableCount(), 2);
+    assert.strictEqual(
+      h.listReleasesCalls, 1,
+      'the workspace was enumerated more than once for one connection',
+    );
+  });
+
+  it('counts what can be chosen rather than what was reported', async () => {
+    // A candidate outside the anchored folder cannot be named in a request, so
+    // the chooser will not offer it. Counting it would promise a choice that
+    // is not there.
+    const inside = path.join(ROOT, 'inside.yaml');
+    const outside = path.join(path.sep, 'elsewhere', 'outside.yaml');
+    const h = harness({ remembered: null, candidates: [inside, outside] });
+
+    await h.selection.restore();
+
+    assert.strictEqual(h.selection.offerableCount(), 1);
+  });
+
+  it('reports a workspace that offers nothing as none, distinctly from not having looked', async () => {
+    const h = harness({ remembered: null, candidates: [] });
+
+    await h.selection.restore();
+
+    assert.strictEqual(h.selection.offerableCount(), 0);
+  });
+
+  it('records nothing at all when the anchored folder was never reported', async () => {
+    // Nothing could be converted, so this walk established no count. A zero
+    // would say the workspace offers nothing, when what happened is that the
+    // editor had no folder to name anything relative to.
+    const h = harness({
+      remembered: null,
+      daemonRoot: null,
+      candidates: [path.join(ROOT, 'a.yaml')],
+    });
+
+    await h.selection.restore();
+
+    assert.strictEqual(h.selection.offerableCount(), null);
+  });
+
+  it('records nothing when the language server cannot be asked', async () => {
+    const h = harness({
+      remembered: null,
+      listReleases: () => Promise.reject(new Error('the Aggrega daemon is not running')),
+    });
+
+    await h.selection.restore();
+
+    assert.strictEqual(h.selection.offerableCount(), null);
+  });
+
+  it('drops what was on offer with the connection it was read against', async () => {
+    // The next connection may resolve a different folder entirely, so a count
+    // carried across one would describe a workspace the reader has left.
+    const h = harness({ remembered: null, candidates: [path.join(ROOT, 'a.yaml')] });
+    await h.selection.restore();
+    assert.strictEqual(h.selection.offerableCount(), 1);
+
+    h.selection.forget();
+
+    assert.strictEqual(h.selection.offerableCount(), null);
+  });
+
+  it('tells the surfaces when a dismissed chooser changed nothing but the count', async () => {
+    // Opening the chooser enumerates. A reader who then dismisses it has
+    // changed no selection, so nothing else would announce — and the answer
+    // the surfaces were missing is exactly the one that walk produced.
+    const h = harness({ candidates: [path.join(ROOT, 'a.yaml'), path.join(ROOT, 'b.yaml')] });
+    const before = h.changes;
+    h.pickAnswer = undefined;
+
+    await h.selection.choose();
+
+    assert.strictEqual(h.selection.offerableCount(), 2);
+    assert.ok(
+      h.changes > before,
+      'the count moved and no surface was told, so the rows go on drawing the old one',
+    );
+  });
+});
+
 describe('how the selection is described', () => {
   it('names the file and points at how to change it', () => {
     const described = describeSelection({
       kind: 'selected',
       release: 'envs/prod.yaml',
       absolute: path.join(ROOT, 'envs', 'prod.yaml'),
-    });
+    }, 2);
     assert.strictEqual(described.label, 'prod.yaml');
     assert.ok(described.detail.includes(path.join(ROOT, 'envs', 'prod.yaml')));
   });
 
   it('carries the reason through when there is one, and reads sensibly when there is not', () => {
-    const withReason = describeSelection({ kind: 'none', reason: 'workspace contains 0 Release file(s)' });
+    const withReason = describeSelection(
+      { kind: 'none', reason: 'workspace contains 0 Release file(s)' }, 2,
+    );
     assert.ok(withReason.detail.includes('workspace contains 0 Release file(s)'));
 
-    const without = describeSelection({ kind: 'none', reason: '' });
+    const without = describeSelection({ kind: 'none', reason: '' }, 2);
     assert.ok(without.detail.includes('no Release is selected'));
     assert.ok(!without.detail.includes('undefined'));
   });
 
   it('says what it does not know rather than guessing', () => {
-    const described = describeSelection({ kind: 'unknown' });
+    const described = describeSelection({ kind: 'unknown' }, null);
     assert.strictEqual(described.label, 'Release: unavailable');
     assert.ok(described.detail.includes('not running'));
   });
@@ -506,7 +638,7 @@ describe('how the selection is described', () => {
       kind: 'selected',
       release: path.join('envs', 'prod.yaml'),
       absolute: path.join(ROOT, 'envs', 'prod.yaml'),
-    });
+    }, 2);
     // A surface with one line and no room to name what it shows carries the
     // word itself; a surface that already names the field beside it does not,
     // and has room for the path that tells two same-named files apart.
@@ -517,12 +649,90 @@ describe('how the selection is described', () => {
       { kind: 'none' as const, reason: '' },
       { kind: 'unknown' as const },
     ]) {
-      const d = describeSelection(state);
-      assert.ok(d.value.length > 0, 'every state renders a row value');
-      assert.ok(
-        !d.value.startsWith('Release:'),
-        'the row already carries the field name, so repeating it would read twice',
-      );
+      for (const offerable of [null, 0, 1, 3]) {
+        const d = describeSelection(state, offerable);
+        assert.ok(d.value.length > 0, 'every state renders a row value');
+        assert.ok(
+          !d.value.startsWith('Release:'),
+          'the row already carries the field name, so repeating it would read twice',
+        );
+      }
     }
+  });
+
+  it('reads nothing-to-select differently from nothing-selected, and carries the way out', () => {
+    // 🔴 The two are different states and a reader acts on them differently:
+    // one is a decision they have not made, the other is a decision that
+    // cannot be made at this level at all. Telling them to choose in the
+    // second sends them to a list that must come back empty.
+    const empty = describeSelection({ kind: 'none', reason: '' }, 0);
+    const selectable = describeSelection({ kind: 'none', reason: '' }, 2);
+
+    assert.notStrictEqual(empty.value, selectable.value, 'the two empty states draw one value');
+    assert.notStrictEqual(empty.label, selectable.label);
+    assert.notStrictEqual(empty.detail, selectable.detail);
+
+    assert.ok(
+      !/click to select/i.test(empty.detail),
+      `nothing to select, and the reader is told to select; got ${empty.detail}`,
+    );
+    assert.ok(
+      empty.detail.includes('create a Release'),
+      `the empty state names no way out of itself; got ${empty.detail}`,
+    );
+    assert.ok(
+      empty.detail.includes('different Aggrega workspace'),
+      'the other way out is the level above, which has to be named to be taken',
+    );
+    assert.ok(
+      /click to select/i.test(selectable.detail),
+      'with Releases on offer, choosing is exactly the thing to say',
+    );
+  });
+
+  it('keeps the account it was given in the state that offers nothing', () => {
+    // The server's own sentence is the only text that says WHICH of several
+    // reasons applied, so the reading that most needs it must not drop it.
+    const empty = describeSelection(
+      { kind: 'none', reason: 'workspace contains 0 Release file(s)' }, 0,
+    );
+    assert.ok(empty.detail.includes('workspace contains 0 Release file(s)'));
+  });
+
+  it('separates a count nobody has read from a count of none', () => {
+    const unread = describeSelection({ kind: 'none', reason: '' }, null);
+    const empty = describeSelection({ kind: 'none', reason: '' }, 0);
+
+    assert.notStrictEqual(
+      unread.detail, empty.detail,
+      'a workspace nobody has enumerated reads as one that offers nothing',
+    );
+    assert.ok(unread.detail.includes('has not been read'));
+    assert.ok(
+      !unread.detail.includes('is available'),
+      'the unread state claims to know what is available',
+    );
+  });
+
+  it('says a sole Release is the only one, in the same words the other levels use', () => {
+    // The sentence exists so a chooser holding one entry does not read as
+    // broken, and it is drawn from the one place the level names are written.
+    const sole = describeSelection({
+      kind: 'selected',
+      release: 'envs/prod.yaml',
+      absolute: path.join(ROOT, 'envs', 'prod.yaml'),
+    }, 1);
+    assert.ok(sole.detail.includes('Only one Release is available'));
+    assert.ok(sole.detail.includes('no others to choose between'));
+
+    const several = describeSelection({
+      kind: 'selected',
+      release: 'envs/prod.yaml',
+      absolute: path.join(ROOT, 'envs', 'prod.yaml'),
+    }, 3);
+    assert.ok(
+      !several.detail.includes('no others to choose between'),
+      'the description claims to be the only one while others exist',
+    );
   });
 });

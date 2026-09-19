@@ -428,7 +428,7 @@ describe('the surface the manifest actually contributes', () => {
       '/ws/project',
       '/ws/project',
       { kind: 'unknown' },
-      { projectFolders: 2, aggregaWorkspaces: 2 },
+      { projectFolders: 2, aggregaWorkspaces: 2, releases: 2 },
     );
     const ours = rows
       .flatMap((row) => (row.create === null ? [row.command] : [row.command, row.create.command]))
