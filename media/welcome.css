@@ -190,6 +190,63 @@ body {
   border-radius: 3px;
 }
 
+/* 🔴 WHAT THE STEP CURRENTLY STANDS AT, AND IT OUTRANKS THE GUIDANCE AROUND IT
+   DELIBERATELY. The explanation is a wall of text set at the body size, at
+   ordinary weight, in the quiet descriptive colour; the value is set larger
+   than it, at the heading's own weight, in the full-strength foreground. A
+   value drawn in the same weight as the prose it sits under is a value a reader
+   has to hunt for, which defeats drawing it at all.
+
+   The full-strength colour is declared rather than inherited, so that moving
+   this line inside the explanation later would not quietly hand it the
+   descriptive colour the guidance is set in.
+
+   The fixed-width face is the same choice the versions at the foot make and for
+   the same reason: a folder, a compiler, a Release and a registry host are
+   tokens to compare character by character rather than prose to read. A long
+   path breaks wherever it must rather than running out of the panel.
+
+   It carries no margin of its own at either position. Whatever sits above it —
+   the heading on a folded block, the last block of the explanation on an open
+   one — already declares the space beneath itself, and a second one here would
+   be added to it. */
+.step-value {
+  margin: 0;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 1.15rem;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--vscode-foreground);
+  overflow-wrap: anywhere;
+}
+
+/* No value yet is a sentence rather than a token, so it drops the fixed-width
+   face that would present it as one and is set in italic — the same pair the
+   versions at the foot use for a reading that was not taken. It keeps the size
+   and the weight: a reader who has chosen nothing is exactly the reader this
+   panel is for, and telling them so quietly would be the wrong way round. */
+.step-value-absent {
+  font-family: inherit;
+  font-style: italic;
+}
+
+/* 🔴 THE SAME VALUE AGAIN FOR A FOLDED SECTION, AND THE STYLESHEET IS WHAT
+   CHOOSES BETWEEN THE TWO. It is composed at both positions on every draw and
+   this rule puts one away, keyed on whether the explanation is open — which is
+   a state the panel's own script moves in the document, without the extension
+   being asked. A copy put away when the panel was composed would stay put away
+   through the reader's own press, and the value would vanish from a section
+   they folded. Reading the state here instead means there is nothing to keep in
+   step: one record of it, and both this rule and the caret's direction read it.
+
+   The rule HIDES rather than reveals, which is the safe direction. A browser
+   that did not understand the selector would draw both copies — the value twice
+   in an open section, which is untidy — rather than neither, which would be the
+   value missing altogether. */
+.step-prose:not([hidden]) + .step-value-folded {
+  display: none;
+}
+
 /* Both ways through a step, side by side and weighted the same. Neither is the
    recommended one: creating and pointing at what you already have end in the
    same state, and a reader who has the thing should not have to read past a
@@ -201,10 +258,12 @@ body {
   margin-top: 1rem;
 }
 
-/* A closed section is its heading and its two ways forward, one under the
-   other. The gap the explanation used to occupy would otherwise be left behind
-   as a hole between them. */
-.step-prose[hidden] + .step-actions {
+/* A closed section is its heading, what it stands at, and its two ways forward,
+   one under the other. The gap the explanation used to occupy would otherwise
+   be left behind as a hole between them. The value now sits between the
+   explanation and the ways forward, so the two are no longer adjacent and this
+   reaches past it. */
+.step-prose[hidden] ~ .step-actions {
   margin-top: 0.25rem;
 }
 

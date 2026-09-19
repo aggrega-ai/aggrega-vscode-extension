@@ -36,6 +36,7 @@ import {
   SEED_NAMED_REGISTRY_COMMAND,
   SEED_REGISTRY_COMMAND,
   StepId,
+  StepReading,
   USE_COMPILER_ON_PATH_COMMAND,
   WELCOME_OPEN_COMMAND,
   WELCOME_PANEL_TITLE,
@@ -43,7 +44,7 @@ import {
   WELCOME_SHOW_SETTING,
   panelControlCommands,
   readCollapsedSteps,
-  stepStandings,
+  stepReadings,
 } from './get-started-steps';
 import {
   VersionStandings,
@@ -78,15 +79,15 @@ import {
 // to name different preferences.
 const BINARY_PATH_KEY = 'binaryPath';
 
-// PanelReading is everything one pass over the live state read: the four
-// conditions as standings, and what the two pieces of software report about
+// PanelReading is everything one pass over the live state read: the four steps
+// as they now stand, and what the two pieces of software report about
 // themselves.
 //
 // The two travel together because they are taken together and used together —
 // a path that draws the panel needs both, and a second pass for the versions
 // alone would ask the compiler twice for one drawing.
 interface PanelReading {
-  standings: Record<StepId, boolean>;
+  steps: Record<StepId, StepReading>;
   versions: VersionStandings;
 }
 
@@ -238,7 +239,7 @@ export function activateGetStarted(
   // from the reading the caller actually took, whatever else lands around it.
   const reread = async (): Promise<PanelReading> => {
     const [facts, versions] = await Promise.all([readFacts(deps), deps.readVersions()]);
-    const read = stepStandings(facts);
+    const read = stepReadings(facts);
     // 🔴 THE LIST IS RE-COMPOSED FROM THE STANDINGS JUST READ, IN BOTH
     // DIRECTIONS. A step whose condition has lapsed is composed as still to do
     // again, because nothing here accumulates a previous mark — which is the
@@ -255,7 +256,7 @@ export function activateGetStarted(
     // region nothing had changed. A compiler restarted onto another binary moves
     // this one and leaves the marks where they are.
     panel?.webview.postMessage({ type: 'versions', html: versionsHtml(versions) });
-    return { standings: read, versions };
+    return { steps: read, versions };
   };
   const refresh = (): void => {
     if (inFlight) { again = true; return; }
@@ -281,7 +282,7 @@ export function activateGetStarted(
   // This is the only place the arrangement is decided from a condition rather
   // than from the reader.
   const createPanel = (read: PanelReading): void => {
-    collapsed = initiallyCollapsedStepIds(read.standings);
+    collapsed = initiallyCollapsedStepIds(read.steps);
     panel = vscode.window.createWebviewPanel(
       'aggrega.welcome',
       WELCOME_PANEL_TITLE,
@@ -318,7 +319,7 @@ export function activateGetStarted(
     panel.webview.html = welcomeHtml(
       panel.webview,
       context.extensionUri,
-      read.standings,
+      read.steps,
       collapsed,
       opensWithEditor(),
       read.versions,
@@ -452,7 +453,7 @@ function runPanelControl(message: unknown, output: vscode.OutputChannel): void {
 function welcomeHtml(
   webview: vscode.Webview,
   extensionUri: vscode.Uri,
-  standings: Record<StepId, boolean>,
+  readings: Record<StepId, StepReading>,
   collapsed: readonly StepId[],
   opensWithEditor: boolean,
   versions: VersionStandings,
@@ -466,34 +467,51 @@ function welcomeHtml(
       vscode.Uri.joinPath(extensionUri, 'media', 'welcome.js'),
     ).toString(),
     cspSource: webview.cspSource,
-    standings,
+    readings,
     collapsed,
     opensWithEditor,
     versions,
   });
 }
 
-// readFacts reads the four conditions from the parts of the extension that
-// already own them.
+// readFacts reads the four steps from the parts of the extension that already
+// own them.
+//
+// 🔴 EACH FACT IS READ ONCE AND BOTH WHAT IT DECIDES AND WHAT IT SHOWS COME OUT
+// OF THAT ONE READING. The condition and the value a step draws are never asked
+// for separately, so the panel cannot tick a step against one reading and name
+// a value from another — which is the shape a second call would have, on
+// surfaces that genuinely move between two calls.
 async function readFacts(deps: GetStartedDeps): Promise<GetStartedFacts> {
   const compilerAnswering = deps.isCompilerAnswering();
   return {
-    workspaceAnchored: deps.getWorkspaceRoot() !== null,
+    workspaceRoot: deps.getWorkspaceRoot(),
     compilerAnswering,
-    releaseSelected: deps.selectedRelease() !== null,
+    // The compiler the READER NAMED, which is the preference the step's own two
+    // ways through write. It is deliberately not the binary a running language
+    // server was started from: those diverge while a preference change waits
+    // out the window in which its restart can still be cancelled, and in that
+    // window the launched one would not move when the reader pressed a control
+    // right beside it. It is also absent wherever nothing is running, which is
+    // exactly the state the step exists for — so the reader who most needs to
+    // see what they named would be shown nothing.
+    compilerPath: deps.getBinaryPath(),
+    release: deps.selectedRelease(),
     // The registry question is asked of the compiler, so it is asked only once
     // the compiler is answerable. Before then the answer would be a failed
     // spawn rather than a fact, and the step above this one is the one the
     // reader is being asked to act on anyway.
-    registryConfigured: compilerAnswering ? await hasConfiguredRegistry(deps) : false,
+    registries: compilerAnswering ? await configuredRegistries(deps) : null,
   };
 }
 
-// hasConfiguredRegistry asks the compiler what registries the resolved
-// configuration names. An empty list is a successful answer meaning none are
-// configured, which is a different fact from the question failing — and both
-// read as the step being unmet, because in neither case can the reader be told
-// they have one.
+// configuredRegistries asks the compiler what registries the resolved
+// configuration names, and answers with their hosts in the order it answered
+// in. An empty list is a successful answer meaning none are configured, and
+// null is a question that produced no answer. Both read as the step being
+// unmet, because in neither case can the reader be told they have one; they
+// read as different values, because only the first is about what the reader
+// has done.
 //
 // The question is asked again here rather than shared with the registries panel:
 // that panel computes its rows inside the editor's request for them, so it
@@ -501,15 +519,17 @@ async function readFacts(deps: GetStartedDeps): Promise<GetStartedFacts> {
 // depended on that would report differently according to which panel somebody
 // had expanded. The enumeration reads the resolved configuration and contacts no
 // registry, so asking it again costs nothing over the network.
-async function hasConfiguredRegistry(deps: GetStartedDeps): Promise<boolean> {
+async function configuredRegistries(
+  deps: GetStartedDeps,
+): Promise<readonly string[] | null> {
   try {
     const doc = await deps.listRegistries();
-    return (doc.registries ?? []).length > 0;
+    return (doc.registries ?? []).map((entry) => entry.host);
   } catch (err) {
     deps.output.appendLine(
       `get started: could not read the configured registries: ${describeError(err)}`,
     );
-    return false;
+    return null;
   }
 }
 

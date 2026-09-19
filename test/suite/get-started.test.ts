@@ -6,6 +6,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {
+  COMPILER_VALUE_ABSENT,
   DISMISS_COMMAND,
   DISMISS_COMMAND_TITLE,
   EVERYTHING_MET,
@@ -13,20 +14,25 @@ import {
   OPEN_COMMAND_TITLE,
   PANEL_SETTING_COMMANDS,
   PANEL_SETTING_LABEL,
+  REGISTRY_VALUE_ABSENT,
+  REGISTRY_VALUE_UNREAD,
+  RELEASE_VALUE_ABSENT,
   SHOW_COMMAND_TITLE,
   STEP_CONTENT,
   STEP_IDS,
   StepId,
+  StepReading,
   WELCOME_DESCRIPTION,
   WELCOME_GREETING,
   WELCOME_OPEN_COMMAND,
   WELCOME_PANEL_TITLE,
   WELCOME_SHOW_COMMAND,
   WELCOME_SHOW_SETTING,
+  WORKSPACE_VALUE_ABSENT,
   panelControlCommands,
   readCollapsedSteps,
   stepMet,
-  stepStandings,
+  stepReadings,
   unmetStepIds,
 } from '../../src/get-started-steps';
 import { escapeHtml } from '../../src/html';
@@ -223,7 +229,7 @@ function manifest(): {
 // The default is a value rather than an absence for the same reason
 // opensWithEditor's is: the common case should be what a caller gets for free.
 function renderedPanel(
-  standings: Record<StepId, boolean>,
+  readings: Record<StepId, StepReading>,
   collapsed: readonly StepId[] = [],
   opensWithEditor = true,
   versions: VersionStandings = { extension: '9.9.9', compiler: '8.8.8' },
@@ -233,7 +239,7 @@ function renderedPanel(
     styleUri: 'vscode-resource://media/welcome.css',
     scriptUri: 'vscode-resource://media/welcome.js',
     cspSource: 'vscode-resource:',
-    standings,
+    readings,
     collapsed,
     opensWithEditor,
     versions,
@@ -267,11 +273,12 @@ const RETIRED_UNMET_WORD = 'Outstanding';
 // answer from nothing-closed to everything-closed, so the two uniform fixtures
 // below catch an inversion on their own. What they cannot catch is the
 // attribution, which is why the mixed one is here as well and not instead.
-const MIXED = stepStandings({
-  workspaceAnchored: true,
+const MIXED = stepReadings({
+  workspaceRoot: '/work/demo',
   compilerAnswering: false,
-  releaseSelected: true,
-  registryConfigured: false,
+  compilerPath: 'aggrega',
+  release: 'releases/prod.yaml',
+  registries: null,
 });
 
 // MIXED_MET and MIXED_UNMET are the two halves of that workspace, spelled out
@@ -320,12 +327,68 @@ function commandsInPanel(html: string): string[] {
   return [...html.matchAll(/data-command="([^"]+)"/g)].map((m) => m[1]);
 }
 
+// ComposedValue is one drawn value: the classes it carries and the text a
+// reader would read. The text is kept ESCAPED, exactly as the document carries
+// it, so an assertion about a value can also be an assertion about escaping.
+interface ComposedValue {
+  attributes: string;
+  text: string;
+}
+
+// stepValues reads back every value one section draws, in document order.
+function stepValues(section: string): ComposedValue[] {
+  return [...section.matchAll(/<p class="(step-value[^"]*)">([^<]*)<\/p>/g)]
+    .map((m) => ({ attributes: m[1], text: m[2] }));
+}
+
+// proseRegionOf cuts one section's explanation out, so an assertion about
+// where the value sits INSIDE the explanation cannot be satisfied by the copy
+// outside it.
+function proseRegionOf(section: string): string {
+  const opens = section.indexOf('<div class="step-prose"');
+  assert.ok(opens >= 0, 'the section carries no explanation region');
+  return section.slice(opens, section.indexOf('<p class="step-value step-value-folded"'));
+}
+
+// welcomeCss is the stylesheet the panel is actually drawn through, read from
+// the file the document links rather than restated here.
+function welcomeCss(): string {
+  return fs.readFileSync(path.join(EXTENSION_ROOT, 'media', 'welcome.css'), 'utf8');
+}
+
+// cssRuleBody returns the body of the rule whose selector list names exactly
+// the selector given, or null where no rule does.
+//
+// 🔴 EXACTLY, NOT AS A SUBSTRING. A rule for `.step-value-absent` contains the
+// text of `.step-value`, so a substring match would read one rule's body as the
+// other's and an assertion about the value's own treatment would pass on a rule
+// about something else. Comments are dropped first, because these stylesheets
+// carry their reasoning in prose that names selectors.
+function cssRuleBody(css: string, selector: string): string | null {
+  const withoutComments = css.replace(/\/\*[\s\S]*?\*\//g, '');
+  for (const match of withoutComments.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    const selectors = match[1].split(',').map((s) => s.trim());
+    if (selectors.includes(selector)) { return match[2]; }
+  }
+  return null;
+}
+
+// remIn reads one declaration's value in rem, or null where the rule does not
+// declare it or declares it in some other unit.
+function remIn(body: string, property: string): number | null {
+  const found = new RegExp(`${property}:\\s*([0-9.]+)rem`).exec(body);
+  return found ? Number(found[1]) : null;
+}
+
 describe('the welcome panel', () => {
   describe('what the panel means', () => {
     it('reports every condition met for a reader who configured everything elsewhere', () => {
       assert.deepStrictEqual(unmetStepIds(EVERYTHING_MET), []);
-      assert.deepStrictEqual(stepStandings(EVERYTHING_MET), {
-        workspace: true, compiler: true, release: true, registry: true,
+      assert.deepStrictEqual(stepReadings(EVERYTHING_MET), {
+        workspace: { met: true, value: { chosen: '/work/demo' } },
+        compiler: { met: true, value: { chosen: 'aggrega' } },
+        release: { met: true, value: { chosen: 'releases/prod.yaml' } },
+        registry: { met: true, value: { chosen: 'registry.example.com' } },
       });
     });
 
@@ -340,10 +403,10 @@ describe('the welcome panel', () => {
       for (const id of STEP_IDS) {
         const facts = { ...NOTHING_MET };
         switch (id) {
-          case 'workspace': facts.workspaceAnchored = true; break;
+          case 'workspace': facts.workspaceRoot = '/work/demo'; break;
           case 'compiler': facts.compilerAnswering = true; break;
-          case 'release': facts.releaseSelected = true; break;
-          case 'registry': facts.registryConfigured = true; break;
+          case 'release': facts.release = 'releases/prod.yaml'; break;
+          case 'registry': facts.registries = ['registry.example.com']; break;
         }
         assert.strictEqual(stepMet(id, facts), true, `${id} did not read its own fact`);
         assert.deepStrictEqual(
@@ -369,7 +432,7 @@ describe('the welcome panel', () => {
   // moving when the arrangement rules change.
   describe('a step follows its condition in both directions', () => {
     it('marks a step met when its condition holds', () => {
-      const html = stepsHtml(stepStandings(EVERYTHING_MET), []);
+      const html = stepsHtml(stepReadings(EVERYTHING_MET), []);
       for (const step of STEP_CONTENT) {
         assert.ok(
           html.includes(`class="step step-met" data-step="${step.id}"`),
@@ -384,11 +447,11 @@ describe('the welcome panel', () => {
       // that no longer do. Nothing between the two calls carries a mark
       // forward, which is the whole property: the second render is composed
       // from the second reading alone.
-      const held = stepsHtml(stepStandings(EVERYTHING_MET), []);
+      const held = stepsHtml(stepReadings(EVERYTHING_MET), []);
       assert.ok(held.includes('class="step step-met" data-step="compiler"'));
 
       const lapsed = stepsHtml(
-        stepStandings({ ...EVERYTHING_MET, compilerAnswering: false }),
+        stepReadings({ ...EVERYTHING_MET, compilerAnswering: false }),
         [],
       );
       assert.ok(
@@ -405,8 +468,8 @@ describe('the welcome panel', () => {
     });
 
     it('says the standing in words as well as in a mark', () => {
-      const met = stepsHtml(stepStandings(EVERYTHING_MET), []);
-      const unmet = stepsHtml(stepStandings(NOTHING_MET), []);
+      const met = stepsHtml(stepReadings(EVERYTHING_MET), []);
+      const unmet = stepsHtml(stepReadings(NOTHING_MET), []);
       assert.ok(met.includes(MET_LABEL), 'a met step says so in words');
       assert.ok(unmet.includes(UNMET_LABEL), 'a step still to do says so in words');
       assert.ok(
@@ -458,7 +521,7 @@ describe('the welcome panel', () => {
     it('composes no panel carrying the retired unmet word, in either standing', () => {
       for (const standings of [EVERYTHING_MET, NOTHING_MET]) {
         for (const opensWithEditor of [true, false]) {
-          const html = renderedPanel(stepStandings(standings), [], opensWithEditor);
+          const html = renderedPanel(stepReadings(standings), [], opensWithEditor);
           assert.ok(
             !html.includes(RETIRED_UNMET_WORD),
             `the composed panel carries "${RETIRED_UNMET_WORD}"`,
@@ -493,6 +556,272 @@ describe('the welcome panel', () => {
       // "metadata" and prove nothing, which is worse than no check because it
       // reads as one. The unmet word is the one that moved and the one whose
       // spelling is distinctive enough to look for.
+    });
+  });
+
+  // 🔴 WHAT EACH STEP CURRENTLY STANDS AT, AND WHERE A READER MEETS IT.
+  //
+  // A reader uses this panel in two states and needs the value in both: folded,
+  // to confirm at a glance, and open, at the moment of pressing one of the two
+  // ways forward. So the composition carries it twice and the stylesheet shows
+  // one — and these assertions are over the composition, which is the half an
+  // assertion can reach without a browser. What the stylesheet then does with
+  // the two copies is asserted separately below, off the stylesheet itself.
+  describe('what each step currently stands at', () => {
+    it('names every step\'s value from the facts, and moves it only with its own fact', () => {
+      // One fact moved at a time, from the end where nothing is named. The
+      // value that appears is the one that fact carries, and no other step's
+      // value moves with it — which is what a step drawing a neighbour's value
+      // would fail.
+      for (const id of STEP_IDS) {
+        const facts = { ...NOTHING_MET };
+        let expected = '';
+        switch (id) {
+          case 'workspace':
+            facts.workspaceRoot = '/work/moved-here';
+            expected = '/work/moved-here';
+            break;
+          case 'compiler':
+            facts.compilerPath = '/opt/builds/aggrega';
+            expected = '/opt/builds/aggrega';
+            break;
+          case 'release':
+            facts.release = 'releases/moved.yaml';
+            expected = 'releases/moved.yaml';
+            break;
+          case 'registry':
+            facts.registries = ['moved.example.com'];
+            expected = 'moved.example.com';
+            break;
+        }
+        const html = stepsHtml(stepReadings(facts), []);
+        assert.deepStrictEqual(
+          stepValues(sectionOf(html, id)).map((v) => v.text),
+          [expected, expected],
+          `${id} does not carry the value its own fact names, at both positions`,
+        );
+        for (const other of STEP_IDS.filter((o) => o !== id)) {
+          assert.ok(
+            !sectionOf(html, other).includes(expected),
+            `${other} carries ${id}'s value, so a step is reading a neighbour's fact`,
+          );
+        }
+      }
+    });
+
+    it('names every registry the configuration declares, in the order it answered in', () => {
+      const html = stepsHtml(
+        stepReadings({ ...EVERYTHING_MET, registries: ['b.example.com', 'a.example.com'] }),
+        [],
+      );
+      // The order is the compiler's own and is never re-sorted, so a reader
+      // comparing the panel against the command line sees one order.
+      assert.deepStrictEqual(
+        stepValues(sectionOf(html, 'registry')).map((v) => v.text),
+        ['b.example.com, a.example.com', 'b.example.com, a.example.com'],
+      );
+    });
+
+    // 🔴 THE TWO POSITIONS ARE THE ITEM'S SUBJECT AND THEY ARE ASSERTED AS
+    // POSITIONS, not as presence. A value present twice somewhere in the
+    // section would satisfy a check for the text and tell a reader nothing
+    // about where they meet it.
+    it('draws the value at the foot of the explanation and again on the block', () => {
+      const html = stepsHtml(stepReadings(EVERYTHING_MET), []);
+      const section = sectionOf(html, 'workspace');
+
+      const prose = proseRegionOf(section);
+      const proseValue = prose.indexOf('<p class="step-value step-value-open');
+      assert.ok(proseValue >= 0, 'the explanation carries no value at all');
+      assert.ok(
+        prose.indexOf('step-detail') < proseValue,
+        'the value sits above the explanation rather than at the foot of it',
+      );
+      assert.match(
+        prose.slice(prose.indexOf('</p>', proseValue) + '</p>'.length),
+        /^\s*<\/div>\s*$/,
+        'something else follows the value inside the explanation, so it is not the last thing read before the ways forward',
+      );
+
+      // And the second copy sits between the explanation and the two ways
+      // forward, so a folded section leaves it directly under the heading.
+      const afterProse = section.slice(section.indexOf('</div>', section.indexOf('step-prose')));
+      assert.ok(
+        afterProse.indexOf('step-value-folded') < afterProse.indexOf('step-actions'),
+        'the folded-state value does not sit before the ways forward',
+      );
+      assert.ok(
+        section.indexOf('step-standing') < section.indexOf('step-value-folded'),
+        'the folded-state value is drawn before the met/unmet marker',
+      );
+    });
+
+    // 🔴 THE COMPOSITION IS THE SAME IN BOTH STATES, WHICH IS THE PROPERTY THE
+    // WHOLE SHAPE RESTS ON. A section opens and closes in the document, and the
+    // extension is told afterwards — so a composition that put one copy away
+    // would leave it away through the reader's own press and the value would
+    // vanish from a section they folded. The two copies are therefore composed
+    // identically whatever arrangement is asked for, and the difference between
+    // them is the stylesheet's alone.
+    it('composes both copies whatever the arrangement asked for', () => {
+      const open = sectionOf(stepsHtml(stepReadings(EVERYTHING_MET), []), 'workspace');
+      const folded = sectionOf(
+        stepsHtml(stepReadings(EVERYTHING_MET), [...STEP_IDS]),
+        'workspace',
+      );
+      assert.deepStrictEqual(
+        stepValues(open),
+        stepValues(folded),
+        'the value markup moves with the arrangement, so the copy the reader needs after a press was decided before it',
+      );
+      for (const section of [open, folded]) {
+        for (const value of stepValues(section)) {
+          assert.ok(
+            !value.attributes.includes('hidden'),
+            'a value copy is put away with the hidden attribute, which the reader\'s own press will not undo',
+          );
+        }
+      }
+    });
+
+    // 🔴 A BLANK IS A RENDERING FAULT TO A READER, NOT AN ANSWER. Every step
+    // with nothing to name says so in words, and no step ever composes an empty
+    // value.
+    it('says so in words where nothing is chosen, at both positions', () => {
+      const html = stepsHtml(stepReadings(NOTHING_MET), []);
+      const expected: Record<StepId, string> = {
+        workspace: WORKSPACE_VALUE_ABSENT,
+        compiler: COMPILER_VALUE_ABSENT,
+        release: RELEASE_VALUE_ABSENT,
+        registry: REGISTRY_VALUE_UNREAD,
+      };
+      for (const id of STEP_IDS) {
+        const values = stepValues(sectionOf(html, id));
+        assert.deepStrictEqual(
+          values.map((v) => v.text),
+          [expected[id], expected[id]],
+          `${id} does not say in words that nothing is chosen`,
+        );
+        for (const value of values) {
+          assert.ok(
+            value.attributes.includes('step-value-absent'),
+            `${id} draws its unchosen state as though it were a chosen value`,
+          );
+        }
+      }
+    });
+
+    // 🔴 THE TWO WAYS A REGISTRY STEP HAS NOTHING TO NAME ARE DIFFERENT FACTS
+    // AND READ DIFFERENTLY. A configuration naming none is the reader's doing;
+    // a question that produced no answer is not, and telling them they have
+    // configured none would be a statement the panel has no grounds for.
+    it('tells a configuration naming no registry from a question that got no answer', () => {
+      const none = stepsHtml(stepReadings({ ...EVERYTHING_MET, registries: [] }), []);
+      const unread = stepsHtml(stepReadings({ ...EVERYTHING_MET, registries: null }), []);
+      assert.deepStrictEqual(
+        stepValues(sectionOf(none, 'registry')).map((v) => v.text),
+        [REGISTRY_VALUE_ABSENT, REGISTRY_VALUE_ABSENT],
+      );
+      assert.deepStrictEqual(
+        stepValues(sectionOf(unread, 'registry')).map((v) => v.text),
+        [REGISTRY_VALUE_UNREAD, REGISTRY_VALUE_UNREAD],
+      );
+      assert.notStrictEqual(
+        REGISTRY_VALUE_ABSENT,
+        REGISTRY_VALUE_UNREAD,
+        'the two states read the same, so the panel says the reader configured none when nothing could answer',
+      );
+      // Both read as the step still to do, because in neither case can a
+      // registry be named.
+      for (const html of [none, unread]) {
+        assert.ok(html.includes('class="step step-unmet" data-step="registry"'));
+      }
+    });
+
+    // A value is whatever the reader's own machine put in a setting, so it is
+    // text and never markup — including the three inline markers the step
+    // prose is written in, which are applied to the prose and not to this.
+    it('treats a value as text', () => {
+      const html = stepsHtml(
+        stepReadings({ ...EVERYTHING_MET, workspaceRoot: '/work/<b>*x*</b>' }),
+        [],
+      );
+      const values = stepValues(sectionOf(html, 'workspace'));
+      assert.deepStrictEqual(
+        values.map((v) => v.text),
+        ['/work/&lt;b&gt;*x*&lt;/b&gt;', '/work/&lt;b&gt;*x*&lt;/b&gt;'],
+        'a value reached the panel as markup rather than as text',
+      );
+    });
+  });
+
+  // 🔴 THE HALF AN ASSERTION OVER THE COMPOSITION CANNOT REACH: which of the
+  // two copies is drawn, and whether the value outranks the guidance it sits
+  // among. Both are the stylesheet's, so the stylesheet is what is read.
+  describe('the stylesheet the value is drawn through', () => {
+    it('shows the block\'s copy only while the explanation is put away', () => {
+      const body = cssRuleBody(welcomeCss(), '.step-prose:not([hidden]) + .step-value-folded');
+      assert.ok(
+        body !== null,
+        'nothing removes the block\'s copy while the explanation is open, so an open section draws its value twice',
+      );
+      assert.match(
+        String(body),
+        /display:\s*none/,
+        'the rule that should remove the block\'s copy does not remove it',
+      );
+      // 🔴 Keyed on the explanation's own state rather than on a class the
+      // script would have to set. The script moves that attribute when the
+      // reader presses the caret, so the rule follows the press; a class
+      // decided at composition time would not.
+      assert.ok(
+        cssRuleBody(welcomeCss(), '.step-value-folded') === null,
+        'the block\'s copy carries an unconditional rule of its own, which would outrank or duplicate the state-keyed one',
+      );
+    });
+
+    // 🔴 THE CLAUSE THIS WHOLE THING EXISTS FOR, AND THE CRITERION IS STATED
+    // RATHER THAN EYEBALLED: the guidance declares neither a size nor a weight,
+    // so it renders at the editor's own body size and ordinary weight; the
+    // value declares a size at least as large as the heading row's and a weight
+    // at least as heavy. A value set in the same weight as the wall of text
+    // around it is one a reader has to hunt for.
+    it('sets the value above the guidance it sits among', () => {
+      const css = welcomeCss();
+      for (const quiet of ['.step-summary', '.step-detail', '.step-detail p', '.step-bullets']) {
+        const body = cssRuleBody(css, quiet) ?? '';
+        assert.ok(
+          !/font-size:/.test(body) && !/font-weight:/.test(body),
+          `${quiet} now declares a size or a weight of its own, so the comparison below no longer says what it says`,
+        );
+      }
+      const value = cssRuleBody(css, '.step-value');
+      assert.ok(value !== null, 'the value carries no treatment of its own at all');
+      const head = cssRuleBody(css, '.step-head') ?? '';
+      const headSize = remIn(head, 'font-size');
+      const valueSize = remIn(String(value), 'font-size');
+      const valueWeight = Number(/font-weight:\s*(\d+)/.exec(String(value))?.[1] ?? 0);
+      assert.ok(
+        valueSize !== null && headSize !== null && valueSize >= headSize,
+        `the value is set at ${String(valueSize)}rem against a heading row at ${String(headSize)}rem, so it no longer outranks the guidance beneath it`,
+      );
+      assert.ok(
+        valueWeight >= 600,
+        `the value is set at weight ${valueWeight}, which is the weight of the prose around it`,
+      );
+    });
+
+    // The words standing where a value would be keep the size and the weight —
+    // a reader who has chosen nothing is the reader this panel is for — and
+    // change only the face and the slope, which is the pair the versions at the
+    // foot already use for a reading that was not taken.
+    it('keeps an unchosen value as loud as a chosen one', () => {
+      const absent = cssRuleBody(welcomeCss(), '.step-value-absent') ?? '';
+      assert.ok(absent.length > 0, 'nothing distinguishes words from a value');
+      assert.ok(
+        !/font-size:/.test(absent) && !/font-weight:/.test(absent),
+        'the unchosen state is drawn quieter than a chosen value, so the reader who has chosen nothing is told so most faintly',
+      );
     });
   });
 
@@ -531,7 +860,7 @@ describe('the welcome panel', () => {
       const collapsed = initiallyCollapsedStepIds(MIXED);
       assert.deepStrictEqual(
         MIXED_UNMET,
-        STEP_IDS.filter((id) => !MIXED[id]),
+        STEP_IDS.filter((id) => !MIXED[id].met),
         'this fixture no longer has conditions on both sides, so it can no longer tell the rule from its inversion',
       );
       assert.notDeepStrictEqual(
@@ -542,12 +871,12 @@ describe('the welcome panel', () => {
     });
 
     it('opens every section for a reader who has satisfied nothing', () => {
-      assert.deepStrictEqual(initiallyCollapsedStepIds(stepStandings(NOTHING_MET)), []);
+      assert.deepStrictEqual(initiallyCollapsedStepIds(stepReadings(NOTHING_MET)), []);
     });
 
     it('closes every section for a reader who configured everything elsewhere', () => {
       assert.deepStrictEqual(
-        initiallyCollapsedStepIds(stepStandings(EVERYTHING_MET)),
+        initiallyCollapsedStepIds(stepReadings(EVERYTHING_MET)),
         [...STEP_IDS],
         'a reader who has satisfied every condition is asked nothing, so the panel opens as four titles and their controls',
       );
@@ -559,7 +888,7 @@ describe('the welcome panel', () => {
     // itself — because that is the state a reader is in the moment after they
     // satisfy the last step while looking at it.
     it('composes the arrangement it is given, not the one the standings imply', () => {
-      const html = stepsHtml(stepStandings(EVERYTHING_MET), []);
+      const html = stepsHtml(stepReadings(EVERYTHING_MET), []);
       assert.deepStrictEqual(
         collapsedSteps(html),
         [],
@@ -570,7 +899,7 @@ describe('the welcome panel', () => {
     });
 
     it('composes a closure the reader asked for even where the step is still to do', () => {
-      const html = stepsHtml(stepStandings(NOTHING_MET), ['compiler']);
+      const html = stepsHtml(stepReadings(NOTHING_MET), ['compiler']);
       assert.deepStrictEqual(
         collapsedSteps(html),
         ['compiler'],
@@ -584,7 +913,7 @@ describe('the welcome panel', () => {
     // It is the state a reader is in whenever they satisfy a step while its
     // section is open, which is the ordinary way of satisfying one.
     it('leaves a section open when its condition becomes satisfied under the reader', () => {
-      const before = stepsHtml(stepStandings(NOTHING_MET), []);
+      const before = stepsHtml(stepReadings(NOTHING_MET), []);
       assert.ok(before.includes('class="step step-unmet" data-step="compiler"'));
       assert.ok(expandedSteps(before).includes('compiler'));
 
@@ -592,7 +921,7 @@ describe('the welcome panel', () => {
       // step the reader is reading. The arrangement is passed unchanged because
       // nothing the reader did changed it.
       const after = stepsHtml(
-        stepStandings({ ...NOTHING_MET, compilerAnswering: true }),
+        stepReadings({ ...NOTHING_MET, compilerAnswering: true }),
         [],
       );
       assert.ok(
@@ -676,7 +1005,7 @@ describe('the welcome panel', () => {
     // test in this container can load. Only a person opening a cold window can
     // see it, and the operator's walk is where that is recorded.
     it('derives an empty arrangement from an unsettled reading, whatever the facts later are', () => {
-      const unsettled = stepStandings(NOTHING_MET);
+      const unsettled = stepReadings(NOTHING_MET);
       assert.deepStrictEqual(
         initiallyCollapsedStepIds(unsettled),
         [],
@@ -686,7 +1015,7 @@ describe('the welcome panel', () => {
       // were created from that reading: every mark corrected, every section
       // still open.
       const drawnFromUnsettled = stepsHtml(
-        stepStandings(EVERYTHING_MET),
+        stepReadings(EVERYTHING_MET),
         initiallyCollapsedStepIds(unsettled),
       );
       assert.deepStrictEqual(
@@ -696,7 +1025,7 @@ describe('the welcome panel', () => {
       );
       // And the arrangement the same reader is entitled to, from a settled one.
       assert.deepStrictEqual(
-        initiallyCollapsedStepIds(stepStandings(EVERYTHING_MET)),
+        initiallyCollapsedStepIds(stepReadings(EVERYTHING_MET)),
         [...STEP_IDS],
         'a settled all-met reading no longer folds every section',
       );
@@ -870,7 +1199,7 @@ describe('the welcome panel', () => {
         WELCOME_PANEL_TITLE.includes('Aggrega'),
         'a tab is read in a strip beside whatever else is open, so its title has to say whose it is',
       );
-      assert.ok(renderedPanel(stepStandings(NOTHING_MET)).includes(WELCOME_PANEL_TITLE));
+      assert.ok(renderedPanel(stepReadings(NOTHING_MET)).includes(WELCOME_PANEL_TITLE));
     });
 
     // 🔴 NO ROUTE BACK TO THE EDITOR'S OWN WELCOME PAGE. A reader who opened
@@ -880,7 +1209,7 @@ describe('the welcome panel', () => {
     // one command a route would go through: a breadcrumb or a header pointing
     // there would need an anchor, and there are none.
     it('offers no route back to the editor\'s welcome page', () => {
-      const html = renderedPanel(stepStandings(NOTHING_MET));
+      const html = renderedPanel(stepReadings(NOTHING_MET));
       assert.ok(!/<a[\s>]/.test(html), 'the panel carries a link, and it has nowhere legitimate to link to');
       assert.ok(
         !/walkthrough/i.test(html),
@@ -946,7 +1275,7 @@ describe('the welcome panel', () => {
     // both. What anchors the wording to the product is the separate assertion
     // below, against a copy this extension does not own.
     it('delivers the greeting and the product description into the panel whole', () => {
-      const html = renderedPanel(stepStandings(NOTHING_MET));
+      const html = renderedPanel(stepReadings(NOTHING_MET));
       assert.ok(
         html.includes(WELCOME_GREETING),
         'the panel does not carry the greeting as it is written',
@@ -1046,7 +1375,7 @@ describe('the welcome panel', () => {
     // failure that reports nothing anywhere.
     it('declares every command a control invokes', () => {
       const declared = new Set(manifest().commands.map((c) => String(c.command)));
-      const invoked = [...new Set(commandsInPanel(renderedPanel(stepStandings(NOTHING_MET))))];
+      const invoked = [...new Set(commandsInPanel(renderedPanel(stepReadings(NOTHING_MET))))];
       assert.ok(invoked.length > 0, 'the panel draws no controls at all');
       const undeclared = invoked.filter((c) => !declared.has(c));
       assert.deepStrictEqual(
@@ -1070,8 +1399,8 @@ describe('the welcome panel', () => {
     // equality over the union keeps the property the guard exists for: what a
     // press can reach is exactly what the panel is able to draw.
     it('admits exactly the commands its own controls can carry, in either standing', () => {
-      const opening = commandsInPanel(renderedPanel(stepStandings(NOTHING_MET), [], true));
-      const withheld = commandsInPanel(renderedPanel(stepStandings(NOTHING_MET), [], false));
+      const opening = commandsInPanel(renderedPanel(stepReadings(NOTHING_MET), [], true));
+      const withheld = commandsInPanel(renderedPanel(stepReadings(NOTHING_MET), [], false));
       const drawn = [...new Set([...opening, ...withheld])].sort();
       const admitted = [...new Set(panelControlCommands())].sort();
       assert.deepStrictEqual(
@@ -1445,11 +1774,11 @@ describe('the welcome panel', () => {
     // asserted here is the difference between two compositions of the whole
     // page: each carries its own reading and neither carries the other's.
     it('shows a different version when a different version is read', () => {
-      const first = renderedPanel(stepStandings(EVERYTHING_MET), [], true, {
+      const first = renderedPanel(stepReadings(EVERYTHING_MET), [], true, {
         extension: '0.1.0',
         compiler: '0.6.1-1122-g7a7dd003-dirty',
       });
-      const second = renderedPanel(stepStandings(EVERYTHING_MET), [], true, {
+      const second = renderedPanel(stepReadings(EVERYTHING_MET), [], true, {
         extension: '0.2.0',
         compiler: '(devel)',
       });
@@ -1502,7 +1831,7 @@ describe('the welcome panel', () => {
     });
 
     it('carries the step content through the markers it is written in', () => {
-      const html = stepsHtml(stepStandings(NOTHING_MET), []);
+      const html = stepsHtml(stepReadings(NOTHING_MET), []);
       assert.ok(html.includes('<code>.aggrega-config.yaml</code>'));
       assert.ok(html.includes('<strong>workspace root</strong>'));
     });
@@ -1564,7 +1893,7 @@ describe('the welcome panel', () => {
   // one file.
   describe('the configuration the panel teaches', () => {
     it('carries every load-bearing phrase about where configuration lives', () => {
-      const html = renderedPanel(stepStandings(NOTHING_MET));
+      const html = renderedPanel(stepReadings(NOTHING_MET));
       const missing = SIMPLE_CASE_PHRASES.filter((phrase) => !html.includes(phrase));
       assert.deepStrictEqual(
         missing,
@@ -1609,7 +1938,7 @@ describe('the welcome panel', () => {
     });
 
     it('teaches none of the mechanisms built for larger projects', () => {
-      const html = renderedPanel(stepStandings(NOTHING_MET));
+      const html = renderedPanel(stepReadings(NOTHING_MET));
       const taught = BEYOND_THE_SIMPLE_CASE.filter((phrase) => html.includes(phrase));
       assert.deepStrictEqual(
         taught,
@@ -1651,7 +1980,7 @@ describe('the welcome panel', () => {
     // registries and their trust policy, the compiled-module store's size, the
     // installed command extensions. Not credentials: those are in neither file.
     it('does not explain the file on the machine as somewhere to keep credentials', () => {
-      const html = renderedPanel(stepStandings(NOTHING_MET));
+      const html = renderedPanel(stepReadings(NOTHING_MET));
       // The matched text alone, never the match object: a failing comparison
       // against the object prints the whole composed document with it, which
       // buries the one sentence the reader of the failure needs.
@@ -1686,7 +2015,7 @@ describe('the welcome panel', () => {
     // exactly that defect. Comparing the two counts is what closes it: the named
     // form must account for every occurrence of the bare one.
     it('calls the shared configuration file global on both surfaces, and keeps the teaching', () => {
-      const html = renderedPanel(stepStandings(NOTHING_MET));
+      const html = renderedPanel(stepReadings(NOTHING_MET));
       const description = String(manifest().properties['aggrega.server.binaryPath']?.description ?? '');
 
       // Occurrences, not matching lines and not a substring test: both of those

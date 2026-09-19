@@ -7,6 +7,8 @@ import {
   STEP_IDS,
   StepDetail,
   StepId,
+  StepReading,
+  StepValue,
   WELCOME_DESCRIPTION,
   WELCOME_GREETING,
   WELCOME_PANEL_TITLE,
@@ -82,8 +84,10 @@ export const UNMET_LABEL = 'To do';
 // Closed rather than open is what the result names, matching the other panel
 // this extension draws: an empty answer is a panel with every section open,
 // which is the shape a reader who has satisfied nothing meets.
-export function initiallyCollapsedStepIds(standings: Record<StepId, boolean>): StepId[] {
-  return STEP_IDS.filter((id) => standings[id]);
+export function initiallyCollapsedStepIds(
+  readings: Record<StepId, StepReading>,
+): StepId[] {
+  return STEP_IDS.filter((id) => readings[id].met);
 }
 
 // toggleLabel names one section's caret for a reader who reaches it without
@@ -97,11 +101,37 @@ export function toggleLabel(title: string): string {
   return `Explanation: ${title}`;
 }
 
-// stepsHtml composes the four steps against the standings given, arranged as
+// stepValueHtml draws what one step currently stands at, at one of the two
+// positions a step carries it.
+//
+// 🔴 THE VALUE IS COMPOSED AT BOTH POSITIONS EVERY TIME AND THE STYLESHEET
+// SHOWS ONE, WHICH IS THE WHOLE SHAPE OF THIS RATHER THAN AN OPTIMISATION. A
+// section opens and closes in the document itself: the panel's script moves the
+// caret's expansion state and puts the explanation away, and the extension is
+// told afterwards so that the NEXT composition arrives in the reader's shape.
+// So a copy this composition put away would stay put away through a press the
+// extension never hears about, and the reader who folded a section would find
+// the value gone from it — which looks exactly like the value being absent.
+// Composing both and letting the one record of the state decide which is drawn
+// cannot come out of step, because there is nothing here to keep in step. It is
+// the same move the caret's own direction makes.
+//
+// The hidden copy is removed by `display: none` rather than by an attribute, so
+// it leaves the accessibility tree with it and a reader using a screen reader
+// is told the value once.
+function stepValueHtml(value: StepValue, position: 'folded' | 'open'): string {
+  const chosen = 'chosen' in value;
+  const classes = ['step-value', `step-value-${position}`];
+  if (!chosen) { classes.push('step-value-absent'); }
+  const text = chosen ? value.chosen : value.absent;
+  return `<p class="${classes.join(' ')}">${escapeHtml(text)}</p>`;
+}
+
+// stepsHtml composes the four steps against the readings given, arranged as
 // the collapsed set given.
 //
 // THE TWO ARGUMENTS ARE SEPARATE AND NEITHER IS DERIVED FROM THE OTHER. The
-// standings are recomputed and passed afresh on every refresh, so a step whose
+// readings are recomputed and passed afresh on every refresh, so a step whose
 // condition has lapsed is drawn as still to do again and nothing here remembers
 // a previous standing — that is what makes the mark reversible rather than a
 // one-way tick. The arrangement arrives from the caller, which read it once when
@@ -112,11 +142,11 @@ export function toggleLabel(title: string): string {
 // discard whatever the reader had toggled, because the composed list replaces
 // the previous one whole.
 export function stepsHtml(
-  standings: Record<StepId, boolean>,
+  readings: Record<StepId, StepReading>,
   collapsed: readonly StepId[],
 ): string {
   return STEP_CONTENT.map((step) => {
-    const met = standings[step.id];
+    const { met, value } = readings[step.id];
     const open = !collapsed.includes(step.id);
     const proseId = `step-prose-${escapeHtml(step.id)}`;
     const controls = step.actions
@@ -130,6 +160,16 @@ export function stepsHtml(
     // and that is the shape rather than an accident: a closed section keeps both
     // ways forward and hides only the explanation, because a reader who has
     // understood a step still wants to act on it without reading it again.
+    //
+    // THE VALUE SITS AT TWO POSITIONS AND EACH IS CHOSEN FOR THE STATE IT IS
+    // READ IN. Inside the explanation it is last, immediately above the two ways
+    // forward, so it is the final thing read before pressing one of them rather
+    // than something lost above a wall of guidance. Outside it — between the
+    // explanation and the ways forward — it falls directly under the heading
+    // whenever the explanation is folded away, which is where a reader who has
+    // put the guidance away is looking. The copy for the folded state sits after
+    // the explanation rather than before it because the stylesheet has to reach
+    // it from the explanation's own state, and a stylesheet reads forwards.
     return `<section class="step ${met ? 'step-met' : 'step-unmet'}" data-step="${escapeHtml(step.id)}">
   <h2 class="step-head">
     <span class="step-mark" aria-hidden="true">${met ? '&check;' : '&#9675;'}</span>
@@ -140,7 +180,9 @@ export function stepsHtml(
   <div class="step-prose" id="${proseId}"${open ? '' : ' hidden'}>
     <p class="step-summary">${inlineHtml(step.summary)}</p>
     <div class="step-detail">${step.detail.map(detailHtml).join('')}</div>
+    ${stepValueHtml(value, 'open')}
   </div>
+  ${stepValueHtml(value, 'folded')}
   <div class="step-actions">${controls}</div>
 </section>`;
   }).join('\n');
@@ -237,10 +279,10 @@ export interface WelcomeDocumentOptions {
   styleUri: string;
   scriptUri: string;
   cspSource: string;
-  standings: Record<StepId, boolean>;
+  readings: Record<StepId, StepReading>;
   // collapsed names the sections the panel opens closed, which for a panel
-  // being created is what the standings read at that moment decide. It is
-  // carried separately from the standings above for the reason stepsHtml
+  // being created is what the readings taken at that moment decide. It is
+  // carried separately from the readings above for the reason stepsHtml
   // states, and the two must not be collapsed into one value.
   collapsed: readonly StepId[];
   // opensWithEditor is the preference as it stands, which is what the foot
@@ -291,7 +333,7 @@ export function welcomeDocumentHtml(opts: WelcomeDocumentOptions): string {
   <main class="welcome">
     <h1 class="welcome-greeting">${escapeHtml(WELCOME_GREETING)}</h1>
     <p class="welcome-description">${escapeHtml(WELCOME_DESCRIPTION)}</p>
-    <div id="steps" class="steps">${stepsHtml(opts.standings, opts.collapsed)}</div>
+    <div id="steps" class="steps">${stepsHtml(opts.readings, opts.collapsed)}</div>
     <div id="dismiss" class="welcome-dismiss">${dismissHtml(opts.opensWithEditor)}</div>
     <p id="versions" class="welcome-versions">${versionsHtml(opts.versions)}</p>
   </main>

@@ -105,50 +105,156 @@ export const STEP_IDS: readonly StepId[] = ['workspace', 'compiler', 'release', 
 // GetStartedFacts is what the four conditions are read from. Each field is a
 // fact some other part of the extension already owns, passed in rather than
 // re-derived here — a second derivation would agree until the day it did not.
+//
+// 🔴 THREE OF THE FOUR CONDITIONS ARE THE PRESENCE OF THE VALUE ITSELF, WHICH IS
+// WHY THERE IS NO SEPARATE BOOLEAN BESIDE THEM. A folder is anchored exactly
+// when there is one to name, a Release is selected exactly when there is one to
+// name, and a registry is configured exactly when the resolved configuration
+// names one. Carrying a standing alongside the value would be two records of
+// one fact, and they would agree until the day a caller set one without the
+// other — at which point the panel would tick a step it could not name a value
+// for, or name one under a step it called still to do.
+//
+// 🔴 THE COMPILER IS THE EXCEPTION AND IT IS A REAL ONE. Whether the language
+// server answers and which binary the reader has named are independent: a
+// reader who has named a compiler that will not start has a value and no
+// answer, and the plain name the preference defaults to means the value is
+// never absent merely because nothing is running. So that step carries both,
+// and neither is derivable from the other.
 export interface GetStartedFacts {
-  // workspaceAnchored is whether a folder the compiler recognises has been
-  // resolved. Without one the language server is not started at all and every
-  // operation has nowhere to run.
-  workspaceAnchored: boolean;
+  // workspaceRoot is the folder the extension resolved to work in, or null when
+  // none has been. Without one the language server is not started at all and
+  // every operation has nowhere to run.
+  workspaceRoot: string | null;
   // compilerAnswering is whether the language server can be asked right now.
   compilerAnswering: boolean;
-  // releaseSelected is whether a Release is selected. Building, previewing and
-  // the topology graph each act on one, so the editor needs to know which.
-  releaseSelected: boolean;
-  // registryConfigured is whether the resolved configuration names at least one
-  // registry. Without one, pulling dependencies and searching the published
-  // catalog have nothing to resolve against.
-  registryConfigured: boolean;
+  // compilerPath is the compiler the reader has named for the editor to start.
+  // It is the preference itself rather than the binary a running language
+  // server happens to have been started from: this is the value the step's own
+  // two ways through write, so it is the one that moves when a reader presses
+  // one of them.
+  compilerPath: string;
+  // release is the selected Release, named as the language server names it, or
+  // null when none is selected. Building, previewing and the topology graph
+  // each act on one, so the editor needs to know which.
+  release: string | null;
+  // registries names the registries the resolved configuration declares, in the
+  // order the compiler answered in. An empty list is a configuration that names
+  // none; null is a question that produced no answer at all, which is a
+  // different statement and is reported as one. Without a registry, pulling
+  // dependencies and searching the published catalog have nothing to resolve
+  // against.
+  registries: readonly string[] | null;
 }
 
 // stepMet reports whether one condition already holds.
 export function stepMet(id: StepId, facts: GetStartedFacts): boolean {
   switch (id) {
     case 'workspace':
-      return facts.workspaceAnchored;
+      return facts.workspaceRoot !== null;
     case 'compiler':
       return facts.compilerAnswering;
     case 'release':
-      return facts.releaseSelected;
+      return facts.release !== null;
     case 'registry':
-      return facts.registryConfigured;
+      return (facts.registries ?? []).length > 0;
   }
 }
 
-// stepStandings reports every condition at once, which is what the panel draws
-// its marks from.
+// The words a step shows where it has no value to name. Each says what is not
+// chosen rather than leaving a blank, because a blank line reads as something
+// the panel failed to draw rather than as an answer the reader has not given.
+//
+// 🔴 THE REGISTRY STEP HAS TWO OF THEM AND THE DISTINCTION IS LOAD-BEARING. A
+// configuration that names no registry and a question that produced no answer
+// are different facts, and the second is not the reader's doing — telling them
+// they have configured none when nothing was able to answer would be a
+// statement the panel has no grounds for. They read as the same standing,
+// because in neither case can a registry be named, and they read as different
+// values, because only one of them is about what the reader has done.
+export const WORKSPACE_VALUE_ABSENT = 'No workspace root yet';
+export const COMPILER_VALUE_ABSENT = 'No compiler named yet';
+export const RELEASE_VALUE_ABSENT = 'No Release selected yet';
+export const REGISTRY_VALUE_ABSENT = 'No registry configured yet';
+export const REGISTRY_VALUE_UNREAD = 'Not read yet';
+
+// REGISTRY_SEPARATOR joins the registries a configuration names, because the
+// condition is satisfied by having one and a reader may have several. They are
+// joined in the order the compiler answered in and never re-ordered: the
+// enumeration states its own order, and a surface that sorted it again would
+// show a reader a different list from the one the command line shows them.
+const REGISTRY_SEPARATOR = ', ';
+
+// StepValue is what one step currently stands at: either the value the reader
+// has chosen, or the words standing where a value would be.
+//
+// The two are distinct shapes rather than a string that is sometimes a sentence
+// because the panel draws them differently — a chosen value is a token to
+// compare character by character, and an absent one is prose — and because a
+// caller cannot then mistake the words for a value it could act on.
+export type StepValue =
+  | { readonly chosen: string }
+  | { readonly absent: string };
+
+// chosenOrAbsent reads one value, treating a blank as no value at all.
+//
+// Blank counts as unset everywhere rather than per step: a preference a reader
+// has emptied and a preference nothing ever wrote are the same state as far as
+// this panel can tell, and drawing an empty line for either is the rendering
+// fault the words exist to prevent.
+function chosenOrAbsent(raw: string | null, absent: string): StepValue {
+  return raw === null || raw === '' ? { absent } : { chosen: raw };
+}
+
+// stepValue reports what one step currently stands at.
+export function stepValue(id: StepId, facts: GetStartedFacts): StepValue {
+  switch (id) {
+    case 'workspace':
+      return chosenOrAbsent(facts.workspaceRoot, WORKSPACE_VALUE_ABSENT);
+    case 'compiler':
+      return chosenOrAbsent(facts.compilerPath, COMPILER_VALUE_ABSENT);
+    case 'release':
+      return chosenOrAbsent(facts.release, RELEASE_VALUE_ABSENT);
+    case 'registry':
+      if (facts.registries === null) { return { absent: REGISTRY_VALUE_UNREAD }; }
+      return facts.registries.length === 0
+        ? { absent: REGISTRY_VALUE_ABSENT }
+        : { chosen: facts.registries.join(REGISTRY_SEPARATOR) };
+  }
+}
+
+// StepReading is one step as the panel draws it: whether its condition holds,
+// and what it currently stands at.
+//
+// The two travel together because they are read together, from one set of facts
+// in one pass. Handing the composition a standing and a value from two separate
+// readings is what would let a panel mark a step met beside a value read before
+// the condition moved.
+export interface StepReading {
+  readonly met: boolean;
+  readonly value: StepValue;
+}
+
+// stepReadings reports every step at once, which is what the panel is composed
+// from.
 //
 // It is recomputed from the facts on every refresh rather than accumulated, and
 // that is what makes a standing REVERSIBLE: a condition that lapses is read as
 // unmet on the next refresh and the step goes back to still-to-do. Nothing here
 // remembers that a step was once met, because a checklist that only ticks
-// forward tells a reader they have something they have since lost.
-export function stepStandings(facts: GetStartedFacts): Record<StepId, boolean> {
+// forward tells a reader they have something they have since lost. The value
+// follows the same rule for the same reason: a value the reader has since
+// cleared is drawn as absent again.
+export function stepReadings(facts: GetStartedFacts): Record<StepId, StepReading> {
+  const reading = (id: StepId): StepReading => ({
+    met: stepMet(id, facts),
+    value: stepValue(id, facts),
+  });
   return {
-    workspace: stepMet('workspace', facts),
-    compiler: stepMet('compiler', facts),
-    release: stepMet('release', facts),
-    registry: stepMet('registry', facts),
+    workspace: reading('workspace'),
+    compiler: reading('compiler'),
+    release: reading('release'),
+    registry: reading('registry'),
   };
 }
 
@@ -178,20 +284,30 @@ export function readCollapsedSteps(value: unknown): StepId[] {
 // spelled out at each use because it is the state the panel is measured
 // against: every condition reports itself met, so such a reader is asked
 // nothing.
+//
+// Its four values stand for what such a reader's answers look like; nothing
+// reads them for their content, only for their presence.
 export const EVERYTHING_MET: GetStartedFacts = {
-  workspaceAnchored: true,
+  workspaceRoot: '/work/demo',
   compilerAnswering: true,
-  releaseSelected: true,
-  registryConfigured: true,
+  compilerPath: 'aggrega',
+  release: 'releases/prod.yaml',
+  registries: ['registry.example.com'],
 };
 
-// NOTHING_MET is the opposite end: a reader who has just installed the
-// extension and opened a folder with nothing in it.
+// NOTHING_MET is the opposite end: nothing named, nothing selected and nothing
+// answering.
+//
+// The compiler path is empty here rather than the plain name the preference
+// defaults to, because this constant is the far end rather than a transcript of
+// a fresh profile — a reader who has never opened the settings screen does in
+// fact carry the default.
 export const NOTHING_MET: GetStartedFacts = {
-  workspaceAnchored: false,
+  workspaceRoot: null,
   compilerAnswering: false,
-  releaseSelected: false,
-  registryConfigured: false,
+  compilerPath: '',
+  release: null,
+  registries: null,
 };
 
 // The identifiers below name the commands the panel's controls invoke.

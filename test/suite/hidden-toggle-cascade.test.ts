@@ -7,7 +7,7 @@ import * as path from 'node:path';
 
 import { OPERATION_GROUPS, OperationsLayout } from '../../src/operation-groups';
 import { OperationsBody, operationsBodyHtml } from '../../src/operations-render';
-import { NOTHING_MET, STEP_IDS, StepId, stepStandings } from '../../src/get-started-steps';
+import { NOTHING_MET, STEP_IDS, StepId, stepReadings } from '../../src/get-started-steps';
 import { selectorRows } from '../../src/selector-rows';
 import { welcomeDocumentHtml } from '../../src/welcome-render';
 
@@ -312,13 +312,13 @@ function operationsHtml(): string {
 }
 
 function welcomeHtml(): string {
-  const standings = stepStandings(NOTHING_MET);
+  const readings = stepReadings(NOTHING_MET);
   const open = welcomeDocumentHtml({
     nonce: 'test-nonce',
     styleUri: 'vscode-resource://media/welcome.css',
     scriptUri: 'vscode-resource://media/welcome.js',
     cspSource: 'vscode-resource:',
-    standings,
+    readings,
     collapsed: [],
     opensWithEditor: true,
     versions: { extension: '9.9.9', compiler: '8.8.8' },
@@ -328,7 +328,7 @@ function welcomeHtml(): string {
     styleUri: 'vscode-resource://media/welcome.css',
     scriptUri: 'vscode-resource://media/welcome.js',
     cspSource: 'vscode-resource:',
-    standings,
+    readings,
     collapsed: STEP_IDS as readonly StepId[],
     opensWithEditor: true,
     versions: { extension: '9.9.9', compiler: null },
