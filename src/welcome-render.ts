@@ -101,6 +101,25 @@ export function toggleLabel(title: string): string {
   return `Explanation: ${title}`;
 }
 
+// VALUE_LEAD_IN introduces a chosen value, so the line says what it is rather
+// than standing as a bare token under a heading.
+//
+// 🔴 IT IS DELIBERATELY QUIETER THAN WHAT IT INTRODUCES, and the stylesheet is
+// where that is declared. The value outranks the guidance around it on purpose;
+// a lead-in set at the same size and weight would compete with the very thing
+// it is there to point at, so it is drawn smaller, at ordinary weight, in the
+// page's own descriptive colour.
+//
+// The words standing where a value would be take no lead-in. They are whole
+// sentences rather than tokens, and introducing a sentence with a label reads
+// as a label applied to the wrong kind of thing.
+export const VALUE_LEAD_IN = 'Selected: ';
+
+// VALUE_LEAD_CLASS addresses the lead-in so the stylesheet can set it apart
+// from the value it introduces. It is named here because this is where the
+// lead-in is composed.
+const VALUE_LEAD_CLASS = 'step-value-lead';
+
 // stepValueHtml draws what one step currently stands at, at one of the two
 // positions a step carries it.
 //
@@ -123,8 +142,11 @@ function stepValueHtml(value: StepValue, position: 'folded' | 'open'): string {
   const chosen = 'chosen' in value;
   const classes = ['step-value', `step-value-${position}`];
   if (!chosen) { classes.push('step-value-absent'); }
+  const lead = chosen
+    ? `<span class="${VALUE_LEAD_CLASS}">${escapeHtml(VALUE_LEAD_IN)}</span>`
+    : '';
   const text = chosen ? value.chosen : value.absent;
-  return `<p class="${classes.join(' ')}">${escapeHtml(text)}</p>`;
+  return `<p class="${classes.join(' ')}">${lead}${escapeHtml(text)}</p>`;
 }
 
 // stepsHtml composes the four steps against the readings given, arranged as

@@ -220,11 +220,39 @@ body {
   overflow-wrap: anywhere;
 }
 
+/* 🔴 THE WORDS THAT INTRODUCE A CHOSEN VALUE, AND THEY ARE QUIETER THAN IT ON
+   PURPOSE. The value outranks the guidance around it, which is the whole reason
+   it is drawn at the heading's size and weight; a lead-in set the same way
+   would compete with the thing it exists to point at. So it is smaller, at
+   ordinary weight, in the same descriptive colour the page already uses for
+   text that reports rather than instructs.
+
+   The face is named rather than inherited. The value's own rule sets the
+   fixed-width face on the paragraph, so anything inside it inherits that — and
+   a label is prose, not a token to compare character by character. `inherit`
+   here would therefore hand it exactly the face it must not have, which is the
+   opposite of what the same keyword does on the rule below, where the
+   paragraph's own parent is the section.
+
+   It sits on a span inside the value rather than on a rule of its own outside
+   it, so both copies of the value carry it and the one the stylesheet puts away
+   takes its lead-in with it. */
+.step-value-lead {
+  font-family: var(--vscode-font-family);
+  font-size: 0.8rem;
+  font-weight: 400;
+  color: var(--vscode-descriptionForeground);
+}
+
 /* No value yet is a sentence rather than a token, so it drops the fixed-width
    face that would present it as one and is set in italic — the same pair the
    versions at the foot use for a reading that was not taken. It keeps the size
    and the weight: a reader who has chosen nothing is exactly the reader this
-   panel is for, and telling them so quietly would be the wrong way round. */
+   panel is for, and telling them so quietly would be the wrong way round.
+
+   It carries no lead-in to set apart: the words are a whole sentence, and a
+   label in front of a sentence reads as a label applied to the wrong kind of
+   thing. */
 .step-value-absent {
   font-family: inherit;
   font-style: italic;
@@ -250,21 +278,28 @@ body {
 /* Both ways through a step, side by side and weighted the same. Neither is the
    recommended one: creating and pointing at what you already have end in the
    same state, and a reader who has the thing should not have to read past a
-   primary control telling them to make another. */
+   primary control telling them to make another.
+
+   🔴 ONE GAP, DECLARED ONCE, AND A CLOSED SECTION DOES NOT REDUCE IT. That is
+   the rule rather than an omission, so it is written here where the reduction
+   would go. What sits immediately above these controls is the same element in
+   both states — what the step stands at — because the closed section's copy of
+   it takes the place the explanation vacates rather than leaving a hole there.
+   With the same element above in both states, a second smaller gap for the
+   closed one would crowd the controls against the value in exactly the state a
+   reader is scanning fastest, and it would do it on a page where every other
+   section sets them a full step apart.
+
+   The reduction was right while a closed section really did put its heading
+   directly above these controls, and it stopped being right when the value came
+   to sit between them. It is recorded rather than merely deleted because the
+   hole it was closing is the obvious thing to notice and the value filling that
+   hole is not. */
 .step-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
   margin-top: 1rem;
-}
-
-/* A closed section is its heading, what it stands at, and its two ways forward,
-   one under the other. The gap the explanation used to occupy would otherwise
-   be left behind as a hole between them. The value now sits between the
-   explanation and the ways forward, so the two are no longer adjacent and this
-   reaches past it. */
-.step-prose[hidden] ~ .step-actions {
-  margin-top: 0.25rem;
 }
 
 /* 🔴 THE CHOICES ARE OUTLINED, AND THEY ARE THERE WITHOUT BEING HOVERED. A

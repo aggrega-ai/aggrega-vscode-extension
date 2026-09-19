@@ -52,8 +52,19 @@ declares. The value is set larger and heavier than the explanation around it, be
 in the same weight as a wall of text is one you have to hunt for. A folded step shows it under the
 title, so you can confirm your selection without unfolding anything; an open one shows it at the foot
 of the explanation, immediately above the buttons, where it is the last thing read before you act.
-Where you have not chosen yet, the step says so in words — **No Release selected yet** rather than a
-blank line, which would read as the page having failed to draw.
+A chosen value is introduced by **Selected:**, set smaller and lighter than the value itself so the
+label points at the value rather than competing with it.
+
+**Where you have not chosen yet, the step says so in words rather than leaving a blank line**, which
+would read as the page having failed to draw — and it distinguishes two states a reader acts on
+differently. **None selected.** means there is something to choose and you are on none of it.
+**None available.** means there is nothing here to choose from at all, so pressing the step's
+"I already have one" could only show you an empty list and what you want is its other way through.
+Only the two steps that offer a list can read **None available.** — the workspace and the Release.
+A compiler is named and a registry is registered outright, so neither of those steps has a list that
+could be empty. The registry step keeps a third reading, **Not read yet.**, for when the compiler
+could not be asked: telling you that you have configured none when nothing was able to answer would
+say more than the page knows.
 
 **A step's mark follows its condition in both directions.** Each step carries its standing in words
 beside the mark — **Met** or **To do** — because the mark itself is a glyph and a glyph alone leaves
@@ -100,7 +111,7 @@ version was not reported, so an absent reading is never mistaken for one you fai
 
 ## Features
 
-- **Welcome page** — Aggrega's own page in its own editor tab, saying what Aggrega is and then listing what the extension needs in this workspace, marking each condition **Met** or **To do**. Each step offers both a way to create the thing and a way to point at one you already have, explains the condition, and a step already met asks you nothing. A step marked **Met** goes back to **To do** if its condition lapses. A step already met opens folded, so the page opens on the work that remains. Each step also shows what it currently stands at — the workspace root, the compiler, the Release, the registries — set larger and heavier than the guidance, under the title when the step is folded and immediately above the buttons when it is open, and saying so in words where you have not chosen yet. Its foot carries the checkbox that decides whether it opens on startup, the same switch the settings screen holds, and below that the versions of the extension and of the compiler you are running. A house icon in the Commands panel title bar opens it again at any time. It costs the Aggrega view no space. See [The welcome page](#the-welcome-page).
+- **Welcome page** — Aggrega's own page in its own editor tab, saying what Aggrega is and then listing what the extension needs in this workspace, marking each condition **Met** or **To do**. Each step offers both a way to create the thing and a way to point at one you already have, explains the condition, and a step already met asks you nothing. A step marked **Met** goes back to **To do** if its condition lapses. A step already met opens folded, so the page opens on the work that remains. Each step also shows what it currently stands at — the workspace root, the compiler, the Release, the registries — set larger and heavier than the guidance, introduced by **Selected:**, under the title when the step is folded and immediately above the buttons when it is open, and saying so in words where you have not chosen yet — **None selected.** where there is something to choose, **None available.** where there is nothing to choose from at all. Its foot carries the checkbox that decides whether it opens on startup, the same switch the settings screen holds, and below that the versions of the extension and of the compiler you are running. A house icon in the Commands panel title bar opens it again at any time. It costs the Aggrega view no space. See [The welcome page](#the-welcome-page).
 - **Language server state** — a status-bar indicator on the left, beside the Release indicator, reading **running**, **starting**, or **not running** in red. It is the one surface that is there whatever the compiler is doing, so it is where you find out that nothing is running rather than being left to infer it from surfaces that have gone quiet — and its tooltip says which of the two reasons applies: no folder here is one Aggrega recognises, or there is one and the server is not attached to it. Clicking it offers **Start** when nothing is running and **Restart** when something is, and does the one you choose. See [When the language server is not running](#when-the-language-server-is-not-running).
 - **Selected Release** — a status-bar indicator and a **Release** row at the top of the Commands panel, each naming the one Release the editor is working on. Everything that acts on a Release — validation, the topology graph, build, preview build and pull — acts on that one, so the Problems panel and the graph always describe the same Release. See [Selecting a Release](#selecting-a-release).
 - **Diagnostics** — YAML and schema validation surfaced inline as you edit, checked against the selected Release.

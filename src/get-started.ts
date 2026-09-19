@@ -99,6 +99,16 @@ export interface GetStartedDeps extends RendersOnReady {
   getBinaryPath(): string;
   isCompilerAnswering(): boolean;
   selectedRelease(): string | null;
+  // offerableReleases reports how many Releases the last enumeration could name
+  // in a request, or null where no enumeration has produced an answer.
+  //
+  // It decides which words the Release step shows where nothing is selected:
+  // telling a reader that none is selected in a workspace that offers none
+  // sends them to a chooser whose only possible answer is an empty list. It is
+  // a dependency for the reason every other field here is — the selection
+  // already owns that count, and a second walk of the workspace would be a
+  // second answer to a question that has one.
+  offerableReleases(): number | null;
   // reanchor re-evaluates the open folders and attaches the language server.
   //
   // It is a dependency rather than something reached through a command because
@@ -484,8 +494,17 @@ function welcomeHtml(
 // surfaces that genuinely move between two calls.
 async function readFacts(deps: GetStartedDeps): Promise<GetStartedFacts> {
   const compilerAnswering = deps.isCompilerAnswering();
+  const workspaceRoot = deps.getWorkspaceRoot();
   return {
-    workspaceRoot: deps.getWorkspaceRoot(),
+    workspaceRoot,
+    // What the workspace step's own chooser would offer, and it is looked for
+    // only while there is no root — which is the only state the answer decides
+    // anything in, because a step with a root to name draws the root. Asking
+    // otherwise would walk the whole open workspace on every refresh to
+    // produce a number nothing reads. Unasked is reported as unasked, and the
+    // step then says nothing is selected rather than claiming there is nothing
+    // to select, which is the safe direction to be wrong in.
+    workspaceCandidates: workspaceRoot === null ? await offerableFolders(deps) : null,
     compilerAnswering,
     // The compiler the READER NAMED, which is the preference the step's own two
     // ways through write. It is deliberately not the binary a running language
@@ -497,12 +516,41 @@ async function readFacts(deps: GetStartedDeps): Promise<GetStartedFacts> {
     // see what they named would be shown nothing.
     compilerPath: deps.getBinaryPath(),
     release: deps.selectedRelease(),
+    releaseCandidates: deps.offerableReleases(),
     // The registry question is asked of the compiler, so it is asked only once
     // the compiler is answerable. Before then the answer would be a failed
     // spawn rather than a fact, and the step above this one is the one the
     // reader is being asked to act on anyway.
     registries: compilerAnswering ? await configuredRegistries(deps) : null,
   };
+}
+
+// offerableFolders counts the folders the workspace step's own chooser would
+// offer, and answers null where the search could not be made.
+//
+// 🔴 IT RUNS THE CHOOSER'S OWN SEARCH RATHER THAN A CHEAPER ONE, AND THE
+// CHEAPER ONE IS WRONG. The count of open folders that are themselves anchored
+// is already kept elsewhere and looks like the same fact, but discovery CLIMBS:
+// a reader who opened a folder above the one carrying the configuration has
+// none of those and one of these — and they are exactly the reader the chooser
+// exists for. Reporting the cheap number would tell them nothing is available
+// while the control beside those words had a folder to offer.
+//
+// A failure answers null rather than zero, for the reason the registry
+// enumeration does: nobody having looked is not the same statement as there
+// being none, and only one of them is something a reader can act on. It is
+// caught here rather than left to propagate because the paths that re-read
+// these facts do not await the result, so a rejection would surface as an
+// unhandled one and take the whole reading with it.
+async function offerableFolders(deps: GetStartedDeps): Promise<number | null> {
+  try {
+    return (await anchoredDirectories()).length;
+  } catch (err) {
+    deps.output.appendLine(
+      `get started: could not look for folders Aggrega recognises: ${describeError(err)}`,
+    );
+    return null;
+  }
 }
 
 // configuredRegistries asks the compiler what registries the resolved

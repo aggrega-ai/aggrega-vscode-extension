@@ -121,11 +121,30 @@ export const STEP_IDS: readonly StepId[] = ['workspace', 'compiler', 'release', 
 // answer, and the plain name the preference defaults to means the value is
 // never absent merely because nothing is running. So that step carries both,
 // and neither is derivable from the other.
+//
+// 🔴 TWO STEPS CARRY A THIRD KIND OF FACT — HOW MANY THERE ARE TO CHOOSE FROM —
+// AND IT IS NEITHER THEIR CONDITION NOR THEIR VALUE. It decides only which
+// words stand where a value would be: a reader told nothing is selected when
+// nothing exists to select goes looking for a chooser that cannot help them.
+// Only the two steps whose second way through OFFERS A LIST carry one; the
+// other two reach their answer by naming or creating, so there is no list to be
+// empty and no state in which the reader cannot act.
 export interface GetStartedFacts {
   // workspaceRoot is the folder the extension resolved to work in, or null when
   // none has been. Without one the language server is not started at all and
   // every operation has nowhere to run.
   workspaceRoot: string | null;
+  // workspaceCandidates is how many folders the step's own chooser would
+  // offer — the folders in this window Aggrega already recognises as a
+  // workspace root — or null where nobody has looked.
+  //
+  // It is read from the same place that chooser reads, so the words shown and
+  // the list a press produces cannot disagree. It is deliberately NOT the count
+  // of open folders that are themselves anchored: discovery climbs, so a reader
+  // who opened a folder above the one carrying the configuration has none of
+  // the second and one of the first — and they are precisely the reader the
+  // chooser exists for.
+  workspaceCandidates: number | null;
   // compilerAnswering is whether the language server can be asked right now.
   compilerAnswering: boolean;
   // compilerPath is the compiler the reader has named for the editor to start.
@@ -138,6 +157,14 @@ export interface GetStartedFacts {
   // null when none is selected. Building, previewing and the topology graph
   // each act on one, so the editor needs to know which.
   release: string | null;
+  // releaseCandidates is how many Releases the last enumeration could name in a
+  // request, or null where no enumeration has produced an answer.
+  //
+  // It is the selection's own count rather than a second walk of the workspace,
+  // for the reason every other field here is passed in: the answer already has
+  // an owner, and a second derivation would agree with it until the day it did
+  // not.
+  releaseCandidates: number | null;
   // registries names the registries the resolved configuration declares, in the
   // order the compiler answered in. An empty list is a configuration that names
   // none; null is a question that produced no answer at all, which is a
@@ -165,18 +192,43 @@ export function stepMet(id: StepId, facts: GetStartedFacts): boolean {
 // chosen rather than leaving a blank, because a blank line reads as something
 // the panel failed to draw rather than as an answer the reader has not given.
 //
-// 🔴 THE REGISTRY STEP HAS TWO OF THEM AND THE DISTINCTION IS LOAD-BEARING. A
-// configuration that names no registry and a question that produced no answer
-// are different facts, and the second is not the reader's doing — telling them
-// they have configured none when nothing was able to answer would be a
-// statement the panel has no grounds for. They read as the same standing,
-// because in neither case can a registry be named, and they read as different
-// values, because only one of them is about what the reader has done.
-export const WORKSPACE_VALUE_ABSENT = 'No workspace root yet';
-export const COMPILER_VALUE_ABSENT = 'No compiler named yet';
-export const RELEASE_VALUE_ABSENT = 'No Release selected yet';
-export const REGISTRY_VALUE_ABSENT = 'No registry configured yet';
-export const REGISTRY_VALUE_UNREAD = 'Not read yet';
+// 🔴 NOTHING CHOSEN AND NOTHING TO CHOOSE ARE DIFFERENT SENTENCES, AND THAT IS
+// THE DISTINCTION THESE TWO EXIST FOR. A reader told nothing is selected when
+// no candidate exists goes looking for a chooser that can only come back
+// empty, and the press that discovers this is one they had to make to find
+// out. So a level that holds nothing says so, and only a level that holds
+// something invites a choice.
+//
+// They are two sentences rather than one per step because the distinction is
+// about the level's contents and never about which level it is. The step's own
+// heading already names what is missing, so repeating the noun here would put
+// it twice in two lines and leave four wordings to keep in step where one pair
+// says the whole thing.
+//
+// 🔴 THE SAME PAIR OF WORDS, IN LOWER CASE AND WITHOUT THE STOP, IS WHAT THE
+// COMMANDS PANEL'S ROWS SHOW, AND THE NEAR-DUPLICATE IS DELIBERATE. A row draws
+// its value after a label that names the level, so it reads as the tail of a
+// phrase; these stand alone on a line of their own and read as sentences.
+// Sharing one constant between the two would need a case-and-punctuation
+// transform at one of them, which is a second mechanic in place of a second
+// short string.
+export const VALUE_NONE_SELECTED = 'None selected.';
+export const VALUE_NONE_AVAILABLE = 'None available.';
+
+// 🔴 THE REGISTRY STEP KEEPS A THIRD SENTENCE AND THE DISTINCTION IS
+// LOAD-BEARING. A configuration that names no registry and a question that
+// produced no answer are different facts, and the second is not the reader's
+// doing — telling them they have configured none when nothing was able to
+// answer would be a statement the panel has no grounds for. They read as the
+// same standing, because in neither case can a registry be named, and they read
+// as different values, because only one of them is about what the reader has
+// done.
+//
+// It is the registry's alone. A Release whose enumeration has not run is a
+// different shape: whether one is SELECTED is known there, and only what is on
+// offer is unread — so that step says nothing is selected and claims nothing
+// about what exists.
+export const REGISTRY_VALUE_UNREAD = 'Not read yet.';
 
 // REGISTRY_SEPARATOR joins the registries a configuration names, because the
 // condition is satisfied by having one and a reader may have several. They are
@@ -206,19 +258,41 @@ function chosenOrAbsent(raw: string | null, absent: string): StepValue {
   return raw === null || raw === '' ? { absent } : { chosen: raw };
 }
 
+// absentWording picks between the two empty sentences from what the step's own
+// level holds.
+//
+// 🔴 AN UNREAD COUNT READS AS NOTHING SELECTED, NEVER AS NOTHING AVAILABLE.
+// Saying a level is empty is the stronger of the two claims and it needs
+// evidence; nobody having looked is not evidence, and a surface that guessed
+// that way would tell a reader to give up on a level that may be full.
+function absentWording(candidates: number | null): string {
+  return candidates === 0 ? VALUE_NONE_AVAILABLE : VALUE_NONE_SELECTED;
+}
+
 // stepValue reports what one step currently stands at.
+//
+// Every branch that can be empty goes through chosenOrAbsent, so what counts as
+// no value at all is decided in one place; what differs between them is only
+// which words stand there.
+//
+// 🔴 ONLY TWO STEPS CONSULT A COUNT, AND THE OTHER TWO CANNOT REACH THE
+// NOTHING-AVAILABLE SENTENCE AT ALL. Both of the compiler's ways through name a
+// binary and both of the registry's register one, so neither step has a list
+// that can come back empty and neither has a state its reader cannot act in.
+// Telling them nothing is available would be false in the one direction that
+// costs them something.
 export function stepValue(id: StepId, facts: GetStartedFacts): StepValue {
   switch (id) {
     case 'workspace':
-      return chosenOrAbsent(facts.workspaceRoot, WORKSPACE_VALUE_ABSENT);
+      return chosenOrAbsent(facts.workspaceRoot, absentWording(facts.workspaceCandidates));
     case 'compiler':
-      return chosenOrAbsent(facts.compilerPath, COMPILER_VALUE_ABSENT);
+      return chosenOrAbsent(facts.compilerPath, VALUE_NONE_SELECTED);
     case 'release':
-      return chosenOrAbsent(facts.release, RELEASE_VALUE_ABSENT);
+      return chosenOrAbsent(facts.release, absentWording(facts.releaseCandidates));
     case 'registry':
       if (facts.registries === null) { return { absent: REGISTRY_VALUE_UNREAD }; }
       return facts.registries.length === 0
-        ? { absent: REGISTRY_VALUE_ABSENT }
+        ? { absent: VALUE_NONE_SELECTED }
         : { chosen: facts.registries.join(REGISTRY_SEPARATOR) };
   }
 }
@@ -285,13 +359,17 @@ export function readCollapsedSteps(value: unknown): StepId[] {
 // against: every condition reports itself met, so such a reader is asked
 // nothing.
 //
-// Its four values stand for what such a reader's answers look like; nothing
-// reads them for their content, only for their presence.
+// The values stand for what such a reader's answers look like; nothing reads
+// them for their content, only for their presence. The counts say the levels
+// hold what was chosen from them, which is the only reading consistent with
+// having chosen.
 export const EVERYTHING_MET: GetStartedFacts = {
   workspaceRoot: '/work/demo',
+  workspaceCandidates: 1,
   compilerAnswering: true,
   compilerPath: 'aggrega',
   release: 'releases/prod.yaml',
+  releaseCandidates: 1,
   registries: ['registry.example.com'],
 };
 
@@ -302,11 +380,19 @@ export const EVERYTHING_MET: GetStartedFacts = {
 // defaults to, because this constant is the far end rather than a transcript of
 // a fresh profile — a reader who has never opened the settings screen does in
 // fact carry the default.
+//
+// The two counts differ, and both follow from the rest of the state rather than
+// being chosen for effect. This window holds no folder Aggrega recognises, so
+// the workspace level genuinely holds none and says so. Nothing is answering,
+// so no enumeration of Releases has run and that count is unread rather than
+// zero — the same reason the registries are null here.
 export const NOTHING_MET: GetStartedFacts = {
   workspaceRoot: null,
+  workspaceCandidates: 0,
   compilerAnswering: false,
   compilerPath: '',
   release: null,
+  releaseCandidates: null,
   registries: null,
 };
 

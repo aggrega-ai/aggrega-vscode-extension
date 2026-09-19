@@ -589,6 +589,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     getBinaryPath: () => getSettings().binaryPath,
     isCompilerAnswering: isLanguageServerRunning,
     selectedRelease,
+    // Read from the selection rather than recomputed, the same way the
+    // Commands panel's rows and the status-bar indicator read it: the
+    // enumeration has one owner, and a second walk would be a second answer to
+    // a question that already has one.
+    offerableReleases: () => releaseSelection?.offerableCount() ?? null,
     // Two of the controls change a fact the editor raises no event for — a
     // configuration file written into a folder that is already open, and a
     // binary path changed while no language server exists to watch it — so both

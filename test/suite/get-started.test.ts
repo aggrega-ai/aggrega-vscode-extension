@@ -6,29 +6,28 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {
-  COMPILER_VALUE_ABSENT,
   DISMISS_COMMAND,
   DISMISS_COMMAND_TITLE,
   EVERYTHING_MET,
+  GetStartedFacts,
   NOTHING_MET,
   OPEN_COMMAND_TITLE,
   PANEL_SETTING_COMMANDS,
   PANEL_SETTING_LABEL,
-  REGISTRY_VALUE_ABSENT,
   REGISTRY_VALUE_UNREAD,
-  RELEASE_VALUE_ABSENT,
   SHOW_COMMAND_TITLE,
   STEP_CONTENT,
   STEP_IDS,
   StepId,
   StepReading,
+  VALUE_NONE_AVAILABLE,
+  VALUE_NONE_SELECTED,
   WELCOME_DESCRIPTION,
   WELCOME_GREETING,
   WELCOME_OPEN_COMMAND,
   WELCOME_PANEL_TITLE,
   WELCOME_SHOW_COMMAND,
   WELCOME_SHOW_SETTING,
-  WORKSPACE_VALUE_ABSENT,
   panelControlCommands,
   readCollapsedSteps,
   stepMet,
@@ -55,6 +54,7 @@ import {
   EXTENSION_VERSION_LABEL,
   MET_LABEL,
   UNMET_LABEL,
+  VALUE_LEAD_IN,
   VERSION_ABSENT,
   VersionStandings,
   dismissHtml,
@@ -275,9 +275,11 @@ const RETIRED_UNMET_WORD = 'Outstanding';
 // attribution, which is why the mixed one is here as well and not instead.
 const MIXED = stepReadings({
   workspaceRoot: '/work/demo',
+  workspaceCandidates: 1,
   compilerAnswering: false,
   compilerPath: 'aggrega',
   release: 'releases/prod.yaml',
+  releaseCandidates: 1,
   registries: null,
 });
 
@@ -327,18 +329,40 @@ function commandsInPanel(html: string): string[] {
   return [...html.matchAll(/data-command="([^"]+)"/g)].map((m) => m[1]);
 }
 
-// ComposedValue is one drawn value: the classes it carries and the text a
-// reader would read. The text is kept ESCAPED, exactly as the document carries
-// it, so an assertion about a value can also be an assertion about escaping.
+// ComposedValue is one drawn value: the classes it carries, the words that
+// introduce it where it has any, and the text a reader would read. The text is
+// kept ESCAPED, exactly as the document carries it, so an assertion about a
+// value can also be an assertion about escaping.
+//
+// The lead-in is kept APART from the text rather than folded into it, because
+// the two are asserted against different things: one is a fixed label the panel
+// owns and the other is whatever the reader's own machine put in a setting. A
+// reader that returned them joined would let a change to either satisfy an
+// assertion about the other.
 interface ComposedValue {
   attributes: string;
+  lead: string | null;
   text: string;
 }
 
 // stepValues reads back every value one section draws, in document order.
+//
+// 🔴 IT REFUSES RATHER THAN REPORTS WHEN IT MEETS MARKUP IT CANNOT ACCOUNT FOR.
+// A value line carries at most one element — the lead-in — and everything after
+// it is text. A reader that silently dropped an element it did not recognise
+// would go on returning a shorter answer as the composition grew, and every
+// assertion below would keep passing over a value a reader is no longer shown.
 function stepValues(section: string): ComposedValue[] {
-  return [...section.matchAll(/<p class="(step-value[^"]*)">([^<]*)<\/p>/g)]
-    .map((m) => ({ attributes: m[1], text: m[2] }));
+  return [...section.matchAll(/<p class="(step-value[^"]*)">(.*?)<\/p>/g)].map((m) => {
+    const inner = m[2];
+    const lead = /^<span class="step-value-lead">([^<]*)<\/span>/.exec(inner);
+    const text = lead === null ? inner : inner.slice(lead[0].length);
+    assert.ok(
+      !text.includes('<'),
+      `a value line carries markup this reader cannot account for: ${inner}`,
+    );
+    return { attributes: m[1], lead: lead === null ? null : lead[1], text };
+  });
 }
 
 // proseRegionOf cuts one section's explanation out, so an assertion about
@@ -379,6 +403,101 @@ function remIn(body: string, property: string): number | null {
   const found = new RegExp(`${property}:\\s*([0-9.]+)rem`).exec(body);
   return found ? Number(found[1]) : null;
 }
+
+// foldedActionGaps reads every rule that reaches a step's ways forward ONLY
+// while its explanation is folded away, with the gap each declares above them.
+//
+// 🔴 IT DERIVES THAT SET RATHER THAN NAMING A SELECTOR. The state it exists to
+// catch was one extra rule, and a check written against that one rule's own
+// selector would say nothing whatever about the next one — it would report a
+// clean stylesheet the moment somebody spelled the same reduction differently.
+//
+// A selector is read with its `:not()` groups removed first, because a rule
+// keyed on the explanation being OPEN mentions the same attribute and reaches
+// the opposite state.
+function foldedActionGaps(css: string): { selector: string; margin: number }[] {
+  const withoutComments = css.replace(/\/\*[\s\S]*?\*\//g, '');
+  const found: { selector: string; margin: number }[] = [];
+  for (const match of withoutComments.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    for (const selector of match[1].split(',').map((s) => s.trim())) {
+      const parts = selector.split(/\s+|>|\+|~/).filter((p) => p !== '');
+      if (parts[parts.length - 1] !== '.step-actions') { continue; }
+      if (!selector.replace(/:not\([^)]*\)/g, '').includes('[hidden]')) { continue; }
+      const margin = remIn(match[2], 'margin-top');
+      if (margin !== null) { found.push({ selector, margin }); }
+    }
+  }
+  return found;
+}
+
+// The states in which a step has nothing to name, each paired with the sentence
+// it must read. Every one is driven against a workspace where everything else
+// is chosen, so the sentence that appears belongs to the step under test.
+//
+// 🔴 WHAT DECIDES BETWEEN THE FIRST TWO SENTENCES IS WHETHER THE LEVEL HOLDS
+// ANYTHING, NEVER WHICH STEP IT IS. A reader told nothing is selected where no
+// candidate exists goes looking for a chooser that can only come back empty.
+const EMPTY_READINGS: ReadonlyArray<{
+  readonly id: StepId;
+  readonly what: string;
+  readonly facts: Partial<GetStartedFacts>;
+  readonly says: string;
+}> = [
+  {
+    id: 'workspace',
+    what: 'no folder here carries anything Aggrega recognises',
+    facts: { workspaceRoot: null, workspaceCandidates: 0 },
+    says: VALUE_NONE_AVAILABLE,
+  },
+  {
+    id: 'workspace',
+    what: 'folders are there and none is in use',
+    facts: { workspaceRoot: null, workspaceCandidates: 2 },
+    says: VALUE_NONE_SELECTED,
+  },
+  {
+    id: 'workspace',
+    what: 'nobody has looked for one',
+    facts: { workspaceRoot: null, workspaceCandidates: null },
+    says: VALUE_NONE_SELECTED,
+  },
+  {
+    id: 'compiler',
+    what: 'the setting naming one has been emptied',
+    facts: { compilerPath: '' },
+    says: VALUE_NONE_SELECTED,
+  },
+  {
+    id: 'release',
+    what: 'the workspace offers none',
+    facts: { release: null, releaseCandidates: 0 },
+    says: VALUE_NONE_AVAILABLE,
+  },
+  {
+    id: 'release',
+    what: 'there are some and none is selected',
+    facts: { release: null, releaseCandidates: 3 },
+    says: VALUE_NONE_SELECTED,
+  },
+  {
+    id: 'release',
+    what: 'what is on offer has not been read',
+    facts: { release: null, releaseCandidates: null },
+    says: VALUE_NONE_SELECTED,
+  },
+  {
+    id: 'registry',
+    what: 'the configuration names none',
+    facts: { registries: [] },
+    says: VALUE_NONE_SELECTED,
+  },
+  {
+    id: 'registry',
+    what: 'the question produced no answer',
+    facts: { registries: null },
+    says: REGISTRY_VALUE_UNREAD,
+  },
+];
 
 describe('the welcome panel', () => {
   describe('what the panel means', () => {
@@ -689,10 +808,13 @@ describe('the welcome panel', () => {
     // value.
     it('says so in words where nothing is chosen, at both positions', () => {
       const html = stepsHtml(stepReadings(NOTHING_MET), []);
+      // At this far end the two levels that hold a list hold nothing, the
+      // compiler has been named nothing, and the registries could not be
+      // asked at all — so three of the four sentences appear at once.
       const expected: Record<StepId, string> = {
-        workspace: WORKSPACE_VALUE_ABSENT,
-        compiler: COMPILER_VALUE_ABSENT,
-        release: RELEASE_VALUE_ABSENT,
+        workspace: VALUE_NONE_AVAILABLE,
+        compiler: VALUE_NONE_SELECTED,
+        release: VALUE_NONE_SELECTED,
         registry: REGISTRY_VALUE_UNREAD,
       };
       for (const id of STEP_IDS) {
@@ -707,6 +829,11 @@ describe('the welcome panel', () => {
             value.attributes.includes('step-value-absent'),
             `${id} draws its unchosen state as though it were a chosen value`,
           );
+          assert.strictEqual(
+            value.lead,
+            null,
+            `${id} introduces a whole sentence with a label, which reads as a label on the wrong kind of thing`,
+          );
         }
       }
     });
@@ -720,14 +847,14 @@ describe('the welcome panel', () => {
       const unread = stepsHtml(stepReadings({ ...EVERYTHING_MET, registries: null }), []);
       assert.deepStrictEqual(
         stepValues(sectionOf(none, 'registry')).map((v) => v.text),
-        [REGISTRY_VALUE_ABSENT, REGISTRY_VALUE_ABSENT],
+        [VALUE_NONE_SELECTED, VALUE_NONE_SELECTED],
       );
       assert.deepStrictEqual(
         stepValues(sectionOf(unread, 'registry')).map((v) => v.text),
         [REGISTRY_VALUE_UNREAD, REGISTRY_VALUE_UNREAD],
       );
       assert.notStrictEqual(
-        REGISTRY_VALUE_ABSENT,
+        VALUE_NONE_SELECTED,
         REGISTRY_VALUE_UNREAD,
         'the two states read the same, so the panel says the reader configured none when nothing could answer',
       );
@@ -735,6 +862,127 @@ describe('the welcome panel', () => {
       // registry be named.
       for (const html of [none, unread]) {
         assert.ok(html.includes('class="step step-unmet" data-step="registry"'));
+      }
+    });
+
+    // 🔴 THE THREE EMPTY SENTENCES, EACH REACHED BY DRIVING THE STATE THAT
+    // PRODUCES IT. What separates the first two is whether the level holds
+    // anything at all, which is the distinction the whole thing exists for: a
+    // reader told nothing is selected where no candidate exists is sent to a
+    // chooser that can only come back empty, and the press that discovers this
+    // is one they had to make to find out.
+    it('picks its empty sentence from whether there is anything to choose', () => {
+      const reached = new Set<string>();
+      for (const one of EMPTY_READINGS) {
+        const html = stepsHtml(stepReadings({ ...EVERYTHING_MET, ...one.facts }), []);
+        assert.deepStrictEqual(
+          stepValues(sectionOf(html, one.id)).map((v) => v.text),
+          [one.says, one.says],
+          `${one.id}, where ${one.what}, does not read "${one.says}" at both positions`,
+        );
+        reached.add(one.says);
+      }
+      // 🔴 A TABLE THAT REACHED ONE SENTENCE WOULD PASS EVERY ROW ABOVE while
+      // two of the three readings were unreachable, so what the table covers
+      // is asserted rather than assumed.
+      assert.deepStrictEqual(
+        [...reached].sort(),
+        [VALUE_NONE_AVAILABLE, VALUE_NONE_SELECTED, REGISTRY_VALUE_UNREAD].sort(),
+        'the states driven here do not between them reach all three sentences',
+      );
+      assert.strictEqual(
+        new Set([VALUE_NONE_AVAILABLE, VALUE_NONE_SELECTED, REGISTRY_VALUE_UNREAD]).size,
+        3,
+        'two of the three sentences read the same, so a reader cannot tell the states apart',
+      );
+    });
+
+    // 🔴 THE TWO STEPS WITHOUT A CHOOSER CANNOT REACH THE NOTHING-AVAILABLE
+    // SENTENCE, AND EVERY COUNT IS DRIVEN AGAINST BOTH. Each of the compiler's
+    // ways through names a binary and each of the registry's registers one, so
+    // neither step has a list that can come back empty and a reader of either
+    // always has something to press. A count leaking into a step it does not
+    // belong to is exactly how that sentence would appear there.
+    it('never tells the two steps without a chooser that nothing is available', () => {
+      for (const workspaceCandidates of [0, 1, null]) {
+        for (const releaseCandidates of [0, 1, null]) {
+          for (const registries of [null, [] as readonly string[]]) {
+            const html = stepsHtml(
+              stepReadings({
+                ...NOTHING_MET, workspaceCandidates, releaseCandidates, registries,
+              }),
+              [],
+            );
+            for (const id of ['compiler', 'registry'] as StepId[]) {
+              const section = sectionOf(html, id);
+              // Read first, so an empty section cannot satisfy the refusal
+              // below by carrying nothing at all.
+              assert.strictEqual(
+                stepValues(section).length,
+                2,
+                `${id} draws no value to judge, so the refusal below would pass over nothing`,
+              );
+              assert.ok(
+                !section.includes(VALUE_NONE_AVAILABLE),
+                `${id} reads "${VALUE_NONE_AVAILABLE}" though every one of its ways through names or creates the thing, so there is no chooser a reader could be sent to`,
+              );
+            }
+          }
+        }
+      }
+    });
+
+    // 🔴 A CHOSEN VALUE IS INTRODUCED AND A SENTENCE IS NOT. The words say what
+    // the line is, so a bare token under a heading is not left to be worked
+    // out; the words standing where a value would be are whole sentences
+    // already, and a label in front of one reads as a label on the wrong kind
+    // of thing.
+    it('introduces a chosen value, at both positions, and says nothing before a sentence', () => {
+      const chosen = stepsHtml(stepReadings(EVERYTHING_MET), []);
+      for (const id of STEP_IDS) {
+        const values = stepValues(sectionOf(chosen, id));
+        assert.strictEqual(values.length, 2, `${id} does not draw its value at both positions`);
+        for (const value of values) {
+          assert.strictEqual(
+            value.lead,
+            VALUE_LEAD_IN,
+            `${id} draws a chosen value with nothing introducing it`,
+          );
+        }
+      }
+      // It ends in a separator of its own rather than relying on the markup to
+      // put one there: the two run together in the document, and a lead-in
+      // that did not carry the gap would read as part of the path beside it.
+      assert.ok(
+        VALUE_LEAD_IN.endsWith(' '),
+        'the words introducing the value run straight into it',
+      );
+      for (const one of EMPTY_READINGS) {
+        const html = stepsHtml(stepReadings({ ...EVERYTHING_MET, ...one.facts }), []);
+        for (const value of stepValues(sectionOf(html, one.id))) {
+          assert.strictEqual(
+            value.lead,
+            null,
+            `${one.id}, where ${one.what}, introduces a whole sentence with a label`,
+          );
+        }
+      }
+    });
+
+    // What a level holds decides which words stand where a value would be, and
+    // it decides nothing else. A standing is read from its own condition, so a
+    // count moving must move no mark.
+    it('reads a standing from its condition alone, never from what is on offer', () => {
+      for (const candidates of [0, 1, null]) {
+        for (const facts of [EVERYTHING_MET, NOTHING_MET]) {
+          assert.deepStrictEqual(
+            unmetStepIds({
+              ...facts, workspaceCandidates: candidates, releaseCandidates: candidates,
+            }),
+            unmetStepIds(facts),
+            `moving what is on offer to ${String(candidates)} moved a step's standing`,
+          );
+        }
       }
     });
 
@@ -821,6 +1069,90 @@ describe('the welcome panel', () => {
       assert.ok(
         !/font-size:/.test(absent) && !/font-weight:/.test(absent),
         'the unchosen state is drawn quieter than a chosen value, so the reader who has chosen nothing is told so most faintly',
+      );
+    });
+
+    // 🔴 THE LEAD-IN IS QUIETER THAN WHAT IT INTRODUCES, WHICH IS THE OTHER
+    // HALF OF THE VALUE OUTRANKING THE GUIDANCE. A label set at the value's own
+    // size and weight competes with the thing it exists to point at, and the
+    // criterion is stated rather than eyeballed: strictly smaller and strictly
+    // lighter than the value's own declarations.
+    it('sets the lead-in quieter than the value it introduces', () => {
+      const css = welcomeCss();
+      const value = String(cssRuleBody(css, '.step-value'));
+      const lead = cssRuleBody(css, '.step-value-lead');
+      assert.ok(
+        lead !== null,
+        'the lead-in carries no treatment of its own, so it is drawn at the value\'s size and weight and competes with it',
+      );
+      const weightOf = (body: string): number =>
+        Number(/font-weight:\s*(\d+)/.exec(body)?.[1] ?? 0);
+      const leadSize = remIn(String(lead), 'font-size');
+      const valueSize = remIn(value, 'font-size');
+      assert.ok(
+        leadSize !== null && valueSize !== null && leadSize < valueSize,
+        `the lead-in is set at ${String(leadSize)}rem against a value at ${String(valueSize)}rem, so it no longer reads as quieter than what it introduces`,
+      );
+      assert.ok(
+        weightOf(String(lead)) < weightOf(value),
+        `the lead-in is set at weight ${weightOf(String(lead))} against a value at weight ${weightOf(value)}, so it is drawn as boldly as the thing it introduces`,
+      );
+      // The face is named rather than inherited: the value's own rule sets the
+      // fixed-width face on the paragraph, so inheriting would present a label
+      // as a token to compare character by character.
+      assert.ok(
+        !/font-family:\s*inherit/.test(String(lead)),
+        'the lead-in inherits the value\'s fixed-width face, which presents a label as a token',
+      );
+    });
+
+    // 🔴 THE FOLDED STATE IS SPACED LIKE THE OPEN ONE, AND ONLY THE DECLARATION
+    // IS PROVABLE HERE. No extension host and no browser engine starts in this
+    // container, so nothing can render the page, read a computed style or
+    // measure a gap. What this reads is what the stylesheet DECLARES: one gap
+    // above the ways forward, and no rule reducing it for a folded section.
+    // Whether it then READS as correctly spaced is a person's judgement and is
+    // left to one with a window open.
+    it('declares the same gap above the ways forward in both states', () => {
+      const css = welcomeCss();
+      const actions = cssRuleBody(css, '.step-actions') ?? '';
+      const open = remIn(actions, 'margin-top');
+      assert.ok(
+        open !== null && open > 0,
+        'the ways forward declare no gap above them at all, so there is nothing to be present in either state',
+      );
+
+      // 🔴 CALIBRATED BEFORE IT IS BELIEVED. The assertion below is satisfied
+      // by an empty derivation exactly as readily as by a correct stylesheet,
+      // so a reader that had quietly stopped finding rules would report the
+      // same clean answer. It is shown here to find a planted reduction, and
+      // to leave alone a rule keyed on the opposite state — over strings, so
+      // no file is touched.
+      assert.deepStrictEqual(
+        foldedActionGaps('.step-prose[hidden] ~ .step-actions { margin-top: 0.25rem; }')
+          .map((one) => one.margin),
+        [0.25],
+        'the reader that finds a folded-state gap does not find one that is there, so its answer over the real stylesheet says nothing',
+      );
+      assert.deepStrictEqual(
+        foldedActionGaps('.step-prose:not([hidden]) + .step-actions { margin-top: 0.25rem; }'),
+        [],
+        'the reader counts a rule keyed on the explanation being OPEN as a folded-state rule',
+      );
+
+      const folded = foldedActionGaps(css);
+      assert.deepStrictEqual(
+        folded.filter((one) => one.margin < Number(open)),
+        [],
+        `a folded section declares a smaller gap above its ways forward than the ${String(open)}rem an open one has, so a reader who folded the guidance away meets controls crowded against the value`,
+      );
+
+      // And nothing between the two contributes space of its own, so that gap
+      // is the whole of what separates them in either state.
+      assert.match(
+        String(cssRuleBody(css, '.step-value')),
+        /margin:\s*0\b/,
+        'the value declares a margin of its own, so what separates it from the ways forward is no longer the one gap declared for them',
       );
     });
   });
