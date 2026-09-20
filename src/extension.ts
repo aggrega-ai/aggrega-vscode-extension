@@ -129,7 +129,7 @@ import {
   AnchoredFolder,
   NO_ANCHORED_WORKSPACE_MESSAGE,
   findAllAnchoredFolders,
-  workspaceRootOf,
+  windowAnchoring,
 } from './workspace';
 import { openAuthoringReleaseConfig, createActiveReleaseMarker } from './release-actions';
 import { activateOperations, OperationsView } from './operations';
@@ -170,21 +170,42 @@ let outputChannel: vscode.OutputChannel | null = null;
 // diagnosticCollections holds one collection per compiler layer, so each layer
 // publishes and clears its own findings independently. Created on first anchor.
 let diagnosticCollections: SourcedCollections | null = null;
-// workspaceRootForCommands is the open folder the language server was started
-// at, or null when none is in use.
+// workspaceRootForCommands is the Aggrega workspace root the language server
+// was started at, or null when none is in use.
+//
+// It is the root the marker sits in, climbed to from the folder the editor
+// opened, and it is the value the handshake declares. The server pins to what
+// it is handed, so this is what every request resolves a path against and what
+// the workspace's own declared settings and catalog locations are read from —
+// which is why every surface here that converts a relative path, writes into
+// the workspace, or names the workspace to a reader takes this one.
 //
 // 🔴 IT IS CLEARED WHENEVER THE SERVER IS TAKEN DOWN DELIBERATELY, AND LEFT
 // STANDING WHEN ONE STOPS ON ITS OWN, AND THAT ASYMMETRY IS THE POINT. A
 // deliberate teardown happens exactly where the evaluation of the open folders
 // has concluded that nothing is in use — no workspace reachable, or several
-// with none chosen — so retaining the folder there would leave every surface
-// naming a folder the editor is no longer working in. A server that crashes,
+// with none chosen — so retaining the root there would leave every surface
+// naming a workspace the editor is no longer working in. A server that crashes,
 // exits, or fails to start changes none of that: the reader's workspace is
 // still chosen and it is the SERVER that is absent, which the lifecycle
 // indicator reports and this value must not pretend to. Clearing it there
 // would make a dozen commands refuse with "no Aggrega workspace is available"
 // when one plainly is.
 let workspaceRootForCommands: string | null = null;
+// openedProjectFolder is the folder the editor has open that the workspace
+// above was reached from, or null when none is in use.
+//
+// 🔴 IT IS A SECOND FACT AND NOT A SECOND COPY. It differs from the root
+// whenever the marker sits above the folder, which is the ordinary case for a
+// window opened on a subdirectory, and the Project folder row is the one
+// surface that wants it: a reader asking which folder this window has open is
+// asking about the editor, not about Aggrega. Nothing resolves a path against
+// it — a request's paths are the server's, and the server resolves them against
+// the root it was handed.
+//
+// Its lifetime is the root's, assigned and cleared in the same two places for
+// the same reasons, so the two rows cannot come to describe different moments.
+let openedProjectFolder: string | null = null;
 const toastDebounce = new Map<number, true | number>();
 let pendingRestart: RestartHandle | null = null;
 let pendingRestartRemaining = 0;
@@ -224,12 +245,13 @@ let refreshGetStarted: (() => void) | null = null;
 // anchored to, or null before it has reported one.
 //
 // It is read from the server's own handshake answer rather than derived here,
-// and it is a DIFFERENT fact from workspaceRootForCommands above: that one is
-// the folder the editor opened, while this one is where the server resolved its
-// workspace root by climbing from it. They coincide whenever the opened folder
-// is itself the anchor and differ whenever the anchor sits above it — and it is
-// this one that every Release path is converted against, because it is the root
-// the server both enumerates over and resolves requests against.
+// and that is the whole point of keeping it: workspaceRootForCommands above is
+// what this extension COMPUTED and declared, while this is what the server
+// REPORTED back having anchored at. The server pins to what it is handed, so
+// the two name one directory — and reading the answer rather than assuming it
+// is what would let a disagreement be seen instead of hidden. It is this one
+// that every Release path is converted against, because it is the root the
+// server both enumerates over and resolves requests against.
 function anchoredWorkspaceRoot(): string | null {
   return daemon?.getServerInitMetadata()?.workspaceRoot ?? null;
 }
@@ -406,6 +428,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   operationsView = activateOperations(context, {
     getWorkspaceRoot: () => workspaceRootForCommands,
     getAnchoredWorkspaceRoot: anchoredWorkspaceRoot,
+    // The third getter is the Project folder row's, and it is separate from the
+    // two above because the row's subject is separate: which folder the editor
+    // has open is a question about the editor, and the rows above it answer
+    // about Aggrega.
+    getOpenedProjectFolder: () => openedProjectFolder,
     selectionState: () => releaseSelection?.state() ?? { kind: 'unknown' },
     // Every number here is already maintained for other reasons and is read
     // rather than recomputed: the editor keeps the open folders,
@@ -784,9 +811,17 @@ async function ensureDaemonAt(
   context: vscode.ExtensionContext,
   target: AnchoredFolder<vscode.WorkspaceFolder>,
 ): Promise<void> {
-  const targetRoot = target.folder.uri.fsPath;
+  // Both facts are taken together, from the one module that owns them. The
+  // server is started at the workspace root and the opened folder is kept
+  // beside it, because a window opened on a subdirectory has two true answers
+  // to "where are we" and every surface below has to say which it means.
+  const anchoring = windowAnchoring(target);
 
-  if (daemon && activeAnchored?.folder.uri.fsPath === targetRoot) {
+  // The guard compares OPENED FOLDERS, not roots, and deliberately. Two open
+  // folders under one marker climb to the same root, so comparing roots would
+  // make choosing the other one a no-op — leaving the Project folder row naming
+  // a folder the reader has just moved away from.
+  if (daemon && activeAnchored?.folder.uri.fsPath === anchoring.openedFolder) {
     return;
   }
 
@@ -797,18 +832,19 @@ async function ensureDaemonAt(
     // a status bar that changes: performing the restart and announcing it are
     // different things, and the surfaces they are looking at all resolve against
     // the folder that is moving.
-    // The workspace root is named, not the folder the server is started at.
-    // They differ whenever the marker sits above the folder, and what the
+    // The workspace root is named rather than the folder it was reached from.
+    // The two differ whenever the marker sits above the folder, and what the
     // reader chose — and what every request now resolves against — is the
     // root.
     void vscode.window.showInformationMessage(
-      anchorSwitchMessage(workspaceRootOf(target)),
+      anchorSwitchMessage(anchoring.workspaceRoot),
     );
     await stopDaemon();
   }
 
   await rememberAnchorChoice(context.workspaceState, target.anchorPath);
-  workspaceRootForCommands = targetRoot;
+  workspaceRootForCommands = anchoring.workspaceRoot;
+  openedProjectFolder = anchoring.openedFolder;
   activeAnchored = target;
   // The root is one of the two facts readiness is made of, so it is reported as
   // it changes. Today it always settles before the server can reach a state
@@ -885,7 +921,12 @@ async function ensureDaemonAt(
   }
 
   try {
-    await daemon.start(targetRoot);
+    // 🔴 THE WORKSPACE ROOT, NEVER THE OPENED FOLDER. The server pins to the
+    // root it is handed rather than climbing from it, so handing it the folder
+    // would put this workspace's own declared settings and catalog locations
+    // outside the cascade for the whole life of the connection — and a build
+    // that resolves from a terminal would then fail to resolve here.
+    await daemon.start(anchoring.workspaceRoot);
   } catch (err) {
     notifyDaemonStartupFailed((err as Error).message);
     daemon = null;
@@ -910,11 +951,13 @@ async function stopDaemon(): Promise<void> {
     daemon = null;
   }
   activeAnchored = null;
-  // The folder goes with the server it was started at. Every caller of this
-  // function has either concluded that nothing is in use or is about to start
-  // a server somewhere else and assign the new folder a few lines later, so
-  // there is no path on which a reader is left looking at a row that names a
-  // folder nothing is working in.
+  // Both facts go with the server they were settled for, and they are dropped
+  // together: a root cleared while the folder stood would leave the Project
+  // folder row naming somewhere nothing is working in while the row below it
+  // reported nothing in use. Every caller of this function has either concluded
+  // that nothing is in use or is about to start a server somewhere else and
+  // assign both a few lines later, so there is no path on which a reader is
+  // left looking at a row that names a folder nothing is working in.
   //
   // Readiness is NOT reassessed here, and that is deliberate rather than an
   // omission: it is answerable only while a server is running, the server has
@@ -923,6 +966,7 @@ async function stopDaemon(): Promise<void> {
   // reassess() says at its declaration that the lifecycle is the one place
   // that calls it.
   workspaceRootForCommands = null;
+  openedProjectFolder = null;
   if (statusBarItem) {
     statusBarItem.hide();
   }

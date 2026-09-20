@@ -487,8 +487,17 @@ export class Daemon extends EventEmitter {
   // types. The compiler pushes for the declared workspace and no other one, so a
   // question asked about somewhere else — by an assistant sharing this server,
   // say — answers on its own reply and never lands in this window's problems
-  // view. Declaring the folder this window has open is therefore exactly right,
-  // and it is the same value every request then names.
+  // view.
+  //
+  // 🔴 WHAT IS DECLARED IS THE AGGREGA WORKSPACE ROOT, NEVER THE FOLDER THE
+  // EDITOR HAPPENS TO HAVE OPEN, AND THE COMPILER GIVES NO SECOND CHANCE AT IT.
+  // It PINS to the root it is handed rather than climbing from it, so a
+  // declaration naming a subfolder puts that workspace's own declared settings
+  // and catalog locations outside the cascade for the whole life of the
+  // connection — and the answer says so, reporting a configuration read from
+  // nowhere in the workspace and naming no workspace marker at all. The caller
+  // climbs to the root before starting the client, and it is that value which
+  // arrives here and which every request then names.
   //
   // A window with no folder open declares nothing, which the compiler reads as
   // its own launch workspace. Nothing else in the handshake changes.

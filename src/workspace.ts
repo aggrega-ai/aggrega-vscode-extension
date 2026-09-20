@@ -159,16 +159,16 @@ export interface FolderLike {
 }
 
 // AnchoredFolder names one Aggrega workspace the window can reach, together
-// with the open folder the language server is started at in order to reach it.
+// with the open folder it was reached from.
 //
 // 🔴 THE MARKER IDENTIFIES THE ENTRY; THE FOLDER IS ONLY HOW IT IS REACHED.
 // Discovery climbs, so one marker answers for every open folder beneath it —
 // which means "which folder contains this workspace" has more than one true
 // answer whenever two open folders climb to the same place. The entry is
 // therefore keyed on the marker, and the folder it carries is whichever of
-// those the server can be started at. A caller comparing entries, counting
-// them, or naming one to a reader uses the marker or the root derived from it;
-// only the act of starting a server uses the folder.
+// those came first. A caller comparing entries, counting them, naming one to a
+// reader, or starting a language server uses the marker or the root derived
+// from it; what the folder answers is which folder the editor has open.
 export interface AnchoredFolder<F extends FolderLike = FolderLike> {
   folder: F;
   anchorPath: string;
@@ -180,11 +180,43 @@ export interface AnchoredFolder<F extends FolderLike = FolderLike> {
 // It holds for every tier findAggregaWorkspaceAnchor can answer with — the
 // config file, the .aggrega/ directory and each glob match all sit directly in
 // the root they anchor — and it is written once here so no surface derives the
-// root a second way. The language server climbs to the same place from the
-// folder it is started at, which is why a row drawn from this and a row drawn
-// from the server's own answer name one directory.
+// root a second way. The language server PINS to the root it is handed rather
+// than climbing from it, so this is the value the handshake declares: a row
+// drawn from this and a row drawn from the server's own answer name one
+// directory because this is the directory the server was given.
 export function workspaceRootOf(anchored: Pick<AnchoredFolder, 'anchorPath'>): string {
   return path.dirname(anchored.anchorPath);
+}
+
+// WindowAnchoring names the two true and different answers a window has to
+// "where are we": the Aggrega workspace root, and the folder the editor opened
+// in order to reach it.
+//
+// 🔴 THEY ARE TWO FIELDS BECAUSE THEY ARE TWO FACTS, AND A SURFACE READING ONE
+// OF THEM HAS TO SAY WHICH. The root is what the language server is started at
+// and pins to, so it is what every path on a request resolves against and what
+// the workspace's own declared settings and catalog locations are read from.
+// The opened folder is what the reader has in the editor, and it is the only
+// honest answer to a surface asking which folder this window has open. They
+// coincide whenever the opened folder is itself the root, and differ whenever
+// the marker sits above it — which is exactly when a surface that had conflated
+// them starts saying something false.
+export interface WindowAnchoring {
+  workspaceRoot: string;
+  openedFolder: string;
+}
+
+// windowAnchoring reads both facts off one reachable Aggrega workspace.
+//
+// They are returned together rather than derived separately at each call so
+// that the pair is taken from one place: a caller that computed one of them for
+// itself would be a second derivation of a value this module already owns, and
+// the two would agree until the day they did not.
+export function windowAnchoring(anchored: AnchoredFolder): WindowAnchoring {
+  return {
+    workspaceRoot: workspaceRootOf(anchored),
+    openedFolder: anchored.folder.uri.fsPath,
+  };
 }
 
 // findAggregaWorkspaceAnchor walks parent directories from start
@@ -310,9 +342,9 @@ export function releaseParamFor(workspaceRoot: string, releasePath: string): str
 //
 // The folder kept for a workspace reached from several is the first in the
 // window's own order. Which one it is does not change where the language server
-// ends up: the server climbs from whatever folder it is started at and settles
-// on the same root. So the choice is arbitrary and needs to be stable rather
-// than right, and input order is what makes it stable.
+// ends up: the root is derived from the marker rather than from the folder, and
+// it is the root the server is handed. So the choice is arbitrary and needs to
+// be stable rather than right, and input order is what makes it stable.
 export async function findAllAnchoredFolders<F extends FolderLike>(
   folders: readonly F[],
 ): Promise<AnchoredFolder<F>[]> {

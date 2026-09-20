@@ -142,8 +142,8 @@ export function classifyActivation<F extends FolderLike>(
 // `web (bar)`). The detail field carries the marker name
 // (path.basename of the anchor path).
 //
-// 🔴 IT NAMES THE WORKSPACE ROOT, NEVER THE OPEN FOLDER THE SERVER IS STARTED
-// AT. One entry stands for one Aggrega workspace, and the folder it carries is
+// 🔴 IT NAMES THE WORKSPACE ROOT, NEVER THE OPEN FOLDER IT WAS REACHED FROM.
+// One entry stands for one Aggrega workspace, and the folder it carries is
 // whichever of the several that reach it came first — so naming that folder
 // would put an arbitrary answer in front of a reader as though it were the
 // thing they are choosing. A reader picking `a` and finding themselves working
@@ -303,8 +303,8 @@ export function anchorSwitchMessage(workspaceRoot: string): string {
 // server when the window reaches 2+ Aggrega workspaces. With one or zero,
 // callers should display the existing single-workspace label instead.
 // Basename-collision disambiguation matches buildPickerItems, and so does the
-// thing named: the workspace root, not the open folder the server was started
-// at, for the reason written there.
+// thing named: the workspace root, not the open folder it was reached from, for
+// the reason written there.
 export function activeWorkspaceLabel<F extends FolderLike>(
   active: AnchoredFolder<F>,
   anchored: readonly AnchoredFolder<F>[],

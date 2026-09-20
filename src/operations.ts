@@ -104,13 +104,26 @@ import { NO_ANCHORED_WORKSPACE_MESSAGE } from './workspace';
 // request surface cannot match — see runReleaseScoped, where the measurement is
 // written at the call site.
 export interface OperationDeps extends RendersOnReady {
+  // getWorkspaceRoot reports the Aggrega workspace root this extension declared
+  // to the language server, or null when none is in use. Every operation here
+  // gates on it, and each one that runs resolves against it.
   getWorkspaceRoot(): string | null;
-  // getAnchoredWorkspaceRoot reports the folder the language server anchored
-  // to, or null when it has reported none. It is a different fact from
-  // getWorkspaceRoot above — that one is the folder the editor opened — and the
-  // workspace row shows this one, because it is what the Release list is
-  // computed against.
+  // getAnchoredWorkspaceRoot reports the root the language server answered with,
+  // or null when it has reported none. The workspace row shows this one, because
+  // it is what the Release list is computed against — and because reading the
+  // server's own answer rather than the value handed to it is what would let a
+  // disagreement between the two be seen.
   getAnchoredWorkspaceRoot(): string | null;
+  // getOpenedProjectFolder reports the folder the editor has open that the
+  // workspace was reached from, or null when none is in use.
+  //
+  // 🔴 IT IS A THIRD FACT, AND THE PROJECT FOLDER ROW IS THE ONLY SURFACE HERE
+  // THAT WANTS IT. It differs from the two roots above whenever the marker sits
+  // above the opened folder, which is the ordinary case for a window opened on a
+  // subdirectory — and that difference is the subject of the workspace row's own
+  // explanation, so a surface that answered it from either root would be
+  // reporting a difference it had just erased.
+  getOpenedProjectFolder(): string | null;
   // selectionState reports the editor's one selected Release, for the row that
   // displays it. The row renders this and derives nothing of its own.
   selectionState(): SelectionState;
@@ -428,7 +441,7 @@ class OperationsViewProvider implements vscode.WebviewViewProvider {
       layout: this.deps.layout(),
       selectors: selectorRows(
         this.deps.getAnchoredWorkspaceRoot(),
-        this.deps.getWorkspaceRoot(),
+        this.deps.getOpenedProjectFolder(),
         this.deps.selectionState(),
         this.deps.selectorCandidates(),
       ),
@@ -565,7 +578,7 @@ class OperationsViewProvider implements vscode.WebviewViewProvider {
   private offeredCommands(): string[] {
     const rows = selectorRows(
       this.deps.getAnchoredWorkspaceRoot(),
-      this.deps.getWorkspaceRoot(),
+      this.deps.getOpenedProjectFolder(),
       this.deps.selectionState(),
       this.deps.selectorCandidates(),
     );

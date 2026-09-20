@@ -38,11 +38,11 @@ const CONFIG_TEMPLATE = `build:
 // build.authoring_release key if present, else opens the file and
 // leaves the cursor at the document start.
 //
-// workspaceRoot is the absolute path of the folder the editor has open,
-// and the helper writes the config there. That is not necessarily the
-// root the language server resolved to, which is a separate fact the
-// server reports for itself. Filesystem write failures surface as error
-// toasts rather than crashing.
+// workspaceRoot is the absolute path of the Aggrega workspace root, and
+// the helper writes the config there — the same directory the marker
+// sits in and the same one the language server is anchored at, so the
+// key written here is the key that server reads. Filesystem write
+// failures surface as error toasts rather than crashing.
 export async function openAuthoringReleaseConfig(workspaceRoot: string): Promise<void> {
   const configPath = path.join(workspaceRoot, CONFIG_FILENAME);
   let created = false;
