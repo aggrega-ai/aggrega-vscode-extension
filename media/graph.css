@@ -23,6 +23,17 @@ html, body {
   cursor: grabbing;
 }
 
+/* A drawing the compiler could not rebuild. It stays on the canvas, and it stays
+   readable and reachable — the topology it shows is still worth looking at, and
+   it is still where the reader was working. What is withdrawn is the claim that
+   it is current: the notice above says so in words, and this says the same thing
+   to a reader who does not read it. Dimming rather than a colour, because the
+   accent bars down the nodes carry meaning of their own and a tint over them
+   would contest it. */
+#canvas.out-of-date {
+  opacity: 0.45;
+}
+
 .status {
   position: fixed;
   top: 8px;

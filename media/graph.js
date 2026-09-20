@@ -123,9 +123,9 @@
     if (msg.type === 'loading') {
       setStatus(`Laying out ${msg.release}…`, false);
     } else if (msg.type === 'error') {
-      setStatus(`${msg.release}: ${msg.message}`, true);
+      reportFailure(msg.release, msg.message);
     } else if (msg.type === 'render') {
-      renderGraph(msg.graph).catch((err) => setStatus(String(err), true));
+      renderGraph(msg.graph).catch((err) => reportFailure(msg.release, String(err)));
     } else if (msg.type === 'attachCandidates') {
       showCandidates(msg.requestId, candidates.projectCandidates(msg.result));
     } else if (msg.type === 'attachCandidatesError') {
@@ -148,6 +148,48 @@
 
   function hideStatus() {
     statusEl.classList.add('hidden');
+  }
+
+  // hasDrawing reports whether there is a graph on the canvas for a failure to
+  // be about.
+  //
+  // It reads the canvas rather than a flag kept beside it. A flag describing
+  // something it sits next to is free to disagree with it, and what a failure
+  // has to say depends on the picture that is actually in front of the reader
+  // rather than on the one the bookkeeping believes is.
+  function hasDrawing() {
+    return canvas.firstChild !== null;
+  }
+
+  // reportFailure says that a topology could not be drawn.
+  //
+  // 🔴 A DRAWING THAT SURVIVES A FAILURE STOPS BEING PRESENTED AS CURRENT. A
+  // graph is built from the authored documents as they stand on disk, so a
+  // rebuild that fails leaves the canvas showing a topology that is no longer
+  // true of any of them — and the reader has no way to know that from a picture
+  // alone. What is withdrawn is the claim that the drawing is current, not the
+  // drawing: the topology it shows is still worth reading, and it is still
+  // where the reader was working.
+  //
+  // It is said twice because the notice is a line in a corner that a reader may
+  // not read: in words, and by dimming the drawing so a reader who reads
+  // nothing still sees that it is not the current one.
+  //
+  // 🔴 EVERY ROUTE TO A FAILURE COMES THROUGH HERE — the refresh that follows a
+  // document reaching disk, the reader pressing the command, and a drawing that
+  // cannot be laid out — so no one of them can come to present the same failure
+  // differently from the others.
+  //
+  // A panel that has drawn nothing yet has no such claim to withdraw, and is
+  // told only what went wrong.
+  function reportFailure(release, message) {
+    const subject = release ? `${release}: ` : '';
+    const stale = hasDrawing();
+    setStatus(stale
+      ? `${subject}the topology could not be rebuilt, so the graph on screen is out of date. `
+        + `${message}`
+      : `${subject}${message}`, true);
+    canvas.classList.toggle('out-of-date', stale);
   }
 
   // --- render -------------------------------------------------------------
@@ -191,6 +233,9 @@
 
     fitToView(laid);
     installInteraction();
+    // The drawing on the canvas is now the one the compiler just built, so
+    // whatever an earlier failure said about the last one no longer applies.
+    canvas.classList.remove('out-of-date');
   }
 
   function drawContainer(box) {
