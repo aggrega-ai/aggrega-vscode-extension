@@ -456,6 +456,10 @@
         "title": "Aggrega: Switch anchored folder…"
       },
       {
+        "command": "aggrega.project.selectFolder",
+        "title": "Aggrega: Choose Project folder…"
+      },
+      {
         "command": "aggrega.release.select",
         "title": "Aggrega: Select Release…"
       },

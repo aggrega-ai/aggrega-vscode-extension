@@ -8,9 +8,9 @@ import { SWITCH_ANCHOR_COMMAND } from '../../src/anchor-picker';
 import { CREATE_WORKSPACE_COMMAND, DRAFT_RELEASE_COMMAND } from '../../src/get-started-steps';
 import { SELECT_RELEASE_COMMAND } from '../../src/release-selection';
 import { SELECTOR_ROW_KEYS, SELECTOR_ROW_LABELS } from '../../src/selector-levels';
+import { CHOOSE_PROJECT_FOLDER_COMMAND } from '../../src/project-folder';
 import {
   OPEN_WORKSPACE_ROOT_COMMAND,
-  PROJECT_FOLDER_COMMAND,
   SelectorCandidates,
   createControlKey,
   offerControlKey,
@@ -46,7 +46,7 @@ describe('the three rows that name what the editor is acting on', () => {
     // The order is the teaching: three things nest, and the arrangement is what
     // shows a reader that they do. A row out of place teaches the wrong
     // containment, which is worse than teaching none.
-    const rows = selectorRows(ANCHORED, OPENED_INSIDE, SELECTED, SEVERAL);
+    const rows = selectorRows(ANCHORED, OPENED_INSIDE, OPENED_INSIDE, SELECTED, SEVERAL);
 
     assert.deepStrictEqual(
       rows.map(r => r.label),
@@ -62,7 +62,7 @@ describe('the three rows that name what the editor is acting on', () => {
   it('keeps the product name on the middle row, which is the ambiguity being fixed', () => {
     // "Workspace" alone already names the set of folders a window has open, so
     // the bare word would have this row naming two different things at once.
-    const rows = selectorRows(ANCHORED, OPENED_INSIDE, SELECTED, SEVERAL);
+    const rows = selectorRows(ANCHORED, OPENED_INSIDE, OPENED_INSIDE, SELECTED, SEVERAL);
     assert.strictEqual(rows[1].label, 'Aggrega workspace');
     assert.notStrictEqual(
       rows[1].label, 'Workspace',
@@ -73,7 +73,7 @@ describe('the three rows that name what the editor is acting on', () => {
   it('draws every name from the one place they are written', () => {
     // A row and any sentence written about that row read the same constant, so
     // one level cannot come to be called two things on one surface.
-    const rows = selectorRows(ANCHORED, OPENED_INSIDE, SELECTED, SEVERAL);
+    const rows = selectorRows(ANCHORED, OPENED_INSIDE, OPENED_INSIDE, SELECTED, SEVERAL);
     for (const row of rows) {
       assert.strictEqual(row.label, SELECTOR_ROW_LABELS[row.key]);
     }
@@ -83,7 +83,7 @@ describe('the three rows that name what the editor is acting on', () => {
     // The three paths nest, so a row reading the wrong level still produces a
     // plausible-looking answer — which is exactly why each is checked against
     // the fact it is supposed to be reporting rather than against emptiness.
-    const rows = selectorRows(ANCHORED, OPENED_INSIDE, SELECTED, SEVERAL);
+    const rows = selectorRows(ANCHORED, OPENED_INSIDE, OPENED_INSIDE, SELECTED, SEVERAL);
     assert.strictEqual(rows[0].value, 'one', 'the project row does not name the open folder');
     assert.strictEqual(rows[1].value, 'project', 'the workspace row does not name the anchored folder');
     assert.strictEqual(rows[2].value, SELECTED.release, 'the Release row does not name the Release');
@@ -99,10 +99,10 @@ describe('the three rows that name what the editor is acting on', () => {
   });
 
   it('sends each row to the one command that changes that level', () => {
-    const rows = selectorRows(ANCHORED, OPENED_INSIDE, { kind: 'unknown' }, SEVERAL);
+    const rows = selectorRows(ANCHORED, OPENED_INSIDE, OPENED_INSIDE, { kind: 'unknown' }, SEVERAL);
     assert.strictEqual(
-      rows[0].command, PROJECT_FOLDER_COMMAND,
-      'which folders the window has open is the editor\'s to change, not a command of ours',
+      rows[0].command, CHOOSE_PROJECT_FOLDER_COMMAND,
+      'the outer row does not open the choice that scopes the level beneath it',
     );
     assert.strictEqual(rows[1].command, SWITCH_ANCHOR_COMMAND);
     assert.strictEqual(
@@ -114,7 +114,7 @@ describe('the three rows that name what the editor is acting on', () => {
 
 describe('the control that creates a new one of a level', () => {
   it('offers one on the two levels that can be created, and names the command that exists', () => {
-    const rows = selectorRows(ANCHORED, OPENED_INSIDE, SELECTED, SEVERAL);
+    const rows = selectorRows(ANCHORED, OPENED_INSIDE, OPENED_INSIDE, SELECTED, SEVERAL);
     assert.strictEqual(rows[1].create?.command, CREATE_WORKSPACE_COMMAND);
     assert.strictEqual(rows[2].create?.command, DRAFT_RELEASE_COMMAND);
   });
@@ -122,7 +122,7 @@ describe('the control that creates a new one of a level', () => {
   it('offers none on the project-folder row, because there is nothing there to create', () => {
     // Bringing a project folder into being is not an Aggrega act. A control
     // there would be one that promises a creation and performs none.
-    const rows = selectorRows(ANCHORED, OPENED_INSIDE, SELECTED, SEVERAL);
+    const rows = selectorRows(ANCHORED, OPENED_INSIDE, OPENED_INSIDE, SELECTED, SEVERAL);
     assert.strictEqual(rows[0].create, null);
     assert.strictEqual(
       projectFolderRow(null, 0).create, null,
@@ -136,7 +136,7 @@ describe('the control that creates a new one of a level', () => {
     // has. The expectation is written out rather than composed from the same
     // constants the source reads, because a composed one moves with whatever it
     // is checking and cannot fail.
-    const rows = selectorRows(ANCHORED, OPENED_INSIDE, SELECTED, SEVERAL);
+    const rows = selectorRows(ANCHORED, OPENED_INSIDE, OPENED_INSIDE, SELECTED, SEVERAL);
     assert.strictEqual(rows[1].create?.label, 'Create an Aggrega workspace');
     assert.strictEqual(rows[2].create?.label, 'Create a Release');
   });
@@ -148,7 +148,7 @@ describe('the control that creates a new one of a level', () => {
     // creation is a promise read on its own, with none of the row around it,
     // that neither flow honours.
     for (const candidates of [SEVERAL, ONE_OF_EACH, NOTHING_AVAILABLE]) {
-      for (const row of selectorRows(ANCHORED, OPENED_INSIDE, SELECTED, candidates)) {
+      for (const row of selectorRows(ANCHORED, OPENED_INSIDE, OPENED_INSIDE, SELECTED, candidates)) {
         if (row.create === null) { continue; }
         assert.ok(
           !/\bhere\b/i.test(row.create.label),
@@ -161,7 +161,7 @@ describe('the control that creates a new one of a level', () => {
   it('names the level it creates, because the control draws no word of its own', () => {
     // A reader meeting it by keyboard is told only what it is called, so the
     // same bare word on two rows would announce nothing that tells them apart.
-    const rows = selectorRows(ANCHORED, OPENED_INSIDE, SELECTED, SEVERAL);
+    const rows = selectorRows(ANCHORED, OPENED_INSIDE, OPENED_INSIDE, SELECTED, SEVERAL);
     const named = rows.filter(r => r.create !== null);
     assert.strictEqual(named.length, 2, 'the wrong number of levels offers a creation');
     for (const row of named) {
@@ -274,7 +274,7 @@ describe('the offer to open the Aggrega workspace', () => {
 
   it('is the only row that has one, whichever way the window is arranged', () => {
     for (const opened of [OPENED_INSIDE, ANCHORED]) {
-      for (const row of selectorRows(ANCHORED, opened, SELECTED, SEVERAL)) {
+      for (const row of selectorRows(ANCHORED, opened, opened, SELECTED, SEVERAL)) {
         if (row.key === 'workspace') { continue; }
         assert.strictEqual(
           row.offer, null,
@@ -307,7 +307,7 @@ describe('the offer to open the Aggrega workspace', () => {
     );
     assert.deepStrictEqual(
       rowCommands(projectFolderRow(OPENED_INSIDE, 3)),
-      [PROJECT_FOLDER_COMMAND],
+      [CHOOSE_PROJECT_FOLDER_COMMAND],
       'a row with one control enumerates something beside it',
     );
   });
@@ -315,7 +315,7 @@ describe('the offer to open the Aggrega workspace', () => {
 
 describe('a level holding exactly one candidate', () => {
   it('says there are no others, so a chooser of one does not read as broken', () => {
-    const rows = selectorRows(ANCHORED, OPENED_INSIDE, SELECTED, ONE_OF_EACH);
+    const rows = selectorRows(ANCHORED, OPENED_INSIDE, OPENED_INSIDE, SELECTED, ONE_OF_EACH);
     assert.ok(
       rows[0].tooltip.includes('Only one Project folder is available'),
       'the project row does not say it is the only one',
@@ -333,7 +333,7 @@ describe('a level holding exactly one candidate', () => {
   });
 
   it('says so on all three, now that all three have a count', () => {
-    const rows = selectorRows(ANCHORED, OPENED_INSIDE, SELECTED, ONE_OF_EACH);
+    const rows = selectorRows(ANCHORED, OPENED_INSIDE, OPENED_INSIDE, SELECTED, ONE_OF_EACH);
     assert.ok(
       rows[2].tooltip.includes('Only one Release is available'),
       'the Release row does not say it is the only one',
@@ -343,7 +343,7 @@ describe('a level holding exactly one candidate', () => {
   it('says nothing of the sort where there is more than one', () => {
     // The sentence is a claim about the world, so it has to be absent whenever
     // it would be false — which is the half a test of the sole case never sees.
-    const rows = selectorRows(ANCHORED, OPENED_INSIDE, SELECTED, SEVERAL);
+    const rows = selectorRows(ANCHORED, OPENED_INSIDE, OPENED_INSIDE, SELECTED, SEVERAL);
     for (const row of rows) {
       assert.ok(
         !row.tooltip.includes('no others to choose between'),
@@ -357,7 +357,7 @@ describe('a level holding exactly one candidate', () => {
     // sole-candidate sentence from an unread level would be inventing the
     // answer it is there to report.
     const rows = selectorRows(
-      ANCHORED, OPENED_INSIDE, SELECTED,
+      ANCHORED, OPENED_INSIDE, OPENED_INSIDE, SELECTED,
       { projectFolders: 1, aggregaWorkspaces: 1, releases: null },
     );
     assert.ok(
@@ -386,9 +386,10 @@ describe('the project folder row', () => {
 
   it('does not say nothing is open in a window that has folders open', () => {
     // 🔴 The plainest falsehood this panel could carry, and the one the count
-    // is passed in to remove: Aggrega settles on a folder only where one of
-    // them carries an Aggrega workspace, so the value can be absent while the
-    // window plainly has folders open.
+    // is passed in to remove: the value is the reader's own choice, so it is
+    // absent until they make one — while the window plainly has folders open.
+    // The two states are as far apart as this row can put two absences: one
+    // cannot be resolved by choosing at all, the other is waiting on a choice.
     const none = projectFolderRow(null, 0);
     const someOpen = projectFolderRow(null, 3);
 
@@ -396,7 +397,7 @@ describe('the project folder row', () => {
       someOpen.value, none.value,
       'a window with folders open reads exactly like one with none',
     );
-    assert.strictEqual(someOpen.value, 'none in use');
+    assert.strictEqual(someOpen.value, 'none selected');
     assert.ok(
       !someOpen.tooltip.includes('no Project folder is open'),
       `three folders are open and the row says none is; got ${someOpen.tooltip}`,

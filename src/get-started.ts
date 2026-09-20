@@ -21,11 +21,11 @@ import {
   seedingOpeningLine,
 } from './config-seeding';
 import {
-  ANCHOR_CANDIDATE_GLOB,
   CONFIG_FILENAME,
   WORKSPACE_ANCHOR_CONFIG,
   findAggregaWorkspaceAnchor,
 } from './workspace';
+import { candidateFilesAcrossWindow } from './workspace-search';
 import {
   CHOOSE_WORKSPACE_COMMAND,
   CREATE_WORKSPACE_COMMAND,
@@ -780,10 +780,13 @@ interface AnchoredDirectory {
 // de-duplicated by directory and returned in path order, so the list a reader
 // reads is stable between invocations.
 async function anchoredDirectories(): Promise<AnchoredDirectory[]> {
-  const hits = await vscode.workspace.findFiles(ANCHOR_CANDIDATE_GLOB);
+  // The search itself is read from the one place it is issued, so this list and
+  // the population a chosen folder reaches cannot come to be computed by two
+  // different patterns.
+  const hits = await candidateFilesAcrossWindow(vscode.workspace.workspaceFolders ?? []);
   const directories = new Set<string>();
-  for (const uri of hits) {
-    directories.add(path.dirname(uri.fsPath));
+  for (const file of hits) {
+    directories.add(path.dirname(file));
   }
   const confirmed: AnchoredDirectory[] = [];
   for (const directory of [...directories].sort()) {

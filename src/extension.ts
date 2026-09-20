@@ -130,7 +130,9 @@ import {
   NO_ANCHORED_WORKSPACE_MESSAGE,
   findAllAnchoredFolders,
   windowAnchoring,
+  workspacesReachedFromAll,
 } from './workspace';
+import { candidateFilesUnder } from './workspace-search';
 import { openAuthoringReleaseConfig, createActiveReleaseMarker } from './release-actions';
 import { activateOperations, OperationsView } from './operations';
 import { activateLint, LintRunner } from './lint';
@@ -164,6 +166,17 @@ import {
   rememberAnchorChoice,
 } from './anchor-picker';
 import { SELECTOR_ROW_LABELS } from './selector-levels';
+import { OPEN_ANOTHER_FOLDER_COMMAND } from './selector-rows';
+import {
+  CHOOSE_PROJECT_FOLDER_COMMAND,
+  CHOOSE_PROJECT_FOLDER_PLACEHOLDER,
+  isSavedProjectFolderValid,
+  projectFolderInForce,
+  projectFolderOffers,
+  projectFolderSwitchMessage,
+  readSavedProjectFolder,
+  rememberProjectFolderChoice,
+} from './project-folder';
 
 let daemon: Daemon | null = null;
 let outputChannel: vscode.OutputChannel | null = null;
@@ -206,6 +219,27 @@ let workspaceRootForCommands: string | null = null;
 // Its lifetime is the root's, assigned and cleared in the same two places for
 // the same reasons, so the two rows cannot come to describe different moments.
 let openedProjectFolder: string | null = null;
+// chosenProjectFolder is the open folder the reader works FROM, or null where
+// they have not chosen and no sole candidate settled it.
+//
+// 🔴 IT IS A DECISION AND openedProjectFolder ABOVE IS AN OUTCOME, WHICH IS WHY
+// THEY ARE TWO VALUES AND HAVE DIFFERENT LIFETIMES. That one is settled by the
+// anchoring and is dropped with the server it was settled for. This one is the
+// reader's answer, it is what the middle level's candidates are computed from,
+// and it survives the server stopping — a choice cleared because a language
+// server went down would be an answer the reader gave being thrown away by
+// something that has nothing to do with it.
+//
+// It holds the path in force rather than the remembered path: the two differ
+// while a window remembers a folder it no longer has open, and every surface
+// wants the first.
+let chosenProjectFolder: string | null = null;
+// folderEvaluation counts re-evaluations of the open folders, so an answer that
+// arrives from the editor's file search can tell whether it is still about the
+// window it was asked for. The search outlives the evaluation that started it,
+// and a stale answer applied over a newer one would report a population the
+// window no longer has.
+let folderEvaluation = 0;
 const toastDebounce = new Map<number, true | number>();
 let pendingRestart: RestartHandle | null = null;
 let pendingRestartRemaining = 0;
@@ -413,6 +447,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Always register the switch-anchor command so the Command
   // Palette surfaces it regardless of the activation outcome.
   registerSwitchAnchorCommand(context);
+  registerChooseProjectFolderCommand(context);
   registerReleaseActionCommands(context);
   registerSelectReleaseCommand(context);
 
@@ -442,6 +477,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // has open is a question about the editor, and the rows above it answer
     // about Aggrega.
     getOpenedProjectFolder: () => openedProjectFolder,
+    // The fourth getter is the reader's answer at the outer level, and it is
+    // separate from the third because that one is an outcome and this one is a
+    // decision. The row draws this; the row beneath it draws that.
+    getChosenProjectFolder: () => chosenProjectFolder,
     selectionState: () => releaseSelection?.state() ?? { kind: 'unknown' },
     // Every number here is already maintained for other reasons and is read
     // rather than recomputed: the editor keeps the open folders,
@@ -718,8 +757,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 // after every folder add/remove so the daemon state always reflects
 // the current workspace.
 async function reactivate(context: vscode.ExtensionContext): Promise<void> {
-  const folders = vscode.workspace.workspaceFolders ?? [];
-  const anchored = await findAllAnchoredFolders([...folders]);
+  const generation = (folderEvaluation += 1);
+  const folders = [...(vscode.workspace.workspaceFolders ?? [])];
+
+  const scope = await settleProjectFolder(context, folders);
+
+  // 🔴 THE IMMEDIATE ANSWER IS THE WALK'S, AND NOTHING HERE WAITS ON THE
+  // EDITOR'S FILE SEARCH. The walk reads a handful of directories on the way to
+  // the filesystem root; the search is a glob across everything the window
+  // holds. Blocking attachment on the second would make every start pay for a
+  // candidate list that only a panel reads, in a window where the answer is
+  // usually one. So the walk settles where the language server goes, and the
+  // fuller population is completed afterwards.
+  const anchored = await findAllAnchoredFolders(scope);
   currentAnchored = anchored;
 
   const savedAnchor = readSavedAnchor(context.workspaceState);
@@ -737,6 +787,77 @@ async function reactivate(context: vscode.ExtensionContext): Promise<void> {
     );
   }
 
+  await applyActivationDecision(context, anchored);
+
+  // Every branch above settles what the workspace root and the language server
+  // now are, including the branch where the server failed to start, so this is
+  // the one place from which the get-started conditions are true of all of them.
+  refreshGetStarted?.();
+  // And the same for the lifecycle indicator. Two of the four branches build no
+  // client at all, so nothing there fires the lifecycle listener and the
+  // indicator would otherwise go on reporting whatever it last saw — in the
+  // workspace where what it reports matters most.
+  daemonStatusBar?.refresh();
+  // And the same again for the Commands panel, whose rows report how many
+  // folders the window has open and how many of them Aggrega resolved a root
+  // for. Both numbers are settled here and by nothing else. The branch that
+  // attaches returns early when the language server is already where it
+  // belongs, so a reader adding a second marker-carrying folder to a window
+  // that already has a remembered choice reaches no other refresh — and the
+  // panel would go on saying there was nothing else to choose between.
+  operationsView?.refresh();
+
+  // Not awaited, which is the whole point of it being a separate step.
+  void completeReachableWorkspaces(context, scope, generation);
+}
+
+// settleProjectFolder decides which open folder the editor works from and
+// answers with the folders the levels beneath it are computed over.
+//
+// 🔴 THE ANSWER IS WHAT SCOPES THE MIDDLE LEVEL, AND THAT IS THE ONE EFFECT
+// THIS CHOICE HAS. Where the reader has chosen, the Aggrega workspaces on offer
+// are the ones that folder reaches; where they have not, the offer is what the
+// whole window reaches. Those are the same rule asked at two scopes rather than
+// a population with a filter over it, so nothing here decides which workspaces
+// belong to a folder — the discovery rule does, asked from the folder named.
+//
+// A remembered folder the window no longer has open is forgotten and said so.
+// A choice that quietly stops applying is indistinguishable from one that was
+// never made, and the reader meets the difference at a moment they cannot
+// connect to a previous session.
+async function settleProjectFolder(
+  context: vscode.ExtensionContext,
+  folders: readonly vscode.WorkspaceFolder[],
+): Promise<vscode.WorkspaceFolder[]> {
+  const saved = readSavedProjectFolder(context.workspaceState);
+  if (saved !== null && !isSavedProjectFolderValid(saved, folders)) {
+    await rememberProjectFolderChoice(context.workspaceState, null);
+    void vscode.window.showInformationMessage(
+      `Aggrega: ${saved} is no longer open in this window, `
+      + `so the remembered ${SELECTOR_ROW_LABELS.project} was dropped.`,
+    );
+  }
+  const inForce = projectFolderInForce(
+    readSavedProjectFolder(context.workspaceState),
+    folders,
+  );
+  chosenProjectFolder = inForce?.uri.fsPath ?? null;
+  return inForce === null ? [...folders] : [inForce];
+}
+
+// applyActivationDecision drives the language server and the pending-choice
+// surfaces from one population of Aggrega workspaces.
+//
+// It is reached twice per re-evaluation — once with the walk's immediate answer
+// and once with the fuller population the search completes — and it is one
+// function rather than two so the two passes cannot come to dispatch the same
+// decision differently. The attaching branch returns early where the server is
+// already where it belongs, so the second pass costs nothing in the ordinary
+// case where the population did not move.
+async function applyActivationDecision(
+  context: vscode.ExtensionContext,
+  anchored: AnchoredFolder<vscode.WorkspaceFolder>[],
+): Promise<void> {
   const decision = classifyActivation(
     anchored,
     readSavedAnchor(context.workspaceState),
@@ -757,24 +878,52 @@ async function reactivate(context: vscode.ExtensionContext): Promise<void> {
       surfacePendingChoice(context, decision.anchored);
       break;
   }
+}
 
-  // Every branch above settles what the workspace root and the language server
-  // now are, including the branch where the server failed to start, so this is
-  // the one place from which the get-started conditions are true of all of them.
+// completeReachableWorkspaces finishes the population the walk started, once the
+// editor's file search has answered.
+//
+// 🔴 IT RUNS AFTER ATTACHMENT AND NEVER BEFORE IT, which is what keeps a start
+// from waiting on a glob. The consequence is deliberate and is the shape to
+// build for: a window can attach to the one workspace the walk found and only
+// afterwards learn that a second is reachable, at which point the panel reports
+// two and its chooser offers both.
+//
+// The generation is what keeps a late answer from overwriting a newer one. The
+// search outlives the evaluation that asked for it, so a window whose folders
+// changed while it ran would otherwise be told about the folders it used to
+// have.
+async function completeReachableWorkspaces(
+  context: vscode.ExtensionContext,
+  scope: readonly vscode.WorkspaceFolder[],
+  generation: number,
+): Promise<void> {
+  const reached = await workspacesReachedFromAll(scope, candidateFilesUnder);
+  if (generation !== folderEvaluation) { return; }
+  // Nothing is republished where the population did not move. The ordinary
+  // window reaches one workspace by both routes, and a refresh there would
+  // redraw every surface to report a number none of them has changed.
+  if (sameWorkspaces(reached, currentAnchored)) { return; }
+  currentAnchored = reached;
+  await applyActivationDecision(context, reached);
   refreshGetStarted?.();
-  // And the same for the lifecycle indicator. Two of the four branches build no
-  // client at all, so nothing there fires the lifecycle listener and the
-  // indicator would otherwise go on reporting whatever it last saw — in the
-  // workspace where what it reports matters most.
   daemonStatusBar?.refresh();
-  // And the same again for the Commands panel, whose rows report how many
-  // folders the window has open and how many of them Aggrega resolved a root
-  // for. Both numbers are settled here and by nothing else. The branch that
-  // attaches returns early when the language server is already where it
-  // belongs, so a reader adding a second marker-carrying folder to a window
-  // that already has a remembered choice reaches no other refresh — and the
-  // panel would go on saying there was nothing else to choose between.
   operationsView?.refresh();
+}
+
+// sameWorkspaces reports whether two populations name the same Aggrega
+// workspaces, in the same order.
+//
+// It compares markers rather than the folders the entries were reached from,
+// because the marker is what identifies an entry — the folder is whichever of
+// those that reach it came first, and a comparison on it would report a change
+// where nothing about the population moved.
+function sameWorkspaces<F extends { anchorPath: string }>(
+  a: readonly F[],
+  b: readonly F[],
+): boolean {
+  return a.length === b.length
+    && a.every((entry, at) => entry.anchorPath === b[at].anchorPath);
 }
 
 function surfacePendingChoice(
@@ -1113,6 +1262,54 @@ function registerSwitchAnchorCommand(context: vscode.ExtensionContext): void {
     // confirming where they already are does not pay for a restart.
     await ensureDaemonAt(extensionContext, choice.offer.anchored);
   }));
+}
+
+// registerChooseProjectFolderCommand wires what the Project folder row opens.
+//
+// 🔴 IT OFFERS THE FOLDERS THE WINDOW HAS AND, LAST, THE WAY TO REACH ONE IT
+// DOES NOT. Those are different acts — choosing among what is here, and bringing
+// something else in — and a reader clicking the row is asking the first while
+// frequently needing the second. Presenting them as one list is what keeps the
+// second from being a control they have to go and find; presenting them as one
+// ACTION would take the choice away from them.
+//
+// The choice is recorded before anything is re-evaluated, for the reason the
+// workspace chooser records its own first: the re-evaluation reads the
+// remembered answer, so an answer recorded afterwards arrives after the decision
+// that needed it and the reader is put back where they asked to leave.
+function registerChooseProjectFolderCommand(context: vscode.ExtensionContext): void {
+  context.subscriptions.push(
+    vscode.commands.registerCommand(CHOOSE_PROJECT_FOLDER_COMMAND, async () => {
+      const folders = [...(vscode.workspace.workspaceFolders ?? [])];
+      const offers = projectFolderOffers(folders).map((o) => ({
+        label: o.label,
+        description: o.description,
+        detail: o.kind === 'other' ? o.detail : '',
+        offer: o,
+      }));
+      const choice = await vscode.window.showQuickPick(offers, {
+        placeHolder: CHOOSE_PROJECT_FOLDER_PLACEHOLDER,
+        matchOnDescription: true,
+        matchOnDetail: true,
+      });
+      if (!choice) { return; }
+      if (choice.offer.kind === 'other') {
+        // The editor's own command, reached rather than reimplemented: which
+        // folders a window has open is the editor's to decide, and this is a
+        // second way in rather than a second door.
+        await vscode.commands.executeCommand(OPEN_ANOTHER_FOLDER_COMMAND);
+        return;
+      }
+      const chosenPath = choice.offer.folder.uri.fsPath;
+      if (chosenPath === chosenProjectFolder) { return; }
+      await rememberProjectFolderChoice(context.workspaceState, chosenPath);
+      // The change is announced because it moves what the level beneath offers,
+      // and a reader who is not told cannot tell a list computed for one folder
+      // from a list computed for another.
+      void vscode.window.showInformationMessage(projectFolderSwitchMessage(chosenPath));
+      await reactivate(context);
+    }),
+  );
 }
 
 // registerReleaseActionCommands wires the two commands that record a Release as

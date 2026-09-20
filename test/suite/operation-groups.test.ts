@@ -31,7 +31,6 @@ import { publishEntityRequest } from '../../src/publication-request';
 import { SWITCH_ANCHOR_COMMAND } from '../../src/anchor-picker';
 import {
   OPEN_WORKSPACE_ROOT_COMMAND,
-  PROJECT_FOLDER_COMMAND,
   rowCommands,
   selectorRows,
 } from '../../src/selector-rows';
@@ -463,8 +462,13 @@ describe('the surface the manifest actually contributes', () => {
     const declared = new Set<string>(manifest.contributes.commands.map((c) => c.command));
     const candidates = { projectFolders: 2, aggregaWorkspaces: 2, releases: 2 };
     const rows = [
-      ...selectorRows('/ws/project', '/ws/project', { kind: 'unknown' }, candidates),
-      ...selectorRows('/ws/project', '/ws/project/services/api', { kind: 'unknown' }, candidates),
+      ...selectorRows(
+        '/ws/project', '/ws/project', '/ws/project', { kind: 'unknown' }, candidates,
+      ),
+      ...selectorRows(
+        '/ws/project', '/ws/project/services/api', '/ws/project/services/api',
+        { kind: 'unknown' }, candidates,
+      ),
     ];
     const ours = rows
       .flatMap(rowCommands)
@@ -487,16 +491,21 @@ describe('the surface the manifest actually contributes', () => {
         `a row control runs ${command}, which the manifest does not contribute`,
       );
     }
-    // And the one command that is NOT ours is the editor's own, named here so
-    // the filter above is a statement about which level the editor owns rather
-    // than a hole the next undeclared command slips through. It is the CHOOSER
-    // rather than the command that opens a named folder: this extension never
-    // puts the second on a control, because the folder it would open has to be
-    // read at the press rather than composed into the document.
+    // 🔴 AND NO ROW CONTROL RUNS AN EDITOR COMMAND AT ALL, which is what makes
+    // the census above a statement about the whole surface rather than about the
+    // part of it we happen to own. Every level is chosen through a command of
+    // ours, and the editor's own folder-opening command is reached from INSIDE
+    // the Project folder chooser rather than from the row — so a reader's press
+    // on a row always lands somewhere the assertion above has checked is
+    // contributed. The empty expectation is the strong form: any future row
+    // control wired straight to an editor command fails here.
+    //
+    // The list above is non-empty, established by the two controls named as
+    // negative controls, so this absence is measured rather than vacuous.
     assert.deepStrictEqual(
       [...new Set(rows.flatMap(rowCommands).filter((c) => !c.startsWith('aggrega.')))],
-      [PROJECT_FOLDER_COMMAND],
-      'a row control runs something that is neither ours nor the editor\'s own folder command',
+      [],
+      'a row control runs an editor command directly instead of one of ours',
     );
   });
 

@@ -121,15 +121,26 @@ export interface OperationDeps extends RendersOnReady {
   // disagreement between the two be seen.
   getAnchoredWorkspaceRoot(): string | null;
   // getOpenedProjectFolder reports the folder the editor has open that the
-  // workspace was reached from, or null when none is in use.
+  // workspace in force was reached from, or null when none is in use.
   //
-  // 🔴 IT IS A THIRD FACT, AND THE PROJECT FOLDER ROW IS THE ONLY SURFACE HERE
-  // THAT WANTS IT. It differs from the two roots above whenever the marker sits
-  // above the opened folder, which is the ordinary case for a window opened on a
-  // subdirectory — and that difference is the subject of the workspace row's own
-  // explanation, so a surface that answered it from either root would be
-  // reporting a difference it had just erased.
+  // 🔴 IT IS A THIRD FACT, AND THE AGGREGA WORKSPACE ROW IS THE ONLY SURFACE
+  // HERE THAT WANTS IT. It differs from the two roots above whenever the marker
+  // sits above the folder the workspace was reached from, which is the ordinary
+  // case for a window opened on a subdirectory — and that difference is the
+  // subject of that row's own explanation, so a surface that answered it from
+  // either root would be reporting a difference it had just erased.
   getOpenedProjectFolder(): string | null;
+  // getChosenProjectFolder reports the open folder the reader chose to work
+  // from, or null where they have not chosen and no sole candidate settled it.
+  //
+  // 🔴 IT IS A FOURTH FACT AND IS NOT THE ONE ABOVE. That one is an outcome —
+  // which folder the workspace in force happened to be reached from — and this
+  // one is a decision. Answering the Project folder row from the outcome would
+  // make the outer level a consequence of the inner one, and it would name a
+  // folder as chosen in a window where nobody chose anything. What this value
+  // scopes is the middle level's candidates, which is the effect the row's own
+  // explanation promises.
+  getChosenProjectFolder(): string | null;
   // selectionState reports the editor's one selected Release, for the row that
   // displays it. The row renders this and derives nothing of its own.
   selectionState(): SelectionState;
@@ -448,6 +459,7 @@ class OperationsViewProvider implements vscode.WebviewViewProvider {
       selectors: selectorRows(
         this.deps.getAnchoredWorkspaceRoot(),
         this.deps.getOpenedProjectFolder(),
+        this.deps.getChosenProjectFolder(),
         this.deps.selectionState(),
         this.deps.selectorCandidates(),
       ),
@@ -586,6 +598,7 @@ class OperationsViewProvider implements vscode.WebviewViewProvider {
     const rows = selectorRows(
       this.deps.getAnchoredWorkspaceRoot(),
       this.deps.getOpenedProjectFolder(),
+      this.deps.getChosenProjectFolder(),
       this.deps.selectionState(),
       this.deps.selectorCandidates(),
     );

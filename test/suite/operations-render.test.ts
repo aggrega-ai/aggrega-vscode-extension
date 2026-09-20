@@ -49,7 +49,7 @@ const SEVERAL: SelectorCandidates = { projectFolders: 3, aggregaWorkspaces: 2, r
 function body(over: Partial<OperationsBody> = {}): OperationsBody {
   return {
     layout: 'buttons',
-    selectors: selectorRows(ANCHORED, ANCHORED, SELECTED, SEVERAL),
+    selectors: selectorRows(ANCHORED, ANCHORED, ANCHORED, SELECTED, SEVERAL),
     unavailable: {},
     collapsed: [],
     focused: null,
@@ -532,7 +532,7 @@ describe('the Commands panel document', () => {
       layout: 'sections',
       collapsed: OPERATION_GROUPS.map((group) => group.id),
     }));
-    for (const row of selectorRows(ANCHORED, ANCHORED, SELECTED, SEVERAL)) {
+    for (const row of selectorRows(ANCHORED, ANCHORED, ANCHORED, SELECTED, SEVERAL)) {
       assert.ok(
         html.includes(`data-focus-key="${row.key}"`),
         `the ${row.label} row is gone once every section is closed`,
@@ -559,7 +559,7 @@ describe('the Commands panel document', () => {
     // identity answers that. The full path answers "which one exactly", which
     // is a second question — so it is asked for rather than drawn, and the row
     // costs one line instead of a block.
-    const rows = selectorRows('/work/demo', '/work/demo/services/api', SELECTED, SEVERAL);
+    const rows = selectorRows('/work/demo', '/work/demo/services/api', '/work/demo/services/api', SELECTED, SEVERAL);
     const html = operationsBodyHtml(body({ selectors: rows }));
 
     // Nothing is drawn beneath a row, by class and by count.
@@ -647,7 +647,7 @@ describe('the Commands panel document', () => {
     // The three levels nest on disk, so a row reading the wrong one still draws
     // something that looks like an answer. Distinct inputs are what make a
     // crossed pair visible.
-    const rows = selectorRows('/work/demo', '/work/demo/services/api', SELECTED, SEVERAL);
+    const rows = selectorRows('/work/demo', '/work/demo/services/api', '/work/demo/services/api', SELECTED, SEVERAL);
     const html = operationsBodyHtml(body({ selectors: rows }));
     const values = Array.from(html.matchAll(/<span class="selector-value">([^<]*)<\/span>/g))
       .map((m) => m[1]);
@@ -715,7 +715,7 @@ describe('the Commands panel document', () => {
     // offer drawn inside the choosing control would choose instead of opening —
     // and an offer drawn where the create control was would reload the window
     // for a reader who aimed at making a workspace.
-    const rows = selectorRows('/work/demo', '/work/demo/services/api', SELECTED, SEVERAL);
+    const rows = selectorRows('/work/demo', '/work/demo/services/api', '/work/demo/services/api', SELECTED, SEVERAL);
     const html = operationsBodyHtml(body({ selectors: rows }));
     const offering = rows.filter((row) => row.offer !== null);
     assert.strictEqual(
@@ -776,7 +776,7 @@ describe('the Commands panel document', () => {
       ['/work/demo', '/work/demo'],
     ];
     for (const [anchored, opened] of cases) {
-      const rows = selectorRows(anchored, opened, SELECTED, SEVERAL);
+      const rows = selectorRows(anchored, opened, opened, SELECTED, SEVERAL);
       const html = operationsBodyHtml(body({ selectors: rows }));
       const chunks = Array.from(html.matchAll(/<div class="selector-row">([\s\S]*?)<\/div>/g))
         .map((m) => m[1]);
@@ -2031,6 +2031,7 @@ describe('the whole document', () => {
     // this document\'s to interpret.
     const html = document({
       selectors: selectorRows(
+        '/work/<script>x</script>',
         '/work/<script>x</script>',
         '/work/<script>x</script>',
         NO_ANSWER_YET,

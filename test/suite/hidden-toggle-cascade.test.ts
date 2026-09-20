@@ -288,7 +288,7 @@ const EVERY_LAYOUT: Record<OperationsLayout, true> = { buttons: true, sections: 
 function operationsHtml(): string {
   const anchored = '/work/demo';
   const base: Omit<OperationsBody, 'layout'> = {
-    selectors: selectorRows(anchored, anchored, {
+    selectors: selectorRows(anchored, anchored, anchored, {
       kind: 'selected',
       release: 'releases/prod.yaml',
       absolute: '/work/demo/releases/prod.yaml',

@@ -4,6 +4,7 @@
 import * as path from 'path';
 import { AnchoredFolder, FolderLike, workspaceRootOf } from './workspace';
 import { SELECTOR_ROW_LABELS } from './selector-levels';
+import { distinguishingLabel } from './uri-display';
 
 // STATE_KEY is the workspaceState entry under which the active
 // anchor's absolute path is persisted across VS Code sessions.
@@ -152,26 +153,13 @@ export function classifyActivation<F extends FolderLike>(
 export function buildPickerItems<F extends FolderLike>(
   anchored: readonly AnchoredFolder<F>[],
 ): PickerItem<F>[] {
-  const basenameCounts = new Map<string, number>();
-  for (const a of anchored) {
-    const bn = path.basename(workspaceRootOf(a));
-    basenameCounts.set(bn, (basenameCounts.get(bn) ?? 0) + 1);
-  }
-
-  return anchored.map(a => {
-    const root = workspaceRootOf(a);
-    const bn = path.basename(root);
-    const collides = (basenameCounts.get(bn) ?? 0) > 1;
-    const label = collides
-      ? `${bn} (${path.basename(path.dirname(root))})`
-      : bn;
-    return {
-      label,
-      description: root,
-      detail: path.basename(a.anchorPath),
-      anchored: a,
-    };
-  });
+  const roots = anchored.map(workspaceRootOf);
+  return anchored.map(a => ({
+    label: distinguishingLabel(workspaceRootOf(a), roots),
+    description: workspaceRootOf(a),
+    detail: path.basename(a.anchorPath),
+    anchored: a,
+  }));
 }
 
 // CHOOSE_ANCHOR_INVITATION is the offer to change which Aggrega workspace the
@@ -302,22 +290,14 @@ export function anchorSwitchMessage(workspaceRoot: string): string {
 // activeWorkspaceLabel renders the status-bar text for an attached language
 // server when the window reaches 2+ Aggrega workspaces. With one or zero,
 // callers should display the existing single-workspace label instead.
-// Basename-collision disambiguation matches buildPickerItems, and so does the
-// thing named: the workspace root, not the open folder it was reached from, for
-// the reason written there.
+//
+// It names the workspace root, not the open folder it was reached from, for the
+// reason written on buildPickerItems, and it reads the label through the same
+// one rule — so the name in the status bar and the name in the chooser are the
+// same name.
 export function activeWorkspaceLabel<F extends FolderLike>(
   active: AnchoredFolder<F>,
   anchored: readonly AnchoredFolder<F>[],
 ): string {
-  const basenameCounts = new Map<string, number>();
-  for (const a of anchored) {
-    const bn = path.basename(workspaceRootOf(a));
-    basenameCounts.set(bn, (basenameCounts.get(bn) ?? 0) + 1);
-  }
-  const root = workspaceRootOf(active);
-  const bn = path.basename(root);
-  const collides = (basenameCounts.get(bn) ?? 0) > 1;
-  return collides
-    ? `Aggrega · ${bn} (${path.basename(path.dirname(root))})`
-    : `Aggrega · ${bn}`;
+  return `Aggrega · ${distinguishingLabel(workspaceRootOf(active), anchored.map(workspaceRootOf))}`;
 }

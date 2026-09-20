@@ -200,6 +200,7 @@ describe('the two rows name the two places at the same moment', () => {
     const rows = selectorRows(
       layout.anchoring.workspaceRoot,
       layout.anchoring.openedFolder,
+      layout.anchoring.openedFolder,
       { kind: 'unknown' },
       candidates,
     );
@@ -226,6 +227,7 @@ describe('the two rows name the two places at the same moment', () => {
   // the assertions above name it rather than passing through it.
   it('names the collapse: one value in both places renames the Project folder row and silences the difference', () => {
     const collapsed = selectorRows(
+      layout.anchoring.workspaceRoot,
       layout.anchoring.workspaceRoot,
       layout.anchoring.workspaceRoot,
       { kind: 'unknown' },
@@ -290,15 +292,30 @@ describe('the anchoring census over the wiring', () => {
     );
   });
 
-  it('draws the rows from the server\'s own answer and the opened folder', () => {
+  it('draws the rows from the server\'s answer, the opened folder and the chosen one', () => {
     const calls = callArguments('src/operations.ts', 'selectorRows');
     assert.ok(calls.length > 0, 'the panel must still compose its rows here');
     for (const args of calls) {
+      // 🔴 THREE DIFFERENT FACTS, AND THE THIRD IS THE ONE THAT MUST NOT BE
+      // DRAWN FROM EITHER OTHER. The workspace row takes the root the compiler
+      // reported; it also takes the folder that workspace was reached from, so
+      // it can say the two differ. The Project folder row takes the reader's own
+      // CHOICE — which is a decision rather than an outcome, and drawing it from
+      // the opened folder is exactly the derivation the outer level is being
+      // moved off.
       assert.deepStrictEqual(
-        args.slice(0, 2),
-        ['this.deps.getAnchoredWorkspaceRoot()', 'this.deps.getOpenedProjectFolder()'],
-        'the workspace row takes the root the compiler reported and the Project folder row takes '
-        + 'the folder the editor opened; either one drawn from the other reports one place twice',
+        args.slice(0, 3),
+        [
+          'this.deps.getAnchoredWorkspaceRoot()',
+          'this.deps.getOpenedProjectFolder()',
+          'this.deps.getChosenProjectFolder()',
+        ],
+        'a row is drawn from a value that is not its own fact; the outer level drawn from the '
+        + 'opened folder is the derivation this arrangement exists to end',
+      );
+      assert.strictEqual(
+        new Set(args.slice(0, 3)).size, 3,
+        'two rows are drawn from one value, so one of them reports a level it is not about',
       );
     }
   });

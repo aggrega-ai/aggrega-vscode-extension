@@ -348,17 +348,121 @@ export function releaseParamFor(workspaceRoot: string, releasePath: string): str
 export async function findAllAnchoredFolders<F extends FolderLike>(
   folders: readonly F[],
 ): Promise<AnchoredFolder<F>[]> {
-  const out: AnchoredFolder<F>[] = [];
-  const reached = new Set<string>();
+  const climbed: AnchoredFolder<F>[] = [];
   for (const folder of folders) {
     const anchorPath = await findAggregaWorkspaceAnchor(folder.uri.fsPath);
-    if (anchorPath === null || reached.has(anchorPath)) {
-      continue;
-    }
-    reached.add(anchorPath);
-    out.push({ folder, anchorPath });
+    if (anchorPath === null) { continue; }
+    climbed.push({ folder, anchorPath });
+  }
+  return dedupeByWorkspaceRoot(climbed);
+}
+
+// dedupeByWorkspaceRoot keeps the first entry for each Aggrega workspace and
+// drops the rest, preserving input order.
+//
+// 🔴 THE KEY IS THE WORKSPACE ROOT AND NEVER THE DIRECTORY A MARKER WAS FOUND
+// IN. Discovery gives an explicit workspace configuration precedence across
+// directories, so a marker found in a subdirectory can confirm to a root above
+// it — which means two directories, each carrying something that looks like a
+// marker, are frequently one workspace. Keying on where the file was found
+// reports two, and the reader is then asked to choose between two entries that
+// name the same place.
+//
+// It is the one home of that judgement, shared by the climb above and by the
+// reach below, because those two are the same population read at two scopes: a
+// second key written beside either would agree until the day discovery's
+// precedence moved, and the symptom would be a count that disagreed with the
+// list beneath it.
+export function dedupeByWorkspaceRoot<F extends FolderLike>(
+  found: readonly AnchoredFolder<F>[],
+): AnchoredFolder<F>[] {
+  const out: AnchoredFolder<F>[] = [];
+  const roots = new Set<string>();
+  for (const entry of found) {
+    const root = workspaceRootOf(entry);
+    if (roots.has(root)) { continue; }
+    roots.add(root);
+    out.push(entry);
   }
   return out;
+}
+
+// CandidateFileSearch looks inside ONE open folder for files that might anchor a
+// workspace, answering with their absolute paths.
+//
+// It arrives as an argument rather than being called directly because the search
+// is the editor's, and this module holds no editor type — which is what keeps
+// the reach rule below drivable against a real directory tree with no editor
+// running. The search narrows; it decides nothing. Every path it answers with is
+// still confirmed through findAggregaWorkspaceAnchor, so a pattern that is too
+// wide can only produce a candidate the confirmation drops.
+export type CandidateFileSearch<F extends FolderLike = FolderLike> =
+  (folder: F) => Promise<readonly string[]>;
+
+// workspacesReachedFrom answers with the Aggrega workspaces one open folder
+// reaches: the one found by walking UP from it, and every one found by looking
+// DOWN inside it.
+//
+// 🔴 REACHING IS NOT CONTAINING, AND THE DIFFERENCE IS THE WHOLE RULE. The walk
+// climbs, so the workspace a folder reaches is frequently its parent — a folder
+// opened inside a larger repository reaches the repository's root and contains
+// nothing at all. A rule phrased as containment deletes that reader's only
+// workspace, which is the commonest way to open one of these projects.
+//
+// Both directions are needed and neither subsumes the other. The walk finds the
+// workspace above a folder that holds no marker of its own, which no search
+// inside that folder can see. The search finds the workspaces beneath a folder
+// that already sits in one, which the walk stops at the first of and never
+// reports. Answering with one direction alone loses a population the reader has.
+//
+// The walk's answer comes first because it is the one the editor already acts
+// on, so a caller that takes only what it needs takes the same workspace the
+// language server attaches to.
+export async function workspacesReachedFrom<F extends FolderLike>(
+  folder: F,
+  search: CandidateFileSearch<F>,
+): Promise<AnchoredFolder<F>[]> {
+  const found: AnchoredFolder<F>[] = [];
+  const climbed = await findAggregaWorkspaceAnchor(folder.uri.fsPath);
+  if (climbed !== null) {
+    found.push({ folder, anchorPath: climbed });
+  }
+  const directories = new Set<string>();
+  for (const file of await search(folder)) {
+    directories.add(path.dirname(file));
+  }
+  // Sorted so the order a reader is shown is stable between invocations; the
+  // editor's own search makes no promise about the order it answers in.
+  for (const directory of [...directories].sort()) {
+    const anchorPath = await findAggregaWorkspaceAnchor(directory);
+    if (anchorPath === null) { continue; }
+    found.push({ folder, anchorPath });
+  }
+  return dedupeByWorkspaceRoot(found);
+}
+
+// workspacesReachedFromAll answers with every Aggrega workspace a set of open
+// folders reaches between them.
+//
+// 🔴 IT IS THE SAME RULE AS ABOVE READ AT A WIDER SCOPE, NEVER A SET WITH A
+// FILTER OVER IT. The population a window offers and the population one chosen
+// folder offers are computed by one function called with different arguments, so
+// there is nothing that could decide the two differently. That is what a choice
+// at the outer level scoping the level beneath it means here: the narrowed list
+// is this same reach asked at one folder instead of at all of them.
+//
+// Every entry carries the folder it was reached FROM, which is what lets a
+// caller say where a workspace came from without asking a question that has more
+// than one true answer.
+export async function workspacesReachedFromAll<F extends FolderLike>(
+  folders: readonly F[],
+  search: CandidateFileSearch<F>,
+): Promise<AnchoredFolder<F>[]> {
+  const found: AnchoredFolder<F>[] = [];
+  for (const folder of folders) {
+    found.push(...await workspacesReachedFrom(folder, search));
+  }
+  return dedupeByWorkspaceRoot(found);
 }
 
 // heuristicMarkerInDir reports the highest-priority heuristic marker present in

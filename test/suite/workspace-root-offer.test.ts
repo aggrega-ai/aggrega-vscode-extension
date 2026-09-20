@@ -5,14 +5,15 @@ import * as assert from 'node:assert';
 import * as path from 'node:path';
 
 import {
+  OPEN_ANOTHER_FOLDER_COMMAND,
   OPEN_FOLDER_COMMAND,
   OPEN_WORKSPACE_ROOT_COMMAND,
-  PROJECT_FOLDER_COMMAND,
   openWorkspaceRootInvocation,
   rowCommands,
   selectorRows,
   workspaceRow,
 } from '../../src/selector-rows';
+import { CHOOSE_PROJECT_FOLDER_COMMAND } from '../../src/project-folder';
 import { callArguments, functionBody } from '../helpers/anchoring-census';
 import { callSites, tokenModules } from '../helpers/open-folder-census';
 
@@ -33,7 +34,7 @@ const PRESS_HANDLER = 'registerCommand(OPEN_WORKSPACE_ROOT_COMMAND, () =>';
 describe('the two ways the editor is made to work in another folder', () => {
   it('keeps them as different strings, each spelled in one place', () => {
     assert.notStrictEqual(
-      PROJECT_FOLDER_COMMAND, OPEN_FOLDER_COMMAND,
+      OPEN_ANOTHER_FOLDER_COMMAND, OPEN_FOLDER_COMMAND,
       'the chooser and the named-folder command have collapsed into one, so one of the two '
       + 'surfaces is now doing the other\'s job',
     );
@@ -57,27 +58,36 @@ describe('the two ways the editor is made to work in another folder', () => {
       + 'spelling is a second thing to keep in step with the editor\'s own declarations',
     );
     assert.deepStrictEqual(
-      tokenModules(`'${PROJECT_FOLDER_COMMAND}'`),
+      tokenModules(`'${OPEN_ANOTHER_FOLDER_COMMAND}'`),
       [['selector-rows.ts', 1]],
-      'the identifier that opens the CHOOSER is written somewhere else as well',
+      'the identifier that opens the editor\'s own CHOOSER is written somewhere else as well',
     );
   });
 
   it('gives each surface the one of the two that does its job', () => {
-    const rows = selectorRows(ROOT, OPENED_BELOW, { kind: 'unknown' }, CANDIDATES);
+    const rows = selectorRows(ROOT, OPENED_BELOW, OPENED_BELOW, { kind: 'unknown' }, CANDIDATES);
     const project = rows.find((row) => row.key === 'project');
     const workspace = rows.find((row) => row.key === 'workspace');
     assert.ok(project && workspace, 'both rows must be drawn');
 
-    // The Project folder row asks the reader WHICH folder, so it runs the
-    // chooser and hands it nothing.
-    assert.strictEqual(project.command, PROJECT_FOLDER_COMMAND);
-    // The offer names the destination, so it cannot be the chooser: a chooser
+    // 🔴 THE PROJECT FOLDER ROW RUNS NEITHER OF THE EDITOR'S TWO COMMANDS. It
+    // asks which of the folders the window ALREADY HAS is the one Aggrega works
+    // from, which is a question neither editor command answers — one changes
+    // what the window has and the other goes where it is handed. The editor's
+    // chooser is the last entry inside ours, so the reader can still reach a
+    // folder the window does not hold.
+    assert.strictEqual(project.command, CHOOSE_PROJECT_FOLDER_COMMAND);
+    assert.notStrictEqual(
+      project.command, OPEN_ANOTHER_FOLDER_COMMAND,
+      'the row opens a folder instead of choosing among the ones already open, so the choice '
+      + 'that scopes the level beneath it cannot be made at all',
+    );
+    // The offer names the destination, so it cannot be a chooser: a chooser
     // handed a folder would ignore it and ask anyway.
     assert.notStrictEqual(
-      workspace.offer?.command, PROJECT_FOLDER_COMMAND,
-      'the offer runs the chooser, which would put a question in front of a reader who has '
-      + 'already been shown the answer',
+      workspace.offer?.command, OPEN_ANOTHER_FOLDER_COMMAND,
+      'the offer runs the editor\'s chooser, which would put a question in front of a reader '
+      + 'who has already been shown the answer',
     );
     assert.strictEqual(
       openWorkspaceRootInvocation(ROOT)?.command, OPEN_FOLDER_COMMAND,

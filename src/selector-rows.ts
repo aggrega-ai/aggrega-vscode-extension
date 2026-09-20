@@ -14,6 +14,10 @@ import {
 } from './selector-levels';
 import { CREATE_WORKSPACE_COMMAND, DRAFT_RELEASE_COMMAND } from './get-started-steps';
 import { CHOOSE_ANCHOR_INVITATION, SWITCH_ANCHOR_COMMAND } from './anchor-picker';
+import {
+  CHOOSE_PROJECT_FOLDER_COMMAND,
+  CHOOSE_PROJECT_FOLDER_INVITATION,
+} from './project-folder';
 import { NO_ANCHORED_WORKSPACE_ROW_TOOLTIP } from './workspace';
 
 // SelectorCreate is a row's SECOND control: the one that makes a new value for
@@ -157,7 +161,7 @@ export interface SelectorCandidates {
   releases: number | null;
 }
 
-// PROJECT_FOLDER_COMMAND changes which folder the editor is working in.
+// OPEN_ANOTHER_FOLDER_COMMAND brings a folder the window does not have into it.
 //
 // IT IS THE EDITOR'S OWN COMMAND RATHER THAN ONE OF THIS EXTENSION'S. Which
 // folders a window has open is the editor's to decide, so a command here would
@@ -168,7 +172,14 @@ export interface SelectorCandidates {
 // between platforms — a system dialogue on some, a list inside the window on
 // others. What it CHANGES is the same either way, and it is the only thing that
 // reaches a folder the window does not already have open.
-export const PROJECT_FOLDER_COMMAND = 'workbench.action.openFolder';
+//
+// 🔴 IT IS NOT WHAT THE PROJECT FOLDER ROW RUNS, and the distinction is the one
+// this row was redrawn around. Opening a folder changes what the window HAS;
+// the row chooses which of the folders it has is the one Aggrega works from,
+// and that choice is what scopes the level beneath it. This command remains the
+// last entry inside that chooser, because a reader whose folder is not open yet
+// still needs it.
+export const OPEN_ANOTHER_FOLDER_COMMAND = 'workbench.action.openFolder';
 
 // OPEN_FOLDER_COMMAND makes the editor work in a NAMED folder, taking that
 // folder's location as its argument.
@@ -225,36 +236,42 @@ export function openWorkspaceRootInvocation(root: string | null): WorkspaceRootO
   return { command: OPEN_FOLDER_COMMAND, location: root };
 }
 
-// projectFolderRow renders the folder the editor is working in.
+// projectFolderRow renders the folder the editor is working from.
 //
-// It is the outermost of the three levels and the only one that is the
-// editor's rather than Aggrega's, which is why it carries no create control.
+// It is the outermost of the three levels and the only one whose candidates are
+// the editor's rather than Aggrega's, which is why it carries no create control:
+// bringing a folder into being is not an Aggrega act, and a control here would
+// promise a creation this extension does not perform.
 //
-// 🔴 IT HAS NO "NONE SELECTED" READING, AND THE ABSENCE IS THE TRUTH RATHER
-// THAN AN OMISSION. Nothing at this level is chosen by the reader — the value
-// is the folder Aggrega settled on — so there is no decision they can be
-// waiting to make and none is invented for them. What it has instead are two
-// empty readings they act on differently: no folder open at all, whose way out
-// is opening one, and folders open with Aggrega working in none of them, which
-// opening another folder does not by itself resolve. Telling those apart is
-// what the count is passed in for; without it the row says "none open" in a
-// window that plainly has folders open, which is the plainest falsehood on this
-// panel.
+// 🔴 THE VALUE IS THE READER'S CHOICE AND IS NEVER DERIVED FROM THE LEVEL
+// BENEATH IT. An Aggrega workspace can be reached from two open folders at once,
+// so naming the folder the anchoring settled on would put one arbitrary answer
+// in front of a reader as though it were a fact about their project — and it
+// would make the outer level a consequence of the inner one, which is backwards
+// from what the arrangement teaches.
+//
+// 🔴 ITS THREE EMPTY READINGS ARE NOT ONE STATE. No folder open at all is a
+// state choosing cannot resolve, and its way out is opening one. Several folders
+// open with none of them chosen is a decision waiting to be made, and its way
+// out is the choice. Telling those apart is what the count is passed in for;
+// without it the row says "none open" in a window that plainly has folders open,
+// which is the plainest falsehood on this panel.
 export function projectFolderRow(
-  openedFolder: string | null,
+  chosenFolder: string | null,
   candidates: number,
 ): SelectorRow {
   const base = {
     key: 'project' as const,
     label: SELECTOR_ROW_LABELS.project,
-    command: PROJECT_FOLDER_COMMAND,
+    command: CHOOSE_PROJECT_FOLDER_COMMAND,
     icon: 'folder-opened',
     create: null,
     offer: null,
   };
   if (candidates === 0) {
-    // The way out is the very thing this row's own control does, so saying so
-    // is the exit rather than an instruction to hunt for one elsewhere.
+    // The chooser this row opens carries opening a folder as its last entry, so
+    // the click is still the way out of this state and saying so is the exit
+    // rather than an instruction to hunt for a control elsewhere.
     return {
       ...base,
       value: 'none open',
@@ -262,27 +279,34 @@ export function projectFolderRow(
         `Aggrega: no ${SELECTOR_ROW_LABELS.project} is open.\nClick to open one.`,
     };
   }
-  if (openedFolder === null) {
+  if (chosenFolder === null) {
+    // A window holding exactly one folder does not reach this reading, because
+    // the sole candidate is taken silently. The singular is written anyway: this
+    // function answers for whatever count it is handed, and a sentence that only
+    // reads correctly for the counts reachable today is one that starts lying
+    // the moment the rule above it moves.
     const open = candidates === 1
       ? `One ${SELECTOR_ROW_LABELS.project} is open in this window.`
       : `${candidates} ${SELECTOR_ROW_LABELS.project}s are open in this window.`;
-    // Why none of them is in use is deliberately not asserted here. More than
-    // one state reaches this reading — nothing open carries a workspace, and
-    // several do with none of them chosen — and the row below is where that
-    // difference is reported.
     return {
       ...base,
-      value: 'none in use',
+      value: 'none selected',
       tooltip:
-        `Aggrega: no ${SELECTOR_ROW_LABELS.project} is in use.\n${open}\nClick to open a different one.`,
+        `Aggrega: no ${SELECTOR_ROW_LABELS.project} is selected.\n${open}\n`
+        + CHOOSE_PROJECT_FOLDER_INVITATION,
     };
   }
   const sole = candidates === 1 ? `\n${soleCandidateNote('project')}` : '';
   return {
     ...base,
-    value: path.basename(openedFolder),
+    value: path.basename(chosenFolder),
+    // The closing sentence says what the choice DOES, because that is the part
+    // a reader cannot see: the Aggrega workspaces on offer below are the ones
+    // this folder reaches, so changing it changes that list.
     tooltip:
-      `${SELECTOR_ROW_LABELS.project}: ${openedFolder}${sole}\nClick to open a different one.`,
+      `${SELECTOR_ROW_LABELS.project}: ${chosenFolder}${sole}\n`
+      + `The ${SELECTOR_ROW_LABELS.workspace}s on offer are the ones this folder reaches.\n`
+      + CHOOSE_PROJECT_FOLDER_INVITATION,
   };
 }
 
@@ -447,14 +471,25 @@ export function releaseRow(state: SelectionState, releases: number | null): Sele
 }
 
 // selectorRows builds all three rows in display order.
+//
+// 🔴 THE OUTER ROW AND THE MIDDLE ROW TAKE DIFFERENT FOLDERS, AND COLLAPSING
+// THEM IS THE DEFECT THIS SIGNATURE EXISTS TO PREVENT. The chosen folder is the
+// reader's answer at the outer level and is what scopes the middle level's
+// candidates. The opened folder is the one the workspace in force was actually
+// reached from, which is what the middle row needs in order to say that the
+// workspace sits somewhere other than the folder it was reached from. They
+// coincide in the ordinary case and differ exactly when the reader has not
+// chosen — at which point one value standing for both would name a folder as
+// chosen that nobody chose.
 export function selectorRows(
   anchoredRoot: string | null,
   openedFolder: string | null,
+  chosenProjectFolder: string | null,
   state: SelectionState,
   candidates: SelectorCandidates,
 ): SelectorRow[] {
   return [
-    projectFolderRow(openedFolder, candidates.projectFolders),
+    projectFolderRow(chosenProjectFolder, candidates.projectFolders),
     workspaceRow(anchoredRoot, openedFolder, candidates.aggregaWorkspaces),
     releaseRow(state, candidates.releases),
   ];

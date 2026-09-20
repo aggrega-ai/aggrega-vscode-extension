@@ -118,6 +118,26 @@ export function anchoringAssignments(relativePath: string): Array<[string, strin
     .sort();
 }
 
+// assignmentsTo reports every expression assigned to one module-level value, in
+// source order.
+//
+// 🔴 IT EXISTS BECAUSE AN ABSENCE READING OVER ONE TOKEN IS NOT A CLAIM ABOUT
+// WHERE A VALUE CAME FROM. Asserting that a function does not mention the
+// anchoring passes while the same fact arrives through a module-level value the
+// anchoring had already been assigned to — measured by planting exactly that and
+// watching the reading stay green. An equality over every right-hand side cannot
+// be evaded that way: a second assignment is a second entry whatever it names.
+//
+// A declaration is not an assignment here. The pattern requires the name to open
+// its line, and a declaration opens with its binding keyword — so the initial
+// value a module-level value is declared with is deliberately out of scope,
+// because what this measures is what later writes to it.
+export function assignmentsTo(relativePath: string, target: string): string[] {
+  const source = sourceOf(relativePath);
+  const pattern = new RegExp(`^[ \\t]*${target}\\s*=\\s*([^;]+);`, 'gm');
+  return [...source.matchAll(pattern)].map((m) => normalise(m[1]));
+}
+
 // nulledIn reports which module-level values one function sets to null, so the
 // claim that the window's two facts are dropped together is measured rather than
 // assumed.
