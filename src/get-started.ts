@@ -11,6 +11,7 @@ import { makeNonce } from './html';
 import { panelControlCommand } from './panel-control';
 import { RendersOnReady } from './readiness';
 import { RegistryListDoc } from './registries-run';
+import { SELECTOR_ROW_LABELS } from './selector-levels';
 import { DEFAULT_SETTINGS, SERVER_CONFIG_SECTION } from './settings';
 import {
   ConfigInitParams,
@@ -836,11 +837,27 @@ async function reattachIfSilent(deps: GetStartedDeps, refresh: () => void): Prom
   refresh();
 }
 
-// draftRelease opens the one place a document is drafted from. The kind and the
-// name are asked for there rather than fixed here, so this control is a route
-// into the existing drafting rather than a second door to the same room.
+// draftRelease opens the one place a document is drafted from, with the kind
+// already settled.
+//
+// Every control that reaches this exists on a Release surface — the Release
+// row's create control, and the button beside the welcome page's Release step —
+// so a reader pressing one has already said which kind they mean, and asking
+// again would be the flow forgetting what it was told. The name is still asked
+// for there rather than here.
+//
+// 🔴 IT NAMES THE LEVEL AND NEVER A TOKEN. The kinds are the compiler's, so what
+// travels is the name a reader reads and the drafting flow resolves it in the
+// compiler's own answer; a token written here would be a second statement of a
+// set this side does not own. Where that answer holds no such kind the ordinary
+// chooser opens, which is what keeps this a pre-set argument to one flow rather
+// than a second way to draft.
 async function draftRelease(): Promise<void> {
-  await vscode.commands.executeCommand('aggrega.op.scaffold');
+  await vscode.commands.executeCommand(
+    'aggrega.op.scaffold',
+    undefined,
+    SELECTOR_ROW_LABELS.release,
+  );
 }
 
 // seedRegistry registers a registry and its signature trust policy through the

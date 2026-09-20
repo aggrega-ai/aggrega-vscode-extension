@@ -28,7 +28,8 @@ import {
   unavailableReason,
 } from '../../src/operation-groups';
 import { publishEntityRequest } from '../../src/publication-request';
-import { PROJECT_FOLDER_COMMAND, SWITCH_ANCHOR_COMMAND, selectorRows } from '../../src/selector-rows';
+import { SWITCH_ANCHOR_COMMAND } from '../../src/anchor-picker';
+import { PROJECT_FOLDER_COMMAND, selectorRows } from '../../src/selector-rows';
 import {
   NO_RELEASE_SELECTED_CONTROL_REASON,
 } from '../../src/release-selection';

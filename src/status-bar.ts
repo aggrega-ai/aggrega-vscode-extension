@@ -6,6 +6,7 @@ import { Daemon, DaemonState } from './daemon';
 import {
   CHOOSE_ANCHOR_ACTION,
   CHOOSE_ANCHOR_INVITATION,
+  SWITCH_ANCHOR_COMMAND,
   activeWorkspaceLabel,
 } from './anchor-picker';
 import { SELECTOR_ROW_LABELS } from './selector-levels';
@@ -113,9 +114,8 @@ export function createLifecycleStatusBarItem(
 
 // createPendingChoiceStatusBar registers a status bar item that
 // signals "this window reaches 2+ Aggrega workspaces, the user has not
-// picked one yet, no language server is running." Clicking the item invokes
-// aggrega.workspace.switchAnchor which opens the same picker the
-// activation-time toast surfaces.
+// picked one yet, no language server is running." Clicking the item opens the
+// same picker the activation-time toast surfaces.
 //
 // Returns the item so the caller can dispose / hide it once a choice
 // resolves (at which point createAggregaStatusBar takes over).
@@ -139,7 +139,10 @@ export function createPendingChoiceStatusBar(
   item.tooltip =
     `More than one ${SELECTOR_ROW_LABELS.workspace} is available in this project. `
     + CHOOSE_ANCHOR_INVITATION;
-  item.command = 'aggrega.workspace.switchAnchor';
+  // The command is read from the module that owns the choice, for the reason the
+  // offer above it is: this item and the row that makes the same offer must not
+  // come to run two different commands.
+  item.command = SWITCH_ANCHOR_COMMAND;
   context.subscriptions.push(item);
   item.show();
   return item;

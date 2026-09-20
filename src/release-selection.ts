@@ -13,6 +13,17 @@ import { releaseParamFor } from './workspace';
 // file, and this is deliberately not that.
 export const SELECTED_RELEASE_STATE_KEY = 'aggrega.selectedRelease';
 
+// SELECT_RELEASE_COMMAND is the one command that changes which Release the
+// editor is acting on.
+//
+// It lives beside the choice it opens rather than beside any of the surfaces
+// that run it — the status-bar indicator, the Release row, and the welcome
+// page's Release step all name it, and a declaration beside one of those would
+// make the other two depend on a surface they have nothing to do with. Two
+// copies agree until one of them moves, and what they hide while they agree is
+// a command registered under one identifier and invoked under another.
+export const SELECT_RELEASE_COMMAND = 'aggrega.release.select';
+
 // SelectionState is what the editor knows about the selected Release at a
 // moment in time. Every surface that displays the selection renders one of
 // these three, so the indicator and any other reader cannot disagree about

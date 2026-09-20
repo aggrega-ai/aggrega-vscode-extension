@@ -2,15 +2,18 @@
 // Copyright 2026 Cognitio S.r.l.
 
 import * as path from 'path';
-import { SelectionState, describeSelection } from './release-selection';
+import {
+  SELECT_RELEASE_COMMAND,
+  SelectionState,
+  describeSelection,
+} from './release-selection';
 import {
   SELECTOR_ROW_LABELS,
   SelectorRowKey,
   soleCandidateNote,
 } from './selector-levels';
 import { CREATE_WORKSPACE_COMMAND, DRAFT_RELEASE_COMMAND } from './get-started-steps';
-import { SELECT_RELEASE_COMMAND } from './release-status';
-import { CHOOSE_ANCHOR_INVITATION } from './anchor-picker';
+import { CHOOSE_ANCHOR_INVITATION, SWITCH_ANCHOR_COMMAND } from './anchor-picker';
 import { NO_ANCHORED_WORKSPACE_ROW_TOOLTIP } from './workspace';
 
 // SelectorCreate is a row's SECOND control: the one that makes a new value for
@@ -112,10 +115,6 @@ export interface SelectorCandidates {
 // others. What it CHANGES is the same either way, and it is the only thing that
 // reaches a folder the window does not already have open.
 export const PROJECT_FOLDER_COMMAND = 'workbench.action.openFolder';
-
-// SWITCH_ANCHOR_COMMAND is the command the Aggrega workspace row runs when
-// clicked.
-export const SWITCH_ANCHOR_COMMAND = 'aggrega.workspace.switchAnchor';
 
 // projectFolderRow renders the folder the editor is working in.
 //

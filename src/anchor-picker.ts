@@ -9,6 +9,18 @@ import { SELECTOR_ROW_LABELS } from './selector-levels';
 // anchor's absolute path is persisted across VS Code sessions.
 export const STATE_KEY = 'aggrega.activeAnchor';
 
+// SWITCH_ANCHOR_COMMAND is the one command that changes which Aggrega workspace
+// the editor works in.
+//
+// It lives beside the choice it opens, with the read and the write of that
+// choice and with the three wordings that offer it, because the surfaces that
+// run it draw different things — a row on a panel, an item in the status bar —
+// and neither of those is where the other should look for a command. A second
+// declaration beside either is a copy that agrees until one of them moves, and
+// where that copy is a literal written into a handler it is one no reader of
+// this constant can be warned about.
+export const SWITCH_ANCHOR_COMMAND = 'aggrega.workspace.switchAnchor';
+
 // PickerItem captures the three-piece display the quick-pick renders
 // (label / description / detail) plus the underlying anchored folder
 // the operator is picking. The shape is kept structural so callers

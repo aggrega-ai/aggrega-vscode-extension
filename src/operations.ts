@@ -26,7 +26,13 @@ import {
   menuFor,
   subjectMenuOptions,
 } from './operation-menus';
-import { EntityKind, readEntityKinds } from './entity-kinds';
+import {
+  DraftSubject,
+  EntityKind,
+  draftNamePrompt,
+  draftSubjectFor,
+  readEntityKinds,
+} from './entity-kinds';
 import { dialsTurnedOn } from './build-dials';
 import { CancellationSignal } from './cancellation';
 import { reportOutcome, runWatchableCli } from './cli-operation';
@@ -637,7 +643,7 @@ export function activateOperations(
   // argument at all, and a reader's recorded workflow may invoke one with
   // anything — so an entry that reads an answer checks it rather than trusting
   // it, and asks its own question where there is none to read.
-  const reg = (id: OperationId, handler: (chosen?: unknown) => void): void => {
+  const reg = (id: OperationId, handler: (...args: unknown[]) => void): void => {
     context.subscriptions.push(vscode.commands.registerCommand(`aggrega.op.${id}`, handler));
   };
 
@@ -660,7 +666,11 @@ export function activateOperations(
   // list of them: the set belongs to the compiler, so what a reader is offered
   // is asked for and follows the running binary. A list held here would be a
   // second statement of that set, agreeing until the day a kind was declared.
-  reg('scaffold', (chosen) => { void runScaffold(deps, chosen); });
+  //
+  // It takes a second argument, which is the kind a caller already knows it is
+  // drafting, named the way a reader reads it. That is how a control existing
+  // for one kind reaches this one flow rather than growing a flow of its own.
+  reg('scaffold', (chosen, drafting) => { void runScaffold(deps, chosen, drafting); });
   reg('import', () => { void runImport(deps); });
   reg('inspect', (chosen) => {
     void runInspect(deps, provider.chosenSubject('inspect', chosen));
@@ -1253,26 +1263,32 @@ async function askEntityKinds(deps: OperationDeps): Promise<EntityKind[] | null>
   return kinds;
 }
 
-// pickEntityKind offers those kinds as a chooser and returns the token the
-// chosen one is named by.
+// pickEntityKind offers kinds already read as a chooser and returns the one
+// chosen, in both of its registers.
 //
 // This is the path a command invoked from the editor's own index takes, where
 // there is no button for a menu to hang under. It offers the same kinds from the
 // same read rather than asking for text, because a reader naming a kind from
 // memory is exactly what asking the compiler removes — and it costs no second
-// request and no second refusal, since both routes come through the read above.
+// request and no second refusal, since every route comes through the read above.
 //
-// A reader reads the value the document carries and the choice returns the token
-// the request takes, which is the same separation the menu makes and for the
-// same reason: the two are different words for a kind of more than one word.
-async function pickEntityKind(deps: OperationDeps): Promise<string | null> {
-  const kinds = await askEntityKinds(deps);
-  if (kinds === null) { return null; }
+// A reader reads the value the document carries and the request takes the token,
+// which is the same separation the menu makes and for the same reason: the two
+// are different words for a kind of more than one word. The whole entry is
+// returned rather than the token alone because the flow that asked has a reader
+// to address afterwards, and it can only name the kind to them in the register
+// they read.
+async function pickEntityKind(
+  kinds: readonly EntityKind[],
+): Promise<EntityKind | null> {
+  // The entry is carried under a name of its own rather than under `kind`: the
+  // editor's own quick-pick item declares a `kind` field of its own, and a
+  // choice that overwrote it would be silently reshaping the control.
   const choice = await vscode.window.showQuickPick(
-    kinds.map((kind) => ({ label: kind.documentKind, value: kind.kind })),
+    kinds.map((entityKind) => ({ label: entityKind.documentKind, entityKind })),
     { placeHolder: 'Aggrega: choose the kind of entity to draft' },
   );
-  return choice?.value ?? null;
+  return choice?.entityKind ?? null;
 }
 
 // readSubjects reads the entities an operation can name, and reports null where
@@ -1504,28 +1520,59 @@ async function reportDaemonFailure(
 // a copy on this side that would agree on the day it was written and diverge
 // silently the day a kind was declared, with nothing comparing the two.
 //
-// chosen is the kind a reader already named in the menu beside the control.
-// Where it is absent the chooser is opened here, which is the path a command
-// invoked from the editor's own index takes. A kind the compiler does not answer
-// to still comes back refused with the compiler's own corrective text naming the
-// whole valid set — which is the answer for an invocation that named a kind
-// neither route offered, a reader's own keybinding or recorded workflow among
-// them.
-async function runScaffold(deps: OperationDeps, chosen?: unknown): Promise<void> {
-  const kind = menuAnswer('scaffold', chosen) ?? await pickEntityKind(deps);
-  if (!kind) { return; }
+// 🔴 IT IS ONE FLOW WITH THREE WAYS IN AND NEVER THREE FLOWS. chosen is the kind
+// a reader already named in the menu beside the control. drafting is the kind a
+// control that exists for one kind already knows it is making — the Release
+// row's create control, and the welcome page's button beside it — named the way
+// a reader reads it, because a control on this side may not know a token. Where
+// neither is carried the chooser opens here, which is the path a command invoked
+// from the editor's own index takes. A second routine for the pre-set case would
+// drift from this one the first time either changed, so the pre-set case is an
+// argument rather than a door.
+//
+// The kinds are read before any of the three is settled, because the prompt
+// names the kind and only the compiler's answer can name it. That read is what
+// the pre-set name is resolved through, and it is also what lets the chooser be
+// offered when the answer holds no kind under that name — so a control for a
+// kind this compiler does not have falls back to the ordinary question instead
+// of failing.
+//
+// A kind the compiler does not answer to still comes back refused with the
+// compiler's own corrective text naming the whole valid set — which is the
+// answer for an invocation that named a kind no route offered, a reader's own
+// keybinding or recorded workflow among them.
+//
+// It is reachable from outside this module because WHICH QUESTION IT ASKS is the
+// whole of what it decides, and that is observable only by running it: a reading
+// of this file shows the chooser being reached through a fallback, and cannot
+// show that a pre-set kind stops the fallback being taken.
+export async function runScaffold(
+  deps: OperationDeps,
+  chosen?: unknown,
+  drafting?: unknown,
+): Promise<void> {
+  const kinds = await askEntityKinds(deps);
+  if (kinds === null) { return; }
+
+  const carried = draftSubjectFor(
+    kinds,
+    menuAnswer('scaffold', chosen),
+    typeof drafting === 'string' && drafting !== '' ? drafting : null,
+  );
+  const subject: DraftSubject | null = carried ?? await pickEntityKind(kinds);
+  if (subject === null) { return; }
 
   // The name is optional: the compiler fills a placeholder where none is given,
   // so an empty answer still produces a document rather than a refusal.
   const name = await vscode.window.showInputBox({
     title: 'Aggrega: draft an entity',
-    prompt: 'Name for the new entity — leave empty for a placeholder',
+    prompt: draftNamePrompt(subject.documentKind),
     ignoreFocusOut: true,
   });
   if (name === undefined) { return; }
 
   try {
-    const result = await deps.scaffoldEntity(kind, name);
+    const result = await deps.scaffoldEntity(subject.kind, name);
     await openDocument(result.skeleton, 'yaml');
   } catch (err) {
     await reportDaemonFailure(deps, err, 'The draft');

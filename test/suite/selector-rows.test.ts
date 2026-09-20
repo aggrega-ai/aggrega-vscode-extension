@@ -4,12 +4,12 @@
 import * as assert from 'node:assert';
 import * as path from 'path';
 
+import { SWITCH_ANCHOR_COMMAND } from '../../src/anchor-picker';
 import { CREATE_WORKSPACE_COMMAND, DRAFT_RELEASE_COMMAND } from '../../src/get-started-steps';
-import { SELECT_RELEASE_COMMAND } from '../../src/release-status';
+import { SELECT_RELEASE_COMMAND } from '../../src/release-selection';
 import { SELECTOR_ROW_KEYS, SELECTOR_ROW_LABELS } from '../../src/selector-levels';
 import {
   PROJECT_FOLDER_COMMAND,
-  SWITCH_ANCHOR_COMMAND,
   SelectorCandidates,
   createControlKey,
   projectFolderRow,

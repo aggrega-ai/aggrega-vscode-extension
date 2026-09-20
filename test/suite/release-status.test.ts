@@ -7,12 +7,11 @@ import * as os from 'os';
 import * as path from 'path';
 
 import {
-  SELECT_RELEASE_COMMAND,
   activateReleaseStatus,
   DisposableLike,
   ReleaseStatusDeps,
 } from '../../src/release-status';
-import { SelectionState } from '../../src/release-selection';
+import { SELECT_RELEASE_COMMAND, SelectionState } from '../../src/release-selection';
 
 // FakeStatusBarItem records everything the indicator writes, so a test reads
 // back exactly the text an operator would have seen.

@@ -2,7 +2,11 @@
 // Copyright 2026 Cognitio S.r.l.
 
 import type * as vscode from 'vscode';
-import { SelectionState, describeSelection } from './release-selection';
+import {
+  SELECT_RELEASE_COMMAND,
+  SelectionState,
+  describeSelection,
+} from './release-selection';
 
 // DisposableLike is the dispose contract the indicator registers against —
 // the status-bar item joins the extension's disposable registry through it.
@@ -31,11 +35,6 @@ export interface StatusBarItemLike extends DisposableLike {
 export interface ReleaseStatusContext {
   subscriptions: DisposableLike[];
 }
-
-// SELECT_RELEASE_COMMAND is the command the indicator runs when clicked. It is
-// the one way a reader changes the selection, so the indicator is both where
-// the current answer is displayed and where a different one is chosen.
-export const SELECT_RELEASE_COMMAND = 'aggrega.release.select';
 
 // ReleaseStatusDeps supplies the anchored workspace root, the editor's current
 // Release selection, and the status-bar surface the indicator drives.
@@ -88,6 +87,10 @@ export function activateReleaseStatus(
   deps: ReleaseStatusDeps,
 ): ReleaseStatus {
   const item = deps.createStatusBarItem();
+  // The command is read from the module that owns the choice it opens, so this
+  // indicator and every other surface offering the same choice cannot come to
+  // run two different commands. It makes the indicator both where the current
+  // answer is displayed and where a different one is chosen.
   item.command = SELECT_RELEASE_COMMAND;
   context.subscriptions.push(item);
 

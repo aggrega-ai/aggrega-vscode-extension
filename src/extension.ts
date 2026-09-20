@@ -133,7 +133,6 @@ import {
 } from './workspace';
 import { openAuthoringReleaseConfig, createActiveReleaseMarker } from './release-actions';
 import { activateOperations, OperationsView } from './operations';
-import { SWITCH_ANCHOR_COMMAND } from './selector-rows';
 import { activateLint, LintRunner } from './lint';
 import { LintAnswer, LintSubject, lintRequestParams } from './lint-run';
 import { activateGraphView, GraphView } from './graph-view';
@@ -147,14 +146,16 @@ import { activateWorkspaceCatalogView } from './workspace-catalog-view';
 import { CatalogIndexDoc } from './workspace-catalog-run';
 import {
   SELECTED_RELEASE_STATE_KEY,
+  SELECT_RELEASE_COMMAND,
   ReleaseSelection,
   createReleaseSelection,
 } from './release-selection';
 import { buildValidateParams } from './validate-request';
-import { SELECT_RELEASE_COMMAND, activateReleaseStatus, ReleaseStatus } from './release-status';
+import { activateReleaseStatus, ReleaseStatus } from './release-status';
 import {
   CHOOSE_ANCHOR_ACTION,
   CHOOSE_ANCHOR_PLACEHOLDER,
+  SWITCH_ANCHOR_COMMAND,
   anchorOffers,
   anchorSwitchMessage,
   anchorsAvailableSentence,

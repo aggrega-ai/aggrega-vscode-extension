@@ -61,3 +61,71 @@ export function readEntityKinds(answer: unknown): EntityKind[] {
   }
   return kinds;
 }
+
+// DraftSubject is what a draft names: the token its request takes, and the
+// compiler's own name for that token where the answer holds one.
+//
+// An EntityKind IS one, which is what lets a kind a reader chose and a kind an
+// invocation carried travel the same way from the moment either is settled. The
+// second register is nullable here and is not on an EntityKind, and that is the
+// whole difference between them: a token the compiler's answer does not hold has
+// no name to show, and inventing one would be the derivation this module refuses
+// at its head.
+export interface DraftSubject {
+  kind: string;
+  documentKind: string | null;
+}
+
+// draftSubjectFor settles what a drafting flow is drafting, from the compiler's
+// answer and from whatever the invocation already carried — or null where the
+// invocation settled nothing, which is the flow's cue to ask.
+//
+// 🔴 BOTH ROUTES ARE LOOKUPS IN THE COMPILER'S OWN ANSWER AND NEITHER IS A PAIR
+// WRITTEN HERE. A caller that already knows which kind it is drafting knows it
+// by the name the product teaches, and the token a request takes for that name
+// is the compiler's to state — so the name goes in and the answer's own entry
+// comes back. A pair written on this side would be the list this module refuses
+// at its head arriving through a different door, and it would go on naming a
+// token the day the compiler stopped answering to it.
+//
+// A TOKEN OUTRANKS A NAME, and the two are never both meant. A token is what a
+// reader's own press composed, so a name pre-set by the call site that overrode
+// it would be the control ignoring the choice that was just made.
+//
+// A token the answer does not hold still travels, with no name against it. That
+// is an invocation of a reader's own — a keybinding, a recorded workflow — and
+// refusing it here would replace the compiler's own corrective text, which names
+// the whole valid set, with a refusal this side worded from a narrower view. A
+// NAME the answer does not hold resolves to nothing instead, because nothing
+// downstream could do anything with it: the request takes tokens.
+export function draftSubjectFor(
+  kinds: readonly EntityKind[],
+  token: string | null,
+  documentKind: string | null,
+): DraftSubject | null {
+  if (token !== null) {
+    const held = kinds.find((kind) => kind.kind === token);
+    return { kind: token, documentKind: held?.documentKind ?? null };
+  }
+  if (documentKind !== null) {
+    return kinds.find((kind) => kind.documentKind === documentKind) ?? null;
+  }
+  return null;
+}
+
+// draftNamePrompt is what a reader is asked for when a draft needs a name.
+//
+// It names the kind in the register a reader reads, so a flow that already knows
+// what it is drafting says so rather than asking for the name of an unnamed
+// thing. Where it holds no name — an invocation carrying a token the compiler's
+// answer does not hold — it says "entity", which names the class of thing being
+// drafted without claiming to know which one.
+//
+// The sentence lives beside the two registers rather than beside the dialogue
+// that shows it, because the only thing that varies in it is the register this
+// module is the one reader of, and because the dialogue is composed in a module
+// that holds an editor type — so written there the sentence a reader is shown
+// could not be read back without an extension host.
+export function draftNamePrompt(documentKind: string | null): string {
+  return `Name for the new ${documentKind ?? 'entity'} — leave empty for a placeholder`;
+}

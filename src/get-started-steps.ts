@@ -43,7 +43,10 @@
 //
 // This module holds no editor types, so what a reader is shown — which steps
 // exist, which is met, the words each step carries, and the words the panel
-// opens with — is assertable without an extension host.
+// opens with — is assertable without an extension host. What it reads from
+// elsewhere holds none either, which is what keeps that true.
+
+import { SELECT_RELEASE_COMMAND } from './release-selection';
 
 // WELCOME_SHOW_SETTING is the preference that decides whether the panel opens
 // by itself. It is the reader's own, like every other preference here, and it is
@@ -396,7 +399,11 @@ export const NOTHING_MET: GetStartedFacts = {
   registries: null,
 };
 
-// The identifiers below name the commands the panel's controls invoke.
+// The identifiers below name the commands the panel's controls invoke, and hold
+// only those this surface is the home of. A control that offers a choice another
+// module owns reads that module's own identifier — the Release step's second
+// action is one — because a declaration here for a command this surface does
+// not own is a copy, and a copy agrees until one of the two moves.
 //
 // Every one of them is declared in the manifest's command contribution, and
 // that is load-bearing rather than tidiness: the editor derives an activation
@@ -409,7 +416,6 @@ export const CHOOSE_WORKSPACE_COMMAND = 'aggrega.getStarted.chooseWorkspace';
 export const USE_COMPILER_ON_PATH_COMMAND = 'aggrega.getStarted.useCompilerOnPath';
 export const LOCATE_COMPILER_COMMAND = 'aggrega.getStarted.locateCompiler';
 export const DRAFT_RELEASE_COMMAND = 'aggrega.getStarted.draftRelease';
-export const SELECT_RELEASE_COMMAND = 'aggrega.release.select';
 export const SEED_REGISTRY_COMMAND = 'aggrega.getStarted.seedRegistry';
 export const SEED_NAMED_REGISTRY_COMMAND = 'aggrega.getStarted.seedNamedRegistry';
 export const DISMISS_COMMAND = 'aggrega.getStarted.dismiss';
@@ -643,7 +649,7 @@ export const STEP_CONTENT: readonly StepContent[] = [
       },
       {
         paragraph:
-          '**Draft a Release** opens the same drafting flow the Author group uses, asking for the kind and the name. **Choose a Release I already have** opens the picker over what this workspace offers.',
+          '**Draft a Release** opens the same drafting flow the Author group uses, with the kind already settled — you are asked for the name and nothing else. **Choose a Release I already have** opens the picker over what this workspace offers.',
       },
     ],
     actions: [
