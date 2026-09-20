@@ -284,12 +284,21 @@ function requireSelectedRelease(): void {
   });
 }
 
-// refreshGraphView re-renders an open topology graph after the language server
-// reports new diagnostics. The server reports per file, so a build that touches
-// several produces a burst; the same window the editor already uses to collapse
-// a burst of edits into one validation collapses this into one re-render, and
-// reads the setting on each call so a change to it takes effect without a
-// restart. When no graph is open the callback finds nothing to do.
+// refreshGraphView re-renders an open topology graph after a document it could
+// have been drawn from changes on disk. A save touching several files produces a
+// burst; the same window the editor already uses to collapse a burst of edits
+// into one validation collapses this into one re-render, and reads the setting
+// on each call so a change to it takes effect without a restart. When no graph
+// is open the callback finds nothing to do.
+//
+// 🔴 WHAT MAY CALL THIS IS PART OF ITS CONTRACT, and the rule is causal rather
+// than about cost. A refresh asks the compiler for a graph, and that request
+// makes the compiler report what it found — so anything driven BY such a report
+// must not call this, or the panel becomes both the cause and the consumer of
+// its own refresh and recompiles the workspace until it is closed. Disk is the
+// right trigger because the compiler reads the graph off disk: the drawing goes
+// stale exactly when a document there changes, and never because the compiler
+// said something about a compile this panel asked for.
 const refreshGraphView = debounce(
   () => graphView?.refresh(),
   () => getSettings().debounceMs,
@@ -877,10 +886,14 @@ async function ensureDaemonAt(
     daemonStatusBar?.refresh();
   });
   daemon.on('notification:aggrega/publishDiagnostics', (params: PublishDiagnosticsParams) => {
-    // The same notification drives two surfaces: the editor's diagnostics, and
-    // the topology graph — the server has recompiled, so an open graph is
-    // showing a topology that may no longer be the current one.
-    refreshGraphView();
+    // 🔴 THIS DRIVES THE EDITOR'S PROBLEM LIST AND NOTHING ELSE. A view that
+    // re-asks the compiler must not be refreshed from here, and the topology
+    // graph is one: the graph's own request produces a compile, the compile
+    // reports what it found, and a refresh on that report would ask for another
+    // compile — a cycle with no input at either end, turning for as long as the
+    // panel stays open. What the graph is drawn from is the workspace on disk,
+    // so what redraws it is a document changing there; registerFileWatcher is
+    // where that is wired.
     if (!diagnosticCollections) { return; }
     const uri = vscode.Uri.file(params.file);
     // An empty finding list reaches the wire as null, and it means the same
@@ -1344,17 +1357,34 @@ function registerLanguageFeatures(context: vscode.ExtensionContext): void {
   }, '/'));
 }
 
+// registerFileWatcher wires what an authored document changing ON DISK means to
+// the two surfaces that hold something derived from it: the compiler's per-file
+// caches, which are told to drop their entry, and an open topology graph, which
+// is redrawn.
+//
+// 🔴 THE GRAPH IS REDRAWN FROM HERE AND FROM NOWHERE ELSE, and disk is the right
+// coordinate rather than the buffer. A graph request names a Release and carries
+// no text, so the compiler builds it from the documents as they stand on disk —
+// which means an unsaved keystroke changes nothing it would draw, and a compile
+// per keystroke would spend a full pipeline run to redraw the same picture. What
+// does change the picture is a document reaching disk, which is exactly the event
+// this watcher reports.
+//
+// The two calls share one handler because they answer to one fact. Splitting them
+// would let a later change tell the compiler its cache is stale while leaving the
+// panel showing a topology built from the entry that was just dropped.
 function registerFileWatcher(context: vscode.ExtensionContext): void {
   const watcher = vscode.workspace.createFileSystemWatcher('**/*.yaml');
-  const invalidate = (uri: vscode.Uri) => {
+  const documentChangedOnDisk = (uri: vscode.Uri) => {
     if (!daemon) { return; }
     daemon.request('aggrega/invalidate', { file: uri.fsPath }).catch(err => {
       outputChannel?.appendLine(`invalidate failed: ${describeError(err)}`);
     });
+    refreshGraphView();
   };
-  watcher.onDidChange(invalidate);
-  watcher.onDidCreate(invalidate);
-  watcher.onDidDelete(invalidate);
+  watcher.onDidChange(documentChangedOnDisk);
+  watcher.onDidCreate(documentChangedOnDisk);
+  watcher.onDidDelete(documentChangedOnDisk);
   context.subscriptions.push(watcher);
 }
 

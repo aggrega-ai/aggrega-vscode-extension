@@ -363,10 +363,17 @@ async function postAttachCandidates(
 // # NOTHING IS SAVED HERE, AND NOTHING IS RE-VALIDATED HERE EITHER
 //
 // The edit lands in the buffer, which is a document change like any other: the
-// language server is told, it validates, and the diagnostics it reports are
-// what re-renders this graph. Saving on the reader's behalf would take a
-// decision that is theirs, and re-validating from here would be a second
+// language server is told and it validates, so the attachment is reported on
+// like anything else the reader types. Saving on the reader's behalf would take
+// a decision that is theirs, and re-validating from here would be a second
 // trigger for something the ordinary edit path already does.
+//
+// 🔴 SO THE PANEL DOES NOT REDRAW UNTIL THE READER SAVES, and that follows from
+// the line above rather than being a separate rule. A graph is built from the
+// documents as they stand on disk, so an attachment sitting unsaved in a buffer
+// is not yet part of any graph the compiler would build — redrawing on it would
+// show a topology no build produces. The save is what puts it there, and the
+// drawing follows the save.
 //
 // # TWO QUESTIONS, AND NEITHER ANSWER IS COMPOSED HERE
 //
