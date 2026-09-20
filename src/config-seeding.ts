@@ -41,10 +41,13 @@ import { registrationSentence, trustPhrase } from './registration-outcome';
 // is declared here, because a declared field is a field a later call site will
 // fill.
 //
-//   - Not overwriting is the behaviour a reader gets from the command line, and
-//     the seeding declines rather than replacing a configuration somebody is
-//     already working from. A control that pressed past that would replace a
-//     working configuration on one click.
+//   - Declining is the behaviour a reader gets from the command line: seeding
+//     leaves a configuration somebody is already working from exactly as it
+//     stands. Pressing past that guard would not replace the file — the write
+//     behind it merges the entry into the document already there — but it would
+//     still change a file somebody is working from on one click, without their
+//     having asked for that file to be touched. A registration is the act that
+//     asks for it, and it is offered where a reader meets the refusal.
 //   - Which configuration file a seeding lands in is not this surface's to
 //     choose. Sending neither override takes the compiler's own default — the
 //     global file shared by every project on the machine — which is the file this

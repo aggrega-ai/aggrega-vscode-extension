@@ -212,21 +212,44 @@ describe('the operations the registries panel contributes', () => {
     // other half of a dead button: the entry draws, and pressing it reports
     // that the command was not found. The manifest cannot see that, so the
     // source that registers them is read here.
-    const source = fs.readFileSync(
-      path.join(__dirname, '..', '..', '..', 'src', 'registries-view.ts'),
-      'utf8',
+    const src = path.join(__dirname, '..', '..', '..', 'src');
+    const source = fs.readFileSync(path.join(src, 'registries-view.ts'), 'utf8');
+    // 🔴 A COMMAND NAMED BY MORE THAN ONE SURFACE IS REGISTERED THROUGH A
+    // CONSTANT, AND THAT CONSTANT IS DECLARED WHERE THE OPERATION LIVES RATHER
+    // THAN IN THIS VIEW — so its declaration is looked for across the sources
+    // while the registration is still required to be in the view. Matching only
+    // the literal spelling would report a missing handler for a command that is
+    // registered, which is the reading that would send somebody to "fix" a
+    // single-sourced id back into two copies.
+    const idOfConstant = new Map(
+      fs.readdirSync(src)
+        .filter((name) => name.endsWith('.ts'))
+        .flatMap((name) => Array.from(
+          fs.readFileSync(path.join(src, name), 'utf8')
+            .matchAll(/export const ([A-Z][A-Z0-9_]*) = '(aggrega\.[^']+)'/g),
+        ))
+        .map((m) => [m[2], m[1]] as const),
     );
     const contributed = manifest.contributes.commands
       .map((c) => c.command)
       .filter((c) => c.startsWith('aggrega.registries.'));
 
     assert.ok(contributed.length > 0, 'the panel contributes no commands at all');
+    // A control on the constant arm: it resolves the declaration of an id this
+    // panel does contribute, so a miss below is a missing registration rather
+    // than a lookup that finds nothing whatever the sources say.
+    assert.ok(
+      contributed.some((id) => idOfConstant.has(id)),
+      'no contributed registry command resolves to a declared constant, so the constant arm of this '
+      + 'census matches nothing and a command registered through one would read as unregistered',
+    );
     for (const id of contributed) {
       // The identifier sits on its own line for the longer registrations, so
       // the match spans whitespace rather than assuming one formatting.
-      const registered = new RegExp(
-        `registerCommand\\(\\s*'${id.replace(/\./g, '\\.')}'`,
-      );
+      const literal = `'${id.replace(/\./g, '\\.')}'`;
+      const constant = idOfConstant.get(id);
+      const spelling = constant === undefined ? literal : `(?:${literal}|${constant}\\s*,)`;
+      const registered = new RegExp(`registerCommand\\(\\s*${spelling}`);
       assert.ok(
         registered.test(source),
         `${id} is contributed but never registered, so pressing it finds no command`,

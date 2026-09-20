@@ -17,6 +17,7 @@ import {
   CREDENTIAL_REMOVAL_SUBJECT,
   REGISTRATION_DESTINATION_PROMPT,
   REGISTRATION_SUBJECT,
+  REGISTRY_ADD_COMMAND,
   REGISTRY_REMOVAL_SUBJECT,
   REMOVAL_DESTINATION_PROMPT,
   RegistryConfigureDeps,
@@ -207,7 +208,7 @@ export function activateRegistriesView(
     // the request is reached with no cancellation, so a stop here could only stop
     // this side waiting — and reporting that as a stop would tell a reader the
     // compiler stopped when it did not.
-    vscode.commands.registerCommand('aggrega.registries.add', async () => {
+    vscode.commands.registerCommand(REGISTRY_ADD_COMMAND, async () => {
       const host = await vscode.window.showInputBox({
         title: 'Aggrega: add a registry',
         prompt: 'Host of the registry to register, such as registry.example.com',

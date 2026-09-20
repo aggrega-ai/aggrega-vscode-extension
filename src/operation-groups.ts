@@ -271,6 +271,12 @@ export const OPERATION_GROUPS: OperationGroup[] = [
         label: 'Add registry',
         detail: 'Register a registry to resolve dependencies from and publish to',
         icon: 'add',
+        // The literal rather than the registry module's own identifier, and the
+        // direction of the dependency is why: that module reaches this one for
+        // the shared blank guard, so reading its constant here would close a
+        // cycle — and this table is a top-level value, so the entry would
+        // initialise to nothing at all on the load order that resolves this
+        // module first. A command with no id fails where nobody is looking.
         command: 'aggrega.registries.add',
       },
       {

@@ -228,16 +228,32 @@ describe('the operation surface, grouped by what a reader came to do', () => {
     // The defect this catches is a dead button: an entry naming a command
     // nothing registers draws normally and reports "command not found" when
     // pressed. The manifest cannot see that, so the sources that register are
-    // read. Both registration shapes are collected — the literal id, and this
-    // surface's own composition from an entry id — because an entry may name
-    // either.
+    // read. Three registration shapes are collected — the literal id, this
+    // surface's own composition from an entry id, and a single-sourced constant
+    // — because an entry may reach a handler through any of them.
     const src = path.join(__dirname, '..', '..', '..', 'src');
     const sources = fs.readdirSync(src)
       .filter((name) => name.endsWith('.ts'))
       .map((name) => fs.readFileSync(path.join(src, name), 'utf8'))
       .join('\n');
+    // 🔴 A COMMAND ID DECLARED ONCE AND IMPORTED IS REGISTERED THROUGH ITS
+    // CONSTANT, NOT THROUGH ITS TEXT, AND A LITERAL-ONLY CENSUS CANNOT SEE IT.
+    // That is not a rare shape here: a command named by more than one surface is
+    // declared beside the operation it performs precisely so the surfaces cannot
+    // drift apart, and reading only the literal spelling would report a missing
+    // handler for every id written the way this project asks for.
+    const idOfConstant = new Map(
+      Array.from(sources.matchAll(/export const ([A-Z][A-Z0-9_]*) = '(aggrega\.[^']+)'/g))
+        .map((m) => [m[1], m[2]] as const),
+    );
+    const throughConstant = Array.from(
+      sources.matchAll(/registerCommand\(\s*([A-Z][A-Z0-9_]*)\s*,/g),
+    )
+      .map((m) => idOfConstant.get(m[1]))
+      .filter((id): id is string => id !== undefined);
     const registered = new Set<string>([
       ...Array.from(sources.matchAll(/registerCommand\(\s*'([^']+)'/g)).map((m) => m[1]),
+      ...throughConstant,
       ...Array.from(sources.matchAll(/\breg\(\s*'([^']+)'/g)).map((m) => `aggrega.op.${m[1]}`),
     ]);
     // A negative control on the census: it does find a registration that is
@@ -246,6 +262,15 @@ describe('the operation surface, grouped by what a reader came to do', () => {
     assert.ok(
       registered.has('aggrega.op.build'),
       'the census sees no registration it certainly should, so its misses mean nothing',
+    );
+    // A control on the arm added for the constant spelling, because the control
+    // above cannot reach it: that one is satisfied by the literal arm alone, so
+    // the constant arm could match nothing at all and every miss it caused would
+    // read as a missing handler.
+    assert.ok(
+      throughConstant.length > 0,
+      'the census resolved no registration made through a constant, so it is reading literal ids only '
+      + 'and a command declared once and imported would be reported as having no handler',
     );
     for (const op of allOperations()) {
       assert.ok(

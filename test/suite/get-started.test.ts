@@ -35,6 +35,7 @@ import {
   unmetStepIds,
 } from '../../src/get-started-steps';
 import { escapeHtml } from '../../src/html';
+import { REGISTRY_ADD_COMMAND } from '../../src/registry-configure';
 import {
   WIRE_CONTRACT,
   assertCensusInstrumentFires,
@@ -177,6 +178,43 @@ const BEYOND_THE_SIMPLE_CASE: readonly string[] = [
 // other.
 const REFUTED_CREDENTIAL_RATIONALE =
   /(so|keeps?|keeping|rather than)[^.]*\b(credentials?|passwords?|secrets?|tokens?)\b[^.]*\b(out of|committed|shared|checked in|in the repository)\b/i;
+
+// COMPILER_SEEDING_REFUSAL is the compiler's own account of what seeding does
+// when a configuration file is already there, and it is the ORACLE this panel's
+// prose about that refusal is read from — for the same reason PRODUCT_README is
+// the oracle for the product description: it is a copy this extension does not
+// own and cannot move. It sits outside this repository, so the assertion that
+// reads it says which of the two checkouts happened rather than passing quietly
+// either way.
+const COMPILER_SEEDING_REFUSAL = path.resolve(
+  __dirname,
+  '../../../../aggrega-cli/internal/serve/config_configure.go',
+);
+
+// SEEDING_OVERRIDE_BEHAVIOUR is what the compiler says pressing past that
+// refusal actually does, in the compiler's own words.
+//
+// 🔴 IT IS A LITERAL HERE, AND THE ASSERTION READS IT FROM THE COMPILER RATHER
+// THAN FROM ANYTHING THIS EXTENSION HOLDS. The override MERGES the registry
+// entry into the document already on disk; it replaces nothing and discards
+// nothing. A surface composing its own account of that flag would be inventing
+// the only description a reader gets, and the plausible invention — that it
+// overwrites the file — is false in the direction a reader cannot recover from.
+const SEEDING_OVERRIDE_BEHAVIOUR = 'merges the registry entry into what is already there';
+
+// REFUTED_COMMAND_LINE_REMEDY matches the panel sending a reader to the command
+// line to get past seeding's refusal by replacing what is there. It is refuted
+// twice over: the override merges rather than replacing, so the account is
+// false; and the act a reader of this panel actually needs is on the panel, so
+// naming an act on another surface leaves them exactly where they were standing.
+//
+// 🔴 IT IS A TOKEN CHECK AND NOT A READING. It matches the vocabulary that
+// account is written in and cannot judge a sentence meaning the same thing in
+// other words; the oracle assertion beside it is what ties the true behaviour to
+// a copy this extension does not own. Both are needed and neither replaces the
+// other.
+const REFUTED_COMMAND_LINE_REMEDY =
+  /\b(replac\w+|overwrit\w+|discard\w+)\b[^.]*\b(command line|flag)\b|\b(command line|flag)\b[^.]*\b(replac\w+|overwrit\w+|discard\w+)\b/i;
 
 interface ViewEntry { id?: unknown; name?: unknown; when?: unknown }
 interface CommandEntry { command?: unknown; title?: unknown; category?: unknown; icon?: unknown }
@@ -1364,11 +1402,11 @@ describe('the welcome panel', () => {
     });
   });
 
-  // A closed section is not a title. It keeps both ways forward and hides only
+  // A closed section is not a title. It keeps every way forward and hides only
   // the explanation, which is unusual enough that it is asserted rather than
   // left to be preserved by whoever reads the layout next.
   describe('what a closed section still shows', () => {
-    it('keeps both controls in a closed section', () => {
+    it('keeps every control in a closed section', () => {
       const html = stepsHtml(MIXED, initiallyCollapsedStepIds(MIXED));
       for (const id of MIXED_MET) {
         const section = sectionOf(html, id as StepId);
@@ -1382,7 +1420,7 @@ describe('the welcome panel', () => {
             section.includes(
               `<button class="step-action" type="button" data-command="${escapeHtml(action.command)}">${escapeHtml(action.label)}</button>`,
             ),
-            `the closed ${id} section dropped its "${action.label}" control; a closed section hides the explanation and keeps both ways forward`,
+            `the closed ${id} section dropped its "${action.label}" control; a closed section hides the explanation and keeps every way forward`,
           );
         }
       }
@@ -1674,20 +1712,66 @@ describe('the welcome panel', () => {
       );
     });
 
-    // 🔴 BOTH WAYS THROUGH EVERY STEP — create one, or point at one you already
-    // have. The pair is fixed in the type, so a step offering one way does not
-    // compile; this asserts what the type cannot, which is that the two are
-    // actually different offers rather than the same one twice.
-    it('offers two distinct ways through every step', () => {
+    // 🔴 EVERY WAY THROUGH EVERY STEP IS A DIFFERENT OFFER — create one, point
+    // at one you already have, and, where a condition can be reached in a way
+    // that is neither, that one too. The floor of two is fixed in the type, so a
+    // step offering one way does not compile; this asserts what the type cannot,
+    // which is that the offers actually differ from one another rather than
+    // repeating one of them.
+    //
+    // 🔴 IT WALKS THE WHOLE LIST RATHER THAN THE FIRST TWO. A check that read a
+    // fixed pair would pass a step whose third control repeated its first, and
+    // would go on passing however many were added after it — the reader would
+    // meet two buttons doing one thing and no assertion would have looked.
+    it('offers distinct ways through every step', () => {
       for (const step of STEP_CONTENT) {
-        const [first, second] = step.actions;
-        assert.notStrictEqual(
-          first.command,
-          second.command,
-          `the ${step.id} step offers the same command twice, so a reader who already has the thing is still only offered the way to create one`,
+        const commands = step.actions.map((action) => action.command);
+        assert.strictEqual(
+          new Set(commands).size,
+          commands.length,
+          `the ${step.id} step offers one command under two controls, so a reader choosing between them is choosing between the same act twice: ${commands.join(', ')}`,
         );
-        assert.ok(first.label.length > 0 && second.label.length > 0);
+        const labels = step.actions.map((action) => action.label);
+        assert.strictEqual(
+          new Set(labels).size,
+          labels.length,
+          `the ${step.id} step draws two controls reading the same words, so which one a reader presses is not a choice they can make: ${labels.join(' | ')}`,
+        );
+        for (const action of step.actions) {
+          assert.ok(
+            action.label.length > 0,
+            `the ${step.id} step draws a control with no words on it`,
+          );
+        }
       }
+    });
+
+    // 🔴 THE STEP THAT REPORTS A REFUSAL ALSO OFFERS THE ACT THAT RESOLVES IT.
+    // Seeding declines where a configuration file is already there, and it is
+    // right to: its whole subject is a configuration that does not exist yet.
+    // The reader standing on this step with that file on disk still needs a way
+    // forward from the step they are on, and registering a registry is that
+    // way — it merges into the configuration that exists and carries no such
+    // condition. A step that reported the refusal and offered only the act that
+    // produced it would leave that reader with nothing to press.
+    //
+    // 🔴 DRAWN, NOT MERELY DECLARED. An action present in the content and absent
+    // from the composed document is one the reader cannot find, and being unable
+    // to find it is the whole of the failure this guards against — so the
+    // composed panel is read rather than the declaration alone.
+    it('offers registering a registry on the step that reports the refusal', () => {
+      const registry = STEP_CONTENT.find((step) => step.id === 'registry');
+      assert.ok(registry, 'the registry step is gone, so there is no step to carry the act');
+      const offered = registry.actions.map((action) => action.command);
+      assert.ok(
+        offered.includes(REGISTRY_ADD_COMMAND),
+        `the registry step offers only ${offered.join(', ')}, so a reader whose configuration file already exists is shown the act that will decline and none of the act that will work`,
+      );
+      const drawn = commandsInPanel(renderedPanel(stepReadings(NOTHING_MET)));
+      assert.ok(
+        drawn.includes(REGISTRY_ADD_COMMAND),
+        'the panel draws no control for registering a registry, so the act exists and the reader standing on the step cannot reach it',
+      );
     });
 
     it('explains every step as well as naming it', () => {
@@ -2321,6 +2405,45 @@ describe('the welcome panel', () => {
         found,
         null,
         `the panel explains the machine's configuration file as a place credentials go, which is false — they are fields in neither file: ${found ?? ''}`,
+      );
+    });
+
+    // 🔴 THE PANEL DOES NOT SEND A READER TO THE COMMAND LINE TO REPLACE WHAT IS
+    // THERE, because neither half of that sentence is true. Pressing past
+    // seeding's guard merges the entry into the document already on disk rather
+    // than replacing it, and the act a reader of this panel needs is on this
+    // panel. Both halves were wrong at once, which is how the sentence read
+    // plausibly enough to survive: it named a real flag and drew a false
+    // conclusion about what it does.
+    it('does not send a reader to the command line to replace a configuration', () => {
+      const html = renderedPanel(stepReadings(NOTHING_MET));
+      // The matched text alone, never the match object: a failing comparison
+      // against the object prints the whole composed document with it, which
+      // buries the one sentence the reader of the failure needs.
+      const found = REFUTED_COMMAND_LINE_REMEDY.exec(html)?.[0] ?? null;
+      assert.strictEqual(
+        found,
+        null,
+        `the panel tells a reader that a configuration is replaced from the command line, which is false — the write merges into what is there — and it points away from the act this step offers: ${found ?? ''}`,
+      );
+    });
+
+    // 🔴 THE ONLY ASSERTION THAT CAN CATCH A PLAUSIBLE ACCOUNT WRITTEN IN THIS
+    // FILE. The token check above and the panel could drift together into a
+    // different wrong description of the override and it would still pass; this
+    // pins what the override does to the compiler's own sentence, which is a copy
+    // the extension neither owns nor can move.
+    it('reads what pressing past the refusal does from the compiler', function () {
+      if (!fs.existsSync(COMPILER_SEEDING_REFUSAL)) {
+        // Checked out without the compiler beside it. Reported as pending rather
+        // than passed: a silent skip would read as the anchor holding.
+        this.skip();
+        return;
+      }
+      const source = fs.readFileSync(COMPILER_SEEDING_REFUSAL, 'utf8');
+      assert.ok(
+        source.includes(SEEDING_OVERRIDE_BEHAVIOUR),
+        `the compiler no longer says the override "${SEEDING_OVERRIDE_BEHAVIOUR}", so what this surface says about it is composed here rather than read from the compiler, and the refusal above now guards a behaviour that has moved`,
       );
     });
 

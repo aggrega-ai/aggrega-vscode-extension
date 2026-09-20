@@ -36,10 +36,13 @@
 // from what is already true, so a reader who has met it sees it met and is
 // asked nothing.
 //
-// WHY EVERY STEP OFFERS TWO PATHS. For the same reason: one path brings the
-// thing into being, the other points at the one you already have, and both end
+// WHY EVERY STEP OFFERS AT LEAST TWO PATHS. For the same reason: one path brings
+// the thing into being, another points at the one you already have, and both end
 // in the same state. A step that only knew how to create would walk that reader
-// through making what they have.
+// through making what they have. Where a condition can also be reached in a way
+// that is neither of those, the step offers that as well: a reader whose
+// situation is served by none of the paths drawn is one the panel has stranded
+// on the step it invited them to.
 //
 // This module holds no editor types, so what a reader is shown — which steps
 // exist, which is met, the words each step carries, and the words the panel
@@ -47,6 +50,7 @@
 // elsewhere holds none either, which is what keeps that true.
 
 import { SELECT_RELEASE_COMMAND } from './release-selection';
+import { REGISTRY_ADD_COMMAND } from './registry-configure';
 
 // WELCOME_SHOW_SETTING is the preference that decides whether the panel opens
 // by itself. It is the reader's own, like every other preference here, and it is
@@ -279,9 +283,10 @@ function absentWording(candidates: number | null): string {
 // which words stand there.
 //
 // 🔴 ONLY TWO STEPS CONSULT A COUNT, AND THE OTHER TWO CANNOT REACH THE
-// NOTHING-AVAILABLE SENTENCE AT ALL. Both of the compiler's ways through name a
-// binary and both of the registry's register one, so neither step has a list
-// that can come back empty and neither has a state its reader cannot act in.
+// NOTHING-AVAILABLE SENTENCE AT ALL. Every one of the compiler's ways through
+// names a binary and every one of the registry's registers one, so neither step
+// has a list that can come back empty and neither has a state its reader cannot
+// act in.
 // Telling them nothing is available would be false in the one direction that
 // costs them something.
 export function stepValue(id: StepId, facts: GetStartedFacts): StepValue {
@@ -492,17 +497,22 @@ export type StepDetail =
 
 // StepContent is everything a step shows.
 //
-// The two actions are a PAIR IN THE TYPE rather than a list of some length, so
-// a step offering only one way through does not compile. That pairing is a
-// settled ruling — one path brings the thing into being, the other points at
-// the one you already have — and stating it in the type is what keeps it from
-// being eroded a step at a time.
+// 🔴 THE ACTIONS CARRY A FLOOR IN THE TYPE AND NO CEILING, and the asymmetry is
+// the ruling rather than an accident of how it is written. The floor is two, so
+// a step offering only one way through does not compile: one path brings the
+// thing into being, the other points at the one you already have, and stating
+// that in the type is what keeps it from being eroded a step at a time. A
+// ceiling would guard nothing and cost something real — a condition can be
+// reached in a way that is neither of those two, and a reader whose situation is
+// served by that third way is stranded by a shape with nowhere to put it. Being
+// stranded on a step is the worse failure of the two, and it is the one a
+// reader meets.
 export interface StepContent {
   readonly id: StepId;
   readonly title: string;
   readonly summary: string;
   readonly detail: readonly StepDetail[];
-  readonly actions: readonly [StepAction, StepAction];
+  readonly actions: readonly [StepAction, StepAction, ...StepAction[]];
 }
 
 // STEP_CONTENT is the words each step carries, in condition order.
@@ -686,16 +696,21 @@ export const STEP_CONTENT: readonly StepContent[] = [
       },
       {
         paragraph:
-          '**Seed the official hub** registers the public hub together with its signature trust policy, using the compiler\'s own seeding — so what you get here and what you would get from the command line are the same configuration. It writes the global file on your machine rather than one in your project. Seeding declines rather than replacing a configuration that is already there, and says which file it found; replacing one is something you ask for explicitly at the command line.',
+          '**Seed the official hub** registers the public hub together with its signature trust policy, using the compiler\'s own seeding — so what you get here and what you would get from the command line are the same configuration. It writes the global file on your machine rather than one in your project. Seeding is for a machine that has no configuration file yet: where one is already there it declines, names the file it found, and leaves that file exactly as it stands.',
       },
       {
         paragraph:
           '**Seed a registry I name** does the same for a host you supply, which is the path for a private or air-gapped hub.',
       },
+      {
+        paragraph:
+          '**Add a registry to what I have** is the one to press when a configuration file already exists — including when seeding has just declined and named it. Registering a registry carries no such condition, because the entry is merged into the configuration that is there: every registry you have already declared keeps its entry, and nothing in the file is rewritten. It asks you for the host and for which configuration file to write it to.',
+      },
     ],
     actions: [
       { label: 'Seed the official hub', command: SEED_REGISTRY_COMMAND },
       { label: 'Seed a registry I name', command: SEED_NAMED_REGISTRY_COMMAND },
+      { label: 'Add a registry to what I have', command: REGISTRY_ADD_COMMAND },
     ],
   },
 ];
@@ -751,7 +766,7 @@ export function panelSettingCommand(opensWithEditor: boolean): string {
 // is showing might later be persuaded to send.
 //
 // It reads TWO declarations because the panel draws two kinds of control: a
-// step's two ways through, and the one at the foot that decides whether the
+// step's own ways through, and the one at the foot that decides whether the
 // panel opens. Both standings of the foot control are admitted, because which
 // one is drawn depends on the preference and the guard is asked before the
 // composition is consulted. Deriving from the declarations rather than from a

@@ -70,7 +70,7 @@ export const UNMET_LABEL = 'To do';
 // ones whose condition is already satisfied.
 //
 // The panel's job is to show what is still needed. A satisfied step is context,
-// so it earns its title and its two ways forward and nothing more; one still to
+// so it earns its title and its ways forward and nothing more; one still to
 // do needs its explanation in front of the reader.
 //
 // 🔴 IT IS READ ONCE, WHEN THE PANEL IS CREATED, AND IT IS NOT A LIVE BINDING.
@@ -179,12 +179,12 @@ export function stepsHtml(
       .join('');
     // The prose is one region rather than two siblings so that one control
     // governs it and one identifier addresses it. THE ACTIONS SIT OUTSIDE IT,
-    // and that is the shape rather than an accident: a closed section keeps both
-    // ways forward and hides only the explanation, because a reader who has
+    // and that is the shape rather than an accident: a closed section keeps every
+    // way forward and hides only the explanation, because a reader who has
     // understood a step still wants to act on it without reading it again.
     //
     // THE VALUE SITS AT TWO POSITIONS AND EACH IS CHOSEN FOR THE STATE IT IS
-    // READ IN. Inside the explanation it is last, immediately above the two ways
+    // READ IN. Inside the explanation it is last, immediately above the ways
     // forward, so it is the final thing read before pressing one of them rather
     // than something lost above a wall of guidance. Outside it — between the
     // explanation and the ways forward — it falls directly under the heading

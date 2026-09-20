@@ -163,6 +163,16 @@ export interface RegistryConfigureDeps {
   logOutOfRegistry(params: LogoutParams): Promise<LogoutResult>;
 }
 
+// REGISTRY_ADD_COMMAND is the one command that registers a registry.
+//
+// It lives beside the operation it performs rather than beside any of the
+// surfaces that run it — the Registries panel, the operation surface, and the
+// welcome page's registry step all name it, and a declaration beside one of
+// those would make the others depend on a surface they have nothing to do with.
+// Two copies agree until one of them moves, and what they hide while they agree
+// is a command registered under one identifier and invoked under another.
+export const REGISTRY_ADD_COMMAND = 'aggrega.registries.add';
+
 // The three operations in the reader's terms, used for the sentence every ending
 // produces. One spelling each, so a completion and a failure name the same thing.
 export const REGISTRATION_SUBJECT = 'The registration';
