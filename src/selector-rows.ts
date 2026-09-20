@@ -33,11 +33,40 @@ export interface SelectorCreate {
   label: string;
 }
 
+// SelectorOffer is a row's THIRD control: the one that acts on the value the
+// row is already naming, standing beside the one that chooses among the values
+// there are and the one that makes a new one.
+//
+// 🔴 IT IS A CONTROL OF ITS OWN FOR THE REASON THE CREATE CONTROL IS, AND ONE
+// MORE OF ITS OWN. A press anywhere on the choosing control chooses, so an
+// affordance painted inside it would run the wrong thing; and what this one
+// does is felt across the whole window rather than inside a panel, which makes
+// a press landing on it by accident the most expensive miss on this surface.
+//
+// 🔴 ITS LABEL CARRIES THE CONSEQUENCE AND NOT ONLY THE DESTINATION. That is
+// the one way its contract differs from the create control's, which is why the
+// two shapes are kept apart rather than unified on the strength of holding the
+// same two fields today: a name saying only where the control goes would be
+// accurate and would still leave a reader unable to tell, before pressing, what
+// pressing costs them.
+export interface SelectorOffer {
+  command: string;
+  // label is the control's whole accessible name. The control draws no word of
+  // its own, so what pressing costs has to be in this name or nowhere.
+  label: string;
+}
+
 // createControlKey derives the focus key of a row's create control from the
 // row's own key, so the two cannot disagree and no second identifier for one
 // control is recorded anywhere.
 export function createControlKey(key: SelectorRowKey): string {
   return `${key}:create`;
+}
+
+// offerControlKey derives the focus key of a row's offer from the row's own
+// key, for the reason the create control's is derived rather than written.
+export function offerControlKey(key: SelectorRowKey): string {
+  return `${key}:offer`;
 }
 
 // SelectorRow is one of the three rows that name what the editor is acting on.
@@ -61,6 +90,31 @@ export interface SelectorRow {
   // row has none: a control there would promise a creation this extension does
   // not perform.
   create: SelectorCreate | null;
+  // offer is the row's third control, or null where the row's value is nothing
+  // to act on.
+  //
+  // 🔴 IT COMES AND GOES WITH THE WINDOW, which no other control on these rows
+  // does. A row's choosing control and its create control are properties of the
+  // level; this one is a property of the moment, so it is absent whenever the
+  // act it offers would change nothing.
+  offer: SelectorOffer | null;
+}
+
+// rowCommands is every command a row's controls can run, and it is the ONE home
+// of that enumeration.
+//
+// The panel admits a press by asking the rows what they offer, and the census
+// over the surface asks the same question. A second walk written beside either
+// would agree on the day it was written and would then be the only thing
+// consulted by whichever surface held it — so a control added to the row shape
+// would be drawn, would be pressed, and would be refused by a guard that had
+// never heard of it.
+export function rowCommands(row: SelectorRow): string[] {
+  return [
+    row.command,
+    ...(row.create === null ? [] : [row.create.command]),
+    ...(row.offer === null ? [] : [row.offer.command]),
+  ];
 }
 
 // SelectorCandidates is how many candidates each level has.
@@ -116,6 +170,61 @@ export interface SelectorCandidates {
 // reaches a folder the window does not already have open.
 export const PROJECT_FOLDER_COMMAND = 'workbench.action.openFolder';
 
+// OPEN_FOLDER_COMMAND makes the editor work in a NAMED folder, taking that
+// folder's location as its argument.
+//
+// 🔴 IT IS A DIFFERENT COMMAND FROM THE ONE ABOVE AND THE TWO ARE NOT
+// INTERCHANGEABLE, WHICH IS WHY THEY ARE WRITTEN HERE TOGETHER. The one above
+// takes no argument and puts the editor's own chooser in front of a reader, so
+// where the window ends up is their answer to a question asked at that moment.
+// This one asks nothing and opens what it is handed. Collapsing the two would
+// either take the destination away from this one or put a destination on the
+// row whose whole point is that the reader picks.
+//
+// It is the editor's own command in both cases, and for the reason stated
+// above: which folders a window has open is the editor's to decide, so what is
+// added here is the destination rather than a second way to open a folder.
+export const OPEN_FOLDER_COMMAND = 'vscode.openFolder';
+
+// OPEN_WORKSPACE_ROOT_COMMAND is this extension's own command behind the
+// Aggrega workspace row's offer.
+//
+// 🔴 IT EXISTS SO THE LOCATION NEVER TRAVELS THROUGH THE DRAWN DOCUMENT. A
+// row's controls carry a command and nothing beside them, and the editor's
+// command above needs a folder handed to it — so either every control grows a
+// place to put an argument, or one command of ours reads the folder for itself
+// at the moment it runs. This is the second, and the first is what it avoids: a
+// destination composed into the document would be a second copy of the root,
+// and a document drawn a moment ago could then open somewhere the editor has
+// since stopped working in.
+export const OPEN_WORKSPACE_ROOT_COMMAND = 'aggrega.workspace.openRootFolder';
+
+// WorkspaceRootOpening is what a press on that offer hands the editor: the
+// command that opens a named folder, and the folder for it to open.
+export interface WorkspaceRootOpening {
+  command: string;
+  location: string;
+}
+
+// openWorkspaceRootInvocation reports what the offer runs, or null where there
+// is no Aggrega workspace to open.
+//
+// The decision is made here and the invocation is made where the editor is, for
+// the reason the panels' shared press guard states about itself: what this side
+// decides is drivable with no extension host running, while the call that
+// reaches the editor has to sit where the editor is.
+//
+// 🔴 IT DOES NOT RE-ASK WHETHER THE OFFER SHOULD HAVE BEEN DRAWN. Whether the
+// workspace is worth opening is the row's question and the row answers it once;
+// a second answer here would be a second home for one condition, and the two
+// would agree until the day they did not. What this guards is the different
+// question of whether there is a workspace at all, which can have become false
+// between the drawing and the press.
+export function openWorkspaceRootInvocation(root: string | null): WorkspaceRootOpening | null {
+  if (root === null) { return null; }
+  return { command: OPEN_FOLDER_COMMAND, location: root };
+}
+
 // projectFolderRow renders the folder the editor is working in.
 //
 // It is the outermost of the three levels and the only one that is the
@@ -141,6 +250,7 @@ export function projectFolderRow(
     command: PROJECT_FOLDER_COMMAND,
     icon: 'folder-opened',
     create: null,
+    offer: null,
   };
   if (candidates === 0) {
     // The way out is the very thing this row's own control does, so saying so
@@ -187,6 +297,15 @@ export function projectFolderRow(
 // folder is itself the anchor; the row earns its place when they do not, which
 // is why the opened folder is named in the explanation whenever it differs.
 //
+// 🔴 THAT SAME DIFFERENCE IS WHERE THIS ROW'S OFFER COMES FROM, AND IT IS AN
+// OFFER RATHER THAN SOMETHING DONE ON THE READER'S BEHALF. Where the workspace
+// sits above the folder the editor opened, the editor can be made to work in
+// the workspace itself — but that takes the window down and stands it back up,
+// with the language server, this extension and everything unsaved in the window
+// going with it. Nothing else drawn on this panel reaches past the window it is
+// drawn in. So the press is the reader's, the control's name says what it will
+// cost them, and no path here performs it for them.
+//
 // 🔴 ITS TWO EMPTY READINGS ARE NOT ONE STATE. A project holding no Aggrega
 // workspace and a project holding several with none of them in use are as far
 // apart as a surface can put two absences: the first cannot be resolved by
@@ -213,6 +332,11 @@ export function workspaceRow(
       // from this row.
       label: `Create an ${SELECTOR_ROW_LABELS.workspace}`,
     },
+    // The offer is the exception among these controls: it belongs to one of
+    // this row's readings rather than to the row, so the base carries none and
+    // the reading that earns it adds it. Two of the three readings below have
+    // no anchored folder at all, which leaves nothing to open.
+    offer: null,
   };
   if (anchoredRoot === null) {
     if (candidates === 0) {
@@ -250,6 +374,32 @@ export function workspaceRow(
   return {
     ...base,
     value: path.basename(anchoredRoot),
+    // 🔴 THE OFFER IS READ FROM THE COMPARISON ABOVE AND FROM NO SECOND ONE.
+    // The same two paths decide whether the explanation names the open folder
+    // and whether there is anything here to open, because they are the same
+    // question asked twice; a comparison written again beside this one would
+    // agree today and would be the thing that drifted.
+    //
+    // Where the two coincide there is no offer, and the absence is the truth
+    // rather than an omission: the folder this row names is already the one the
+    // editor has open, so pressing would cost a reader everything a reload
+    // costs and leave them exactly where they are.
+    offer: differs
+      ? {
+        command: OPEN_WORKSPACE_ROOT_COMMAND,
+        // 🔴 THE NAME SAYS WHAT IT COSTS AS WELL AS WHERE IT GOES, and the
+        // second half is the part that must not be dropped as verbose. Every
+        // other control on these rows changes a selection inside a window that
+        // keeps running; this one takes the window down and stands it back up,
+        // so a name giving only the destination would be accurate and would
+        // still surprise every reader who pressed it.
+        //
+        // Both levels are named from the one place those names are written, so
+        // the sentence cannot come to call a level something the row above it
+        // does not.
+        label: `Open the ${SELECTOR_ROW_LABELS.workspace} as the ${SELECTOR_ROW_LABELS.project}. The window reloads.`,
+      }
+      : null,
     // The closing sentence promises a CHOICE, not a change, and the distinction
     // is what makes it true in every case. A click opens what the editor can
     // work in together with the way to make another workspace available — so
@@ -284,6 +434,7 @@ export function releaseRow(state: SelectionState, releases: number | null): Sele
     tooltip: described.detail,
     command: SELECT_RELEASE_COMMAND,
     icon: 'rocket',
+    offer: null,
     create: {
       command: DRAFT_RELEASE_COMMAND,
       // Named for what it creates rather than where, for the reason the

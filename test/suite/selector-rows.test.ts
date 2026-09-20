@@ -9,11 +9,14 @@ import { CREATE_WORKSPACE_COMMAND, DRAFT_RELEASE_COMMAND } from '../../src/get-s
 import { SELECT_RELEASE_COMMAND } from '../../src/release-selection';
 import { SELECTOR_ROW_KEYS, SELECTOR_ROW_LABELS } from '../../src/selector-levels';
 import {
+  OPEN_WORKSPACE_ROOT_COMMAND,
   PROJECT_FOLDER_COMMAND,
   SelectorCandidates,
   createControlKey,
+  offerControlKey,
   projectFolderRow,
   releaseRow,
+  rowCommands,
   selectorRows,
   workspaceRow,
 } from '../../src/selector-rows';
@@ -183,6 +186,129 @@ describe('the control that creates a new one of a level', () => {
     assert.strictEqual(
       new Set(SELECTOR_ROW_KEYS.map(createControlKey)).size, SELECTOR_ROW_KEYS.length,
       'two create controls derive the same focus key',
+    );
+  });
+});
+
+describe('the offer to open the Aggrega workspace', () => {
+  it('is there when the workspace sits above the folder the editor opened', () => {
+    const row = workspaceRow(ANCHORED, OPENED_INSIDE, 2);
+    assert.notStrictEqual(
+      row.offer, null,
+      'the workspace the row names is not the folder the window has open, and nothing offers to '
+      + 'open it — which is the whole state this control exists for',
+    );
+    assert.strictEqual(row.offer?.command, OPEN_WORKSPACE_ROOT_COMMAND);
+  });
+
+  it('is absent when the folder the editor opened IS the workspace', () => {
+    // Nothing to open: pressing would cost a reader everything a window reload
+    // costs and leave them exactly where they already are. The absence is the
+    // truth rather than an omission.
+    assert.strictEqual(workspaceRow(ANCHORED, ANCHORED, 2).offer, null);
+  });
+
+  it('is absent while no workspace has been reported at all', () => {
+    // Both empty readings, because they are different states and neither has a
+    // folder to name. A row offering to open nothing would be a control whose
+    // press could only fail.
+    assert.strictEqual(workspaceRow(null, OPENED_INSIDE, 2).offer, null);
+    assert.strictEqual(workspaceRow(null, null, 0).offer, null);
+  });
+
+  it('is absent while the window has no folder open to differ from', () => {
+    assert.strictEqual(workspaceRow(ANCHORED, null, 2).offer, null);
+  });
+
+  it('reads the same comparison the explanation reads, resolved rather than compared as text', () => {
+    // The hover names the open folder on exactly the occasions the offer is
+    // drawn, because both come from one comparison. A second comparison written
+    // beside the first would agree until the day one of them was changed.
+    const differing = workspaceRow(ANCHORED, OPENED_INSIDE, 2);
+    assert.ok(differing.tooltip.includes('The open folder is'));
+    assert.notStrictEqual(differing.offer, null);
+
+    const same = workspaceRow(ANCHORED, ANCHORED, 2);
+    assert.ok(!same.tooltip.includes('The open folder is'));
+    assert.strictEqual(same.offer, null);
+
+    // And the comparison is over resolved paths rather than over the strings, so
+    // a folder spelled with a step that goes nowhere is the same folder.
+    const spelledLonger = `${ANCHORED}${path.sep}.`;
+    assert.notStrictEqual(spelledLonger, ANCHORED, 'the two spellings are the same text');
+    assert.strictEqual(
+      workspaceRow(ANCHORED, spelledLonger, 2).offer, null,
+      'a folder spelled differently and resolving to the same place is offered as somewhere else '
+      + 'to go, so a press would reload the window to where it already is',
+    );
+  });
+
+  it('says what pressing costs and not only where it goes', () => {
+    // 🔴 The label is the control's WHOLE accessible name — it draws no word of
+    // its own — and this control is the one thing on the panel that reaches past
+    // the window. A name giving only the destination would be accurate and would
+    // still surprise every reader who pressed it. The expectation is written out
+    // rather than composed from the constants the source reads, because a
+    // composed one moves with whatever it is checking and cannot fail.
+    const row = workspaceRow(ANCHORED, OPENED_INSIDE, 2);
+    assert.strictEqual(
+      row.offer?.label,
+      'Open the Aggrega workspace as the Project folder. The window reloads.',
+    );
+    assert.ok(
+      /reload/i.test(row.offer?.label ?? ''),
+      `the offer names a destination and no consequence: ${row.offer?.label}`,
+    );
+  });
+
+  it('takes a place of the reader\'s own, apart from the row\'s and the create control\'s', () => {
+    for (const key of SELECTOR_ROW_KEYS) {
+      assert.notStrictEqual(offerControlKey(key), key as string);
+      assert.notStrictEqual(offerControlKey(key), createControlKey(key));
+    }
+    assert.strictEqual(
+      new Set(SELECTOR_ROW_KEYS.map(offerControlKey)).size, SELECTOR_ROW_KEYS.length,
+      'two offers derive the same focus key',
+    );
+  });
+
+  it('is the only row that has one, whichever way the window is arranged', () => {
+    for (const opened of [OPENED_INSIDE, ANCHORED]) {
+      for (const row of selectorRows(ANCHORED, opened, SELECTED, SEVERAL)) {
+        if (row.key === 'workspace') { continue; }
+        assert.strictEqual(
+          row.offer, null,
+          `the ${row.key} row carries an offer; only the Aggrega workspace has a folder of its `
+          + 'own that the window may not already be open on',
+        );
+      }
+    }
+  });
+
+  it('is enumerated among the row\'s commands, so a press on it is admitted', () => {
+    // The panel admits a press by asking the rows what they offer. A control
+    // drawn but not enumerated would be pressed and refused.
+    assert.ok(
+      rowCommands(workspaceRow(ANCHORED, OPENED_INSIDE, 2)).includes(OPEN_WORKSPACE_ROOT_COMMAND),
+    );
+    assert.ok(
+      !rowCommands(workspaceRow(ANCHORED, ANCHORED, 2)).includes(OPEN_WORKSPACE_ROOT_COMMAND),
+      'the panel goes on admitting the offer after the row has stopped drawing it',
+    );
+  });
+
+  it('enumerates every control a row draws and nothing beside them', () => {
+    const row = workspaceRow(ANCHORED, OPENED_INSIDE, 2);
+    assert.deepStrictEqual(
+      rowCommands(row),
+      [row.command, row.create?.command, row.offer?.command],
+      'the enumeration and the controls have come apart, so one of them is the only thing some '
+      + 'surface consults',
+    );
+    assert.deepStrictEqual(
+      rowCommands(projectFolderRow(OPENED_INSIDE, 3)),
+      [PROJECT_FOLDER_COMMAND],
+      'a row with one control enumerates something beside it',
     );
   });
 });

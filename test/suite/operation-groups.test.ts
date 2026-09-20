@@ -29,7 +29,12 @@ import {
 } from '../../src/operation-groups';
 import { publishEntityRequest } from '../../src/publication-request';
 import { SWITCH_ANCHOR_COMMAND } from '../../src/anchor-picker';
-import { PROJECT_FOLDER_COMMAND, selectorRows } from '../../src/selector-rows';
+import {
+  OPEN_WORKSPACE_ROOT_COMMAND,
+  PROJECT_FOLDER_COMMAND,
+  rowCommands,
+  selectorRows,
+} from '../../src/selector-rows';
 import {
   NO_RELEASE_SELECTED_CONTROL_REASON,
 } from '../../src/release-selection';
@@ -449,15 +454,20 @@ describe('the surface the manifest actually contributes', () => {
     // control naming an undeclared one does NOTHING for a reader whose
     // workspace has not otherwise started the extension — which is exactly the
     // reader meeting an empty workspace and reaching for the + that creates one.
+    //
+    // 🔴 BOTH ARRANGEMENTS OF THE WINDOW ARE WALKED, because one row's controls
+    // are not all present in either alone: the offer to open the Aggrega
+    // workspace exists only where that workspace is not the folder already open,
+    // so a census over one arrangement would report a full surface while leaving
+    // the control that appears in the other unexamined.
     const declared = new Set<string>(manifest.contributes.commands.map((c) => c.command));
-    const rows = selectorRows(
-      '/ws/project',
-      '/ws/project',
-      { kind: 'unknown' },
-      { projectFolders: 2, aggregaWorkspaces: 2, releases: 2 },
-    );
+    const candidates = { projectFolders: 2, aggregaWorkspaces: 2, releases: 2 };
+    const rows = [
+      ...selectorRows('/ws/project', '/ws/project', { kind: 'unknown' }, candidates),
+      ...selectorRows('/ws/project', '/ws/project/services/api', { kind: 'unknown' }, candidates),
+    ];
     const ours = rows
-      .flatMap((row) => (row.create === null ? [row.command] : [row.command, row.create.command]))
+      .flatMap(rowCommands)
       .filter((command) => command.startsWith('aggrega.'));
     // A negative control on the census, because the loop below is satisfied by
     // an empty list: a filter that matched nothing would pass exactly as a
@@ -465,6 +475,11 @@ describe('the surface the manifest actually contributes', () => {
     assert.ok(
       ours.includes(SWITCH_ANCHOR_COMMAND),
       'the census sees no row command it certainly should, so its verdict means nothing',
+    );
+    assert.ok(
+      ours.includes(OPEN_WORKSPACE_ROOT_COMMAND),
+      'the census sees neither arrangement\'s whole set of controls, so its verdict covers less '
+      + 'than the surface it is about',
     );
     for (const command of ours) {
       assert.ok(
@@ -474,11 +489,12 @@ describe('the surface the manifest actually contributes', () => {
     }
     // And the one command that is NOT ours is the editor's own, named here so
     // the filter above is a statement about which level the editor owns rather
-    // than a hole the next undeclared command slips through.
+    // than a hole the next undeclared command slips through. It is the CHOOSER
+    // rather than the command that opens a named folder: this extension never
+    // puts the second on a control, because the folder it would open has to be
+    // read at the press rather than composed into the document.
     assert.deepStrictEqual(
-      rows
-        .flatMap((row) => (row.create === null ? [row.command] : [row.command, row.create.command]))
-        .filter((command) => !command.startsWith('aggrega.')),
+      [...new Set(rows.flatMap(rowCommands).filter((c) => !c.startsWith('aggrega.')))],
       [PROJECT_FOLDER_COMMAND],
       'a row control runs something that is neither ours nor the editor\'s own folder command',
     );

@@ -19,7 +19,13 @@ import {
   menuFor,
 } from './operation-menus';
 import { escapeHtml } from './html';
-import { SelectorCreate, SelectorRow, createControlKey } from './selector-rows';
+import {
+  SelectorCreate,
+  SelectorOffer,
+  SelectorRow,
+  createControlKey,
+  offerControlKey,
+} from './selector-rows';
 
 // This module composes the Commands panel's document and holds no editor
 // type, so what a reader is shown is assertable without an extension host: the
@@ -86,6 +92,23 @@ function selectorCreateHtml(row: SelectorRow, create: SelectorCreate): string {
   </button>`;
 }
 
+// selectorOfferHtml draws the control that acts on the value a row is already
+// naming, BESIDE the other two and never inside either.
+//
+// It carries the create control's reason — a press anywhere on the choosing
+// control chooses — and one of its own: what it does reaches past this panel,
+// which makes a press landing on it by accident the most expensive miss on this
+// surface.
+//
+// The name is written where the rows are written and is not composed here, and
+// it is the control's whole accessible name, so what pressing costs the reader
+// is in that name or nowhere.
+function selectorOfferHtml(row: SelectorRow, offer: SelectorOffer): string {
+  return `<button class="selector-offer" type="button" data-command="${escapeHtml(offer.command)}" data-focus-key="${escapeHtml(offerControlKey(row.key))}" aria-label="${escapeHtml(offer.label)}" title="${escapeHtml(offer.label)}">
+    <span class="codicon codicon-folder-opened" aria-hidden="true"></span>
+  </button>`;
+}
+
 // selectorHtml draws one of the three rows naming what the panel acts on. The
 // key is already the row's, and it is reused as the choosing control's focus
 // key so the reader's place survives a re-composition.
@@ -105,22 +128,36 @@ function selectorCreateHtml(row: SelectorRow, create: SelectorCreate): string {
 // THE ROW IS A CONTAINER RATHER THAN A SINGLE BUTTON, because a level that can
 // be created carries two press targets and buttons do not nest.
 //
-// 🔴 EVERY ROW HAS THE SAME TWO COLUMNS WHETHER OR NOT IT CAN BE CREATED, and a
-// row that cannot reserves the second one with a gap that is not a control. The
-// alternative — leaving the column out where there is nothing to put in it —
-// gives the choosing control on that row a different width from the ones above
-// and below, which moves its value out of line with theirs. The rows are read
-// down the panel as three answers to one question, so a value that does not
-// start and end where its neighbours' do is the arrangement failing at the one
-// job it has.
+// 🔴 EVERY ROW HAS THE SAME THREE COLUMNS WHATEVER IT CAN DO, and a row that
+// fills one of the two beside the choosing control reserves it with a gap that
+// is not a control. The alternative — leaving a column out where there is
+// nothing to put in it — gives the choosing control on that row a different
+// width from the ones above and below, which moves its value out of line with
+// theirs. The rows are read down the panel as three answers to one question, so
+// a value that does not start and end where its neighbours' do is the
+// arrangement failing at the one job it has.
 //
-// The gap carries no command, no focus key and no name: it is out of the press
+// 🔴 THE THIRD COLUMN IS RESERVED FOR A SECOND REASON THE OTHER TWO DO NOT
+// NEED, and it is the stronger one: what fills it comes and goes with the
+// window rather than with the level. A column standing only while it is filled
+// would move one row's value sideways as the reader opened a different folder —
+// under their pointer, on the surface they are reading to find out where they
+// are.
+//
+// A gap carries no command, no focus key and no name: it is out of the press
 // order, out of the tab order and out of the accessibility tree, so what it
 // adds is width and nothing else.
 function selectorHtml(row: SelectorRow): string {
   const beside = row.create === null
     ? '<span class="selector-create-gap" aria-hidden="true"></span>'
     : selectorCreateHtml(row, row.create);
+  // The offer comes last, so the control a reader has already learned the place
+  // of keeps that place. A column inserted ahead of the create control would
+  // move it, and a press aimed at where it used to be would create nothing and
+  // reload the window.
+  const acting = row.offer === null
+    ? '<span class="selector-offer-gap" aria-hidden="true"></span>'
+    : selectorOfferHtml(row, row.offer);
   return `<div class="selector-row">
   <button class="selector" type="button" data-command="${escapeHtml(row.command)}" data-focus-key="${escapeHtml(row.key)}" title="${escapeHtml(row.tooltip)}">
     <span class="codicon codicon-${escapeHtml(row.icon)}" aria-hidden="true"></span>
@@ -128,6 +165,7 @@ function selectorHtml(row: SelectorRow): string {
     <span class="selector-value">${escapeHtml(row.value)}</span>
   </button>
   ${beside}
+  ${acting}
 </div>`;
 }
 

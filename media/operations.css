@@ -40,17 +40,20 @@ body {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  /* The width the create control occupies, named once so the control and the
-     gap that stands in for it on a row without one cannot come to differ. They
-     differ silently if they do: the rows simply stop lining up, and nothing
-     fails. */
-  --selector-create-size: 1.5rem;
+  /* The width one column beside the choosing control occupies, named once so
+     every such control and every gap standing in for one cannot come to differ.
+     They differ silently if they do: the rows simply stop lining up, and
+     nothing fails. */
+  --selector-control-size: 1.5rem;
 }
 
-/* A row is the choosing control and the column beside it, and that column is
-   there on every row whether or not it holds a control. A row that left it out
-   would give its choosing control a different width from the rows above and
-   below, putting its value out of line with theirs. */
+/* A row is the choosing control and the two columns beside it, and both are
+   there on every row whether or not they hold a control. A row that left one
+   out would give its choosing control a different width from the rows above and
+   below, putting its value out of line with theirs — and the second of the two
+   holds a control that comes and goes with the window, so a column standing
+   only while it is filled would move that row's value sideways under a reader
+   who had only changed folders. */
 .selector-row {
   display: flex;
   align-items: center;
@@ -80,14 +83,16 @@ body {
   cursor: pointer;
 }
 
-/* The control that creates a new one of this level. It is a press target of its
-   own beside the one that chooses, never a mark inside it, so a press that lands
-   on it creates and a press that lands anywhere else on the row chooses. */
-.selector-create {
+/* The control that creates a new one of this level, and the control that acts
+   on the one the row is already naming. Each is a press target of its own
+   beside the one that chooses, never a mark inside it, so a press that lands on
+   one runs that one and a press that lands anywhere else on the row chooses. */
+.selector-create,
+.selector-offer {
   display: flex;
   align-items: center;
   justify-content: center;
-  flex: 0 0 var(--selector-create-size);
+  flex: 0 0 var(--selector-control-size);
   align-self: stretch;
   color: inherit;
   background: none;
@@ -97,17 +102,20 @@ body {
   cursor: pointer;
 }
 
-/* The same width, holding nothing. It is what keeps the row that has no create
-   control in the same two columns as the rows that do. */
-.selector-create-gap {
-  flex: 0 0 var(--selector-create-size);
+/* The same width, holding nothing. It is what keeps a row lacking one of those
+   controls in the same three columns as the rows that have them. */
+.selector-create-gap,
+.selector-offer-gap {
+  flex: 0 0 var(--selector-control-size);
 }
 
-.selector-create:hover {
+.selector-create:hover,
+.selector-offer:hover {
   background: var(--vscode-toolbar-hoverBackground);
 }
 
-.selector-create:focus-visible {
+.selector-create:focus-visible,
+.selector-offer:focus-visible {
   outline: 1px solid var(--vscode-focusBorder);
   outline-offset: -1px;
 }
@@ -651,12 +659,14 @@ body.vscode-high-contrast .op,
 body.vscode-high-contrast .op-caret,
 body.vscode-high-contrast .selector,
 body.vscode-high-contrast .selector-create,
+body.vscode-high-contrast .selector-offer,
 body.vscode-high-contrast .section-head,
 body.vscode-high-contrast .op-menu,
 body.vscode-high-contrast-light .op,
 body.vscode-high-contrast-light .op-caret,
 body.vscode-high-contrast-light .selector,
 body.vscode-high-contrast-light .selector-create,
+body.vscode-high-contrast-light .selector-offer,
 body.vscode-high-contrast-light .section-head,
 body.vscode-high-contrast-light .op-menu {
   border: 1px solid var(--vscode-contrastBorder, currentColor);
@@ -666,6 +676,7 @@ body.vscode-high-contrast .op:focus-visible,
 body.vscode-high-contrast .op-caret:focus-visible,
 body.vscode-high-contrast .selector:focus-visible,
 body.vscode-high-contrast .selector-create:focus-visible,
+body.vscode-high-contrast .selector-offer:focus-visible,
 body.vscode-high-contrast .section-head:focus-visible,
 body.vscode-high-contrast .op-menu-option:focus-visible,
 body.vscode-high-contrast .op-menu-dial:focus-visible,
@@ -673,6 +684,7 @@ body.vscode-high-contrast-light .op:focus-visible,
 body.vscode-high-contrast-light .op-caret:focus-visible,
 body.vscode-high-contrast-light .selector:focus-visible,
 body.vscode-high-contrast-light .selector-create:focus-visible,
+body.vscode-high-contrast-light .selector-offer:focus-visible,
 body.vscode-high-contrast-light .section-head:focus-visible,
 body.vscode-high-contrast-light .op-menu-option:focus-visible,
 body.vscode-high-contrast-light .op-menu-dial:focus-visible {

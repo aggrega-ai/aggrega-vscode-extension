@@ -75,7 +75,13 @@ import { withCancellableProgress } from './progress';
 import { SelectionState } from './release-selection';
 import { RendersOnReady } from './readiness';
 import { EXTENSION_ID, SETTINGS_COMMAND, extensionSettingsQuery } from './settings';
-import { SelectorCandidates, selectorRows } from './selector-rows';
+import {
+  OPEN_WORKSPACE_ROOT_COMMAND,
+  SelectorCandidates,
+  openWorkspaceRootInvocation,
+  rowCommands,
+  selectorRows,
+} from './selector-rows';
 import {
   BuildPreviewResponse,
   BuildResponse,
@@ -570,11 +576,12 @@ class OperationsViewProvider implements vscode.WebviewViewProvider {
   // for their commands rather than the commands being named here, because a list
   // here would be a second statement of what the rows carry.
   //
-  // A row that can be created carries TWO commands — the one that chooses and
-  // the one that creates — and both come from the row for the same reason: a
-  // create control admitted by a list written here rather than by the row that
-  // draws it is a control this guard could go on admitting after the row stopped
-  // drawing it.
+  // A row carries as many commands as it has controls, and the walk over them
+  // is the rows' own rather than one written here — for the same reason a
+  // control admitted by a list written here rather than by the row that draws it
+  // is a control this guard could go on admitting after the row stopped drawing
+  // it, and the reverse: a control ADDED to the row shape would be drawn, would
+  // be pressed, and would be refused by a guard that had never heard of it.
   private offeredCommands(): string[] {
     const rows = selectorRows(
       this.deps.getAnchoredWorkspaceRoot(),
@@ -584,9 +591,7 @@ class OperationsViewProvider implements vscode.WebviewViewProvider {
     );
     return [
       ...allOperations().map(commandIdFor),
-      ...rows.flatMap((row) => (
-        row.create === null ? [row.command] : [row.command, row.create.command]
-      )),
+      ...rows.flatMap(rowCommands),
     ];
   }
 
@@ -648,6 +653,29 @@ export function activateOperations(
         'workbench.action.openSettings',
         extensionSettingsQuery(EXTENSION_ID),
       );
+    }),
+  );
+
+  // The Aggrega workspace row's offer, and THE ONLY THING ON THIS SURFACE THAT
+  // REACHES PAST THE WINDOW IT IS DRAWN IN. Opening a folder takes the window
+  // down and stands it back up: this extension and the language server both
+  // restart and anything unsaved in the window is at risk.
+  //
+  // 🔴 SO IT RUNS FROM A PRESS AND FROM NOTHING ELSE. Nothing composes the
+  // panel's document, refreshes it, or reacts to a folder changing by invoking
+  // this — a redraw that opened a folder would restart the window a reader was
+  // working in because a value they never touched had settled.
+  //
+  // The folder is read here, at the press, from the one getter the row that
+  // drew the offer is itself composed from — so the offer and the act cannot
+  // name two places, and a document drawn before the workspace moved cannot
+  // carry the old one into the editor. Where the workspace has gone since, there
+  // is nothing to open and nothing runs.
+  context.subscriptions.push(
+    vscode.commands.registerCommand(OPEN_WORKSPACE_ROOT_COMMAND, () => {
+      const opening = openWorkspaceRootInvocation(deps.getAnchoredWorkspaceRoot());
+      if (opening === null) { return; }
+      void vscode.commands.executeCommand(opening.command, vscode.Uri.file(opening.location));
     }),
   );
 

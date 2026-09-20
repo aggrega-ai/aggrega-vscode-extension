@@ -25,6 +25,8 @@ import { SELECTOR_ROW_KEYS, SELECTOR_ROW_LABELS } from '../../src/selector-level
 import {
   SelectorCandidates,
   createControlKey,
+  offerControlKey,
+  rowCommands,
   selectorRows,
 } from '../../src/selector-rows';
 
@@ -56,23 +58,23 @@ function body(over: Partial<OperationsBody> = {}): OperationsBody {
   };
 }
 
-// What the rows contribute to a count taken over the whole document: one
-// choosing control each, and one create control beside each level that can be
-// created.
+// What the rows contribute to a count taken over the whole document: every
+// control every row draws.
 //
 // DERIVED FROM THE ROWS RATHER THAN WRITTEN AS A NUMBER, so a row gained or a
-// create control withdrawn moves every total that depends on it in the same
-// act. A literal here is a number that has to be found and changed by whoever
-// next touches the rows, and the totals it feeds are exactly the assertions
-// that say nothing until they are wrong.
-const ROW_CONTROLS = body().selectors.length
-  + body().selectors.filter((row) => row.create !== null).length;
+// control withdrawn moves every total that depends on it in the same act. A
+// literal here is a number that has to be found and changed by whoever next
+// touches the rows, and the totals it feeds are exactly the assertions that say
+// nothing until they are wrong. It is read through the rows' own enumeration of
+// their commands, so a control added to the row shape is counted here without
+// this line being touched.
+const ROW_CONTROLS = body().selectors.flatMap(rowCommands).length;
 
 // And what they contribute to a count of this extension's OWN commands. The
 // project-folder row runs the editor's command rather than one of ours, so it
 // is not among them — which is the distinction this reads rather than assumes.
 const ROW_AGGREGA_COMMANDS = body().selectors
-  .flatMap((row) => (row.create === null ? [row.command] : [row.command, row.create.command]))
+  .flatMap(rowCommands)
   .filter((command) => command.startsWith('aggrega.')).length;
 
 // occurrences counts a pattern rather than asserting its presence, because
@@ -705,6 +707,109 @@ describe('the Commands panel document', () => {
         `the ${row.key} create control draws no word and announces none either`,
       );
     }
+  });
+
+  it('draws the offer BESIDE the other two controls, with its own place and its own name', () => {
+    // 🔴 THE CLAIM THIS RESTS ON IS THE CREATE CONTROL'S, WITH MORE AT STAKE. A
+    // press is routed by the nearest enclosing element carrying a command, so an
+    // offer drawn inside the choosing control would choose instead of opening —
+    // and an offer drawn where the create control was would reload the window
+    // for a reader who aimed at making a workspace.
+    const rows = selectorRows('/work/demo', '/work/demo/services/api', SELECTED, SEVERAL);
+    const html = operationsBodyHtml(body({ selectors: rows }));
+    const offering = rows.filter((row) => row.offer !== null);
+    assert.strictEqual(
+      offering.length, 1,
+      'the number of rows offering to open a folder is not the one row that has a folder of its own',
+    );
+    const drawn = Array.from(html.matchAll(/<button class="selector-offer"[\s\S]*?<\/button>/g))
+      .map((m) => m[0]);
+    assert.strictEqual(
+      drawn.length, offering.length,
+      'a row that carries an offer is drawn without a control that performs it',
+    );
+    const row = offering[0];
+    assert.deepStrictEqual(commandsIn(drawn[0]), [row.offer?.command]);
+    assert.ok(
+      drawn[0].includes(`data-focus-key="${offerControlKey(row.key)}"`),
+      'the offer does not take a place of its own, so the reader\'s place moves when it appears',
+    );
+    assert.ok(
+      drawn[0].includes('type="button"'),
+      'the offer is not a native button, so the platform gives it nothing',
+    );
+    assert.ok(
+      drawn[0].includes(`aria-label="${row.offer?.label}"`),
+      'the offer draws no word and announces none either',
+    );
+    assert.ok(
+      drawn[0].includes(`title="${row.offer?.label}"`),
+      'the offer says what it costs to a reader using a keyboard and not to one using a pointer',
+    );
+    // And the consequence reaches the drawn document rather than stopping at the
+    // row: this is the only channel a reader has before pressing.
+    assert.ok(
+      /reload/i.test(drawn[0]),
+      `the drawn offer names a destination and no consequence:\n${drawn[0]}`,
+    );
+
+    // The row it sits on still runs what it ran, and so does the create control
+    // beside it — the offer is an addition rather than a replacement.
+    const choosing = Array.from(html.matchAll(/<button class="selector"[\s\S]*?<\/button>/g))
+      .map((m) => m[0]);
+    const at = rows.findIndex((r) => r.key === row.key);
+    assert.deepStrictEqual(commandsIn(choosing[at]), [row.command]);
+    assert.strictEqual(
+      occurrences(choosing[at], /<button/), 1,
+      'the choosing control encloses the offer, so a press on the offer chooses instead',
+    );
+  });
+
+  it('reserves the offer\'s column on every row, so no value moves as a window changes', () => {
+    // 🔴 THE COLUMN IS RESERVED FOR A REASON THE CREATE COLUMN DOES NOT HAVE.
+    // What fills it comes and goes with the window rather than with the level,
+    // so a column standing only while it is filled would slide one row's value
+    // sideways as the reader opened a different folder — under their pointer, on
+    // the surface they are reading to find out where they are.
+    const cases: Array<[string, string]> = [
+      ['/work/demo', '/work/demo/services/api'],
+      ['/work/demo', '/work/demo'],
+    ];
+    for (const [anchored, opened] of cases) {
+      const rows = selectorRows(anchored, opened, SELECTED, SEVERAL);
+      const html = operationsBodyHtml(body({ selectors: rows }));
+      const chunks = Array.from(html.matchAll(/<div class="selector-row">([\s\S]*?)<\/div>/g))
+        .map((m) => m[1]);
+      assert.strictEqual(chunks.length, rows.length, 'a row is not drawn in a row container');
+      for (let at = 0; at < rows.length; at += 1) {
+        const expected = rows[at].offer === null ? 0 : 1;
+        assert.strictEqual(
+          occurrences(chunks[at], /class="selector-offer"/), expected,
+          `the ${rows[at].key} row draws the wrong number of offers with ${opened} open`,
+        );
+        assert.strictEqual(
+          occurrences(chunks[at], /class="selector-offer-gap"/), 1 - expected,
+          `the ${rows[at].key} row does not keep the same three columns as the others with `
+          + `${opened} open`,
+        );
+      }
+      // 🔴 AND THE LITERAL SIDE, which is what makes the loop worth running:
+      // both of its sides come from the rows, so it agrees with itself whatever
+      // the rows say. The total is written out.
+      assert.strictEqual(
+        occurrences(html, /class="selector-offer-gap"/),
+        anchored === opened ? 3 : 2,
+        `the reserved columns do not add up with ${opened} open`,
+      );
+    }
+
+    // The reserved column is a gap and not a control: it takes no press, no tab
+    // stop and no announcement, so what it adds is width and nothing else.
+    const gap = operationsBodyHtml(body()).match(/<span class="selector-offer-gap"[^>]*>/);
+    assert.notStrictEqual(gap, null, 'no column is reserved at all');
+    assert.ok(gap !== null && gap[0].includes('aria-hidden="true"'));
+    assert.ok(gap !== null && !gap[0].includes('data-command'));
+    assert.ok(gap !== null && !gap[0].includes('data-focus-key'));
   });
 
   it('draws no create control on the project-folder row, and still reserves its column', () => {

@@ -119,6 +119,10 @@
         {
           "command": "aggrega.plugins.remove",
           "when": "false"
+        },
+        {
+          "command": "aggrega.workspace.openRootFolder",
+          "when": "false"
         }
       ],
       "view/title": [
@@ -454,6 +458,10 @@
       {
         "command": "aggrega.release.select",
         "title": "Aggrega: Select Release…"
+      },
+      {
+        "command": "aggrega.workspace.openRootFolder",
+        "title": "Aggrega: Open the Aggrega workspace as the project folder"
       },
       {
         "command": "aggrega.workspace.openAuthoringReleaseConfig",
