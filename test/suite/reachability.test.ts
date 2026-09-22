@@ -12,7 +12,9 @@ import {
   workspacesReachedFrom,
   workspacesReachedFromAll,
 } from '../../src/workspace';
-import { classifyActivation } from '../../src/anchor-picker';
+import { buildPickerItems, classifyActivation } from '../../src/anchor-picker';
+import { workspaceRow } from '../../src/selector-rows';
+import { soleCandidateNote } from '../../src/selector-levels';
 import { folder, searchUnder } from '../helpers/folder-search';
 
 // Every layout below is built on disk and named in full, so each case can be
@@ -169,7 +171,7 @@ describe('the population a window reaches, and what one choice narrows it to', (
     await fs.rm(tmp, { recursive: true, force: true });
   });
 
-  // 🔴 THE LAYOUT CLAUSE 17 IS DRIVEN AGAINST, NAMED IN FULL SO IT CAN BE
+  // 🔴 THE LAYOUT THE NARROWING IS DRIVEN AGAINST, NAMED IN FULL SO IT CAN BE
   // RE-DRIVEN BY HAND:
   //
   //   <tmp>/alpha/aggregate.yaml          — heuristic, so it shadows nothing
@@ -267,11 +269,24 @@ describe('the population a window reaches, and what one choice narrows it to', (
   });
 });
 
-// 🔴 THE COST THE RULING ACCEPTED, DRIVEN AT THE CLASSIFIER RATHER THAN
-// ASSERTED. The widening is a change to how many candidates a window has, and
-// the classifier is what turns that number into an attachment or a prompt — so
-// feeding it both populations from ONE named layout is what shows the cost
-// arriving.
+// 🔴 THE COST OF THE WIDENING, DRIVEN RATHER THAN ASSERTED. Reaching more
+// workspaces means a reader may now have to choose where they did not before,
+// and that cost is shown by feeding both populations — what the walk alone
+// reaches, and what the folder reaches once the search is part of the answer —
+// from ONE named layout, so the before and the after are the same window.
+//
+// 🔴 IT ARRIVES AS AN OFFER AND NOT AS AN INTERRUPTION, WHICH IS THE WHOLE
+// DISTINCTION THIS BLOCK EXISTS TO PIN. A window that attaches silently has
+// already recorded the workspace it attached to, so when the second candidate
+// turns up a moment later that record is still valid and the reader is OFFERED
+// the choice — the count they are shown moves from one to two and the chooser
+// lists both — rather than being stopped and asked for a decision they did not
+// ask to make. Anything here asserting a prompt for that window would be
+// asserting the opposite of what the reader meets.
+//
+// The one window that genuinely IS asked is the second case below: a folder
+// with no marker of its own reaches nothing at all today, so it has nothing
+// recorded, and two candidates with nothing remembered is a real question.
 describe('the cost of the widening, shown on one window', () => {
   beforeEach(async () => {
     tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'aggrega-reach-'));
@@ -285,41 +300,110 @@ describe('the cost of the widening, shown on one window', () => {
   // LAYOUT, NAMED SO IT CAN BE RE-DRIVEN BY HAND: a window whose single open
   // folder is <tmp>/repo, carrying <tmp>/repo/aggregate.yaml at its root and
   // <tmp>/repo/sub/release.yaml below it. Both are heuristic markers, so the
-  // first shadows nothing.
-  it('attaches with no prompt on the walk alone, and asks on the fuller population', async () => {
+  // first shadows nothing and the second is a workspace of its own.
+  it('attaches with no prompt, then OFFERS the second workspace instead of asking for it', async () => {
     await write('repo/aggregate.yaml');
     await write('repo/sub/release.yaml');
     const repo = path.join(tmp, 'repo');
+    const sub = path.join(repo, 'sub');
     const open = [folder(repo)];
 
     const climbed = await findAllAnchoredFolders(open);
     const reached = await workspacesReachedFromAll(open, searchUnder);
 
-    // BEFORE: one candidate, so the language server attaches silently and the
+    // BEFORE: one workspace, so the language server attaches silently and the
     // reader is asked nothing.
     const before = classifyActivation(climbed, null);
     assert.strictEqual(
       before.kind, 'single',
-      'this window does not attach silently on the walk alone, so it is not the window the '
-      + 'clause is about',
+      'this window does not attach silently on the walk alone, so it is not the window this '
+      + 'case is about',
+    );
+    if (before.kind !== 'single') { return; }
+
+    // The silent attach records the workspace this window works in, and it
+    // arrives here as an INPUT rather than as something this case asserts was
+    // written. Where the record comes from belongs to the path that attaches;
+    // what is shown here is what the wider population does once that record
+    // exists.
+    const remembered = before.target.anchorPath;
+    assert.strictEqual(
+      remembered, reached[0].anchorPath,
+      'the workspace the silent attach settled on is not the first of the ones now reachable, so '
+      + 'the offer below would be resting on something other than that attach being remembered',
     );
 
-    // AFTER: two candidates and nothing remembered, so the choice is surfaced.
-    const after = classifyActivation(reached, null);
+    // AFTER: two workspaces, with the attached one still among them — so the
+    // reader is OFFERED the second rather than stopped and asked to choose.
+    const after = classifyActivation(reached, remembered);
     assert.strictEqual(
-      after.kind, 'multiPrompt',
-      'the widened population does not reach the prompt, so the accepted cost is not shown',
+      after.kind, 'multiSaved',
+      'the wider population interrupts the reader for a choice instead of offering it, which '
+      + 'takes a decision from someone who never asked to make one',
+    );
+
+    // 🔴 THE COST AS A NUMBER: one workspace becomes two. The two assertions
+    // are equalities rather than a reading of the text below, because the text
+    // is the consequence and this is the thing that changed.
+    assert.strictEqual(
+      climbed.length, 1,
+      'the walk alone does not reach exactly one workspace here, so there is no single-candidate '
+      + 'window to show the cost arriving at',
+    );
+    assert.strictEqual(
+      reached.length, 2,
+      'the folder does not reach exactly two workspaces, so no second candidate is offered',
+    );
+
+    // 🔴 THE COST AS THE READER MEETS IT. The row carries the count, and the
+    // sentence saying a level holds only one candidate is what makes the
+    // difference legible on it: present while one workspace is reachable, gone
+    // once a second is. Both directions are asserted, because only the pair
+    // says the sentence tracks the count — either alone is satisfied by a row
+    // that never changes.
+    const root = workspaceRootOf(climbed[0]);
+    const narrow = workspaceRow(root, repo, climbed.length);
+    const wide = workspaceRow(root, repo, reached.length);
+    assert.ok(
+      narrow.tooltip.includes(soleCandidateNote('workspace')),
+      'the row withholds the sole-candidate sentence while only one workspace is reachable, so a '
+      + `reader is left to press a chooser to find out it holds one entry: ${narrow.tooltip}`,
+    );
+    assert.ok(
+      !wide.tooltip.includes(soleCandidateNote('workspace')),
+      'the row still says only one workspace is available once two are reachable, so the second '
+      + `is invisible on the surface that reports the count: ${wide.tooltip}`,
+    );
+
+    // 🔴 AND THE CHOOSER NAMES BOTH, BY PATH. A count a reader cannot expand
+    // into two named places is a number with nothing behind it, and the path is
+    // what tells two workspaces apart when their trailing names do not.
+    assert.deepStrictEqual(
+      buildPickerItems(climbed).map((item) => item.description),
+      [repo],
+      'the chooser offers something other than the one workspace the walk reaches',
     );
     assert.deepStrictEqual(
-      rootsOf(after.kind === 'multiPrompt' ? after.anchored : []),
-      [repo, path.join(repo, 'sub')],
-      'the prompt offers something other than the two workspaces this layout holds',
+      buildPickerItems(reached).map((item) => item.description),
+      [repo, sub],
+      'the chooser does not list both workspaces by path, so the offer names nothing the reader '
+      + 'can act on',
     );
   });
 
   // The other half of the same change, and the one that is a plain improvement:
   // a folder carrying no marker of its own but holding two below it reaches
   // NOTHING on the walk, which is the dead end this work removes.
+  //
+  // 🔴 THIS IS THE WINDOW THAT IS GENUINELY ASKED, and it is asked for a reason
+  // the window above does not share: reaching nothing means nothing was
+  // attached, so nothing was recorded, so two candidates arrive with no earlier
+  // answer to honour. A question is the right outcome here and the wrong one
+  // there, and what separates them is whether anything was already settled.
+  //
+  // LAYOUT, NAMED SO IT CAN BE RE-DRIVEN BY HAND: a window whose single open
+  // folder is <tmp>/repo, which carries NO marker of its own, holding
+  // <tmp>/repo/one/aggregate.yaml and <tmp>/repo/two/aggregate.yaml below it.
   it('turns a window that reached nothing into one with a choice to make', async () => {
     await write('repo/one/aggregate.yaml');
     await write('repo/two/aggregate.yaml');
@@ -338,19 +422,5 @@ describe('the cost of the widening, shown on one window', () => {
       rootsOf(reached),
       [path.join(repo, 'one'), path.join(repo, 'two')],
     );
-  });
-
-  // 🔴 AND THE READER WHO REMEMBERS A CHOICE IS NOT ASKED AGAIN, which is what
-  // keeps the widening from putting a question in front of everyone who already
-  // answered one. Recorded here beside the cost so the two are read together.
-  it('does not ask again where the remembered workspace is still among them', async () => {
-    await write('repo/aggregate.yaml');
-    await write('repo/sub/release.yaml');
-    const repo = path.join(tmp, 'repo');
-
-    const reached = await workspacesReachedFromAll([folder(repo)], searchUnder);
-    const remembered = reached[0].anchorPath;
-
-    assert.strictEqual(classifyActivation(reached, remembered).kind, 'multiSaved');
   });
 });
