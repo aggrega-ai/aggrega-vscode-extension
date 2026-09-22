@@ -36,7 +36,7 @@ const PREVIEW_REQUEST = 'async function requestBuildPreview(';
 const CHOSEN_FOLDER = 'chosenProjectFolder';
 const ANCHORING_FOLDER = 'openedProjectFolder';
 const ANCHORED_ROOT = 'anchoredWorkspaceRoot()';
-const DESTINATION_RULE = 'outputDirFor(';
+const DESTINATION_RULE = 'outputParentFor(';
 
 describe('what tells a build request where to write', () => {
   it('composes the destination from the chosen folder and the root the server answered with', () => {

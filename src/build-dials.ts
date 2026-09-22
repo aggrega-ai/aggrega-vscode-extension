@@ -76,8 +76,15 @@ export const BUILD_DIALS: BuildDial[] = [
 // defines rather than a gap: a request that names none writes where a build run
 // at the workspace root writes. Sending it is how a reader standing somewhere
 // else says so.
+//
+// 🔴 IT NAMES THE OUTPUT DIRECTORY'S PARENT, WHICH IS WHY IT IS NOT SPELLED LIKE
+// THE DESTINATION THE OTHER WRITING REQUESTS TAKE. A build creates its output
+// directory INSIDE the value sent, so the folder the reader is standing in is
+// the parent of where the artifacts land. The import request's own destination
+// names the directory written into, and the two spellings are what keep a reader
+// composing one from assuming the other's meaning.
 export type BuildRequestParams =
-  { release: string; outputDir?: string } & Record<typeof AUTO_PULL_DIAL, boolean>;
+  { release: string; outputParent?: string } & Record<typeof AUTO_PULL_DIAL, boolean>;
 
 // BuildPreviewRequestParams is exactly what a preview request carries: the
 // Release, and nothing else.
@@ -119,14 +126,14 @@ export interface BuildPreviewRequestParams {
 export function buildParams(
   release: string,
   on: readonly string[],
-  outputDir: string | null,
+  outputParent: string | null,
 ): BuildRequestParams {
   const params: BuildRequestParams = {
     release,
     [AUTO_PULL_DIAL]: on.includes(AUTO_PULL_DIAL),
   };
-  if (outputDir !== null) {
-    params.outputDir = outputDir;
+  if (outputParent !== null) {
+    params.outputParent = outputParent;
   }
   return params;
 }

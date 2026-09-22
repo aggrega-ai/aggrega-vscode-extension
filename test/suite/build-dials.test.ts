@@ -12,7 +12,7 @@ import {
   buildPreviewParams,
   dialsTurnedOn,
 } from '../../src/build-dials';
-import { outputDirFor, releaseParamFor } from '../../src/workspace';
+import { outputParentFor, releaseParamFor } from '../../src/workspace';
 
 // The composition holds no editor type, so what each request carries is read
 // back exactly. What no test in this repository can reach is what the language
@@ -191,7 +191,7 @@ describe('where a build request says it writes', () => {
     // THE FOLDER, so that is what is driven. A reading taken where the two
     // coincide would pass on a conversion that does nothing at all.
     assert.strictEqual(
-      outputDirFor(ROOT, DOCS), RULED_DOCS_DESTINATION,
+      outputParentFor(ROOT, DOCS), RULED_DOCS_DESTINATION,
       'the folder the reader works from is not named the way the request takes it',
     );
     // And the whole composed request, as an equality over every key rather than
@@ -199,8 +199,8 @@ describe('where a build request says it writes', () => {
     // request that also carries things it should not, and it was measured
     // passing a real planted defect on this surface.
     assert.deepStrictEqual(
-      buildParams(RELEASE, [], outputDirFor(ROOT, DOCS)),
-      { release: RELEASE, autoPull: false, outputDir: RULED_DOCS_DESTINATION },
+      buildParams(RELEASE, [], outputParentFor(ROOT, DOCS)),
+      { release: RELEASE, autoPull: false, outputParent: RULED_DOCS_DESTINATION },
       'a build from a window opened on the subdirectory sends something other than the ruled request',
     );
   });
@@ -212,12 +212,12 @@ describe('where a build request says it writes', () => {
     // carried, and the request states the reader's location in this case exactly
     // as it does in the one above.
     assert.strictEqual(
-      outputDirFor(ROOT, ROOT), RULED_ROOT_DESTINATION,
+      outputParentFor(ROOT, ROOT), RULED_ROOT_DESTINATION,
       'a window opened on the root itself produces something other than the ruled destination',
     );
     assert.deepStrictEqual(
-      buildParams(RELEASE, [], outputDirFor(ROOT, ROOT)),
-      { release: RELEASE, autoPull: false, outputDir: RULED_ROOT_DESTINATION },
+      buildParams(RELEASE, [], outputParentFor(ROOT, ROOT)),
+      { release: RELEASE, autoPull: false, outputParent: RULED_ROOT_DESTINATION },
       'a build from a window opened on the root sends something other than the ruled request',
     );
     // 🔴 AND THE KEY IS PRESENT, asserted separately because the equality above
@@ -228,7 +228,7 @@ describe('where a build request says it writes', () => {
     // cannot tell where they are standing", and they go to the compiler as the
     // same destination but are not the same statement.
     assert.ok(
-      'outputDir' in buildParams(RELEASE, [], outputDirFor(ROOT, ROOT)),
+      'outputParent' in buildParams(RELEASE, [], outputParentFor(ROOT, ROOT)),
       'a reader standing at the root sends no destination at all, which is the state '
       + 'reserved for the editor not knowing where they are',
     );
@@ -240,11 +240,11 @@ describe('where a build request says it writes', () => {
     // reader is standing in; a request naming one of them would report a choice
     // nobody made. Each null argument below is a state the editor is really in.
     assert.strictEqual(
-      outputDirFor(ROOT, null), NOWHERE,
+      outputParentFor(ROOT, null), NOWHERE,
       'a window where nothing is chosen produced a destination anyway',
     );
     assert.strictEqual(
-      outputDirFor(null, DOCS), NOWHERE,
+      outputParentFor(null, DOCS), NOWHERE,
       'a destination was produced against no workspace root to name it relative to',
     );
     // The same answer covers the case where the two facts do not relate: the
@@ -254,24 +254,24 @@ describe('where a build request says it writes', () => {
     // out would be refused on arrival, and a refusal for something the reader
     // never authored is worse than the default they would otherwise have got.
     assert.strictEqual(
-      outputDirFor(DOCS, ROOT), NOWHERE,
+      outputParentFor(DOCS, ROOT), NOWHERE,
       'a destination climbing out of the workspace root was composed rather than withheld',
     );
     assert.strictEqual(
-      outputDirFor(ROOT, path.join(path.dirname(ROOT), 'R-elsewhere')), NOWHERE,
+      outputParentFor(ROOT, path.join(path.dirname(ROOT), 'R-elsewhere')), NOWHERE,
       'a sibling whose name merely extends the root was accepted, which a prefix test would do',
     );
     // A negative control on all five: the same reading over a folder that IS
     // inside the root returns a value, so the nulls above measure the rule
     // rather than a function that can only ever answer null.
     assert.strictEqual(
-      outputDirFor(ROOT, DOCS), RULED_DOCS_DESTINATION,
+      outputParentFor(ROOT, DOCS), RULED_DOCS_DESTINATION,
       'the destination rule answers null for everything, so the withholdings above mean nothing',
     );
     // And the composed request drops the key rather than carrying it empty or
     // undefined, so what travels is a request that never mentions a destination.
     assert.deepStrictEqual(
-      Object.keys(buildParams(RELEASE, [], outputDirFor(ROOT, null))).sort(),
+      Object.keys(buildParams(RELEASE, [], outputParentFor(ROOT, null))).sort(),
       ['autoPull', 'release'],
       'a build that can name no destination still carries the destination key',
     );
@@ -292,12 +292,12 @@ describe('where a build request says it writes', () => {
       buildParams(
         releaseParamFor(ROOT, RELEASE_UNDER_DOCS) ?? '',
         [],
-        outputDirFor(ROOT, DOCS),
+        outputParentFor(ROOT, DOCS),
       ),
       {
         release: RULED_RELEASE_FROM_DOCS,
         autoPull: false,
-        outputDir: RULED_DOCS_DESTINATION,
+        outputParent: RULED_DOCS_DESTINATION,
       },
       'the composed request names the Release or the destination against something other '
       + 'than the workspace root',
@@ -308,14 +308,14 @@ describe('where a build request says it writes', () => {
     const composed = buildParams(
       releaseParamFor(ROOT, RELEASE_UNDER_DOCS) ?? '',
       [],
-      outputDirFor(ROOT, DOCS),
+      outputParentFor(ROOT, DOCS),
     );
     assert.ok(
       !path.isAbsolute(composed.release),
       'the composed request carries an absolute Release path, which the compiler refuses',
     );
     assert.ok(
-      composed.outputDir !== undefined && !path.isAbsolute(composed.outputDir),
+      composed.outputParent !== undefined && !path.isAbsolute(composed.outputParent),
       'the composed request carries an absolute destination, which the compiler refuses',
     );
     // A negative control on the two absence readings: the values they were taken
@@ -370,7 +370,7 @@ describe('what a preview request carries', () => {
     const previewWithDestination: BuildPreviewRequestParams = {
       release: RELEASE,
       // @ts-expect-error a preview request writes nothing, so it names no destination
-      outputDir: RULED_DOCS_DESTINATION,
+      outputParent: RULED_DOCS_DESTINATION,
     };
     // The composed value is read so the declaration is not dead code, and what
     // is read is the one key a preview may carry.

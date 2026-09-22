@@ -129,7 +129,7 @@ import {
   AnchoredFolder,
   NO_ANCHORED_WORKSPACE_MESSAGE,
   findAllAnchoredFolders,
-  outputDirFor,
+  outputParentFor,
   windowAnchoring,
   workspacesReachedFromAll,
 } from './workspace';
@@ -2137,7 +2137,7 @@ async function requestBuild(
   }
   return await daemon.request<BuildResponse>(
     'aggrega/build',
-    buildParams(release, dials, outputDirFor(anchoredWorkspaceRoot(), chosenProjectFolder)),
+    buildParams(release, dials, outputParentFor(anchoredWorkspaceRoot(), chosenProjectFolder)),
     signal,
   );
 }

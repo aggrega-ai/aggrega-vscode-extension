@@ -384,16 +384,17 @@ export function releaseParamFor(workspaceRoot: string, releasePath: string): str
   return inside === '' ? null : inside;
 }
 
-// outputDirFor converts the folder the reader works from into the request
+// outputParentFor converts the folder the reader works from into the request
 // parameter that says where inside the workspace a build writes, or reports
 // that there is no such parameter to send.
 //
 // The contract is the same one every destination on this surface takes: a path
 // relative to the workspace root, naming somewhere inside it. What a build then
-// writes is its output directory resolved under that path, which is the result
+// writes is its output directory created INSIDE that path, which is the result
 // a reader gets from running a build in the folder they are standing in — so
 // the value is where they are standing, expressed the way a request can carry
-// it.
+// it, and the artifacts land one level below it rather than in it. That is why
+// the parameter names a parent rather than the directory written into.
 //
 // 🔴 NULL MEANS "SEND NOTHING", AND IT IS AN ANSWER RATHER THAN A FAILURE. A
 // window with several folders open and none chosen has no folder the reader is
@@ -422,7 +423,7 @@ export function releaseParamFor(workspaceRoot: string, releasePath: string): str
 // reading that is its own — a directory resolving to the root names the root, so
 // the empty result is carried here where the Release parameter above refuses it.
 // That difference is the reason these are two functions.
-export function outputDirFor(
+export function outputParentFor(
   workspaceRoot: string | null,
   projectFolder: string | null,
 ): string | null {
