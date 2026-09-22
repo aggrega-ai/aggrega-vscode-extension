@@ -47,11 +47,17 @@ export interface StubElement {
   getBoundingClientRect(): { left: number; top: number; width: number; height: number };
   clientWidth: number;
   clientHeight: number;
+  // fire delivers one event to whatever the renderer subscribed to this
+  // element. The renderer's pan and zoom are event handlers, so an element that
+  // recorded subscriptions and could not deliver to them would leave the reader
+  // half of every question here undrivable.
+  fire(name: string, event?: Record<string, unknown>): void;
 }
 
 function makeElement(tag: string): StubElement {
   const classes = new Set<string>();
   const children: StubElement[] = [];
+  const listeners = new Map<string, ((ev: unknown) => void)[]>();
   let text = '';
   const el = {
     tag,
@@ -69,7 +75,16 @@ function makeElement(tag: string): StubElement {
       if (at >= 0) { children.splice(at, 1); }
       return child;
     },
-    addEventListener(_name: string, _fn: (ev: unknown) => void) { /* recorded nowhere */ },
+    addEventListener(name: string, fn: (ev: unknown) => void) {
+      const kept = listeners.get(name) ?? [];
+      kept.push(fn);
+      listeners.set(name, kept);
+    },
+    fire(name: string, event?: Record<string, unknown>) {
+      for (const fn of listeners.get(name) ?? []) {
+        fn({ preventDefault() { /* nothing to prevent here */ }, ...(event ?? {}) });
+      }
+    },
     classList: {
       add(c: string) { splitClasses(c).forEach(one => classes.add(one)); },
       remove(c: string) { splitClasses(c).forEach(one => classes.delete(one)); },
@@ -131,6 +146,21 @@ export interface GraphWebview {
   statusClasses(): string[];
   // canvasClasses are the classes the canvas carries, sorted.
   canvasClasses(): string[];
+  // fireWindow delivers one event the renderer subscribed to on the window
+  // rather than on an element — dragging continues there, so a pan driven only
+  // through the canvas would stop at the first movement.
+  fireWindow(name: string, event?: Record<string, unknown>): void;
+  // setDrawingArea reports a new size for the drawing area and tells whatever
+  // is watching it, which is what the editor does when a panel is resized or
+  // comes back on screen.
+  setDrawingArea(width: number, height: number): void;
+  // frame is the transform the drawing currently carries — the reader's pan and
+  // zoom, as one string. It is null before anything is drawn.
+  //
+  // It is read off the drawn group rather than from the renderer's own state,
+  // because what the reader is looking at is what the group says and the state
+  // is only how it got there.
+  frame(): string | null;
   // settle waits for the asynchronous half of a render — the layout runs off a
   // promise the message handler does not return — until `until` holds.
   settle(until: () => boolean, what: string): Promise<void>;
@@ -143,9 +173,23 @@ export function loadGraphWebview(): GraphWebview {
   for (const id of DOCUMENT_IDS) { byId.set(id, makeElement('div')); }
 
   const messageHandlers: ((ev: { data: unknown }) => void)[] = [];
+  const windowListeners = new Map<string, ((ev: unknown) => void)[]>();
   const posted: unknown[] = [];
 
+  // What is watching which element for a change of size. The renderer installs
+  // one of these to notice a drawing area that has become measurable, so a
+  // stand-in with no way to report a resize would leave that path declared and
+  // never run.
+  const observers: { element: unknown; report: () => void }[] = [];
+  class StubResizeObserver {
+    private readonly report: () => void;
+    constructor(report: () => void) { this.report = report; }
+    observe(element: unknown): void { observers.push({ element, report: this.report }); }
+    disconnect(): void { /* nothing here outlives one spec */ }
+  }
+
   const sandbox: Record<string, unknown> = {
+    ResizeObserver: StubResizeObserver,
     console,
     setTimeout,
     clearTimeout,
@@ -159,6 +203,9 @@ export function loadGraphWebview(): GraphWebview {
     window: {
       addEventListener: (name: string, fn: (ev: { data: unknown }) => void) => {
         if (name === 'message') { messageHandlers.push(fn); }
+        const kept = windowListeners.get(name) ?? [];
+        kept.push(fn as (ev: unknown) => void);
+        windowListeners.set(name, kept);
       },
     },
     acquireVsCodeApi: () => ({ postMessage: (m: unknown) => { posted.push(m); } }),
@@ -247,6 +294,24 @@ export function loadGraphWebview(): GraphWebview {
     statusText: () => status.textContent,
     statusClasses: () => Array.from(status.classes).sort(),
     canvasClasses: () => Array.from(canvas.classes).sort(),
+    fireWindow: (name, event) => {
+      for (const fn of windowListeners.get(name) ?? []) {
+        fn({ preventDefault() { /* nothing to prevent here */ }, ...(event ?? {}) });
+      }
+    },
+    setDrawingArea: (width, height) => {
+      canvas.clientWidth = width;
+      canvas.clientHeight = height;
+      for (const watching of observers) {
+        if (watching.element === canvas) { watching.report(); }
+      }
+    },
+    frame: () => {
+      const group = canvas.firstChild;
+      if (group === null) { return null; }
+      const transform = group.getAttribute('transform');
+      return transform === undefined ? null : String(transform);
+    },
     settle: async (until, what) => {
       for (let waited = 0; waited < 5000; waited += 20) {
         if (until()) { return; }

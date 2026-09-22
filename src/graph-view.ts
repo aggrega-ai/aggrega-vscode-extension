@@ -164,6 +164,17 @@ export function activateGraphView(context: vscode.ExtensionContext, deps: GraphD
           shownRelease = null;
           shownSites = new Map();
         }, null, context.subscriptions);
+        // The panel keeps its context while the editor is not showing it, so it
+        // goes on receiving graphs and drawing them — and a drawing has to be
+        // sized against the area it will be read in. That area is not something
+        // the panel can measure for itself while it is off screen, and it is
+        // not something it can infer from what it measures: a panel nobody is
+        // looking at reports a size like any other. So the one side that knows
+        // says so, on every change, and the panel does not have to guess.
+        panel.onDidChangeViewState(() => {
+          if (!panel) { return; }
+          void panel.webview.postMessage({ type: 'visibility', visible: panel.visible });
+        }, null, context.subscriptions);
         // The handler is registered once, with the panel, and the panel
         // outlives the anchor — so it reads the root through the getter on each
         // message rather than closing over the one bound above, which belongs
@@ -281,7 +292,13 @@ async function renderGraph(
     // per node, none of which the redaction touches, and a render that posts
     // nothing must leave no sites behind for an edit to act on.
     keepSites(attachmentSites(answer));
-    void panel.webview.postMessage({ type: 'render', release, graph });
+    // Whether the reader asked for this drawing is one fact read at two moments
+    // rather than two answers. Here it decides whether a notice was shown; in
+    // the panel it decides whether the drawing is framed afresh or left where
+    // the reader put it, because a redraw nobody asked for must not move what
+    // they are reading and one they pressed for is how they get the whole
+    // topology back.
+    void panel.webview.postMessage({ type: 'render', release, graph, asked: !opts.quiet });
   } catch (err) {
     // A redaction that cannot be performed lands here with the request
     // failures, and is reported the same way. Nothing is posted, which is the

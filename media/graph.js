@@ -76,6 +76,27 @@
   let viewport = null;
   const view = { x: 0, y: 0, scale: 1 };
 
+  // Whether the editor is showing this panel.
+  //
+  // It is told rather than worked out, because the panel cannot work it out: a
+  // panel the editor is not showing is free to report whatever size it likes
+  // for itself, and a plausible small one is indistinguishable by measurement
+  // from a genuinely narrow panel the reader is looking at. A panel starts on
+  // screen — it is opened by a reader who is then looking at it — and hears
+  // about every change from there.
+  let panelOnScreen = true;
+
+  // THE FRAME IS THE READER'S ONCE THEY HAVE ONE. A drawing nobody has seen is
+  // framed to fit, because there is no view to keep and a graph that runs off
+  // the panel teaches nothing. After that the frame is what the reader panned
+  // and zoomed to, and a redraw they did not ask for leaves them looking at
+  // what they were reading.
+  let framed = false;
+  // The layout a still-owed framing will be computed against. It is held
+  // because the moment a drawing arrives and the moment a frame can be computed
+  // for it are not always the same moment.
+  let unframedLayout = null;
+
   // The projected attachments for every node of the rendered graph, and the
   // node the panel is showing. Both are rebuilt on every render: a re-render
   // may carry a different topology, and a panel left showing a node the new
@@ -125,13 +146,20 @@
     } else if (msg.type === 'error') {
       reportFailure(msg.release, msg.message);
     } else if (msg.type === 'render') {
-      renderGraph(msg.graph).catch((err) => reportFailure(msg.release, String(err)));
+      renderGraph(msg.graph, !!msg.asked)
+        .catch((err) => reportFailure(msg.release, String(err)));
     } else if (msg.type === 'attachCandidates') {
       showCandidates(msg.requestId, candidates.projectCandidates(msg.result));
     } else if (msg.type === 'attachCandidatesError') {
       showCandidatesFailure(msg.requestId, msg.message);
     } else if (msg.type === 'attachOutcome') {
       showAttachOutcome(msg.nodeId, msg.message, msg.attached);
+    } else if (msg.type === 'visibility') {
+      panelOnScreen = !!msg.visible;
+      // Coming back on screen is when a framing that was refused can be
+      // computed. Going off screen owes nothing: what is already framed stays
+      // as the reader left it.
+      if (panelOnScreen) { frameOrRestore(); }
     }
   });
 
@@ -194,7 +222,7 @@
 
   // --- render -------------------------------------------------------------
 
-  async function renderGraph(graph) {
+  async function renderGraph(graph, asked) {
     const { root, meta } = model.toElkGraph(graph, measureText);
     const laid = await elk.layout(root);
     hideStatus();
@@ -231,7 +259,14 @@
       selectNode(wasSelected);
     }
 
-    fitToView(laid);
+    // A drawing the reader asked for is framed afresh, and that is the way back
+    // to the whole topology for a reader who has zoomed into a corner of a
+    // large one: pressing for the graph shows it to them again. A drawing they
+    // did not ask for asks nothing of their view — it is put back on the group
+    // this render just built, which a new group does not carry on its own.
+    if (asked) { framed = false; }
+    if (!framed) { unframedLayout = laid; }
+    frameOrRestore();
     installInteraction();
     // The drawing on the canvas is now the one the compiler just built, so
     // whatever an earlier failure said about the last one no longer applies.
@@ -618,16 +653,77 @@
     viewport.setAttribute('transform', `translate(${view.x},${view.y}) scale(${view.scale})`);
   }
 
-  function fitToView(laid) {
+  // readableBox reports the panel's drawing area, or nothing when there is no
+  // area worth framing a drawing against.
+  //
+  // 🔴 THE REFUSAL IS THE POINT, AND NO MADE-UP SIZE STANDS IN FOR IT. Supplying
+  // one where a measurement is missing does not produce a worse frame — it
+  // produces a frame for a viewport that does not exist, and it does so
+  // silently, because a drawing scaled and centred for an imaginary box looks
+  // exactly like one framed properly until the reader sees it. A larger made-up
+  // size only changes which imaginary box it is.
+  //
+  // Both conditions are read and neither covers the other. The editor is asked
+  // whether the panel is on screen, because a panel that is not can report a
+  // small box as readily as an empty one and no measurement separates that from
+  // a narrow panel in use. The box is then required to be positive, because a
+  // panel that IS on screen but whose document has not been laid out yet
+  // reports nothing to divide by.
+  function readableBox() {
+    if (!panelOnScreen) { return null; }
+    const width = canvas.clientWidth;
+    const height = canvas.clientHeight;
+    if (!(width > 0) || !(height > 0)) { return null; }
+    return { width: width, height: height };
+  }
+
+  // frameOrRestore frames a drawing that has never been framed, and otherwise
+  // puts the reader's own frame back.
+  //
+  // Putting it back is not optional. Every render builds a new pan/zoom group,
+  // and a new group carries no transform at all — so a render that merely
+  // declined to re-fit would drop the reader at the origin at natural size,
+  // which loses their view by a second route.
+  //
+  // It is the one place a frame is computed, so the three moments that can
+  // discharge an owed framing — the drawing arriving, the panel coming back on
+  // screen, and the drawing area gaining a size — cannot come to disagree about
+  // what framing means.
+  function frameOrRestore() {
+    if (viewport === null) { return; }
+    if (!framed && unframedLayout !== null) {
+      const box = readableBox();
+      if (box !== null) {
+        frameToFit(unframedLayout, box);
+        unframedLayout = null;
+        framed = true;
+      }
+    }
+    applyView();
+  }
+
+  // frameToFit scales and centres one laid-out graph inside one drawing area.
+  // It is only ever handed an area that exists.
+  function frameToFit(laid, box) {
     const w = laid.width || 1;
     const h = laid.height || 1;
-    const vw = canvas.clientWidth || 800;
-    const vh = canvas.clientHeight || 600;
-    const scale = Math.min(vw / (w + 40), vh / (h + 40), 1.5);
+    const scale = Math.min(box.width / (w + 40), box.height / (h + 40), 1.5);
     view.scale = scale > 0 ? scale : 1;
-    view.x = (vw - w * view.scale) / 2;
-    view.y = (vh - h * view.scale) / 2;
-    applyView();
+    view.x = (box.width - w * view.scale) / 2;
+    view.y = (box.height - h * view.scale) / 2;
+  }
+
+  // WHEN A DRAWING AREA THAT COULD NOT BE FRAMED AGAINST BECOMES ONE THAT CAN.
+  // The panel returning to the screen is the usual moment and the editor
+  // announces it, but it is not the only one: a panel that is on screen before
+  // its own document has been laid out reports nothing to frame against either,
+  // and no message marks that passing. Watching the drawing area covers both.
+  //
+  // It covers nothing else: a frame that has already been computed belongs to
+  // the reader, so resizing the panel moves what they are looking at no more
+  // than a redraw does.
+  if (typeof ResizeObserver === 'function') {
+    new ResizeObserver(() => { frameOrRestore(); }).observe(canvas);
   }
 
   let interactionInstalled = false;
