@@ -437,6 +437,34 @@ export function outputParentFor(
   return relativeIfInside(workspaceRoot, projectFolder);
 }
 
+// workspaceSitsAboveFolder reports whether the Aggrega workspace in force is a
+// different directory from the folder it was reached from.
+//
+// 🔴 IT IS THE ONE COMPARISON OF THOSE TWO PATHS AND EVERY SURFACE THAT TURNS ON
+// THE FACT READS IT FROM HERE. Three surfaces do: the row that names the
+// workspace explains itself differently, it offers to open the workspace, and
+// the reader is told out loud that the editor is working outside their window.
+// A second comparison written beside any of them would agree today and be the
+// thing that drifted the first time either side learned about a symbolic link or
+// a filesystem that ignores case — and the symptom would be one surface warning
+// while another said nothing, which is worse than neither.
+//
+// It lives here rather than beside any of those surfaces because it is a fact
+// about a workspace root and a folder rather than about a row, a modal or a
+// marker, and this module is where the rest of that arithmetic already is.
+//
+// Both absences answer false, and they are the same answer for different
+// reasons: with no workspace in force there is nothing sitting above anything,
+// and with no folder reached there is nothing for a workspace to sit above.
+export function workspaceSitsAboveFolder(
+  anchoredRoot: string | null,
+  openedFolder: string | null,
+): boolean {
+  return anchoredRoot !== null
+    && openedFolder !== null
+    && path.resolve(anchoredRoot) !== path.resolve(openedFolder);
+}
+
 // findAllAnchoredFolders runs findAggregaWorkspaceAnchor against each entry in
 // folders and answers with one entry per Aggrega workspace reached. The result
 // preserves the input order. Folders without an anchor are silently dropped.

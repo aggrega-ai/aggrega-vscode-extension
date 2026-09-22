@@ -143,12 +143,26 @@ describe('what the offer composes for the editor', () => {
 // on their behalf. Each reading below has been shown to name the defect it
 // guards by planting that defect and reading the refusal.
 describe('the offer runs on a press and on no other path', () => {
-  it('composes the folder at exactly one site, and that site is the press', () => {
+  it('composes the folder at the two sites that are presses, and at no third', () => {
+    // 🔴 THERE ARE TWO READER PRESSES AND THE EQUALITY NAMES BOTH. One is the
+    // control on the row; the other is the action on the interruption raised
+    // when the workspace turns out to sit above the folder the window is open
+    // on. Both are a reader choosing to reload their window, which is the rule
+    // this census holds — so a second site is admitted by NAMING it rather than
+    // by loosening the reading into a presence. A third site still fails, and
+    // that is the whole value of leaving this an equality.
+    //
+    // Both compose through the one pure decision rather than deriving a folder
+    // of their own, so what happens when the workspace has gone away between
+    // the drawing and the press has one answer for both.
     assert.deepStrictEqual(
       callSites('openWorkspaceRootInvocation').map((site) => [site.module, site.args]),
-      [['operations.ts', ['deps.getAnchoredWorkspaceRoot()']]],
-      'something other than the press composes a folder to open — a refresh, an activation or a '
-      + 'reaction to the workspace changing would restart the window a reader was working in '
+      [
+        ['extension.ts', ['anchoredWorkspaceRoot()']],
+        ['operations.ts', ['deps.getAnchoredWorkspaceRoot()']],
+      ],
+      'something other than the two presses composes a folder to open — a refresh, an activation '
+      + 'or a reaction to the workspace changing would restart the window a reader was working in '
       + 'because a value they never touched had settled',
     );
   });

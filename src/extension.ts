@@ -167,7 +167,13 @@ import {
   rememberAnchorChoice,
 } from './anchor-picker';
 import { SELECTOR_ROW_LABELS } from './selector-levels';
-import { OPEN_ANOTHER_FOLDER_COMMAND } from './selector-rows';
+import { OPEN_ANOTHER_FOLDER_COMMAND, openWorkspaceRootInvocation } from './selector-rows';
+import {
+  recordFolderTold,
+  silenceFolder,
+  workspaceAboveNotice,
+  workspaceAboveNoticeDue,
+} from './workspace-above';
 import {
   CHOOSE_PROJECT_FOLDER_COMMAND,
   CHOOSE_PROJECT_FOLDER_PLACEHOLDER,
@@ -810,6 +816,64 @@ async function reactivate(context: vscode.ExtensionContext): Promise<void> {
 
   // Not awaited, which is the whole point of it being a separate step.
   void completeReachableWorkspaces(context, scope, generation);
+
+  // And the interruption last of all, because everything above has to be true of
+  // the window standing behind it. It is not awaited either, and for a reason of
+  // its own: a dialogue stands until the reader dismisses it, so waiting here
+  // would leave every surface this function refreshes unrefreshed for as long as
+  // they took to read it.
+  void tellWorkspaceSitsAbove(context);
+}
+
+// tellWorkspaceSitsAbove interrupts the reader when the Aggrega workspace in
+// force sits above the folder their window is open on.
+//
+// 🔴 IT IS AN INTERRUPTION AND NOT A NOTIFICATION, and the difference is the
+// reason this exists at all. The reader's mental model is the folder they
+// opened, and everything surprising downstream follows from the workspace being
+// somewhere else — so a line in the status bar reaches nobody who needs it. The
+// mark this leaves behind on the row is the other half: dismissing the dialogue
+// must not dismiss the fact, which is why the two surfaces are separate and only
+// this one can be silenced.
+//
+// Every sentence, every action and the decision about whether to raise it at all
+// are composed on the side that needs no editor. What is here is the two
+// statements that do: putting the dialogue up, and handing a folder to the
+// editor when the reader asks for it.
+async function tellWorkspaceSitsAbove(context: vscode.ExtensionContext): Promise<void> {
+  const root = anchoredWorkspaceRoot();
+  const opened = openedProjectFolder;
+  if (root === null || opened === null) { return; }
+  if (!workspaceAboveNoticeDue(context.workspaceState, root, opened)) { return; }
+  const notice = workspaceAboveNotice(root, opened, chosenProjectFolder);
+  if (notice === null) { return; }
+  // Recorded before the dialogue goes up rather than after it comes down. The
+  // editor re-evaluates the open folders whenever they change, and a dialogue
+  // stands until it is dismissed — so a record written on the answer would let a
+  // second dialogue be raised behind the first, and the reader would dismiss one
+  // account twice.
+  await recordFolderTold(context.workspaceState, opened, root);
+  const answer = await vscode.window.showWarningMessage(
+    notice.message,
+    { modal: true, detail: notice.detail },
+    ...notice.actions,
+  );
+  // A dismissal with no action taken reads as the action that changes nothing,
+  // which is also what the declared close affordance carries — so the keyboard,
+  // the close control and the middle action all reach the same place, and none
+  // of them silences anything the reader did not ask to silence.
+  if (answer?.choice === 'silence') {
+    await silenceFolder(context.workspaceState, opened);
+    return;
+  }
+  if (answer?.choice !== 'open') { return; }
+  // The folder is composed through the same decision the row's own offer
+  // composes through, rather than derived again here: the workspace may have
+  // gone away between the dialogue going up and the reader pressing, and what
+  // happens then is a question that has one answer already.
+  const opening = openWorkspaceRootInvocation(anchoredWorkspaceRoot());
+  if (opening === null) { return; }
+  await vscode.commands.executeCommand(opening.command, vscode.Uri.file(opening.location));
 }
 
 // settleProjectFolder decides which open folder the editor works from and

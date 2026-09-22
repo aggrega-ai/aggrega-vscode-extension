@@ -18,7 +18,8 @@ import {
   CHOOSE_PROJECT_FOLDER_COMMAND,
   CHOOSE_PROJECT_FOLDER_INVITATION,
 } from './project-folder';
-import { NO_ANCHORED_WORKSPACE_ROW_TOOLTIP } from './workspace';
+import { NO_ANCHORED_WORKSPACE_ROW_TOOLTIP, workspaceSitsAboveFolder } from './workspace';
+import { WORKSPACE_ABOVE_HEADLINE, workspaceAboveAccount } from './workspace-above';
 
 // SelectorCreate is a row's SECOND control: the one that makes a new value for
 // that level, standing beside the one that chooses among the values there are.
@@ -102,6 +103,20 @@ export interface SelectorRow {
   // level; this one is a property of the moment, so it is absent whenever the
   // act it offers would change nothing.
   offer: SelectorOffer | null;
+  // warning is the mark the row carries while something about the row's own
+  // value needs saying out loud, and its whole accessible name — or null where
+  // there is nothing to mark.
+  //
+  // 🔴 IT IS A MARK RATHER THAN TEXT INSIDE THE VALUE. A pictograph written into
+  // the value would be drawn where the value is drawn and read as the first
+  // character of the folder's name, which teaches the reader something false
+  // about a value they are looking at to find out where they are.
+  //
+  // 🔴 IT STANDS FOR AS LONG AS THE CONDITION DOES, which is what makes it
+  // different from the interruption that carries the same account. An
+  // interruption is a one-time event and the condition is permanent, so
+  // dismissing the one must not dismiss the other.
+  warning: string | null;
 }
 
 // rowCommands is every command a row's controls can run, and it is the ONE home
@@ -267,6 +282,7 @@ export function projectFolderRow(
     icon: 'folder-opened',
     create: null,
     offer: null,
+    warning: null,
   };
   if (candidates === 0) {
     // The chooser this row opens carries opening a folder as its last entry, so
@@ -337,10 +353,19 @@ export function projectFolderRow(
 // reader to a list that must come back empty. So the first carries the two ways
 // OUT of it — bring a folder that holds one into the window, or make one — and
 // only the second says to choose.
+// 🔴 THE CHOSEN FOLDER IS TAKEN AS WELL, AND ONLY ONE SENTENCE TURNS ON IT.
+// Where the reader has chosen a folder to work from, a build writes inside it;
+// where they have not, the request carries no destination and the build writes
+// where a build run at the workspace root writes. Those are different promises
+// and the reader is told which of the two they are under, so the value has to
+// reach the sentence that makes it. It is trailing and optional because every
+// other reading of this row is answered without it, and a surface that has no
+// such value to offer should not be made to invent one.
 export function workspaceRow(
   anchoredRoot: string | null,
   openedFolder: string | null,
   candidates: number,
+  chosenFolder: string | null = null,
 ): SelectorRow {
   const base = {
     key: 'workspace' as const,
@@ -361,6 +386,11 @@ export function workspaceRow(
     // the reading that earns it adds it. Two of the three readings below have
     // no anchored folder at all, which leaves nothing to open.
     offer: null,
+    // The mark belongs to a reading for the offer's reason, and to the same
+    // reading: both turn on the workspace sitting somewhere other than the
+    // folder it was reached from, which the two readings without an anchored
+    // folder cannot be in.
+    warning: null,
   };
   if (anchoredRoot === null) {
     if (candidates === 0) {
@@ -391,9 +421,26 @@ export function workspaceRow(
         `Aggrega: no ${SELECTOR_ROW_LABELS.workspace} is selected, and the language server has not reported one it anchored to.${sole}${last}\nClick to choose one.`,
     };
   }
-  const differs = openedFolder !== null
-    && path.resolve(anchoredRoot) !== path.resolve(openedFolder);
-  const opened = differs ? `\nThe open folder is ${openedFolder}.` : '';
+  // 🔴 READ FROM THE ONE COMPARISON OF THOSE TWO PATHS RATHER THAN MADE HERE.
+  // Four things turn on it now — what this row explains, whether it offers to
+  // open the workspace, whether it carries a mark, and whether the reader is
+  // interrupted at all — and a comparison written here for the row's own use
+  // would agree with the one the interruption reads until the day either side
+  // learned about a symbolic link or a filesystem that ignores case. The
+  // symptom would be the row marking a state nobody was told about, or the
+  // reverse.
+  const differs = workspaceSitsAboveFolder(anchoredRoot, openedFolder);
+  // The account is the whole of what the reader is told, and it is the same
+  // account the interruption carries — read from where that text is written
+  // rather than restated here, so dismissing the interruption and coming back
+  // to this row cannot present two versions of one fact.
+  //
+  // It replaces the single sentence that named the open folder rather than
+  // standing beside it: the account's own first sentence names that folder, and
+  // two statements of one fact on one hover is the reader reading the same thing
+  // twice and wondering which is current.
+  const account = workspaceAboveAccount(anchoredRoot, openedFolder, chosenFolder);
+  const opened = account === null ? '' : `\n${WORKSPACE_ABOVE_HEADLINE}\n${account.join('\n')}`;
   const sole = candidates === 1 ? `\n${soleCandidateNote('workspace')}` : '';
   return {
     ...base,
@@ -424,6 +471,13 @@ export function workspaceRow(
         label: `Open the ${SELECTOR_ROW_LABELS.workspace} as the ${SELECTOR_ROW_LABELS.project}. The window reloads.`,
       }
       : null,
+    // 🔴 THE MARK AND THE OFFER STAND ON THE SAME READING AND MEAN DIFFERENT
+    // THINGS. The offer is something the reader may do; the mark is something
+    // that is true whether or not they do anything about it. It is drawn from
+    // the same comparison for the reason the offer is — one question asked
+    // twice — and it stays for as long as that comparison holds, which is what
+    // carries the fact after the interruption that first announced it is gone.
+    warning: differs ? WORKSPACE_ABOVE_HEADLINE : null,
     // The closing sentence promises a CHOICE, not a change, and the distinction
     // is what makes it true in every case. A click opens what the editor can
     // work in together with the way to make another workspace available — so
@@ -459,6 +513,7 @@ export function releaseRow(state: SelectionState, releases: number | null): Sele
     command: SELECT_RELEASE_COMMAND,
     icon: 'rocket',
     offer: null,
+    warning: null,
     create: {
       command: DRAFT_RELEASE_COMMAND,
       // Named for what it creates rather than where, for the reason the
@@ -490,7 +545,12 @@ export function selectorRows(
 ): SelectorRow[] {
   return [
     projectFolderRow(chosenProjectFolder, candidates.projectFolders),
-    workspaceRow(anchoredRoot, openedFolder, candidates.aggregaWorkspaces),
+    // The middle row takes BOTH folders, and neither stands in for the other.
+    // The opened one is what the workspace was reached from, which is what makes
+    // the row able to say the workspace sits somewhere else; the chosen one is
+    // the reader's answer, which is what decides where a build writes. The row
+    // says both things, so it is handed both values.
+    workspaceRow(anchoredRoot, openedFolder, candidates.aggregaWorkspaces, chosenProjectFolder),
     releaseRow(state, candidates.releases),
   ];
 }

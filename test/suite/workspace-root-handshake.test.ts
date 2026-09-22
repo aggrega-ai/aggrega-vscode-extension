@@ -216,7 +216,7 @@ describe('the two rows name the two places at the same moment', () => {
       + 'while leaving the row',
     );
     assert.ok(
-      workspace.tooltip.includes(`The open folder is ${layout.docs}.`),
+      workspace.tooltip.includes(`You opened ${layout.docs}.`),
       `the workspace row must name the folder it differs from; tooltip was:\n${workspace.tooltip}`,
     );
   });

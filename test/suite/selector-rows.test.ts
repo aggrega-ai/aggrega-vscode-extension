@@ -225,12 +225,18 @@ describe('the offer to open the Aggrega workspace', () => {
     // drawn, because both come from one comparison. A second comparison written
     // beside the first would agree until the day one of them was changed.
     const differing = workspaceRow(ANCHORED, OPENED_INSIDE, 2);
-    assert.ok(differing.tooltip.includes('The open folder is'));
+    assert.ok(differing.tooltip.includes(`You opened ${OPENED_INSIDE}.`), differing.tooltip);
     assert.notStrictEqual(differing.offer, null);
+    // And the mark stands on the same occasions, from the same comparison. It is
+    // read here beside the other two because a mark that appeared without the
+    // explanation, or an explanation without the mark, is the drift a second
+    // comparison would produce.
+    assert.notStrictEqual(differing.warning, null);
 
     const same = workspaceRow(ANCHORED, ANCHORED, 2);
-    assert.ok(!same.tooltip.includes('The open folder is'));
+    assert.ok(!same.tooltip.includes('You opened '), same.tooltip);
     assert.strictEqual(same.offer, null);
+    assert.strictEqual(same.warning, null);
 
     // And the comparison is over resolved paths rather than over the strings, so
     // a folder spelled with a step that goes nowhere is the same folder.

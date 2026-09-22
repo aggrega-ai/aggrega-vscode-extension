@@ -158,11 +158,27 @@ function selectorHtml(row: SelectorRow): string {
   const acting = row.offer === null
     ? '<span class="selector-offer-gap" aria-hidden="true"></span>'
     : selectorOfferHtml(row, row.offer);
+  // 🔴 THE MARK IS AN ELEMENT OF ITS OWN AND NEVER A CHARACTER IN THE VALUE, and
+  // it sits AFTER the value rather than before it. A pictograph written into the
+  // value string would be drawn where the value is drawn and read as the first
+  // character of the folder's name — teaching something false about the one
+  // piece of text on this surface a reader consults to find out where they are.
+  // Placed before the value it would push the value out of line with the rows
+  // above and below as it came and went; placed after it, the value keeps its
+  // place and the mark sits at the row's own edge.
+  //
+  // It draws no text of its own, so what a reader meeting it by keyboard is told
+  // is its name — which is why the name is a whole sentence rather than a word
+  // for the shape of the glyph.
+  const marked = row.warning === null
+    ? ''
+    : `\n    <span class="codicon codicon-warning selector-warning" role="img" `
+      + `aria-label="${escapeHtml(row.warning)}"></span>`;
   return `<div class="selector-row">
   <button class="selector" type="button" data-command="${escapeHtml(row.command)}" data-focus-key="${escapeHtml(row.key)}" title="${escapeHtml(row.tooltip)}">
     <span class="codicon codicon-${escapeHtml(row.icon)}" aria-hidden="true"></span>
     <span class="selector-label">${escapeHtml(row.label)}</span>
-    <span class="selector-value">${escapeHtml(row.value)}</span>
+    <span class="selector-value">${escapeHtml(row.value)}</span>${marked}
   </button>
   ${beside}
   ${acting}

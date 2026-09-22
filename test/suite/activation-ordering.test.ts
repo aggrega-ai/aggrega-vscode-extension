@@ -39,7 +39,7 @@ describe('activation does not wait on the editor\'s file search', () => {
       `the scanned body does not begin where the function does; it was:\n${body}`,
     );
     assert.ok(
-      body.trim().endsWith('void completeReachableWorkspaces(context, scope, generation);'),
+      body.trim().endsWith('void tellWorkspaceSitsAbove(context);'),
       `the scanned body does not end where the function does; it was:\n${body}`,
     );
 

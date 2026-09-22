@@ -134,6 +134,16 @@ body {
   text-overflow: ellipsis;
 }
 
+/* The mark a row carries while something about its own value needs saying out
+   loud. It takes no room from the value and is never allowed to shrink: it is
+   the last thing on the row, so the value clips before it does. Its colour is
+   the editor's own for a warning, so it reads the same way here as everywhere
+   else in the window rather than as decoration this panel invented. */
+.selector-warning {
+  flex: 0 0 auto;
+  color: var(--vscode-editorWarning-foreground);
+}
+
 .selector:hover {
   background: var(--vscode-list-hoverBackground);
 }
