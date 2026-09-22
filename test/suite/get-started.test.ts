@@ -2292,7 +2292,16 @@ describe('the welcome panel', () => {
     // confirmed through discovery, so it has to be a superset. Narrowing it
     // hides a folder the reader has; this names the parts it must keep.
     it('searches for at least every marker discovery recognises', () => {
-      for (const part of [CONFIG_FILENAME, '.aggrega/', 'aggregate*.yaml', 'release*.yaml', 'manifest*.yaml']) {
+      for (const part of [
+        CONFIG_FILENAME,
+        '.aggrega/',
+        'aggregate*.yaml',
+        'aggregate*.yml',
+        'release*.yaml',
+        'release*.yml',
+        'manifest*.yaml',
+        'manifest*.yml',
+      ]) {
         assert.ok(
           ANCHOR_CANDIDATE_GLOB.includes(part),
           `the candidate search would not reach ${part}, so a folder anchored only by it is offered to nobody`,

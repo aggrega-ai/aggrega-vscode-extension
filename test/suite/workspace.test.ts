@@ -81,6 +81,80 @@ describe('findAggregaWorkspaceAnchor', () => {
     assert.strictEqual(found, null);
   });
 
+  // anchoredAlone materializes one file in a directory of its own and answers
+  // what the climb makes of it. Each row gets its own directory so a row cannot
+  // be answered by a file another row wrote.
+  async function anchoredAlone(name: string): Promise<{ dir: string; found: string | null }> {
+    const dir = path.join(tmpRoot, name.replace(/[^a-z0-9]/gi, '-'));
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(path.join(dir, name), '');
+    return { dir, found: await findAggregaWorkspaceAnchor(dir) };
+  }
+
+  // Both YAML spellings anchor, for every glob prefix. The compiler accepts
+  // either, so a reader whose Release is named release.yml is in an Aggrega
+  // workspace exactly as one whose Release is release.yaml is.
+  it('anchors on either YAML spelling, for every glob prefix', async () => {
+    for (const name of [
+      'aggregate.yaml',
+      'aggregate.yml',
+      'aggregate-staging.yml',
+      'release.yaml',
+      'release.yml',
+      'manifest.yaml',
+      'manifest.yml',
+    ]) {
+      const { dir, found } = await anchoredAlone(name);
+      assert.strictEqual(
+        found,
+        path.join(dir, name),
+        `${name} does not anchor, so a reader who named their file that is told no Aggrega workspace is available while a build finds one`,
+      );
+    }
+  });
+
+  // 🔴 THE LOCKFILE EXCLUSION HAS TO COVER EVERY SPELLING THE GLOB TIER
+  // ACCEPTS, AND IT IS THE HALF THAT GOES UNNOTICED. Admitting a spelling
+  // without excluding its lockfile form makes a generated lockfile anchor a
+  // workspace root — which the compiler refuses — and the symptom is a reader
+  // whose build output directory is reported to them as their project root.
+  // Each form is named here because a check written against one spelling
+  // passes while the other anchors.
+  it('excludes the lockfile form of every accepted YAML spelling', async () => {
+    for (const name of [
+      'aggregate.lock.yaml',
+      'aggregate.lock.yml',
+      'release.lock.yaml',
+      'release.lock.yml',
+      'manifest.lock.yaml',
+      'manifest.lock.yml',
+    ]) {
+      const { found } = await anchoredAlone(name);
+      assert.strictEqual(
+        found,
+        null,
+        `${name} anchors a workspace root, which a generated lockfile must never do`,
+      );
+    }
+  });
+
+  // A quoted key is the same key. YAML lets a mapping key be bare or quoted and
+  // the compiler reads the document rather than its lines, so all three
+  // spellings name one key and all three anchor.
+  it('anchors on a workspace key written bare or quoted', async () => {
+    for (const content of ['workspace: {}\n', '"workspace": {}\n', "'workspace': {}\n"]) {
+      const dir = path.join(tmpRoot, `quoted-${Buffer.from(content).toString('hex')}`);
+      await fs.mkdir(dir, { recursive: true });
+      const cfgPath = path.join(dir, '.aggrega-config.yaml');
+      await fs.writeFile(cfgPath, content);
+      assert.strictEqual(
+        await findAggregaWorkspaceAnchor(dir),
+        cfgPath,
+        `a configuration reading ${JSON.stringify(content)} does not anchor, though the compiler reads it as the same key`,
+      );
+    }
+  });
+
   it('priority tiebreak: workspace: config wins over aggregate.yaml in same dir', async () => {
     const cfgPath = path.join(tmpRoot, '.aggrega-config.yaml');
     await fs.writeFile(cfgPath, 'workspace: {}\n');

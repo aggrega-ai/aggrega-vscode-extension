@@ -97,8 +97,24 @@ export const NO_ANCHORED_WORKSPACE_ROW_TOOLTIP =
 export const AGGREGA_DIR = '.aggrega';
 export const ACTIVE_RELEASE_MARKER_BASENAME = 'active-release';
 const GLOB_PREFIXES = ['aggregate', 'release', 'manifest'] as const;
-const LOCKFILE_SUFFIX = '.lock.yaml';
-const YAML_SUFFIX = '.yaml';
+
+// YAML_SUFFIXES are both spellings of a YAML file's extension that the glob
+// tier accepts, and LOCKFILE_SUFFIXES are the lockfile forms it refuses. A
+// reader whose Release is named release.yml is in an Aggrega workspace exactly
+// as one whose Release is release.yaml is, so the climb answers the same for
+// both — the compiler accepts either spelling, and an editor that accepted only
+// one would tell a reader they are nowhere while a build works.
+//
+// 🔴 THE SECOND LIST IS DERIVED FROM THE FIRST, AND THAT DERIVATION IS WHAT
+// KEEPS A LOCKFILE FROM ANCHORING A ROOT. The two are one rule read from its
+// two sides: a suffix is accepted, and that same suffix behind `.lock` is not.
+// Written as two independent lists they would agree until a spelling was added
+// to the accepted one alone, at which point release.lock.yml would anchor a
+// workspace — silently, because nothing compares one list to the other.
+// Deriving one from the other makes that divergence unwritable rather than
+// merely untested.
+const YAML_SUFFIXES = ['.yaml', '.yml'] as const;
+const LOCKFILE_SUFFIXES = YAML_SUFFIXES.map((suffix) => `.lock${suffix}`);
 
 // WORKSPACE_ANCHOR_CONFIG is what a surface writes to make a directory the root
 // of an Aggrega workspace: the smallest configuration that anchors one.
@@ -132,7 +148,9 @@ export const WORKSPACE_ANCHOR_CONFIG =
 // tiers are, and errs wide.
 export const ANCHOR_CANDIDATE_GLOB =
   `**/{${CONFIG_FILENAME},${AGGREGA_DIR}/**,` +
-  GLOB_PREFIXES.map((prefix) => `${prefix}*${YAML_SUFFIX}`).join(',') +
+  GLOB_PREFIXES.flatMap(
+    (prefix) => YAML_SUFFIXES.map((suffix) => `${prefix}*${suffix}`),
+  ).join(',') +
   `}`;
 
 // activeReleaseMarkerPath is the absolute path of the workspace's
@@ -224,18 +242,21 @@ export function windowAnchoring(anchored: AnchoredFolder): WindowAnchoring {
 // recognizes:
 //
 //   1. .aggrega-config.yaml carrying a top-level `workspace:` block
-//   2. .aggrega/                    (directory)
-//   3. aggregate*.yaml              (glob)
-//   4. release*.yaml                (glob)
-//   5. manifest*.yaml               (glob)
+//   2. .aggrega/                                 (directory)
+//   3. aggregate*.yaml / aggregate*.yml          (glob)
+//   4. release*.yaml / release*.yml              (glob)
+//   5. manifest*.yaml / manifest*.yml            (glob)
+//
+// Both YAML spellings anchor in the glob tiers, because both are
+// spellings the compiler itself accepts.
 //
 // A `.aggrega-config.yaml` WITHOUT a `workspace:` block does not
 // anchor — a bare settings/global config must not mark every parent
 // directory as a workspace root. Lockfile-suffixed matches (e.g.,
-// release.lock.yaml) are excluded from the glob tier so a lockfile
-// alone does not anchor a workspace. Returns the absolute path of the
-// first match (any tier) found in the walk, or null when the
-// filesystem root is reached without a match.
+// release.lock.yaml, release.lock.yml) are excluded from the glob tier
+// so a lockfile alone does not anchor a workspace. Returns the
+// absolute path of the first match (any tier) found in the walk, or
+// null when the filesystem root is reached without a match.
 //
 // The walk is lexical (filepath.Dir-equivalent); symlinks are not
 // dereferenced. Mirrors the Go workspaceconfig.Resolve discovery
@@ -555,9 +576,11 @@ export async function workspacesReachedFromAll<F extends FolderLike>(
 }
 
 // heuristicMarkerInDir reports the highest-priority heuristic marker present in
-// dir (.aggrega/ then aggregate*.yaml / release*.yaml / manifest*.yaml,
-// lockfiles excluded), or null. The `workspace:`-config tier is handled by the
-// caller, which gives it cross-directory precedence over these heuristics.
+// dir (.aggrega/ then a file whose name begins `aggregate`, `release` or
+// `manifest` in either YAML spelling, lockfiles excluded), or null. Only the
+// name is read, never the document — a marker says a workspace is here, not
+// what the file holds. The `workspace:`-config tier is handled by the caller,
+// which gives it cross-directory precedence over these heuristics.
 async function heuristicMarkerInDir(dir: string): Promise<string | null> {
   const aggregaDir = path.join(dir, AGGREGA_DIR);
   if (await isDirectory(aggregaDir)) {
@@ -573,14 +596,18 @@ async function heuristicMarkerInDir(dir: string): Promise<string | null> {
     for (const name of entries) {
       if (
         name.startsWith(prefix) &&
-        name.endsWith(YAML_SUFFIX) &&
-        !name.endsWith(LOCKFILE_SUFFIX)
+        endsWithAny(name, YAML_SUFFIXES) &&
+        !endsWithAny(name, LOCKFILE_SUFFIXES)
       ) {
         return path.join(dir, name);
       }
     }
   }
   return null;
+}
+
+function endsWithAny(name: string, suffixes: readonly string[]): boolean {
+  return suffixes.some((suffix) => name.endsWith(suffix));
 }
 
 async function readdirSafe(dir: string): Promise<string[]> {
@@ -600,6 +627,14 @@ async function readdirSafe(dir: string): Promise<string[]> {
 // the two agree on the shared fixtures. The probe is intentionally shallow (a
 // top-level, unindented `workspace:` key) rather than a full YAML parse: the
 // extension does no YAML parsing, and discovery runs before any daemon exists.
+//
+// A quoted key is the same key. YAML lets a mapping key be written bare or
+// quoted, and the compiler reads the document rather than its lines, so
+// `"workspace":` and `'workspace':` name exactly what `workspace:` names —
+// which is why all three spellings anchor here too. Accepting them is one more
+// spelling of one key, and leaves the probe a line pattern rather than making
+// it a parser: an editor that has to answer "is this a workspace" before any
+// language server exists cannot afford to require a readable document.
 async function hasWorkspaceBlock(p: string): Promise<boolean> {
   let content: string;
   try {
@@ -607,9 +642,11 @@ async function hasWorkspaceBlock(p: string): Promise<boolean> {
   } catch {
     return false;
   }
-  // A top-level mapping key has no leading indentation. Match `workspace:`
-  // (optionally `workspace: {}` / trailing content) at the start of a line.
-  return /^workspace[ \t]*:/m.test(content);
+  // A top-level mapping key has no leading indentation, so the match is
+  // anchored at the start of a line with nothing before the key. Trailing
+  // content (`workspace: {}`, a nested block below) is immaterial: presence of
+  // the key is the whole marker.
+  return /^(?:workspace|"workspace"|'workspace')[ \t]*:/m.test(content);
 }
 
 async function isDirectory(p: string): Promise<boolean> {
