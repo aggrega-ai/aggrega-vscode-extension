@@ -287,7 +287,7 @@ describe('the lines the channel gets', () => {
 });
 
 describe('a refusal reaches the reader in the compiler\'s own words', () => {
-  // 🔴 CLAUSE 1, PINNED. A publication refusal is exactly the message its author
+  // 🔴 PINNED. A publication refusal is exactly the message its author
   // needs — it names the remediation — so a friendlier wrapper substituted here
   // would discard the one useful thing in it. The assertion is an EQUALITY
   // against the compiler's text, so a surface that prefixed, suffixed or

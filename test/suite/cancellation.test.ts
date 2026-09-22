@@ -109,7 +109,7 @@ describe('stopping a language-server request tells the compiler to stop', () => 
 
     await assert.rejects(pending, (err: unknown) => isCancellation(err));
 
-    // THE assertion of this work item. A cancel that only abandoned the promise
+    // THE assertion this file exists for. A cancel that only abandoned the promise
     // would leave exactly one frame on the wire and pass every other test here.
     const frames = framesFrom(written);
     assert.strictEqual(frames.length, 2, 'a cancel notification should follow the request');
