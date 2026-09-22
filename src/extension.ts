@@ -129,6 +129,7 @@ import {
   AnchoredFolder,
   NO_ANCHORED_WORKSPACE_MESSAGE,
   findAllAnchoredFolders,
+  outputDirFor,
   windowAnchoring,
   workspacesReachedFromAll,
 } from './workspace';
@@ -2110,6 +2111,22 @@ async function requestBuildPreview(
 // description — and the parameter is carried at both its values, so a request
 // says what the reader chose rather than leaving the off case indistinguishable
 // from a client that does not know about it.
+//
+// 🔴 WHERE THE BUILD WRITES IS THE FOLDER THE READER WORKS FROM, AND IT IS THE
+// CHOSEN ONE RATHER THAN THE ONE THE ANCHORING SETTLED ON. A build run in a
+// terminal writes beneath the directory it was run in; a request carries no
+// such directory, so the editor states it. What a reader is standing in is the
+// folder they chose, and where they have chosen nothing the request says
+// nothing — the compiler then writes where a build run at the workspace root
+// writes. Answering from the anchoring's own folder instead would name a folder
+// nobody picked in exactly the window where the two differ.
+//
+// It is converted against the root the server ANSWERED with, which is the root
+// this request names and the same one the Release path is converted against, so
+// the two paths in one request cannot come to be relative to two places. That
+// the chosen folder sits inside that root is a property of the order the two are
+// settled in rather than of either value, so the conversion judges it rather
+// than relying on it, and answers with nothing where it does not hold.
 async function requestBuild(
   release: string,
   dials: readonly string[],
@@ -2120,7 +2137,7 @@ async function requestBuild(
   }
   return await daemon.request<BuildResponse>(
     'aggrega/build',
-    buildParams(release, dials),
+    buildParams(release, dials, outputDirFor(anchoredWorkspaceRoot(), chosenProjectFolder)),
     signal,
   );
 }

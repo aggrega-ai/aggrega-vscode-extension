@@ -71,7 +71,13 @@ export const BUILD_DIALS: BuildDial[] = [
 // The adjustment's key is DERIVED from the constant above rather than written
 // again, so the parameter has one spelling: renaming the constant renames this
 // key, and a composition that still named the old one stops compiling.
-export type BuildRequestParams = { release: string } & Record<typeof AUTO_PULL_DIAL, boolean>;
+//
+// The destination is optional because its absence is a state the compiler
+// defines rather than a gap: a request that names none writes where a build run
+// at the workspace root writes. Sending it is how a reader standing somewhere
+// else says so.
+export type BuildRequestParams =
+  { release: string; outputDir?: string } & Record<typeof AUTO_PULL_DIAL, boolean>;
 
 // BuildPreviewRequestParams is exactly what a preview request carries: the
 // Release, and nothing else.
@@ -86,8 +92,8 @@ export interface BuildPreviewRequestParams {
   release: string;
 }
 
-// buildParams composes a build request from the Release and the adjustments the
-// reader has turned on.
+// buildParams composes a build request from the Release, the adjustments the
+// reader has turned on, and where in the workspace the build is to write.
 //
 // 🔴 THE ADJUSTMENT IS CARRIED AT BOTH ITS VALUES RATHER THAN OMITTED WHEN OFF.
 // The compiler reads an absent parameter and an explicit off identically, so
@@ -95,8 +101,34 @@ export interface BuildPreviewRequestParams {
 // visible in the request itself. A request that carried the parameter only when
 // on would make "the reader left it alone" and "this client does not know about
 // the parameter" the same bytes, and those are different facts.
-export function buildParams(release: string, on: readonly string[]): BuildRequestParams {
-  return { release, [AUTO_PULL_DIAL]: on.includes(AUTO_PULL_DIAL) };
+//
+// 🔴 THE DESTINATION GOES THE OTHER WAY, AND THE ASYMMETRY IS THE POINT. The
+// adjustment always has a value, because the reader either turned it on or did
+// not. The destination does not: where nothing can be said about the folder the
+// reader is standing in, the key is left off entirely, and the compiler then
+// writes where a build run at the workspace root writes. Sending an empty
+// string for that case would collapse two different facts — "the reader is
+// standing at the root" and "the editor cannot tell where they are standing" —
+// into the same bytes, and the first is a location while the second is its
+// absence.
+//
+// The destination arrives already converted rather than being derived here, and
+// the argument is REQUIRED so no call site can compose a build without having
+// answered the question. What the value has to be is the workspace-root-relative
+// form, which is a path rule and lives with the path rules.
+export function buildParams(
+  release: string,
+  on: readonly string[],
+  outputDir: string | null,
+): BuildRequestParams {
+  const params: BuildRequestParams = {
+    release,
+    [AUTO_PULL_DIAL]: on.includes(AUTO_PULL_DIAL),
+  };
+  if (outputDir !== null) {
+    params.outputDir = outputDir;
+  }
+  return params;
 }
 
 // buildPreviewParams composes a preview request from the Release alone.

@@ -285,6 +285,63 @@ export function toWorkspaceRelative(workspaceRoot: string, releasePath: string):
   return path.relative(workspaceRoot, releasePath);
 }
 
+// relativeIfInside is the containment judgement the workspace-relative request
+// parameters on this surface share: it answers with the workspace-relative form
+// of target when target names somewhere inside the root, and null when it does
+// not.
+//
+// The contract belongs to the surface rather than to any one parameter, which is
+// why it is judged here once and each parameter below adds only the one reading
+// that is its own. A copy of the judgement per parameter is how one of them would
+// come to accept a path another refuses — and it would happen silently, because
+// two copies agree on every case either is driven with right up until a boundary
+// case is added to one and not the other.
+//
+// Escape is judged on where the value lands, not on how it is spelled: the
+// judgement runs on the normalised relative path, so an interior `a/../b`
+// resolves and passes while a path that climbs out of the root does not. A
+// sibling directory whose name merely extends the root's is outside it and is
+// refused, which a string prefix comparison against the root would wrongly
+// accept. An absent or empty root is nothing to judge containment against, so
+// nothing is inside it.
+//
+// 🔴 THE EMPTY RESULT IS THE CALLER'S TO READ, AND IT IS THE ONE THING THIS
+// DELIBERATELY DOES NOT DECIDE. A target that resolves to the root itself is
+// inside the root, so it is answered with rather than refused — but what it MEANS
+// is not the same for every parameter, and that is the only axis the two callers
+// below disagree on. Each settles it in a line of its own; folding either reading
+// in here would decide it for both.
+//
+// It stays private, and both parameters that need it are below, so a surface
+// reaching for the rule reaches it through one of them — which is what stops a
+// third reading of it growing somewhere this file cannot see.
+//
+// This is a DELIBERATE second implementation of the containment rule the daemon
+// applies to these same parameters — it refuses an absolute value and one that
+// climbs out of the root, on the Release path and on the build destination alike
+// — and it is recorded as one so nobody later unifies it away as an accident. The
+// two run in different languages and the judgement is needed before a request is
+// sent, so there is nothing to call. The duplication is held the way the
+// anchor-discovery rule above holds its own: by a table of cases covering each
+// boundary the rule turns on — an interior climb that resolves back inside, a
+// sibling whose name merely extends the root, the root itself — driven through
+// the two callers below, which is the only way in. A case added on one side
+// belongs on the other.
+function relativeIfInside(workspaceRoot: string | null, target: string): string | null {
+  if (workspaceRoot === null || workspaceRoot === '') {
+    return null;
+  }
+  const relative = toWorkspaceRelative(workspaceRoot, target);
+  if (path.isAbsolute(relative)) {
+    return null;
+  }
+  const cleaned = path.normalize(relative);
+  if (cleaned === '..' || cleaned.startsWith(`..${path.sep}`)) {
+    return null;
+  }
+  return relative;
+}
+
 // releaseParamFor converts a Release path into the request parameter the daemon
 // will accept for it, or reports that no such parameter exists.
 //
@@ -293,37 +350,69 @@ export function toWorkspaceRelative(workspaceRoot: string, releasePath: string):
 // offerable exactly when this returns a value, and the offer and the acceptance
 // are then one rule rather than two statements of it kept in step by eye.
 //
-// The conversion itself is not repeated here — it stays in toWorkspaceRelative
-// above, which this delegates to. What this adds is the containment judgement,
-// made on the cleaned relative path so an interior `a/../b` resolves and passes
-// while a path that climbs out of the root does not. A sibling directory whose
-// name merely extends the root's is outside it and is refused, which a string
-// prefix comparison against the root would wrongly accept.
+// Neither the conversion nor the containment judgement is repeated here: the
+// first stays in toWorkspaceRelative and the second in relativeIfInside, both
+// above, which this delegates to. What this adds is the one reading that is its
+// own — a value resolving to the root names no document, so the empty result is
+// refused here where the destination below carries it.
 //
 // Returns null for an empty root, for a value that resolves to the root itself
 // (which names no document), and for one that climbs out of it.
-//
-// This is a DELIBERATE second implementation of the containment rule the daemon
-// applies to the same parameter, and it is recorded as one so nobody later
-// unifies it away as an accident. The two run in different languages and the
-// judgement is needed before a request is sent, so there is nothing to call. The
-// duplication is held the way the anchor-discovery rule above holds its own: by
-// a table of cases covering each boundary the rule turns on — an interior climb
-// that resolves back inside, a sibling whose name merely extends the root, the
-// root itself. A case added on one side belongs on the other.
 export function releaseParamFor(workspaceRoot: string, releasePath: string): string | null {
-  if (workspaceRoot === '') {
+  const inside = relativeIfInside(workspaceRoot, releasePath);
+  return inside === '' ? null : inside;
+}
+
+// outputDirFor converts the folder the reader works from into the request
+// parameter that says where inside the workspace a build writes, or reports
+// that there is no such parameter to send.
+//
+// The contract is the same one every destination on this surface takes: a path
+// relative to the workspace root, naming somewhere inside it. What a build then
+// writes is its output directory resolved under that path, which is the result
+// a reader gets from running a build in the folder they are standing in — so
+// the value is where they are standing, expressed the way a request can carry
+// it.
+//
+// 🔴 NULL MEANS "SEND NOTHING", AND IT IS AN ANSWER RATHER THAN A FAILURE. A
+// window with several folders open and none chosen has no folder the reader is
+// standing in, and a request that named one of them would be reporting a choice
+// nobody made. Omitting the parameter is a defined state — a build then writes
+// where a build run at the workspace root writes — so the honest value for "the
+// editor cannot say" is no value at all.
+//
+// The same answer covers a folder that does not sit inside the root at all.
+// That it does is not a structural invariant: it holds because one re-evaluation
+// settles the folder in force and then computes the anchoring over that folder
+// alone, so it is a property of that ordering rather than of either value, and
+// the two are held separately, written at different moments, and read from
+// different sources. Judging it here costs one comparison and makes the answer
+// independent of that ordering — a value climbing out would be refused on
+// arrival, and a refusal for something the reader never authored is worse than
+// the default they would otherwise have got.
+//
+// The root itself yields the empty string, which is carried rather than dropped:
+// it names the root, which IS where that reader is standing, and it says so in
+// the request instead of leaving the destination to a default.
+//
+// Neither the conversion nor the containment judgement is repeated here: the
+// first stays in toWorkspaceRelative and the second in relativeIfInside, both
+// above, which the Release parameter is judged by too. What this adds is the one
+// reading that is its own — a directory resolving to the root names the root, so
+// the empty result is carried here where the Release parameter above refuses it.
+// That difference is the reason these are two functions.
+export function outputDirFor(
+  workspaceRoot: string | null,
+  projectFolder: string | null,
+): string | null {
+  // An absent or empty folder is the editor unable to say where the reader is
+  // standing, and that is a different fact from a folder resolving to the root:
+  // the judgement below answers the second with the empty string, which IS
+  // carried. Refusing it here is what keeps the two from arriving as one value.
+  if (projectFolder === null || projectFolder === '') {
     return null;
   }
-  const relative = toWorkspaceRelative(workspaceRoot, releasePath);
-  if (relative === '' || path.isAbsolute(relative)) {
-    return null;
-  }
-  const cleaned = path.normalize(relative);
-  if (cleaned === '..' || cleaned.startsWith(`..${path.sep}`)) {
-    return null;
-  }
-  return relative;
+  return relativeIfInside(workspaceRoot, projectFolder);
 }
 
 // findAllAnchoredFolders runs findAggregaWorkspaceAnchor against each entry in
