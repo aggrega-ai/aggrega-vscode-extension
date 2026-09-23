@@ -326,6 +326,12 @@ export function projectFolderRow(
   };
 }
 
+// WARNING_SIGN is the warning pictograph the Aggrega workspace row's hover closes
+// its headline with. It is written as its two code points — the sign, and the
+// selector asking for it to be drawn as a pictograph — because the second is
+// invisible, and a copy of the character that lost it would look unchanged.
+const WARNING_SIGN = '\u26A0\uFE0F';
+
 // workspaceRow renders the Aggrega workspace the editor is acting in.
 //
 // It shows the folder THE LANGUAGE SERVER ANCHORED TO, not the folder that was
@@ -428,13 +434,23 @@ export function workspaceRow(
   // reverse.
   const differs = workspaceSitsAboveFolder(anchoredRoot, openedFolder);
   // The account is the whole of what the reader is told about the open folder,
-  // and it is the same account the interruption carries — the headline and the
-  // same two lines, read from where that text is written rather than restated
-  // here, so dismissing the interruption and coming back to this row cannot
-  // present two versions of one fact. Its second line is the one that names the
-  // open folder, so no other sentence on this hover names it again.
+  // and it is the interruption's own — the headline and the folder's line, read
+  // from where that text is written rather than restated here, so dismissing the
+  // interruption and coming back to this row cannot present two versions of one
+  // fact. The workspace's line is the one part it leaves to the interruption:
+  // this hover's first line already names that path, and a second line naming it
+  // would say one thing twice. The folder's line is the one that names the open
+  // folder, so no other sentence on this hover names it again.
+  //
+  // 🔴 THE HEADLINE CLOSES WITH THE WARNING SIGN HERE AND ON NO OTHER SURFACE.
+  // The hover is plain text with no icon of its own, so the sign is what tells a
+  // reader hovering the row that this sentence is the warning the mark beside
+  // the value stands for. The interruption draws a warning icon of its own, and
+  // the mark IS the sign, so its name — the bare headline — does not repeat it.
   const account = workspaceAboveAccount(anchoredRoot, openedFolder);
-  const opened = account === null ? '' : `\n${WORKSPACE_ABOVE_HEADLINE}\n${account.join('\n')}`;
+  const opened = account === null
+    ? ''
+    : `\n\n${WORKSPACE_ABOVE_HEADLINE} ${WARNING_SIGN}\n\n${account.project}`;
   return {
     ...base,
     value: path.basename(anchoredRoot),
@@ -484,7 +500,7 @@ export function workspaceRow(
     // that says what a click does rather than what is true, and a reader
     // looking for it finds it without reading the account above it.
     tooltip:
-      `${SELECTOR_ROW_LABELS.workspace}: ${anchoredRoot}\nThe Releases on offer are the ones inside this folder.${opened}\n\n${CHOOSE_ANCHOR_INVITATION}`,
+      `${SELECTOR_ROW_LABELS.workspace}: ${anchoredRoot}${opened}\n\n${CHOOSE_ANCHOR_INVITATION}`,
   };
 }
 

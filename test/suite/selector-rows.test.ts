@@ -443,10 +443,11 @@ describe('the Aggrega workspace row', () => {
   it('shows the anchored folder, which is what the Release list is computed against', () => {
     const row = workspaceRow(ANCHORED, OPENED_INSIDE, 2);
     assert.strictEqual(row.value, 'project');
-    assert.ok(row.tooltip.includes(ANCHORED));
+    // The value is the folder's last name, so the hover is where its full path
+    // is given — on its first line, ahead of anything else it says.
     assert.ok(
-      row.tooltip.includes('inside this folder'),
-      'the row exists to explain why the candidate set is what it is',
+      row.tooltip.startsWith(`Aggrega workspace: ${ANCHORED}\n`),
+      `the hover does not open by naming the anchored folder in full:\n${row.tooltip}`,
     );
   });
 

@@ -20,8 +20,11 @@ import { workspaceSitsAboveFolder } from './workspace';
 // DISMISS THE TRUTH: the mark is what carries the fact after the interruption is
 // gone.
 //
-// Both are composed here, from one text, so the account a reader dismisses and
-// the account they go back to cannot come to say different things.
+// Every sentence either surface carries is written here once — the headline and
+// the two labelled lines — and each surface takes the ones it shows, so the
+// account a reader dismisses and the account they go back to cannot come to say
+// different things. They do not show all the same lines, because they do not
+// sit beside the same text.
 //
 // This module holds no editor type, so every sentence, every action, the
 // decision about whether to interrupt at all and the sequence that acts on the
@@ -29,8 +32,9 @@ import { workspaceSitsAboveFolder } from './workspace';
 // editor — putting the dialogue up, and opening a folder — is handed in by the
 // module where the editor is.
 
-// WORKSPACE_ABOVE_HEADLINE is the one sentence that names the state, and it is
-// the line both surfaces open with.
+// WORKSPACE_ABOVE_HEADLINE is the one sentence that names the state, and both
+// surfaces carry it: the dialogue opens with it, and the row's hover gives it
+// beneath the line naming the workspace.
 //
 // It is also the mark's whole accessible name, which is why it is a complete
 // sentence rather than a label: a reader meeting the mark by keyboard is told
@@ -39,8 +43,25 @@ import { workspaceSitsAboveFolder } from './workspace';
 export const WORKSPACE_ABOVE_HEADLINE =
   'Aggrega is using a workspace from outside the folder you opened.';
 
-// workspaceAboveAccount is what the reader is told beneath the headline, as its
-// lines, or null where the workspace does not sit above the folder at all.
+// WorkspaceAboveAccount is what the reader is told beneath the headline: the two
+// paths, each on a line of its own behind its label.
+//
+// 🔴 THE LINES ARE NAMED RATHER THAN LISTED, BECAUSE THE SURFACES DO NOT SHOW
+// THE SAME ONES. The dialogue shows both. The row's hover shows only the
+// folder's, because the hover's own first line already names the workspace's
+// path, and a second line naming it would say one thing twice. A surface takes
+// the line it needs by what the line says rather than by where it sits, so
+// neither surface writes a line of its own and neither depends on an order that
+// nothing checks.
+export interface WorkspaceAboveAccount {
+  // workspace names the Aggrega workspace in force.
+  workspace: string;
+  // project names the folder the workspace was reached from.
+  project: string;
+}
+
+// workspaceAboveAccount composes the account, or answers with null where the
+// workspace does not sit above the folder at all.
 //
 // 🔴 IT IS THE TWO PATHS AND NOTHING ELSE. The reader acts on the paths — the
 // workspace they are being worked from, and the folder they opened — so each is
@@ -48,9 +69,10 @@ export const WORKSPACE_ABOVE_HEADLINE =
 // folder's last name, because this is read with none of the window around it and
 // two folders sharing a last name is the ordinary case rather than the odd one.
 //
-// The first label is the bare word, and that is safe here in a way it is not on
-// the row: the headline immediately above it has just said whose workspace it
-// is. The second is the level's own name, read from the one place the levels
+// The workspace's label is the bare word, and that is safe on the dialogue — the
+// one surface that shows that line — in a way it is not on the row: the
+// headline immediately above it has just said whose workspace it is. The
+// folder's label is the level's own name, read from the one place the levels
 // are named, so the account and the row above it cannot call one level two
 // different things.
 //
@@ -63,12 +85,12 @@ export const WORKSPACE_ABOVE_HEADLINE =
 export function workspaceAboveAccount(
   anchoredRoot: string | null,
   openedFolder: string | null,
-): string[] | null {
+): WorkspaceAboveAccount | null {
   if (!workspaceSitsAboveFolder(anchoredRoot, openedFolder)) { return null; }
-  return [
-    `Workspace: ${anchoredRoot}`,
-    `${SELECTOR_ROW_LABELS.project}: ${openedFolder}`,
-  ];
+  return {
+    workspace: `Workspace: ${anchoredRoot}`,
+    project: `${SELECTOR_ROW_LABELS.project}: ${openedFolder}`,
+  };
 }
 
 // WorkspaceAboveChoice is what a press on one of the dialogue's actions means.
@@ -130,7 +152,7 @@ export function workspaceAboveNotice(
   if (account === null) { return null; }
   return {
     message: WORKSPACE_ABOVE_HEADLINE,
-    detail: account.join('\n'),
+    detail: `${account.workspace}\n${account.project}`,
     actions: [
       { title: 'Open workspace (reloads the window)', choice: 'open' },
       { title: 'Continue here', isCloseAffordance: true, choice: 'continue' },

@@ -43,6 +43,9 @@ const CANDIDATES = { projectFolders: 2, aggregaWorkspaces: 1, releases: null };
 // source reads. A composed expectation moves with whatever it is checking and
 // cannot fail, and this text was settled word by word.
 const HEADLINE = 'Aggrega is using a workspace from outside the folder you opened.';
+// The warning sign the row's hover closes the headline with, as its two code
+// points: the sign, and the invisible selector asking for it as a pictograph.
+const WARNING_SIGN = '\u26A0\uFE0F';
 const WORKSPACE_LINE = `Workspace: ${ROOT}`;
 const PROJECT_LINE = `Project folder: ${DEEP}`;
 const OPEN_LABEL = 'Open workspace (reloads the window)';
@@ -106,6 +109,14 @@ function answering(title: string | null): {
 const HANDLER =
   'async function tellWorkspaceSitsAbove(context: vscode.ExtensionContext): Promise<void>';
 
+// everythingSaid is the headline and both of the account's lines, which is every
+// sentence either surface is given — so a sweep over it reads all of them.
+function everythingSaid(anchoredRoot: string, openedFolder: string): string {
+  const account = workspaceAboveAccount(anchoredRoot, openedFolder);
+  const lines = account === null ? [] : [account.workspace, account.project];
+  return [WORKSPACE_ABOVE_HEADLINE, ...lines].join('\n');
+}
+
 describe('the condition has one home and every surface reads it from there', () => {
   it('answers true only where a workspace and a folder are both in hand and differ', () => {
     assert.strictEqual(workspaceSitsAboveFolder(ROOT, DEEP), true);
@@ -149,7 +160,10 @@ describe('the condition has one home and every surface reads it from there', () 
 
 describe('what the reader is told', () => {
   it('is the two paths, each on a line of its own behind its label', () => {
-    assert.deepStrictEqual(workspaceAboveAccount(ROOT, DEEP), [WORKSPACE_LINE, PROJECT_LINE]);
+    assert.deepStrictEqual(
+      workspaceAboveAccount(ROOT, DEEP),
+      { workspace: WORKSPACE_LINE, project: PROJECT_LINE },
+    );
   });
 
   it('says nothing at all where the workspace is the folder, or either is absent', () => {
@@ -163,7 +177,7 @@ describe('what the reader is told', () => {
     // Each phrase below would begin a sentence the account does not carry; the
     // sweep reads the headline and both lines together, which is everything
     // either surface is given.
-    const said = [WORKSPACE_ABOVE_HEADLINE, ...(workspaceAboveAccount(ROOT, DEEP) ?? [])].join('\n');
+    const said = everythingSaid(ROOT, DEEP);
     for (const absent of ['You opened', 'Settings and catalog', 'Builds', 'Releases', 'catalog']) {
       assert.ok(!said.includes(absent), `the account carries "${absent}":\n${said}`);
     }
@@ -183,8 +197,7 @@ describe('what the reader is told', () => {
       'the fixture no longer puts the workspace three directories above the folder, so a sentence '
       + 'counting levels could pass here while being false for a deeper reader',
     );
-    const said = [WORKSPACE_ABOVE_HEADLINE, ...(workspaceAboveAccount(ROOT, DEEP) ?? [])]
-      .join('\n');
+    const said = everythingSaid(ROOT, DEEP);
     for (const counting of [
       'one level', 'two levels', 'three levels', 'levels above', 'directories above',
       'one directory', 'directly above', 'immediately above', 'parent of',
@@ -206,8 +219,8 @@ describe('what the reader is told', () => {
   it('names the project folder from the one place the levels are named', () => {
     // The account and the row above it must not come to call one level two
     // different things. This is the reading that fails if either moves.
-    const said = (workspaceAboveAccount(ROOT, DEEP) ?? []).join('\n');
-    assert.ok(said.includes(`${SELECTOR_ROW_LABELS.project}: `), said);
+    const said = workspaceAboveAccount(ROOT, DEEP)?.project ?? '';
+    assert.ok(said.startsWith(`${SELECTOR_ROW_LABELS.project}: `), said);
   });
 });
 
@@ -653,48 +666,72 @@ describe('the mark on the row', () => {
     );
   });
 
-  it('carries the same account on its hover as the interruption carries', () => {
+  it('carries the interruption\'s headline and folder on its hover, and names the workspace once', () => {
     // 🔴 DISMISSING THE POP-UP MUST NOT DISMISS THE TRUTH. The mark is what
     // carries the fact once the interruption is gone, so the hover holds the
-    // account rather than a shorter version of it.
+    // headline and the folder the interruption names, read from the same text.
+    // The workspace's line is the one part it leaves out, because the hover's
+    // first line already names that path.
     const row = workspaceRow(ROOT, DEEP, 1);
     const notice = workspaceAboveNotice(ROOT, DEEP);
-    assert.ok(notice !== null);
+    const account = workspaceAboveAccount(ROOT, DEEP);
+    assert.ok(notice !== null && account !== null);
+    const hover = row.tooltip.split('\n');
     assert.ok(row.tooltip.includes(notice.message), row.tooltip);
-    for (const line of notice.detail.split('\n')) {
-      assert.ok(row.tooltip.includes(line), `the hover drops "${line}":\n${row.tooltip}`);
-    }
+    assert.ok(hover.includes(account.project), `the hover drops "${account.project}":\n${row.tooltip}`);
+    assert.ok(
+      !hover.includes(account.workspace),
+      `the hover names the workspace's path a second time:\n${row.tooltip}`,
+    );
+    // 🔴 THE CONTROL ON THAT ABSENCE, and the reason the two surfaces are read
+    // together: the interruption DOES carry the line the hover leaves out, so an
+    // account that had stopped composing it would fail here rather than pass the
+    // absence above.
+    assert.deepStrictEqual(notice.detail.split('\n'), [account.workspace, account.project]);
   });
 
   it('is the hover, as the row receives it, with and without the mark', () => {
     // Written out in full, so a line added, dropped or moved on either reading
-    // fails here. The closing line stands apart behind a blank line.
+    // fails here. Each part stands apart behind a blank line.
     assert.strictEqual(
       workspaceRow(ROOT, DEEP, 1).tooltip,
       `Aggrega workspace: ${ROOT}\n`
-      + 'The Releases on offer are the ones inside this folder.\n'
-      + `${HEADLINE}\n${WORKSPACE_LINE}\n${PROJECT_LINE}\n`
+      + '\n'
+      + `${HEADLINE} ${WARNING_SIGN}\n`
+      + '\n'
+      + `${PROJECT_LINE}\n`
       + '\n'
       + 'Click to choose which Aggrega workspace the editor works in.',
     );
     assert.strictEqual(
       workspaceRow(ROOT, ROOT, 1).tooltip,
       `Aggrega workspace: ${ROOT}\n`
-      + 'The Releases on offer are the ones inside this folder.\n'
       + '\n'
       + 'Click to choose which Aggrega workspace the editor works in.',
     );
   });
 
-  it('carries no markup and no pictograph, because the hover is plain escaped text', () => {
+  it('carries no markup, and the warning sign only where it closes the headline', () => {
     // The hover is an escaped title attribute in the panel's own document: plain
     // text, with no markdown and no styling at all. An emphasis marker reaches
-    // the reader as the two characters it is written with.
+    // the reader as the two characters it is written with; the sign travels as
+    // the character itself.
     const row = workspaceRow(ROOT, DEEP, 1);
-    for (const text of [row.tooltip, row.warning ?? '']) {
-      assert.ok(!text.includes('**'), `an emphasis marker reaches the hover: ${text}`);
-      assert.ok(!/[⚠️]/.test(text), `a pictograph reaches the hover: ${text}`);
-    }
+    assert.ok(!row.tooltip.includes('**'), `an emphasis marker reaches the hover: ${row.tooltip}`);
+    assert.deepStrictEqual(
+      row.tooltip.split('\n').filter((line) => /[⚠️]/.test(line)),
+      [`${HEADLINE} ${WARNING_SIGN}`],
+      `the sign is somewhere other than at the end of the headline, or not there at all:\n${row.tooltip}`,
+    );
+    // 🔴 AND NOT IN THE MARK'S NAME. The mark is itself drawn as the warning
+    // glyph, and its name is what a reader meeting it by keyboard is told in the
+    // glyph's place, so the name is the bare headline.
+    assert.strictEqual(row.warning, HEADLINE);
+    assert.ok(!/[⚠️]/.test(row.warning ?? ''), `a pictograph reaches the mark's name: ${row.warning}`);
+    // Nor on the hover where the workspace is the folder: there is no warning to
+    // close.
+    const quiet = workspaceRow(ROOT, ROOT, 1).tooltip;
+    assert.ok(!/[⚠️]/.test(quiet), `the sign reaches a hover with nothing to warn about: ${quiet}`);
   });
 });
 
