@@ -326,7 +326,7 @@ export function projectFolderRow(
   };
 }
 
-// WARNING_SIGN is the warning pictograph the Aggrega workspace row's hover closes
+// WARNING_SIGN is the warning pictograph the Aggrega workspace row's hover opens
 // its headline with. It is written as its two code points — the sign, and the
 // selector asking for it to be drawn as a pictograph — because the second is
 // invisible, and a copy of the character that lost it would look unchanged.
@@ -442,7 +442,7 @@ export function workspaceRow(
   // would say one thing twice. The folder's line is the one that names the open
   // folder, so no other sentence on this hover names it again.
   //
-  // 🔴 THE HEADLINE CLOSES WITH THE WARNING SIGN HERE AND ON NO OTHER SURFACE.
+  // 🔴 THE WARNING SIGN LEADS THE HEADLINE HERE AND ON NO OTHER SURFACE.
   // The hover is plain text with no icon of its own, so the sign is what tells a
   // reader hovering the row that this sentence is the warning the mark beside
   // the value stands for. The interruption draws a warning icon of its own, and
@@ -450,7 +450,7 @@ export function workspaceRow(
   const account = workspaceAboveAccount(anchoredRoot, openedFolder);
   const opened = account === null
     ? ''
-    : `\n\n${WORKSPACE_ABOVE_HEADLINE} ${WARNING_SIGN}\n\n${account.project}`;
+    : `\n\n${WARNING_SIGN} ${WORKSPACE_ABOVE_HEADLINE}\n\n${account.project}`;
   return {
     ...base,
     value: path.basename(anchoredRoot),

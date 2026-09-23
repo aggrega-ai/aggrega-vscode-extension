@@ -43,7 +43,7 @@ const CANDIDATES = { projectFolders: 2, aggregaWorkspaces: 1, releases: null };
 // source reads. A composed expectation moves with whatever it is checking and
 // cannot fail, and this text was settled word by word.
 const HEADLINE = 'Aggrega is using a workspace from outside the folder you opened.';
-// The warning sign the row's hover closes the headline with, as its two code
+// The warning sign the row's hover opens the headline with, as its two code
 // points: the sign, and the invisible selector asking for it as a pictograph.
 const WARNING_SIGN = '\u26A0\uFE0F';
 const WORKSPACE_LINE = `Workspace: ${ROOT}`;
@@ -289,7 +289,7 @@ describe('the interruption, and what it offers', () => {
   });
 
   it('puts the dismissing press on the action that changes nothing', () => {
-    // ⚠️ THE EDITOR ADDS A CANCEL OF ITS OWN TO A DIALOGUE THAT DECLARES NO
+    // 🔴 THE EDITOR ADDS A CANCEL OF ITS OWN TO A DIALOGUE THAT DECLARES NO
     // CLOSE AFFORDANCE, and a reader who took it would have taken an action this
     // side never named. Declaring it puts the keyboard dismissal, the close
     // control and the middle action on ONE action — so none of those paths can
@@ -697,7 +697,7 @@ describe('the mark on the row', () => {
       workspaceRow(ROOT, DEEP, 1).tooltip,
       `Aggrega workspace: ${ROOT}\n`
       + '\n'
-      + `${HEADLINE} ${WARNING_SIGN}\n`
+      + `${WARNING_SIGN} ${HEADLINE}\n`
       + '\n'
       + `${PROJECT_LINE}\n`
       + '\n'
@@ -711,7 +711,7 @@ describe('the mark on the row', () => {
     );
   });
 
-  it('carries no markup, and the warning sign only where it closes the headline', () => {
+  it('carries no markup, and the warning sign only where it leads the headline', () => {
     // The hover is an escaped title attribute in the panel's own document: plain
     // text, with no markdown and no styling at all. An emphasis marker reaches
     // the reader as the two characters it is written with; the sign travels as
@@ -720,16 +720,16 @@ describe('the mark on the row', () => {
     assert.ok(!row.tooltip.includes('**'), `an emphasis marker reaches the hover: ${row.tooltip}`);
     assert.deepStrictEqual(
       row.tooltip.split('\n').filter((line) => /[⚠️]/.test(line)),
-      [`${HEADLINE} ${WARNING_SIGN}`],
-      `the sign is somewhere other than at the end of the headline, or not there at all:\n${row.tooltip}`,
+      [`${WARNING_SIGN} ${HEADLINE}`],
+      `the sign is somewhere other than once, at the start of the headline, or not there at all:\n${row.tooltip}`,
     );
     // 🔴 AND NOT IN THE MARK'S NAME. The mark is itself drawn as the warning
     // glyph, and its name is what a reader meeting it by keyboard is told in the
     // glyph's place, so the name is the bare headline.
     assert.strictEqual(row.warning, HEADLINE);
     assert.ok(!/[⚠️]/.test(row.warning ?? ''), `a pictograph reaches the mark's name: ${row.warning}`);
-    // Nor on the hover where the workspace is the folder: there is no warning to
-    // close.
+    // Nor on the hover where the workspace is the folder: there is no headline
+    // for it to lead.
     const quiet = workspaceRow(ROOT, ROOT, 1).tooltip;
     assert.ok(!/[⚠️]/.test(quiet), `the sign reaches a hover with nothing to warn about: ${quiet}`);
   });
