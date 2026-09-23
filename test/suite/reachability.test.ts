@@ -279,9 +279,8 @@ describe('the population a window reaches, and what one choice narrows it to', (
 // DISTINCTION THIS BLOCK EXISTS TO PIN. A window that attaches silently has
 // already recorded the workspace it attached to, so when the second candidate
 // turns up a moment later that record is still valid and the reader is OFFERED
-// the choice — the count they are shown moves from one to two and the chooser
-// lists both — rather than being stopped and asked for a decision they did not
-// ask to make. Anything here asserting a prompt for that window would be
+// the choice — the chooser lists both — rather than being stopped and asked for
+// a decision they did not ask to make. Anything here asserting a prompt for that window would be
 // asserting the opposite of what the reader meets.
 //
 // The one window that genuinely IS asked is the second case below: a folder
@@ -355,24 +354,21 @@ describe('the cost of the widening, shown on one window', () => {
       'the folder does not reach exactly two workspaces, so no second candidate is offered',
     );
 
-    // 🔴 THE COST AS THE READER MEETS IT. The row carries the count, and the
-    // sentence saying a level holds only one candidate is what makes the
-    // difference legible on it: present while one workspace is reachable, gone
-    // once a second is. Both directions are asserted, because only the pair
-    // says the sentence tracks the count — either alone is satisfied by a row
-    // that never changes.
+    // 🔴 THE COST AS THE READER MEETS IT IS THE CHOOSER. The row's hover says
+    // nothing about how many workspaces there are, so it reads the same before
+    // and after — both directions are asserted, because a row that changed with
+    // the count would be carrying a sentence it does not carry.
     const root = workspaceRootOf(climbed[0]);
     const narrow = workspaceRow(root, repo, climbed.length);
     const wide = workspaceRow(root, repo, reached.length);
-    assert.ok(
-      narrow.tooltip.includes(soleCandidateNote('workspace')),
-      'the row withholds the sole-candidate sentence while only one workspace is reachable, so a '
-      + `reader is left to press a chooser to find out it holds one entry: ${narrow.tooltip}`,
+    assert.strictEqual(
+      narrow.tooltip, wide.tooltip,
+      'the row\'s hover changes with how many workspaces are reachable, so it is saying how many '
+      + `there are:\n${narrow.tooltip}\n---\n${wide.tooltip}`,
     );
     assert.ok(
-      !wide.tooltip.includes(soleCandidateNote('workspace')),
-      'the row still says only one workspace is available once two are reachable, so the second '
-      + `is invisible on the surface that reports the count: ${wide.tooltip}`,
+      !narrow.tooltip.includes(soleCandidateNote('workspace')),
+      `the row says only one workspace is available: ${narrow.tooltip}`,
     );
 
     // 🔴 AND THE CHOOSER NAMES BOTH, BY PATH. A count a reader cannot expand

@@ -714,25 +714,37 @@ describe('how the selection is described', () => {
     );
   });
 
-  it('says a sole Release is the only one, in the same words the other levels use', () => {
-    // The sentence exists so a chooser holding one entry does not read as
-    // broken, and it is drawn from the one place the level names are written.
-    const sole = describeSelection({
+  it('says nothing about how many Releases there are to choose between', () => {
+    // The explanation hangs off both the Release row and the status-bar
+    // indicator, and it is kept to what the reader acts on: the chooser a click
+    // opens lists what there is. Both readings that offer a choice are read at a
+    // count of one, which is where a sole-candidate sentence would appear.
+    const selected = describeSelection({
       kind: 'selected',
       release: 'envs/prod.yaml',
       absolute: path.join(ROOT, 'envs', 'prod.yaml'),
     }, 1);
-    assert.ok(sole.detail.includes('Only one Release is available'));
-    assert.ok(sole.detail.includes('no others to choose between'));
+    const unchosen = describeSelection({ kind: 'none', reason: '' }, 1);
+    for (const detail of [selected.detail, unchosen.detail]) {
+      assert.ok(
+        !detail.includes('Only one') && !detail.includes('no others to choose between'),
+        `the description says how many Releases there are:\n${detail}`,
+      );
+    }
+    // The control on that sweep: one phrase each reading certainly carries.
+    assert.ok(selected.detail.includes('Click to choose') && unchosen.detail.includes('Click to select'));
+  });
 
-    const several = describeSelection({
+  it('closes a selection with the offer to choose a different one, set apart by a blank line', () => {
+    const described = describeSelection({
       kind: 'selected',
       release: 'envs/prod.yaml',
       absolute: path.join(ROOT, 'envs', 'prod.yaml'),
     }, 3);
-    assert.ok(
-      !several.detail.includes('no others to choose between'),
-      'the description claims to be the only one while others exist',
+    assert.strictEqual(
+      described.detail,
+      `Aggrega selected Release: ${path.join(ROOT, 'envs', 'prod.yaml')}\n\n`
+      + 'Click to choose a different release.',
     );
   });
 });

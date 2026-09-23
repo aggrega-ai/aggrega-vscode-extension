@@ -353,19 +353,15 @@ export function projectFolderRow(
 // reader to a list that must come back empty. So the first carries the two ways
 // OUT of it — bring a folder that holds one into the window, or make one — and
 // only the second says to choose.
-// 🔴 THE CHOSEN FOLDER IS TAKEN AS WELL, AND ONLY ONE SENTENCE TURNS ON IT.
-// Where the reader has chosen a folder to work from, a build writes inside it;
-// where they have not, the request carries no destination and the build writes
-// where a build run at the workspace root writes. Those are different promises
-// and the reader is told which of the two they are under, so the value has to
-// reach the sentence that makes it. It is trailing and optional because every
-// other reading of this row is answered without it, and a surface that has no
-// such value to offer should not be made to invent one.
+//
+// The count tells those two readings apart and does nothing else here. This
+// row's hover says nothing about how many workspaces there are to choose
+// between, so it stays short enough to read; the chooser a click opens lists
+// them, one or several.
 export function workspaceRow(
   anchoredRoot: string | null,
   openedFolder: string | null,
   candidates: number,
-  chosenFolder: string | null = null,
 ): SelectorRow {
   const base = {
     key: 'workspace' as const,
@@ -405,7 +401,6 @@ export function workspaceRow(
         tooltip: NO_ANCHORED_WORKSPACE_ROW_TOOLTIP,
       };
     }
-    const sole = candidates === 1 ? `\n${soleCandidateNote('workspace')}` : '';
     // The last folder is named rather than called the current one, because
     // that is what it is: the value is retained after the language server
     // stops, so calling it the open folder here would state something that has
@@ -414,11 +409,13 @@ export function workspaceRow(
     const last = openedFolder === null
       ? ''
       : `\nThe last folder Aggrega worked in is ${openedFolder}.`;
+    // The closing line stands apart behind a blank line, for the reason the
+    // reading below gives.
     return {
       ...base,
       value: 'none selected',
       tooltip:
-        `Aggrega: no ${SELECTOR_ROW_LABELS.workspace} is selected, and the language server has not reported one it anchored to.${sole}${last}\nClick to choose one.`,
+        `Aggrega: no ${SELECTOR_ROW_LABELS.workspace} is selected, and the language server has not reported one it anchored to.${last}\n\nClick to choose one.`,
     };
   }
   // 🔴 READ FROM THE ONE COMPARISON OF THOSE TWO PATHS RATHER THAN MADE HERE.
@@ -430,18 +427,14 @@ export function workspaceRow(
   // symptom would be the row marking a state nobody was told about, or the
   // reverse.
   const differs = workspaceSitsAboveFolder(anchoredRoot, openedFolder);
-  // The account is the whole of what the reader is told, and it is the same
-  // account the interruption carries — read from where that text is written
-  // rather than restated here, so dismissing the interruption and coming back
-  // to this row cannot present two versions of one fact.
-  //
-  // It replaces the single sentence that named the open folder rather than
-  // standing beside it: the account's own first sentence names that folder, and
-  // two statements of one fact on one hover is the reader reading the same thing
-  // twice and wondering which is current.
-  const account = workspaceAboveAccount(anchoredRoot, openedFolder, chosenFolder);
+  // The account is the whole of what the reader is told about the open folder,
+  // and it is the same account the interruption carries — the headline and the
+  // same two lines, read from where that text is written rather than restated
+  // here, so dismissing the interruption and coming back to this row cannot
+  // present two versions of one fact. Its second line is the one that names the
+  // open folder, so no other sentence on this hover names it again.
+  const account = workspaceAboveAccount(anchoredRoot, openedFolder);
   const opened = account === null ? '' : `\n${WORKSPACE_ABOVE_HEADLINE}\n${account.join('\n')}`;
-  const sole = candidates === 1 ? `\n${soleCandidateNote('workspace')}` : '';
   return {
     ...base,
     value: path.basename(anchoredRoot),
@@ -486,8 +479,12 @@ export function workspaceRow(
     // one, and a row that advertises an action and then declines it is worse
     // than one that says nothing. It is read from the choice's own module
     // because the status bar and the chooser make the same offer.
+    //
+    // It stands apart behind a blank line. It is the one line on this hover
+    // that says what a click does rather than what is true, and a reader
+    // looking for it finds it without reading the account above it.
     tooltip:
-      `${SELECTOR_ROW_LABELS.workspace}: ${anchoredRoot}\nThe Releases on offer are the ones inside this folder.${opened}${sole}\n${CHOOSE_ANCHOR_INVITATION}`,
+      `${SELECTOR_ROW_LABELS.workspace}: ${anchoredRoot}\nThe Releases on offer are the ones inside this folder.${opened}\n\n${CHOOSE_ANCHOR_INVITATION}`,
   };
 }
 
@@ -545,12 +542,7 @@ export function selectorRows(
 ): SelectorRow[] {
   return [
     projectFolderRow(chosenProjectFolder, candidates.projectFolders),
-    // The middle row takes BOTH folders, and neither stands in for the other.
-    // The opened one is what the workspace was reached from, which is what makes
-    // the row able to say the workspace sits somewhere else; the chosen one is
-    // the reader's answer, which is what decides where a build writes. The row
-    // says both things, so it is handed both values.
-    workspaceRow(anchoredRoot, openedFolder, candidates.aggregaWorkspaces, chosenProjectFolder),
+    workspaceRow(anchoredRoot, openedFolder, candidates.aggregaWorkspaces),
     releaseRow(state, candidates.releases),
   ];
 }

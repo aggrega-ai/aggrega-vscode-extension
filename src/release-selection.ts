@@ -3,7 +3,7 @@
 
 import * as path from 'path';
 import { ActiveReleaseResponse } from './types';
-import { SELECTOR_ROW_LABELS, soleCandidateNote } from './selector-levels';
+import { SELECTOR_ROW_LABELS } from './selector-levels';
 import { releaseParamFor } from './workspace';
 
 // SELECTED_RELEASE_STATE_KEY is the editor-local entry the chosen Release is
@@ -468,17 +468,23 @@ function describeUnnameable(release: string, root: string | null): string {
 // offerable is null where no enumeration has produced an answer, and that is a
 // third statement rather than a spelling of none — nobody has looked. It is
 // reported as what it is and never guessed at in either direction.
+//
+// The count tells the empty readings apart and does nothing else: the
+// explanation says nothing about how many Releases there are to choose
+// between, so it stays short enough to read, and the chooser a click opens
+// lists them, one or several.
 export function describeSelection(
   state: SelectionState,
   offerable: number | null,
 ): { label: string; value: string; detail: string } {
-  const sole = offerable === 1 ? `\n${soleCandidateNote('release')}` : '';
   switch (state.kind) {
     case 'selected':
       return {
         label: path.basename(state.absolute),
         value: state.release,
-        detail: `Aggrega selected Release: ${state.absolute}${sole}\nClick to select a different one`,
+        // The closing line stands apart behind a blank line: it is the one line
+        // that says what a click does rather than what is selected.
+        detail: `Aggrega selected Release: ${state.absolute}\n\nClick to choose a different release.`,
       };
     case 'none': {
       // The server's own account of why it named no default travels with the
@@ -507,7 +513,7 @@ export function describeSelection(
       return {
         label: `${SELECTOR_ROW_LABELS.release}: none selected`,
         value: 'none selected',
-        detail: `Aggrega: no ${SELECTOR_ROW_LABELS.release} is selected.${because}${sole}\nClick to select one.`,
+        detail: `Aggrega: no ${SELECTOR_ROW_LABELS.release} is selected.${because}\nClick to select one.`,
       };
     }
     case 'unknown':

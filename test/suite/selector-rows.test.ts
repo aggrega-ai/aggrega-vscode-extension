@@ -225,7 +225,7 @@ describe('the offer to open the Aggrega workspace', () => {
     // drawn, because both come from one comparison. A second comparison written
     // beside the first would agree until the day one of them was changed.
     const differing = workspaceRow(ANCHORED, OPENED_INSIDE, 2);
-    assert.ok(differing.tooltip.includes(`You opened ${OPENED_INSIDE}.`), differing.tooltip);
+    assert.ok(differing.tooltip.includes(`Project folder: ${OPENED_INSIDE}`), differing.tooltip);
     assert.notStrictEqual(differing.offer, null);
     // And the mark stands on the same occasions, from the same comparison. It is
     // read here beside the other two because a mark that appeared without the
@@ -234,7 +234,7 @@ describe('the offer to open the Aggrega workspace', () => {
     assert.notStrictEqual(differing.warning, null);
 
     const same = workspaceRow(ANCHORED, ANCHORED, 2);
-    assert.ok(!same.tooltip.includes('You opened '), same.tooltip);
+    assert.ok(!same.tooltip.includes('Project folder: '), same.tooltip);
     assert.strictEqual(same.offer, null);
     assert.strictEqual(same.warning, null);
 
@@ -320,29 +320,42 @@ describe('the offer to open the Aggrega workspace', () => {
 });
 
 describe('a level holding exactly one candidate', () => {
-  it('says there are no others, so a chooser of one does not read as broken', () => {
+  it('says there are no others on the Project folder row, so a chooser of one does not read as broken', () => {
     const rows = selectorRows(ANCHORED, OPENED_INSIDE, OPENED_INSIDE, SELECTED, ONE_OF_EACH);
     assert.ok(
       rows[0].tooltip.includes('Only one Project folder is available'),
       'the project row does not say it is the only one',
     );
     assert.ok(
-      rows[1].tooltip.includes('Only one Aggrega workspace is available'),
-      'the workspace row does not say it is the only one',
+      rows[0].tooltip.includes('no others to choose between'),
+      'the project row leaves the reader to press and find out',
     );
-    for (const row of rows.slice(0, 2)) {
-      assert.ok(
-        row.tooltip.includes('no others to choose between'),
-        `the ${row.key} row leaves the reader to press and find out`,
-      );
-    }
   });
 
-  it('says so on all three, now that all three have a count', () => {
-    const rows = selectorRows(ANCHORED, OPENED_INSIDE, OPENED_INSIDE, SELECTED, ONE_OF_EACH);
+  it('says nothing of the sort on the Aggrega workspace and Release rows, whatever the count', () => {
+    // Those two hovers are kept to what the reader acts on, and the chooser a
+    // click opens lists what there is. Every reading of both rows that offers a
+    // choice is swept at a count of one — with the workspace above the folder
+    // and at it, and with nothing anchored — because each is a reading a
+    // sole-candidate sentence could be written into.
+    const tooltips = [
+      ...selectorRows(ANCHORED, OPENED_INSIDE, OPENED_INSIDE, SELECTED, ONE_OF_EACH).slice(1),
+      ...selectorRows(ANCHORED, ANCHORED, ANCHORED, SELECTED, ONE_OF_EACH).slice(1),
+      workspaceRow(null, OPENED_INSIDE, 1),
+      releaseRow({ kind: 'none', reason: '' }, 1),
+    ].map((row) => row.tooltip);
+    for (const tooltip of tooltips) {
+      assert.ok(
+        !tooltip.includes('no others to choose between') && !tooltip.includes('Only one'),
+        `a row other than the Project folder row says it holds the only candidate:\n${tooltip}`,
+      );
+    }
+    // 🔴 THE CONTROL ON THAT SWEEP: the probe certainly fires on the one row that
+    // does carry the sentence, so the absences above are about the rows.
     assert.ok(
-      rows[2].tooltip.includes('Only one Release is available'),
-      'the Release row does not say it is the only one',
+      selectorRows(ANCHORED, OPENED_INSIDE, OPENED_INSIDE, SELECTED, ONE_OF_EACH)[0].tooltip
+        .includes('no others to choose between'),
+      'the probe matches nothing, so its absences mean nothing',
     );
   });
 
@@ -445,7 +458,7 @@ describe('the Aggrega workspace row', () => {
     assert.ok(differing.tooltip.includes(OPENED_INSIDE));
 
     const same = workspaceRow(ANCHORED, ANCHORED, 2);
-    assert.ok(!same.tooltip.includes('The open folder is'));
+    assert.ok(!same.tooltip.includes('Project folder: '), same.tooltip);
   });
 
   it('does not present the opened folder as the anchored one when none was reported', () => {
@@ -492,6 +505,12 @@ describe('the Aggrega workspace row', () => {
     assert.ok(
       /click to choose/i.test(unchosen.tooltip),
       'with workspaces available, choosing is exactly the thing to say',
+    );
+    // The closing line stands apart behind a blank line, on this reading as on
+    // the anchored one.
+    assert.ok(
+      unchosen.tooltip.endsWith('\n\nClick to choose one.'),
+      `the closing line is not set apart: ${JSON.stringify(unchosen.tooltip)}`,
     );
   });
 
@@ -540,6 +559,16 @@ describe('the Release row', () => {
       absolute: path.join(OPENED_INSIDE, 'release.yaml'),
     }, 2);
     assert.strictEqual(row.value, path.join('examples', 'one', 'release.yaml'));
+  });
+
+  it('closes a selection with the offer to choose a different one, set apart by a blank line', () => {
+    // Written out in full, so a line added, dropped or moved fails here. The
+    // count is one on purpose: that is the count at which a sole-candidate
+    // sentence would appear if one were still written into this hover.
+    assert.strictEqual(
+      releaseRow(SELECTED, 1).tooltip,
+      `Aggrega selected Release: ${SELECTED.absolute}\n\nClick to choose a different release.`,
+    );
   });
 
   it('separates no Release selected from no answer obtained', () => {

@@ -40,13 +40,15 @@ export const SELECTOR_ROW_LABELS: Record<SelectorRowKey, string> = {
   release: 'Release',
 };
 
-// soleCandidateNote is the sentence a level adds when it holds exactly one
-// candidate.
+// soleCandidateNote is the sentence a level's hover adds when it holds exactly
+// one candidate, in the level's own name, from the one place those names are
+// written.
 //
-// A chooser holding a single entry reads as broken — a reader presses it,
+// A chooser holding a single entry can read as broken — a reader presses it,
 // meets a list of one, and cannot tell whether that is the answer or a failure
-// to look. So the level says there is only one before they press, and it says
-// it in the level's own name, from the one place those names are written.
+// to look — so a level may say there is only one before they press. The Project
+// folder row says it. The Aggrega workspace and Release rows do not, so their
+// hovers stay short enough to read, and their choosers list what there is.
 export function soleCandidateNote(key: SelectorRowKey): string {
   return `Only one ${SELECTOR_ROW_LABELS[key]} is available, so there are no others to choose between.`;
 }

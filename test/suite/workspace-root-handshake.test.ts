@@ -216,7 +216,7 @@ describe('the two rows name the two places at the same moment', () => {
       + 'while leaving the row',
     );
     assert.ok(
-      workspace.tooltip.includes(`You opened ${layout.docs}.`),
+      workspace.tooltip.includes(`Project folder: ${layout.docs}`),
       `the workspace row must name the folder it differs from; tooltip was:\n${workspace.tooltip}`,
     );
   });
@@ -243,7 +243,7 @@ describe('the two rows name the two places at the same moment', () => {
       + 'separate fact exists to prevent',
     );
     assert.ok(
-      !workspace.tooltip.includes('The open folder is'),
+      !workspace.tooltip.includes('Project folder: '),
       'a collapse makes the difference test permanently false, so the row stops reporting the '
       + 'difference rather than reporting that there is none',
     );

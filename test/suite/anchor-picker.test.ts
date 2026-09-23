@@ -724,7 +724,7 @@ describe('one Aggrega workspace reached from two open folders', () => {
     );
   });
 
-  it('the panel reports one unambiguous answer, and says it is the only one', async () => {
+  it('the panel reports one unambiguous answer', async () => {
     const reached = await findAllAnchoredFolders([fakeFolder(underA), fakeFolder(underB)]);
     // What the language server reports having anchored to: it climbs from
     // whichever folder it was started at and settles on the same root.
@@ -733,9 +733,11 @@ describe('one Aggrega workspace reached from two open folders', () => {
 
     const row = workspaceRow(anchoredRoot, underA, reached.length);
     assert.strictEqual(row.value, path.basename(root));
+    // The row's hover says nothing about how many workspaces there are — the
+    // chooser lists them — so a single candidate draws no sentence of its own.
     assert.ok(
-      row.tooltip.includes(soleCandidateNote('workspace')),
-      `the row withholds the sole-candidate sentence where there is one candidate: ${row.tooltip}`,
+      !row.tooltip.includes(soleCandidateNote('workspace')),
+      `the row says only one workspace is available: ${row.tooltip}`,
     );
   });
 

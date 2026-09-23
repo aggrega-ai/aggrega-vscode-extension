@@ -23,69 +23,51 @@ import { workspaceSitsAboveFolder } from './workspace';
 // Both are composed here, from one text, so the account a reader dismisses and
 // the account they go back to cannot come to say different things.
 //
-// This module holds no editor type, so every sentence, every action and the
-// decision about whether to interrupt at all are assertable with no extension
-// host running. What needs the editor — raising the dialogue and acting on the
-// answer — stays where the editor is.
+// This module holds no editor type, so every sentence, every action, the
+// decision about whether to interrupt at all and the sequence that acts on the
+// reader's answer are drivable with no extension host running. What needs the
+// editor — putting the dialogue up, and opening a folder — is handed in by the
+// module where the editor is.
 
 // WORKSPACE_ABOVE_HEADLINE is the one sentence that names the state, and it is
-// the one line both surfaces open with.
+// the line both surfaces open with.
 //
 // It is also the mark's whole accessible name, which is why it is a complete
 // sentence rather than a label: a reader meeting the mark by keyboard is told
 // this and nothing else, and "warning" would tell them there is something to
 // know without telling them what it is.
 export const WORKSPACE_ABOVE_HEADLINE =
-  'Aggrega is working from a folder above the one you opened.';
+  'Aggrega is using a workspace from outside the folder you opened.';
 
-// workspaceAboveAccount is what the reader is told, as its paragraphs, or null
-// where the workspace does not sit above the folder at all.
+// workspaceAboveAccount is what the reader is told beneath the headline, as its
+// lines, or null where the workspace does not sit above the folder at all.
 //
-// Each sentence does a job and none of them is decoration. The first names the
-// folder they opened and the root, so the two are distinguishable. The second
-// says where settings and catalog locations are read from, which is the cause of
-// the surprises. It also warns that Releases from anywhere beneath the root can
-// appear, including ones outside this window, which is the surprise that
-// otherwise reads as a fault. The last is the one reassurance in it, and it says
-// where a build's output lands.
+// 🔴 IT IS THE TWO PATHS AND NOTHING ELSE. The reader acts on the paths — the
+// workspace they are being worked from, and the folder they opened — so each is
+// given on a line of its own, behind a label, in full. A full path rather than a
+// folder's last name, because this is read with none of the window around it and
+// two folders sharing a last name is the ordinary case rather than the odd one.
 //
-// 🔴 THE LAST SENTENCE HAS TWO FORMS BECAUSE THE BUILD HAS TWO BEHAVIOURS, and
-// telling the reader WHICH CASE THEY ARE IN is what makes the sentence true
-// rather than merely careful. A build request carries where inside the workspace
-// it writes, taken from the folder the reader works FROM; with no folder chosen
-// there is no such folder, the request carries nothing, and the build writes
-// where a build run at the workspace root writes. A single sentence covering
-// both would be a statement the reader has to work out how to apply to
-// themselves, on a surface they cannot dismiss without reading.
+// The first label is the bare word, and that is safe here in a way it is not on
+// the row: the headline immediately above it has just said whose workspace it
+// is. The second is the level's own name, read from the one place the levels
+// are named, so the account and the row above it cannot call one level two
+// different things.
 //
 // 🔴 IT NAMES NO DISTANCE. The walk that finds the workspace climbs to the
 // nearest marked ancestor, which may be several directories up, so any phrasing
 // counting the levels would be false for every reader deeper than the count —
-// and false in precisely the deep tree this is most worth saying in. The reader
-// acts on the PATH; a number changes nothing they would do differently and is
-// one more fact to keep true as the walk changes.
-//
-// The folder the reader works from is the folder the workspace was reached from
-// whenever they have chosen one at all — choosing scopes the search to that
-// folder — so the two sentences that name it name one directory rather than
-// risking two.
+// and false in precisely the deep tree this is most worth saying in. A number
+// changes nothing the reader would do differently and is one more fact to keep
+// true as the walk changes.
 export function workspaceAboveAccount(
   anchoredRoot: string | null,
   openedFolder: string | null,
-  chosenFolder: string | null,
 ): string[] | null {
   if (!workspaceSitsAboveFolder(anchoredRoot, openedFolder)) { return null; }
-  const destination = chosenFolder === null
-    ? `Builds write into ${anchoredRoot}, the ${SELECTOR_ROW_LABELS.workspace}, because you `
-      + 'have not chosen a folder to work from. This is outside the folder opened in the editor.'
-    : `Builds still write into ${chosenFolder}, where you can see them.`;
   return [
-    `You opened ${openedFolder}. The ${SELECTOR_ROW_LABELS.workspace} it belongs to is `
-    + `${anchoredRoot}, outside this window.`,
-    `Settings and catalog locations are read from ${anchoredRoot}, and `
-    + `${SELECTOR_ROW_LABELS.release}s anywhere beneath it can appear here, including ones you `
-    + 'cannot open from this window.',
-    destination,
+    `Workspace: ${anchoredRoot}`,
+    `${SELECTOR_ROW_LABELS.project}: ${openedFolder}`,
   ];
 }
 
@@ -124,84 +106,98 @@ export interface WorkspaceAboveNotice {
 // 🔴 IT CARRIES NO MARKUP AND NO ICON, and both absences are the content
 // arriving rather than being dropped. The dialogue renders plain text, so an
 // emphasis marker would reach the reader as the two characters it is written
-// with and read as a rendering fault; the emphasis the account asks for on its
-// opening sentence is carried by the dialogue's own message slot, which the
-// editor draws heavier and larger than the detail beneath it. The warning
-// pictograph is the editor's too — a warning dialogue draws one — so writing one
-// would put a second triangle beside the first.
+// with and read as a rendering fault; the weight the headline asks for is
+// carried by the dialogue's own message slot, which the editor draws heavier
+// than the detail beneath it. The warning pictograph is the editor's too — a
+// warning dialogue draws one — so writing one would put a second triangle beside
+// the first.
 //
-// The opening action names the destination AND what pressing costs. Opening a
-// folder takes the window down and stands it back up, with this extension, the
+// The opening action says what pressing costs as well as where it goes. Opening
+// a folder takes the window down and stands it back up, with this extension, the
 // language server and everything unsaved in the window going with it, so a name
 // giving only the destination would be accurate and would still surprise every
-// reader who pressed it. That is the same reason the row's own offer carries its
-// consequence, and the two say it the same way.
+// reader who pressed it.
+//
+// 🔴 NO ACTION CARRIES A PATH. The dialogue lays its buttons out itself, and what
+// an extension controls is how wide they are — which is set by their labels. The
+// workspace's path is on the line directly above the buttons, so repeating it in
+// a label would widen the whole dialogue to say something already said.
 export function workspaceAboveNotice(
   anchoredRoot: string | null,
   openedFolder: string | null,
-  chosenFolder: string | null,
 ): WorkspaceAboveNotice | null {
-  const account = workspaceAboveAccount(anchoredRoot, openedFolder, chosenFolder);
+  const account = workspaceAboveAccount(anchoredRoot, openedFolder);
   if (account === null) { return null; }
   return {
     message: WORKSPACE_ABOVE_HEADLINE,
-    detail: account.join('\n\n'),
+    detail: account.join('\n'),
     actions: [
-      { title: `Open ${anchoredRoot}. The window reloads.`, choice: 'open' },
+      { title: 'Open workspace (reloads the window)', choice: 'open' },
       { title: 'Continue here', isCloseAffordance: true, choice: 'continue' },
       { title: 'Don\'t show again for this folder', choice: 'silence' },
     ],
   };
 }
 
-// WORKSPACE_ABOVE_TOLD_STATE_KEY is the editor-local entry recording which
-// folders the interruption has already been raised for, against the workspace it
-// was raised about.
+// FoldersTold records which folders this window has interrupted the reader
+// about, against the workspace each was interrupted about.
 //
-// 🔴 IT IS KEYED BY FOLDER INSIDE THE ENTRY, AND THAT IS WHAT MAKES IT A
-// PER-FOLDER FACT. The store the editor gives an extension is scoped to the
-// window rather than to a folder, so a window with several folders open shares
-// one entry — and a single value there would mean telling a reader about one
-// folder silenced the account for every other folder they went on to work from.
+// 🔴 IT LIVES NO LONGER THAN THE WINDOW, AND THAT IS ITS WHOLE CONTRACT. It is
+// held in memory and is handed no store — its constructor takes nothing — so
+// nothing it records can outlast the extension host it was made in, which a
+// reload and a relaunch both replace. A new window on the same folder is told
+// again, unless the reader asked not to be. Kept beside the reader's own answer
+// in the editor's store instead, it would make "Continue here" do what "Don't
+// show again for this folder" does, so a reader who asked for nothing would
+// never be told again; and a raise they never saw — a dialogue the editor held
+// back while starting, a window closed before it drew — would spend the
+// interruption for good rather than for one window.
 //
-// The workspace is recorded beside the folder rather than the folder alone,
-// because the account is about a PAIR. A folder whose workspace has moved — a
+// Keyed by folder, because a window with several folders open is told about
+// each one it works from. And the workspace is recorded beside the folder,
+// because the account is about a PAIR: a folder whose workspace has moved — a
 // marker written closer to it, or the one above it removed — is a different fact
 // from the one the reader was told, and a record that could not tell the two
-// apart would leave them with an account that had quietly stopped being true.
-export const WORKSPACE_ABOVE_TOLD_STATE_KEY = 'aggrega.workspaceAboveTold';
+// apart would leave them holding an account that had quietly stopped being true.
+export class FoldersTold {
+  private readonly byFolder = new Map<string, string>();
+
+  // has reports whether this window has told the reader about the folder,
+  // against this workspace.
+  has(openedFolder: string, anchoredRoot: string): boolean {
+    return this.byFolder.get(openedFolder) === anchoredRoot;
+  }
+
+  // record notes that the reader has been told about the folder, against this
+  // workspace.
+  record(openedFolder: string, anchoredRoot: string): void {
+    this.byFolder.set(openedFolder, anchoredRoot);
+  }
+}
 
 // WORKSPACE_ABOVE_SILENCED_STATE_KEY is the editor-local entry listing the
 // folders the reader has asked not to be interrupted about again.
 //
-// It is a second entry rather than a value inside the first, and the difference
-// is which fact each records. The first is something this extension did; this is
-// something the reader SAID, and a reader's answer outlives every workspace that
-// folder may come to resolve to. Folding them together would either make the
-// reader's answer expire when a marker moved, or make this extension's own
-// bookkeeping read as a decision they never took.
+// 🔴 IT IS THE ONLY PART OF THIS THAT OUTLIVES A WINDOW, because it is the only
+// part the reader SAID. What this extension did — raise the dialogue — is held
+// for the window's life and no longer; what the reader answered is kept, and it
+// outlives every workspace that folder may come to resolve to.
+//
+// 🔴 IT IS KEYED BY FOLDER INSIDE THE ENTRY, AND THAT IS WHAT MAKES IT A
+// PER-FOLDER ANSWER. The store the editor gives an extension is scoped to the
+// window's folder or workspace rather than to a folder inside it, so a window
+// with several folders open shares one entry — and a single value there would
+// mean silencing one folder silenced every other folder the reader went on to
+// work from.
 export const WORKSPACE_ABOVE_SILENCED_STATE_KEY = 'aggrega.workspaceAboveSilenced';
 
-// readFoldersTold reports which folders have been interrupted about, against the
-// workspace each was interrupted about.
-//
-// Anything that is not the recorded shape reads as nothing recorded. A window
-// carrying state written by an older version of this extension is the ordinary
-// way that happens, and the honest reading of an entry this version cannot
-// understand is that the reader has not been told.
-export function readFoldersTold(state: WorkspaceStateLike): Record<string, string> {
-  const raw = state.get<unknown>(WORKSPACE_ABOVE_TOLD_STATE_KEY);
-  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) { return {}; }
-  const told: Record<string, string> = {};
-  for (const [folder, root] of Object.entries(raw as Record<string, unknown>)) {
-    if (typeof root === 'string' && root.length > 0) { told[folder] = root; }
-  }
-  return told;
-}
-
 // readFoldersSilenced reports which folders the reader has asked not to be
-// interrupted about. A value that is not a list of paths reads as none, for the
-// reason the reading above states.
+// interrupted about.
+//
+// A value that is not a list of paths reads as none. A window carrying state
+// written by an older version of this extension is the ordinary way that
+// happens, and the honest reading of an entry this version cannot understand is
+// that the reader has not asked.
 export function readFoldersSilenced(state: WorkspaceStateLike): string[] {
   const raw = state.get<unknown>(WORKSPACE_ABOVE_SILENCED_STATE_KEY);
   if (!Array.isArray(raw)) { return []; }
@@ -212,37 +208,19 @@ export function readFoldersSilenced(state: WorkspaceStateLike): string[] {
 //
 // Three things have to hold and each rules out a different way of being wrong:
 // the workspace has to sit above the folder at all, the reader must not have
-// asked to be left alone about that folder, and they must not already have been
-// told about this workspace for it. The condition itself is read from the one
-// comparison of those two paths rather than made again here.
+// asked to be left alone about that folder, and this window must not already
+// have told them about this workspace for it. The condition itself is read from
+// the one comparison of those two paths rather than made again here.
 export function workspaceAboveNoticeDue(
-  state: WorkspaceStateLike,
+  silenced: WorkspaceStateLike,
+  told: FoldersTold,
   anchoredRoot: string | null,
   openedFolder: string | null,
 ): boolean {
   if (!workspaceSitsAboveFolder(anchoredRoot, openedFolder)) { return false; }
   const folder = openedFolder as string;
-  if (readFoldersSilenced(state).includes(folder)) { return false; }
-  return readFoldersTold(state)[folder] !== anchoredRoot;
-}
-
-// recordFolderTold records that the interruption has been raised for one folder,
-// against the workspace it was raised about.
-//
-// It is written BEFORE the dialogue is put in front of anyone rather than after
-// they answer it. A dialogue stands until it is dismissed, and re-evaluating the
-// open folders is something the editor asks for whenever they change — so a
-// record written on the answer would let a second dialogue be raised behind the
-// first, and a reader would dismiss the same account twice.
-export async function recordFolderTold(
-  state: WorkspaceStateLike,
-  openedFolder: string,
-  anchoredRoot: string,
-): Promise<void> {
-  await state.update(WORKSPACE_ABOVE_TOLD_STATE_KEY, {
-    ...readFoldersTold(state),
-    [openedFolder]: anchoredRoot,
-  });
+  if (readFoldersSilenced(silenced).includes(folder)) { return false; }
+  return !told.has(folder, anchoredRoot as string);
 }
 
 // silenceFolder records that the reader has asked not to be interrupted about
@@ -258,4 +236,51 @@ export async function silenceFolder(
   const silenced = readFoldersSilenced(state);
   if (silenced.includes(openedFolder)) { return; }
   await state.update(WORKSPACE_ABOVE_SILENCED_STATE_KEY, [...silenced, openedFolder]);
+}
+
+// WorkspaceAboveEditor is the two things the interruption needs the editor for:
+// putting the dialogue in front of the reader, and opening the workspace as the
+// window's folder when they ask for it.
+//
+// raise answers with the action pressed, or with nothing where the dialogue was
+// closed without one.
+export interface WorkspaceAboveEditor {
+  raise(notice: WorkspaceAboveNotice): Thenable<WorkspaceAboveAction | undefined>;
+  openWorkspace(): Thenable<void>;
+}
+
+// tellWorkspaceAboveIfDue interrupts the reader where they are due to be told,
+// acts on their answer, and reports what the answer meant — or null where
+// nothing was raised.
+//
+// The folder is recorded as told BEFORE the dialogue is put in front of anyone
+// rather than after they answer it. A dialogue stands until it is dismissed, and
+// re-evaluating the open folders is something the editor asks for whenever they
+// change — so a record written on the answer would let a second dialogue be
+// raised behind the first, and a reader would dismiss the same account twice.
+// The record lives for the window only, so a raise the reader never saw costs
+// them this window's interruption and not the next one's.
+//
+// 🔴 A DIALOGUE CLOSED WITH NO ACTION MEANS "CONTINUE HERE". That is the action
+// the dialogue declares as its close affordance, so the keyboard, the close
+// control and the middle action all reach the same place — and none of them
+// writes anything, so a new window tells the reader again. Only the press that
+// asks for silence is kept.
+export async function tellWorkspaceAboveIfDue(
+  silenced: WorkspaceStateLike,
+  told: FoldersTold,
+  editor: WorkspaceAboveEditor,
+  anchoredRoot: string | null,
+  openedFolder: string | null,
+): Promise<WorkspaceAboveChoice | null> {
+  if (!workspaceAboveNoticeDue(silenced, told, anchoredRoot, openedFolder)) { return null; }
+  const notice = workspaceAboveNotice(anchoredRoot, openedFolder);
+  if (notice === null) { return null; }
+  const folder = openedFolder as string;
+  told.record(folder, anchoredRoot as string);
+  const answer = await editor.raise(notice);
+  const choice = answer?.choice ?? 'continue';
+  if (choice === 'silence') { await silenceFolder(silenced, folder); }
+  if (choice === 'open') { await editor.openWorkspace(); }
+  return choice;
 }
