@@ -2,6 +2,7 @@
 // Copyright 2026 Cognitio S.r.l.
 
 import * as fs from 'fs/promises';
+import { loadAll } from 'js-yaml';
 import * as path from 'path';
 import { SELECTOR_ROW_LABELS } from './selector-levels';
 
@@ -647,23 +648,35 @@ async function readdirSafe(dir: string): Promise<string[]> {
   }
 }
 
-// hasWorkspaceBlock reports whether the file at p exists and declares a
-// top-level `workspace:` key — the marker that anchors a workspace root. A
-// file without it (a bare settings/global config) does not anchor. This is the
+// hasWorkspaceBlock reports whether the file at p exists and carries a
+// top-level `workspace` key — the marker that anchors a workspace root. A file
+// without it (a bare settings/global config) does not anchor. This is the
 // client-side, pre-daemon counterpart to the Go side's raw-document
-// `workspace:` probe; both treat presence of the key — including the empty
-// `workspace: {}` form — as the marker. The cross-language parity test asserts
-// the two agree on the shared fixtures. The probe is intentionally shallow (a
-// top-level, unindented `workspace:` key) rather than a full YAML parse: the
-// extension does no YAML parsing, and discovery runs before any daemon exists.
+// `workspace` probe; both treat presence of the key — including the empty
+// `workspace: {}` form — as the marker. It asks the compiler's question in this
+// language and reads none of the compiler's code: the cross-language parity
+// test is what holds the two answers together, over the shared fixtures.
 //
-// A quoted key is the same key. YAML lets a mapping key be written bare or
-// quoted, and the compiler reads the document rather than its lines, so
-// `"workspace":` and `'workspace':` name exactly what `workspace:` names —
-// which is why all three spellings anchor here too. Accepting them is one more
-// spelling of one key, and leaves the probe a line pattern rather than making
-// it a parser: an editor that has to answer "is this a workspace" before any
-// language server exists cannot afford to require a readable document.
+// 🔴 THE DOCUMENT IS PARSED RATHER THAN SCANNED FOR A LINE, BECAUSE A LINE
+// SHAPED LIKE THE KEY IS NOT ALWAYS THE KEY AND THE KEY IS NOT ALWAYS A LINE.
+// A document whose root is a block scalar is one string, so a `workspace:`
+// line inside it names nothing. A flow mapping, `{workspace: {}}`, carries the
+// key with no line beginning with it. A quoted key is the same key as a bare
+// one. Each of those is a question about what the document IS rather than how
+// its lines read, and a parse answers every one of them the way the compiler's
+// discovery does, with no special case for any.
+//
+// It reads that one key and judges nothing else. A file whose other settings
+// the compiler would refuse still anchors here, because whether the rest of
+// the file is acceptable is the compiler's question and not discovery's.
+//
+// A document that does not parse anchors nothing. That is the compiler's
+// answer too: its discovery finds no key in a file it cannot read, and climbs
+// on past it, so a Release in a folder below that file roots the workspace
+// there for both. What it costs is one reader: the one whose only marker is a
+// configuration that is unreadable when the editor looks for the workspace,
+// who is told that no workspace is available rather than shown what is wrong
+// with the file.
 async function hasWorkspaceBlock(p: string): Promise<boolean> {
   let content: string;
   try {
@@ -671,11 +684,31 @@ async function hasWorkspaceBlock(p: string): Promise<boolean> {
   } catch {
     return false;
   }
-  // A top-level mapping key has no leading indentation, so the match is
-  // anchored at the start of a line with nothing before the key. Trailing
-  // content (`workspace: {}`, a nested block below) is immaterial: presence of
-  // the key is the whole marker.
-  return /^(?:workspace|"workspace"|'workspace')[ \t]*:/m.test(content);
+  return firstDocumentCarriesWorkspaceKey(content);
+}
+
+// firstDocumentCarriesWorkspaceKey reports whether the first document of a YAML
+// text parses to a mapping with a top-level `workspace` key.
+//
+// Only the first document is asked, because it is the only one the compiler's
+// discovery reads: a key in a later document marks nothing. The parser builds
+// every document before it answers, though, so a later document that does not
+// parse makes this answer no where the compiler, reading the first alone,
+// answers yes.
+function firstDocumentCarriesWorkspaceKey(content: string): boolean {
+  let first: unknown;
+  try {
+    [first] = loadAll(content);
+  } catch {
+    return false;
+  }
+  // A mapping is the one node that carries keys. A sequence arrives as an
+  // array and is refused by name; a scalar arrives as a value with no own
+  // `workspace` property, which the last test refuses.
+  return typeof first === 'object'
+    && first !== null
+    && !Array.isArray(first)
+    && Object.hasOwn(first, 'workspace');
 }
 
 async function isDirectory(p: string): Promise<boolean> {

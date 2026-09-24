@@ -71,7 +71,7 @@ interface ParityCase {
 // package that declares a suite no target runs. And it says nothing about the
 // Go side's execution: it pins this side's reading, and two greens pinned to
 // one revision are what jointly mean both sides read it.
-const WANT_FIXTURE_REVISION = 2;
+const WANT_FIXTURE_REVISION = 3;
 
 describe('workspace-discovery cross-language parity', function () {
   let cases: ParityCase[] | null = null;

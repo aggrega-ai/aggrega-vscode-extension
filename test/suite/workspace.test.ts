@@ -155,6 +155,132 @@ describe('findAggregaWorkspaceAnchor', () => {
     }
   });
 
+  // anchorsConfig writes one configuration into a directory of its own and
+  // answers whether the climb from there anchors on it. Each row gets its own
+  // directory so a row cannot be answered by a file another row wrote.
+  async function anchorsConfig(row: string, content: string): Promise<boolean> {
+    const dir = path.join(tmpRoot, row);
+    await fs.mkdir(dir, { recursive: true });
+    const cfgPath = path.join(dir, '.aggrega-config.yaml');
+    await fs.writeFile(cfgPath, content);
+    return (await findAggregaWorkspaceAnchor(dir)) === cfgPath;
+  }
+
+  // A line shaped like the key is text, not a key, when it sits inside a block
+  // scalar, and the compiler finds no key there. A document whose root is a
+  // block scalar is one string, so every spelling of that root is spread out
+  // here — each header form, and each thing that may stand in front of one —
+  // alongside the text of a scalar written under a key.
+  it('does not anchor on a workspace line that is text inside a block scalar', async () => {
+    const rows = [
+      '|\nworkspace: {}\n',
+      '>\nworkspace: {}\n',
+      '|-\nworkspace: {}\n',
+      '>+\nworkspace: {}\n',
+      '| # notes\nworkspace: {}\n',
+      '  |\nworkspace: {}\n',
+      '|\n  text\nworkspace: {}\n',
+      '|\r\nworkspace: {}\r\n',
+      '--- |\nworkspace: {}\n',
+      '---\n|\nworkspace: {}\n',
+      '# notes\n\n|\nworkspace: {}\n',
+      '# notes\n--- >\nworkspace: {}\n',
+      '%YAML 1.2\n---\n|\nworkspace: {}\n',
+      '!!str |\nworkspace: {}\n',
+      '&notes |\nworkspace: {}\n',
+      '!!str\n|\nworkspace: {}\n',
+      '--- !!str\n|\nworkspace: {}\n',
+      'default_registry: |\n  workspace: {}\n',
+    ];
+    for (const [i, content] of rows.entries()) {
+      assert.strictEqual(
+        await anchorsConfig(`block-scalar-${i}`, content),
+        false,
+        `a configuration reading ${JSON.stringify(content)} anchors, though the compiler finds no workspace key in it`,
+      );
+    }
+  });
+
+  // 🔴 THE OTHER HALF, AND THE ONE A RULE REFUSING THE ROWS ABOVE BREAKS FIRST.
+  // A block scalar written under a key ends at the first line that starts at
+  // column 0, so a `workspace:` key after one is a real key and the compiler
+  // anchors on it. A rule that stopped reading keys at the first `|` or `>`
+  // would refuse these while every row above still passed.
+  it('still anchors on a workspace key written beside a block scalar', async () => {
+    const rows = [
+      'default_registry: |\n  r.io\nworkspace: {}\n',
+      'default_registry: >-\n  r.io\nworkspace: {}\n',
+      'workspace: {}\ndefault_registry: |-\n  r.io\n',
+      '---\nworkspace: {}\n',
+      '&root\nworkspace: {}\n',
+    ];
+    for (const [i, content] of rows.entries()) {
+      assert.strictEqual(
+        await anchorsConfig(`beside-block-scalar-${i}`, content),
+        true,
+        `a configuration reading ${JSON.stringify(content)} does not anchor, though the compiler reads its workspace key as a key`,
+      );
+    }
+  });
+
+  // The key is a key of the document however the mapping holding it is written
+  // — a flow mapping, an explicit key, a byte-order mark in front, none of which
+  // puts the key at the start of a line — and whatever stands around it: a
+  // CRLF line end, a document end marker, a later document, a key of another
+  // type beside it. The compiler anchors on every row, a key whose value is
+  // empty included: it anchors there and then refuses the file, and that
+  // refusal is not discovery's to make.
+  it('anchors on a workspace key however the mapping holding it is written', async () => {
+    const rows = [
+      '{workspace: {}}\n',
+      '{"workspace": {}}\n',
+      '? workspace\n: {}\n',
+      '\uFEFFworkspace: {}\n',
+      'workspace: {}\r\n',
+      'workspace:\n',
+      'workspace: {}\n...\n',
+      'workspace: {}\n---\ndefault_registry: r.io\n',
+      'workspace: {}\n1: one\n',
+    ];
+    for (const [i, content] of rows.entries()) {
+      assert.strictEqual(
+        await anchorsConfig(`mapping-form-${i}`, content),
+        true,
+        `a configuration reading ${JSON.stringify(content)} does not anchor, though the compiler reads its workspace key as a key`,
+      );
+    }
+  });
+
+  // A configuration anchors only when its first document is a mapping carrying
+  // the key at its top level. Each row below is not that: its root is a quoted
+  // string, a sequence or a plain scalar; the key sits one level down, or in a
+  // later document; the document does not parse; or there is no document at
+  // all. The compiler finds no workspace key in any of them, so none of them
+  // anchors.
+  it('does not anchor unless the first document is a mapping carrying the key', async () => {
+    const rows = [
+      '"text\nworkspace: {}"\n',
+      '- |\nworkspace: {}\n',
+      '- workspace: {}\n',
+      'workspace\n',
+      'workspace:{}\n',
+      'nested:\n  workspace: {}\n',
+      'a: 1\n---\nworkspace: {}\n',
+      'workspace: {}\nfoo: [\n',
+      'workspace: {}\nworkspace: {}\n',
+      'workspace:\n\tfoo: 1\n',
+      '# only a comment\n',
+      '',
+    ];
+    for (const [i, content] of rows.entries()) {
+      assert.strictEqual(
+        await anchorsConfig(`not-a-keyed-mapping-${i}`, content),
+        false,
+        `a configuration reading ${JSON.stringify(content)} anchors, though the compiler finds no workspace key in it`,
+      );
+    }
+  });
+
   it('priority tiebreak: workspace: config wins over aggregate.yaml in same dir', async () => {
     const cfgPath = path.join(tmpRoot, '.aggrega-config.yaml');
     await fs.writeFile(cfgPath, 'workspace: {}\n');
