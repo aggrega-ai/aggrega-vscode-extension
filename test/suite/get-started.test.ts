@@ -2208,7 +2208,7 @@ describe('the welcome panel', () => {
       );
     });
 
-    // 🔴 THE EXTENSION'S OWN VERSION HAS ONE HOME AND IT IS THE MANIFEST. A
+    // 🔴 THE EXTENSION'S RELEASE NUMBER HAS ONE HOME AND IT IS THE MANIFEST. A
     // release moves it there; a literal anywhere in the source would be a second
     // one, correct until the first release that forgot it. This is a census over
     // the whole source tree rather than a look at the one module that reads it,

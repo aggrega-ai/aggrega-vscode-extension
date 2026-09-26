@@ -101,13 +101,26 @@ page and leaves your startup setting exactly where you put it: looking at the pa
 turn it back on. The palette command is what does that, because turning it back on is a decision
 rather than a glance.
 
-**The page reports what you are running, at its foot.** Two readings sit there: **Extension**, the
-version of this extension as your editor has it installed, and **Compiler**, what the `aggrega`
-binary the language server is running says about itself. Neither is written into the page — both are
-read when the page is drawn, so a development build reports itself as one rather than showing
-nothing, and restarting onto a different compiler moves the reading. Where a reading cannot be taken
-— nothing is running to ask, or what is running did not answer — the label stays and says the
-version was not reported, so an absent reading is never mistaken for one you failed to notice.
+**The page reports what you are running, at its foot.** Two readings sit there: **Extension**, which
+build of this extension your editor has loaded, and **Compiler**, what the `aggrega` binary the
+language server is running says about itself. The Extension reading is recorded when the extension is
+built, from the state of its source at that moment, in the same form the compiler's own build uses
+for its version — so a development window, an installed copy and a copy packaged from an edited tree
+each say which one they are:
+
+- a release tag alone, such as `0.2.0`, means the build is exactly that release;
+- a tag followed by a count and a commit, such as `0.2.0-3-g1a2b3c4`, means a build from commit
+  `1a2b3c4`, three commits after that release — and a commit alone, such as `1a2b3c4`, means a build
+  from that commit where no release precedes it;
+- a `-dirty` suffix on any of these means the build was made from a copy of the source carrying
+  changes that had not been committed;
+- `dev` means the build was made where the source's history could not be read.
+
+Neither reading is written into the page — both are read when the page is drawn, so a development
+build reports itself as one rather than showing nothing, and restarting onto a different compiler
+moves the reading. Where a reading cannot be taken — the extension was built without recording which
+build it is, nothing is running to ask, or what is running did not answer — the label stays and says
+the version was not reported, so an absent reading is never mistaken for one you failed to notice.
 
 ## Features
 

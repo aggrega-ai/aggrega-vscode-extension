@@ -571,8 +571,9 @@
   "scripts": {
     "vscode:prepublish": "npm run compile",
     "build-wire-contract": "npm --prefix ../aggrega-abi/typescript install && npm --prefix ../aggrega-abi/typescript run build",
-    "compile": "npm run build-wire-contract && tsc -p ./ && npm run copy-vendor-assets",
+    "compile": "npm run build-wire-contract && tsc -p ./ && npm run copy-vendor-assets && npm run stamp-build-version",
     "copy-vendor-assets": "node build/copy-vendor-assets.js",
+    "stamp-build-version": "node build/stamp-build-version.js",
     "watch": "tsc -watch -p ./",
     "build-fixtures": "node out/test/helpers/build-aggrega.js",
     "pretest": "npm run compile && npm run build-fixtures",

@@ -247,12 +247,12 @@ export function dismissHtml(opensWithEditor: boolean): string {
 // VersionStandings is what the page reports about the two pieces of software a
 // reader is actually running.
 //
-// 🔴 NEITHER FIELD HAS A DEFAULT AND NEITHER IS WRITTEN DOWN ANYWHERE. Both are
-// readings taken at the moment the page is composed — one from the editor's own
-// record of this installed extension, the other from asking the compiler that is
-// running. A constant would be a second copy of a number that moves on a release
-// nobody would think to tie to this file, and a copy that is wrong is worse than
-// a reading that is absent.
+// 🔴 NEITHER FIELD HAS A DEFAULT AND NEITHER IS HELD IN THE SOURCE. Both are
+// readings taken at the moment the page is composed — one from the build stamp the
+// running copy of the extension carries, the other from asking the compiler that
+// is running. A constant would be a second copy of a value that moves with every
+// build, tied to nothing that moves it, and a copy that is wrong is worse than a
+// reading that is absent.
 //
 // `null` means the reading was not obtained, which is a different statement from
 // any particular version and is drawn as one.

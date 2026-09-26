@@ -2,10 +2,12 @@
 // Copyright 2026 Cognitio S.r.l.
 
 import { execFile } from 'child_process';
+import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import type { AttachmentContainerRequest } from './attachment-edit';
 import { buildParams, buildPreviewParams } from './build-dials';
+import { readBuildStamp } from './build-stamp';
 import { CancellationSignal } from './cancellation';
 import type { RegistrySearchParams, SearchDoc } from './catalog-search-run';
 import type { ConfigInitParams, ConfigInitResult } from './config-seeding';
@@ -1857,11 +1859,16 @@ async function runCompatibilityCheck(): Promise<void> {
 // readRunningVersions reports what this extension and the compiler in use say
 // about themselves, for the surface that shows them.
 //
-// 🔴 THE EXTENSION'S VERSION IS READ FROM THE EDITOR'S OWN RECORD OF THIS
-// INSTALLATION, never held here. The manifest already declares it, a release
-// moves it there, and a constant beside this line would be a second one somebody
-// would have to remember to move in step — which is exactly the kind of copy
-// that is wrong only after a release.
+// 🔴 THE EXTENSION'S VERSION IS THE BUILD STAMP THIS INSTALLATION CARRIES, READ
+// FROM WHERE THE EDITOR LOADED IT, NEVER THE MANIFEST'S VERSION. The manifest's
+// number is the same for every build made between two releases, so a development
+// window, an installed copy and a copy packaged from an edited tree would all
+// report one value and a reader could not tell which of them is running. The
+// stamp is written by the compile from the compiler's own build-provenance
+// recipe, so it names the commit a build came from and whether its tree had
+// uncommitted changes. Where the copy carries no stamp the reading is absent,
+// rather than the manifest's number standing in for a provenance nobody
+// established.
 //
 // 🔴 AND THE COMPILER IS ASKED THROUGH THE BINARY THE LANGUAGE SERVER WAS
 // ACTUALLY STARTED FROM, NOT THE CONFIGURED ONE. The two diverge whenever the
@@ -1872,13 +1879,15 @@ async function runCompatibilityCheck(): Promise<void> {
 // reported as an absence rather than substituted for with the configured path's
 // answer.
 //
-// A read that fails is an absent reading rather than a message on the page: the
-// reader cannot act on a spawn error and the page is not where a diagnosis
-// belongs, so the detail goes to the output channel where the rest of this
-// extension's diagnosis goes.
+// A compiler read that fails is an absent reading rather than a message on the
+// page: the reader cannot act on a spawn error and the page is not where a
+// diagnosis belongs, so the detail goes to the output channel where the rest of
+// this extension's diagnosis goes.
 async function readRunningVersions(): Promise<VersionStandings> {
   const ext = vscode.extensions.getExtension(EXTENSION_ID);
-  const extensionVersion = (ext?.packageJSON as { version?: string } | undefined)?.version ?? null;
+  const extensionVersion = ext
+    ? readBuildStamp(ext.extensionPath, (file) => fs.readFileSync(file, 'utf8'))
+    : null;
   const running = daemon?.getLaunchedBinaryPath() ?? null;
   if (running === null) {
     return { extension: extensionVersion, compiler: null };
