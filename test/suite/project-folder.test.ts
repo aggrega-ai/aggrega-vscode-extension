@@ -8,12 +8,16 @@ import {
   ADD_FOLDER_DIALOG,
   CHOOSE_PROJECT_FOLDER_COMMAND,
   FolderAddingEditor,
+  FolderOpeningEditor,
+  OPEN_FOLDER_DIALOG,
   PROJECT_FOLDER_STATE_KEY,
   WindowKind,
+  addFolderDetail,
   buildProjectFolderItems,
   isSavedProjectFolderValid,
-  openOtherFolderDetail,
+  openFolderDetail,
   pickAndAddFolder,
+  pickAndOpenFolder,
   projectFolderInForce,
   projectFolderOffers,
   readSavedProjectFolder,
@@ -213,12 +217,14 @@ describe('what the Project folder row opens', () => {
     );
   });
 
-  it('offers every open folder and, last, the way to reach one that is not open', () => {
+  it('offers every open folder and, last, the entry that opens one and the entry that adds one', () => {
     const offers = projectFolderOffers(OPEN_FOLDERS, ON_WORKSPACE_FILE);
+    // 🔴 TWO ENTRIES, IN THIS ORDER, BECAUSE THEY ARE TWO ACTS: opening puts the
+    // window on the folder picked alone, and adding puts it beside the ones open.
     assert.deepStrictEqual(
       offers.map((o) => o.kind),
-      ['open', 'open', 'other'],
-      'the way to open another folder is not the last entry, or is missing entirely',
+      ['open', 'open', 'reopen', 'add'],
+      'the entry that opens a folder and the entry that adds one are not the last two, in that order',
     );
     assert.deepStrictEqual(
       offers.filter((o) => o.kind === 'open').map((o) => o.description),
@@ -231,15 +237,15 @@ describe('what the Project folder row opens', () => {
     // control ran, which is the same reason the level beneath offers its sole
     // candidate.
     const offers = projectFolderOffers([{ uri: { fsPath: FIRST } }], ON_WORKSPACE_FILE);
-    assert.deepStrictEqual(offers.map((o) => o.kind), ['open', 'other']);
+    assert.deepStrictEqual(offers.map((o) => o.kind), ['open', 'reopen', 'add']);
   });
 
-  it('still offers the way out where the window has no folder at all', () => {
+  it('still offers both ways out where the window has no folder at all', () => {
     const offers = projectFolderOffers([], ON_WORKSPACE_FILE);
-    assert.deepStrictEqual(offers.map((o) => o.kind), ['other']);
+    assert.deepStrictEqual(offers.map((o) => o.kind), ['reopen', 'add']);
     assert.ok(
-      !offers[0].label.includes('another'),
-      'a window with nothing open is offered "another" folder, which implies one it does not have',
+      offers[0].kind === 'reopen' && !offers[0].detail.includes('in place of'),
+      'a window with nothing open is told the folder opens "in place of" what it has, which is nothing',
     );
   });
 
@@ -261,7 +267,7 @@ describe('what the Project folder row opens', () => {
   });
 });
 
-// The last entry's second line, written out rather than composed from the
+// The add entry's second line, written out rather than composed from the
 // constant the source reads: a composed expectation moves with whatever it is
 // checking and cannot fail.
 const REACH = 'Reaches a folder this window does not have open yet.';
@@ -279,29 +285,50 @@ const COSTS: Array<[string, WindowKind, string]> = [
   ['on a folder or on nothing, local', { onWorkspaceFile: false, remote: false }, REACH_AND_RESTART],
 ];
 
-describe('what the last entry says taking it costs', () => {
+// The open entry's second line, written out for the same reason. Opening a
+// folder in the window it was asked from reloads that window whatever kind it
+// is, so the line moves with how many folders are open and with nothing else.
+const OPEN_IN_EMPTY = 'Opens the folder you pick in this window. The window reloads.';
+const OPEN_IN_PLACE = 'Opens the folder you pick in place of what this window has open. The window reloads.';
+
+describe('what the two last entries say taking them costs', () => {
   for (const [name, windowKind, expected] of COSTS) {
-    it(`says exactly what it costs in a window ${name}`, () => {
-      assert.strictEqual(openOtherFolderDetail(windowKind), expected);
+    it(`says exactly what adding costs in a window ${name}`, () => {
+      assert.strictEqual(addFolderDetail(windowKind), expected);
     });
   }
 
-  it('carries that line on the last entry, with its label unchanged, for none, one and two folders', () => {
+  it('says what opening does to the folders open, and that the window reloads', () => {
+    assert.strictEqual(openFolderDetail(0), OPEN_IN_EMPTY);
+    assert.strictEqual(openFolderDetail(1), OPEN_IN_PLACE);
+    assert.strictEqual(openFolderDetail(2), OPEN_IN_PLACE);
+  });
+
+  it('carries each line on its own entry, under labels that never change, for none, one and two folders', () => {
     const windows: Array<[readonly FolderLike[], string]> = [
-      [[], 'Open a folder…'],
-      [[{ uri: { fsPath: FIRST } }], 'Open another folder…'],
-      [OPEN_FOLDERS, 'Open another folder…'],
+      [[], OPEN_IN_EMPTY],
+      [[{ uri: { fsPath: FIRST } }], OPEN_IN_PLACE],
+      [OPEN_FOLDERS, OPEN_IN_PLACE],
     ];
-    for (const [folders, label] of windows) {
-      for (const [name, windowKind, expected] of COSTS) {
-        const last = projectFolderOffers(folders, windowKind).at(-1);
-        assert.ok(last?.kind === 'other', `the last entry is not the way to add a folder (${name})`);
+    for (const [folders, opening] of windows) {
+      for (const [name, windowKind, adding] of COSTS) {
+        const offers = projectFolderOffers(folders, windowKind);
+        const open = offers.at(-2);
+        const add = offers.at(-1);
+        assert.ok(open?.kind === 'reopen', `the second-to-last entry is not the one that opens a folder (${name})`);
+        assert.ok(add?.kind === 'add', `the last entry is not the one that adds a folder (${name})`);
+        assert.strictEqual(open.label, 'Open folder…', 'the entry that opens a folder is labelled otherwise');
+        assert.strictEqual(add.label, 'Add folder to this window…', 'the entry that adds a folder is labelled otherwise');
         assert.strictEqual(
-          last.detail, expected,
-          `with ${folders.length} open in a window ${name}, the last entry's second line is not the one `
+          open.detail, opening,
+          `with ${folders.length} open in a window ${name}, the open entry's second line is not the one `
           + 'its reader must be shown',
         );
-        assert.strictEqual(last.label, label, 'what the entry costs moved its label');
+        assert.strictEqual(
+          add.detail, adding,
+          `with ${folders.length} open in a window ${name}, the add entry's second line is not the one `
+          + 'its reader must be shown',
+        );
       }
     }
   });
@@ -353,7 +380,7 @@ class FakeEditor implements FolderAddingEditor<PickedLocation> {
   }
 }
 
-describe('the last entry asks for a folder and adds it to the window', () => {
+describe('the add entry asks for a folder and adds it to the window', () => {
   it('asks the editor\'s dialog for one folder and for nothing but a folder', () => {
     assert.deepStrictEqual(
       { ...ADD_FOLDER_DIALOG },
@@ -361,7 +388,7 @@ describe('the last entry asks for a folder and adds it to the window', () => {
         canSelectFiles: false,
         canSelectFolders: true,
         canSelectMany: false,
-        openLabel: 'Add this folder',
+        openLabel: 'Add',
         title: 'Aggrega: select a folder to add to this window',
       },
       'the dialog is asked for something other than exactly one folder, or under other words',
@@ -378,7 +405,7 @@ describe('the last entry asks for a folder and adds it to the window', () => {
     assert.strictEqual(editor.added[0], picked, 'the folder is rebuilt rather than handed on');
     assert.deepStrictEqual(editor.informed, [], 'an add that succeeded is announced');
     assert.deepStrictEqual(editor.errors, [], 'an add that succeeded is reported as a refusal');
-    // 🔴 AND IT DOES NOT CHOOSE: the sequence asks for no act beyond the three
+    // 🔴 AND IT RECORDS NOTHING: the sequence asks for no act beyond the three
     // an add needs, so nothing here records the folder as the one to work from.
     assert.deepStrictEqual(editor.acts, ['pickFolder', 'openFolders', 'addFolder']);
   });
@@ -429,16 +456,144 @@ describe('the last entry asks for a folder and adds it to the window', () => {
   });
 });
 
+// An editor for the open entry: it answers the dialog with what it is handed,
+// takes or rejects the open as it is told, and records every act in order.
+class FakeOpener implements FolderOpeningEditor<PickedLocation> {
+  readonly acts: string[] = [];
+  readonly opened: PickedLocation[] = [];
+  readonly errors: string[] = [];
+
+  constructor(
+    private readonly answer: readonly PickedLocation[] | undefined,
+    private readonly takes = true,
+  ) {}
+
+  pickFolder(): Thenable<readonly PickedLocation[] | undefined> {
+    this.acts.push('pickFolder');
+    return Promise.resolve(this.answer);
+  }
+
+  openFolder(folder: PickedLocation): Thenable<unknown> {
+    this.acts.push('openFolder');
+    this.opened.push(folder);
+    return this.takes ? Promise.resolve(undefined) : Promise.reject(new Error('refused'));
+  }
+
+  showError(message: string): void {
+    this.acts.push('showError');
+    this.errors.push(message);
+  }
+}
+
+describe('the open entry asks for a folder and opens it in this window', () => {
+  it('asks the editor\'s dialog for one folder, under the word Open', () => {
+    assert.deepStrictEqual(
+      { ...OPEN_FOLDER_DIALOG },
+      {
+        canSelectFiles: false,
+        canSelectFolders: true,
+        canSelectMany: false,
+        openLabel: 'Open',
+        title: 'Aggrega: select a folder to open in this window',
+      },
+      'the dialog is asked for something other than exactly one folder, or under other words',
+    );
+  });
+
+  it('opens the folder the reader picked, once, and tells them nothing', async () => {
+    const picked = { fsPath: THIRD };
+    const editor = new FakeOpener([picked]);
+    assert.strictEqual(await pickAndOpenFolder(editor), 'opened');
+    assert.deepStrictEqual(editor.opened, [picked], 'the open is not made exactly once, with the pick');
+    // 🔴 THE VERY VALUE THE DIALOG ANSWERED WITH, for the reason the add states.
+    assert.strictEqual(editor.opened[0], picked, 'the folder is rebuilt rather than handed on');
+    assert.deepStrictEqual(editor.errors, [], 'an open the editor took is reported as a refusal');
+    // 🔴 AND IT RECORDS NOTHING: two acts and no third, so nothing here writes
+    // into the memory of the window being left.
+    assert.deepStrictEqual(editor.acts, ['pickFolder', 'openFolder']);
+  });
+
+  for (const [name, answer] of [['with no answer', undefined], ['with an empty answer', []]] as const) {
+    it(`changes nothing and says nothing where the dialog is closed ${name}`, async () => {
+      const editor = new FakeOpener(answer);
+      assert.strictEqual(await pickAndOpenFolder(editor), 'cancelled');
+      // 🔴 THE CONTROL: the dialog WAS asked for, so the absences below are the
+      // sequence stopping at a cancel rather than never having started.
+      assert.deepStrictEqual(editor.acts, ['pickFolder'], 'the dialog was not asked for, or more followed a cancel');
+      assert.deepStrictEqual(editor.opened, [], 'a cancelled dialog opened a folder');
+      assert.deepStrictEqual(editor.errors, [], 'a cancelled dialog reported a refusal');
+    });
+  }
+
+  it('catches a refusal and tells it as an error naming the folder, rather than letting it escape', async () => {
+    const picked = { fsPath: THIRD };
+    const editor = new FakeOpener([picked], false);
+    // 🔴 THE SEQUENCE RESOLVES. A rejection that left it would reach the panel's
+    // press guard, which discards it, and the reader would be told nothing.
+    assert.strictEqual(await pickAndOpenFolder(editor), 'failed');
+    assert.deepStrictEqual(editor.opened, [picked], 'the open was not attempted exactly once');
+    assert.deepStrictEqual(
+      editor.errors,
+      [`Aggrega: the editor could not open ${THIRD}.`],
+      'the refusal is not told once, as an error naming the folder\'s full path',
+    );
+    assert.deepStrictEqual(editor.acts, ['pickFolder', 'openFolder', 'showError']);
+  });
+});
+
 // The half that needs the editor — which of its calls each act is — is read off
 // the source, because the module holding it imports the editor and the editor
 // does not start here.
-describe('the last entry is wired to the editor and to nothing else', () => {
+describe('the two last entries are wired to the editor and to nothing else', () => {
   const EXTENSION = 'src/extension.ts';
-  const ADD_BRANCH = 'if (choice.offer.kind === \'other\')';
+  const OPEN_BRANCH = 'if (choice.offer.kind === \'reopen\')';
+  const ADD_BRANCH = 'if (choice.offer.kind === \'add\')';
   const WIDEN_BRANCH = 'if (choice.offer.kind === \'widen\')';
   const NAMED_COMMAND = /\b[A-Z][A-Z_]*_COMMAND\b/;
 
-  it('hands the sequence the editor\'s acts, and runs no command by name', () => {
+  it('hands the open sequence the editor\'s acts, and names no command in the branch', () => {
+    const branch = functionBody(EXTENSION, OPEN_BRANCH);
+    // 🔴 THE NEEDLE ON THE BLOCK, first, for the reason the add's reading below
+    // states.
+    assert.ok(branch.includes('await pickAndOpenFolder('), `the branch runs no sequence at all:\n${branch}`);
+    assert.ok(branch.trim().endsWith('return;'), `the scanned branch does not end where it does:\n${branch}`);
+
+    // 🔴 THE CONTROL ON THE ABSENCES BELOW is the Aggrega workspace chooser's own
+    // last entry, which does run a command by name.
+    const widen = functionBody(EXTENSION, WIDEN_BRANCH);
+    assert.ok(widen.includes('executeCommand('), 'the reading cannot see a command run where one is');
+    assert.ok(NAMED_COMMAND.test(widen), 'the reading cannot see a command named where one is');
+
+    // The named-folder command is run by name, because no typed call opens a
+    // folder — but at the one site in the window-folders module, never written
+    // into the branch, so the branch cannot come to name a second command.
+    assert.ok(
+      !branch.includes('executeCommand('),
+      `the open entry runs a command in the branch rather than at the one site that opens a folder:\n${branch}`,
+    );
+    assert.ok(
+      !NAMED_COMMAND.test(branch),
+      `the open entry names a command in the branch rather than at the one site that opens a folder:\n${branch}`,
+    );
+
+    const calls = callSites('pickAndOpenFolder');
+    assert.deepStrictEqual(calls.map((site) => site.module), ['extension.ts'], 'the sequence is run from elsewhere too');
+    const [acts] = calls[0].args;
+    for (const act of [
+      'pickFolder: () => vscode.window.showOpenDialog(OPEN_FOLDER_DIALOG)',
+      'openFolder: (folder) => openFolderInWindow(folder)',
+      'showError: (message) => void vscode.window.showErrorMessage(message)',
+    ]) {
+      assert.ok(acts.includes(act), `the sequence is not handed ${act}; it was handed:\n${acts}`);
+    }
+    assert.deepStrictEqual(
+      callSites('openFolderInWindow').map((site) => [site.module, site.args]),
+      [['extension.ts', ['folder']]],
+      'a folder is opened in the window by some route other than the open entry',
+    );
+  });
+
+  it('hands the add sequence the editor\'s acts, and runs no command by name', () => {
     const branch = functionBody(EXTENSION, ADD_BRANCH);
     // 🔴 THE NEEDLE ON THE BLOCK, first: a scan running past the branch would
     // swallow the rest of the handler and pass whatever was written; one
@@ -455,11 +610,11 @@ describe('the last entry is wired to the editor and to nothing else', () => {
 
     assert.ok(
       !branch.includes('executeCommand('),
-      `the last entry runs a command by name, which nothing checks until a reader presses:\n${branch}`,
+      `the add entry runs a command by name, which nothing checks until a reader presses:\n${branch}`,
     );
     assert.ok(
       !NAMED_COMMAND.test(branch),
-      `the last entry names a command, which nothing checks until a reader presses:\n${branch}`,
+      `the add entry names a command, which nothing checks until a reader presses:\n${branch}`,
     );
 
     const calls = callSites('pickAndAddFolder');

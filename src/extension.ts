@@ -173,15 +173,17 @@ import {
   ADD_FOLDER_DIALOG,
   CHOOSE_PROJECT_FOLDER_COMMAND,
   CHOOSE_PROJECT_FOLDER_PLACEHOLDER,
+  OPEN_FOLDER_DIALOG,
   isSavedProjectFolderValid,
   pickAndAddFolder,
+  pickAndOpenFolder,
   projectFolderInForce,
   projectFolderOffers,
   projectFolderSwitchMessage,
   readSavedProjectFolder,
   rememberProjectFolderChoice,
 } from './project-folder';
-import { appendFolderToWindow } from './window-folders';
+import { appendFolderToWindow, openFolderInWindow } from './window-folders';
 
 let daemon: Daemon | null = null;
 let outputChannel: vscode.OutputChannel | null = null;
@@ -1330,12 +1332,13 @@ function registerSwitchAnchorCommand(context: vscode.ExtensionContext): void {
 
 // registerChooseProjectFolderCommand wires what the Project folder row opens.
 //
-// 🔴 IT OFFERS THE FOLDERS THE WINDOW HAS AND, LAST, THE WAY TO ADD ONE IT
-// DOES NOT. Those are different acts — choosing among what is here, and bringing
-// something else in — and a reader clicking the row is asking the first while
-// frequently needing the second. Presenting them as one list is what keeps the
-// second from being a control they have to go and find; presenting them as one
-// ACTION would take the choice away from them.
+// 🔴 IT OFFERS THE FOLDERS THE WINDOW HAS AND, LAST, THE TWO WAYS TO REACH ONE
+// IT DOES NOT: OPENING IT IN PLACE OF THEM, AND ADDING IT BESIDE THEM. Choosing
+// among what is here and bringing something else in are different acts, and a
+// reader clicking the row is asking the first while frequently needing the
+// second. Presenting them as one list is what keeps the second from being a
+// control they have to go and find; presenting them as one ACTION would take
+// the choice away from them.
 //
 // The choice is recorded before anything is re-evaluated, for the reason the
 // workspace chooser records its own first: the re-evaluation reads the
@@ -1346,7 +1349,7 @@ function registerChooseProjectFolderCommand(context: vscode.ExtensionContext): v
     vscode.commands.registerCommand(CHOOSE_PROJECT_FOLDER_COMMAND, async () => {
       const folders = [...(vscode.workspace.workspaceFolders ?? [])];
       // What adding a folder would cost is read here, as the choice is drawn,
-      // because the last entry's second line has to be true of this window at
+      // because the add entry's second line has to be true of this window at
       // the moment the reader reads it.
       const windowKind = {
         onWorkspaceFile: vscode.workspace.workspaceFile !== undefined,
@@ -1355,7 +1358,7 @@ function registerChooseProjectFolderCommand(context: vscode.ExtensionContext): v
       const offers = projectFolderOffers(folders, windowKind).map((o) => ({
         label: o.label,
         description: o.description,
-        detail: o.kind === 'other' ? o.detail : '',
+        detail: o.kind === 'open' ? '' : o.detail,
         offer: o,
       }));
       const choice = await vscode.window.showQuickPick(offers, {
@@ -1364,7 +1367,17 @@ function registerChooseProjectFolderCommand(context: vscode.ExtensionContext): v
         matchOnDetail: true,
       });
       if (!choice) { return; }
-      if (choice.offer.kind === 'other') {
+      if (choice.offer.kind === 'reopen') {
+        // The sequence is the pure one; what is handed to it here is the editor
+        // and nothing else. The window is put on the folder picked alone.
+        await pickAndOpenFolder({
+          pickFolder: () => vscode.window.showOpenDialog(OPEN_FOLDER_DIALOG),
+          openFolder: (folder) => openFolderInWindow(folder),
+          showError: (message) => void vscode.window.showErrorMessage(message),
+        });
+        return;
+      }
+      if (choice.offer.kind === 'add') {
         // The sequence is the pure one; what is handed to it here is the editor
         // and nothing else. The folder joins the list, and the choice among the
         // listed folders stays the reader's.

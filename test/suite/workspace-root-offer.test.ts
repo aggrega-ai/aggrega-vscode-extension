@@ -26,12 +26,12 @@ const CANDIDATES = { projectFolders: 1, aggregaWorkspaces: 1, releases: null };
 const PRESS_HANDLER = 'registerCommand(OPEN_WORKSPACE_ROOT_COMMAND, () =>';
 
 // The editor is made to work in a different folder in two ways and they are
-// not one act. Opening a named folder replaces what the window has open and
-// asks the reader nothing; adding a folder puts one beside the folders the
-// window has, and the reader picks it. The first is the editor's command,
-// spelled once; the second is the editor's typed call for adding folders, made
-// at one site. Reading either on its own leaves the difference invisible, which
-// is why both are stated here together.
+// not one act. Opening a named folder replaces what the window has open; adding
+// a folder puts one beside the folders the window has. The first is the
+// editor's command, spelled once and run by name, because no typed call opens a
+// folder; the second is the editor's typed call for adding folders, made at one
+// site. Reading either on its own leaves the difference invisible, which is why
+// both are stated here together.
 describe('the two ways the editor is made to work in another folder', () => {
   it('spells the named-folder command once, and adds a folder by no command at all', () => {
     // 🔴 THE CONTROL ON THE CENSUS, and without it the readings below are
@@ -64,13 +64,26 @@ describe('the two ways the editor is made to work in another folder', () => {
       'a folder is added somewhere other than the one call that appends it after the folders open',
     );
     // And the command that REPLACES the window's folder is named where it is
-    // declared and where the offer's invocation is composed, and nowhere else —
-    // an add routed through it would take away every folder the reader had open.
+    // declared and where the offer's invocation is composed, and where the
+    // Project folder row's open entry runs it — and nowhere else. An add routed
+    // through it would take away every folder the reader had open. 🔴 The open
+    // entry's site is admitted by NAMING it in the equality, so a further module
+    // naming the command still fails this.
     assert.deepStrictEqual(
       tokenModules('OPEN_FOLDER_COMMAND'),
-      [['selector-rows.ts', 2]],
+      [['selector-rows.ts', 2], ['window-folders.ts', 2]],
       'the named-folder command is named outside the module that declares it and composes the '
-      + 'offer with it, so something other than the offer can replace the window\'s folders',
+      + 'offer with it and the one that opens the folder the reader picked, so something else can '
+      + 'replace the window\'s folders',
+    );
+    // And the one place it is run by name is that open, handed the folder and
+    // nothing else.
+    assert.deepStrictEqual(
+      callSites('vscode.commands.executeCommand')
+        .filter((site) => site.args[0] === 'OPEN_FOLDER_COMMAND')
+        .map((site) => [site.module, site.args]),
+      [['window-folders.ts', ['OPEN_FOLDER_COMMAND', 'location']]],
+      'the named-folder command is run by name somewhere other than the one open the chooser makes',
     );
   });
 
@@ -83,9 +96,9 @@ describe('the two ways the editor is made to work in another folder', () => {
     // 🔴 THE PROJECT FOLDER ROW RUNS THIS EXTENSION'S OWN COMMAND. It asks
     // which of the folders the window ALREADY HAS is the one Aggrega works from,
     // which is a question no editor command answers — opening a named folder
-    // replaces what the window has. Adding a folder is the last entry inside
-    // that command's chooser, so the reader can still reach a folder the window
-    // does not hold.
+    // replaces what the window has. Opening a folder and adding one are the last
+    // two entries inside that command's chooser, so the reader can still reach a
+    // folder the window does not hold.
     assert.strictEqual(
       project.command, CHOOSE_PROJECT_FOLDER_COMMAND,
       'the row runs something other than the chooser among the folders already open, so the '

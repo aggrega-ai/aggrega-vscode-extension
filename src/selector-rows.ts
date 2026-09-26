@@ -188,7 +188,11 @@ export interface SelectorCandidates {
 //
 // It is the editor's own command: which folder a window is open on is the
 // editor's to decide, so what is added here is the destination rather than a
-// second way to open a folder.
+// second way to open a folder. It is spelled here once, and it is run by name
+// wherever a reader's press opens a folder — the Aggrega workspace row's offer
+// and the dialog's matching action, both composed through the decision below,
+// and the Project folder row's chooser when the reader picks a folder to open —
+// because the editor offers no typed call that opens one.
 export const OPEN_FOLDER_COMMAND = 'vscode.openFolder';
 
 // OPEN_WORKSPACE_ROOT_COMMAND is this extension's own command behind the
@@ -264,9 +268,10 @@ export function projectFolderRow(
     warning: null,
   };
   if (candidates === 0) {
-    // The chooser this row opens carries adding a folder as its last entry, so
-    // the click is still the way out of this state and saying so is the exit
-    // rather than an instruction to hunt for a control elsewhere.
+    // The chooser this row opens carries opening a folder and adding one as its
+    // last two entries, so the click is still the way out of this state and
+    // saying so is the exit rather than an instruction to hunt for a control
+    // elsewhere.
     return {
       ...base,
       value: 'none open',

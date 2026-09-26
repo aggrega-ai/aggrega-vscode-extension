@@ -2,6 +2,7 @@
 // Copyright 2026 Cognitio S.r.l.
 
 import * as vscode from 'vscode';
+import { OPEN_FOLDER_COMMAND } from './selector-rows';
 
 // appendFolderToWindow adds one folder to the window, after the folders it
 // already has open, and answers whether the editor took it.
@@ -29,4 +30,22 @@ export function appendFolderToWindow(location: vscode.Uri): boolean {
     null,
     { uri: location },
   );
+}
+
+// openFolderInWindow puts this window on one folder alone, in place of whatever
+// it has open, and answers with what the editor answers.
+//
+// 🔴 IT RUNS THE EDITOR'S NAMED-FOLDER COMMAND BY NAME, BECAUSE THE EDITOR
+// OFFERS NO TYPED CALL THAT OPENS A FOLDER. The identifier is the one the
+// Aggrega workspace row's offer composes, spelled once where that offer is, so
+// the two ways this extension opens a folder cannot come to name two commands.
+// What a name cannot give — a check when the extension is built — is made up
+// for by keeping the answer: a refusal comes back as a rejection for the caller
+// to tell, rather than one the panel's press guard would discard.
+//
+// Nothing that runs after the call can rely on still running: opening a folder
+// in the window it was asked from takes that window down and stands it back up
+// on the folder.
+export function openFolderInWindow(location: vscode.Uri): Thenable<unknown> {
+  return vscode.commands.executeCommand(OPEN_FOLDER_COMMAND, location);
 }
