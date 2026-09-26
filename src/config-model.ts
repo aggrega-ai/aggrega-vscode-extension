@@ -27,9 +27,9 @@ import {
 import { ConfigScope, configScope } from './config-scope';
 
 // DEFAULTS_SOURCE is the label the compiler attributes a setting to when no
-// configuration file and no environment override moved it off its built-in
-// value. It is recognised so that "nothing changed this" can be drawn as what it
-// means rather than as a file path the reader would go looking for.
+// configuration file, environment variable or flag sets it at all. It is
+// recognised so that "nothing set this" can be drawn as what it means rather
+// than as a file path the reader would go looking for.
 export const DEFAULTS_SOURCE = '(built-in defaults)';
 
 // ENV_SOURCE_PREFIX marks an attribution to an environment variable rather than
