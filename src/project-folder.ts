@@ -2,7 +2,7 @@
 // Copyright 2026 Cognitio S.r.l.
 
 import { FolderLike } from './workspace';
-import { WorkspaceStateLike } from './anchor-picker';
+import { WorkspaceStateLike, rememberAnchorChoice } from './anchor-picker';
 import { SELECTOR_ROW_LABELS } from './selector-levels';
 import { distinguishingLabel } from './uri-display';
 
@@ -25,8 +25,10 @@ export const PROJECT_FOLDER_STATE_KEY = 'aggrega.selectedProjectFolder';
 // one changes which folders the window HAS; choosing says which of the folders
 // it has is the one Aggrega works from. All three are reached from here,
 // because a reader whose folder is not open yet needs one of the first two and
-// a reader with two open needs the third — and neither of the first two records
-// a choice, so the choice stays the reader's.
+// a reader with two open needs the third. Opening records no choice: the window
+// it leaves is on another folder, with that folder's own answers. Adding does,
+// because the reader picked the folder here, where the question asked is which
+// folder to work from.
 export const CHOOSE_PROJECT_FOLDER_COMMAND = 'aggrega.project.selectFolder';
 
 // readSavedProjectFolder returns the remembered Project folder path, or null.
@@ -212,9 +214,24 @@ export interface WindowKind {
 // that nothing restarts: that would be one more sentence that could stop being
 // true.
 export function addFolderDetail(windowKind: WindowKind): string {
-  if (windowKind.onWorkspaceFile) { return ADD_FOLDER_DETAIL; }
+  if (!addingMakesNewWorkspace(windowKind)) { return ADD_FOLDER_DETAIL; }
   const cost = windowKind.remote ? WINDOW_RELOADS : 'Extensions restart.';
   return `${ADD_FOLDER_DETAIL} ${cost}`;
+}
+
+// addingMakesNewWorkspace reports whether adding a folder to this kind of window
+// puts the window on a workspace it was not on before.
+//
+// 🔴 IT IS THE ONE CONCLUSION DRAWN FROM THE WINDOW'S KIND ABOUT WHAT AN ADD
+// DOES, AND TWO THINGS FOLLOW FROM IT: what the add entry's second line says the
+// add costs, and which memory an answer given before the add is written into. A
+// window open on a workspace file takes another folder in place and keeps its
+// memory. A window open on one folder, or on none, is turned into a new
+// workspace, and the editor opens that workspace's memory empty rather than
+// carrying the old one across. Drawn twice, the line could name one of those
+// while the answer went where the other is true.
+export function addingMakesNewWorkspace(windowKind: WindowKind): boolean {
+  return !windowKind.onWorkspaceFile;
 }
 
 // projectFolderOffers composes what the Project folder row opens: every folder
@@ -378,43 +395,241 @@ export interface FolderAddingEditor<L extends { fsPath: string }> {
   showError(message: string): void;
 }
 
-// FolderAddingOutcome is what taking the add entry came to.
-export type FolderAddingOutcome = 'cancelled' | 'already-open' | 'added' | 'declined';
+// NamedAnswer is the one answer a reader gives by naming a folder that is then
+// added to the window: the Project folder they picked through this row's add
+// entry, or the Aggrega workspace they picked through the step that adds a folder
+// Aggrega recognises. It is held as the path that level's own memory records —
+// the folder's path for the first, the path of the file marking the workspace
+// for the second.
+export interface NamedAnswer {
+  level: 'project' | 'workspace';
+  path: string;
+}
 
-// pickAndAddFolder asks the reader for a folder and adds it to the window, and
-// reports what that came to.
+// AnswerStores are the two memories an answer can be kept in.
+export interface AnswerStores {
+  // memory is this window's own, the one each level's choice is remembered in.
+  // The editor scopes it to the workspace the window is on.
+  memory: WorkspaceStateLike;
+  // global is the editor's own, shared by every window and kept when a window
+  // enters a new workspace.
+  global: WorkspaceStateLike;
+}
+
+// AddingWindow is what an add needs to know about the window it is made in: the
+// two memories an answer can be kept in, and the kind of window, which decides
+// between them.
+export interface AddingWindow extends AnswerStores {
+  windowKind: WindowKind;
+}
+
+// CARRIED_ANSWER_STATE_KEY is the one entry, in the editor's global store, that
+// carries an answer from the window a reader gave it in to the window an add of
+// theirs creates.
 //
-// 🔴 IT ADDS AND RECORDS NOTHING. The folder picked joins the list this row
-// offers. A window open on one folder, or on none, takes it by becoming a new
-// workspace, and the editor opens that workspace's memory empty rather than
-// carrying the old one across — so an answer recorded here, before the add,
-// would be written into the memory of the window being left and never read by
-// the one the reader comes back to. A window already on a workspace file keeps
-// its memory, and nothing is recorded there either, so the entry does the same
-// thing in every kind of window.
+// 🔴 IT EXISTS BECAUSE THE EDITOR CARRIES NOTHING ACROSS THAT CHANGE. A window
+// open on one folder, or on none, takes another by becoming a new workspace, and
+// the editor opens that workspace's memory empty rather than copying the old one
+// across. An answer written into the window's own memory before the add stays
+// with the window being left, and the window the reader comes back to asks them
+// again for what they have just chosen.
+//
+// 🔴 IT IS ONE ENTRY AND NOT A LIST, AND NOTHING EXPIRES IT. A later add
+// overwrites it, the window holding exactly its folders takes it and deletes it,
+// and a refused add deletes it. One left behind by a window that went down
+// before its add took effect is at most one, and the next add overwrites it; a
+// window opened later on exactly those folders takes the answer the reader gave
+// for them. So there is nothing to prune and no time to keep.
+export const CARRIED_ANSWER_STATE_KEY = 'aggrega.answerForAddedWorkspace';
+
+// CarriedAnswer is what that entry holds: the folders the window the add creates
+// will have open, by path, and the answer to hand that window.
+//
+// The folders are what make the entry that window's and no other's. The store is
+// shared by every window, so a window that started or reloaded between the write
+// and the add taking effect would otherwise take another window's answer.
+export interface CarriedAnswer {
+  folders: string[];
+  answer: NamedAnswer;
+}
+
+// readCarriedAnswer reads the entry, or null where it is absent or not the shape
+// written below. An entry of any other shape is no window's answer, and it is
+// left for the next write to replace.
+function readCarriedAnswer(global: WorkspaceStateLike): CarriedAnswer | null {
+  const stored = global.get<unknown>(CARRIED_ANSWER_STATE_KEY);
+  if (typeof stored !== 'object' || stored === null) { return null; }
+  const { folders, answer } = stored as { folders?: unknown; answer?: unknown };
+  if (!Array.isArray(folders)) { return null; }
+  if (!folders.every((f) => typeof f === 'string' && f.length > 0)) { return null; }
+  if (typeof answer !== 'object' || answer === null) { return null; }
+  const { level, path } = answer as { level?: unknown; path?: unknown };
+  if (level !== 'project' && level !== 'workspace') { return null; }
+  if (typeof path !== 'string' || path.length === 0) { return null; }
+  return { folders: [...folders], answer: { level, path } };
+}
+
+// forgetCarriedAnswer deletes the entry.
+async function forgetCarriedAnswer(global: WorkspaceStateLike): Promise<void> {
+  await global.update(CARRIED_ANSWER_STATE_KEY, undefined);
+}
+
+// rememberAnswer writes an answer into a window's memory through the one writer
+// its level already has, and answers with the path it replaced. Going through
+// those writers is what keeps each level's key spelled in one place.
+function rememberAnswer(
+  memory: WorkspaceStateLike,
+  level: NamedAnswer['level'],
+  path: string | null,
+): Promise<string | null> {
+  return level === 'project'
+    ? rememberProjectFolderChoice(memory, path)
+    : rememberAnchorChoice(memory, path);
+}
+
+// sameFolders reports whether two lists name the same folders by path, in any
+// order. Order is not part of what an add decides: the editor appends, and what
+// the window holds is the set.
+function sameFolders(a: readonly string[], b: readonly string[]): boolean {
+  const left = new Set(a);
+  const right = new Set(b);
+  return left.size === right.size && [...left].every((p) => right.has(p));
+}
+
+// adoptCarriedAnswer takes the carried answer into this window's memory where it
+// was carried for this window, and answers with what it took, or null.
+//
+// 🔴 IT HAS TO RUN BEFORE THE OPEN FOLDERS ARE FIRST EVALUATED. The evaluation
+// reads each level's answer from the window's memory, so an answer taken in
+// afterwards arrives after the decision that needed it, and the window asks the
+// reader for what they already said.
+//
+// The entry is this window's where it names exactly the folders the window has
+// open, by path and in any order. Any other entry belongs to another window, or
+// to one still to come, and is left as it is. The answer is written first and the
+// entry deleted second, so a window that goes down between the two finds it again
+// rather than losing it.
+export async function adoptCarriedAnswer(
+  stores: AnswerStores,
+  folders: readonly FolderLike[],
+): Promise<NamedAnswer | null> {
+  const carried = readCarriedAnswer(stores.global);
+  if (carried === null) { return null; }
+  if (!sameFolders(carried.folders, folders.map((f) => f.uri.fsPath))) { return null; }
+  await rememberAnswer(stores.memory, carried.answer.level, carried.answer.path);
+  await forgetCarriedAnswer(stores.global);
+  return carried.answer;
+}
+
+// recordAnswerBeforeAdd records the answer a naming act gave where the window the
+// reader is in after the add will read it, and answers with how to take it back
+// if the editor refuses the add.
+//
+// Where the add happens in place, that is this window's own memory, and taking it
+// back puts the previous answer there again. Where the add makes a new workspace,
+// it is the carried answer, naming the folders the new workspace will hold, and
+// this window's memory is not written. That memory stays with the window being
+// left; an answer written there would be found the next time that window is open
+// on its one folder, naming a folder it does not have or a workspace it does not
+// reach, and be dropped with a notice saying so. Taking it back deletes the entry.
+async function recordAnswerBeforeAdd(
+  adding: AddingWindow,
+  answer: NamedAnswer,
+  foldersAfterAdd: readonly string[],
+): Promise<() => Promise<void>> {
+  if (addingMakesNewWorkspace(adding.windowKind)) {
+    const carried: CarriedAnswer = { folders: [...foldersAfterAdd], answer: { ...answer } };
+    await adding.global.update(CARRIED_ANSWER_STATE_KEY, carried);
+    return () => forgetCarriedAnswer(adding.global);
+  }
+  const previous = await rememberAnswer(adding.memory, answer.level, answer.path);
+  return async () => { await rememberAnswer(adding.memory, answer.level, previous); };
+}
+
+// FolderAppendingEditor is the part of the editor that adding a folder the reader
+// has already named needs.
+export type FolderAppendingEditor<L extends { fsPath: string }> =
+  Pick<FolderAddingEditor<L>, 'addFolder' | 'showError'>;
+
+// AnsweredAddOutcome is what adding a folder the reader named came to.
+export type AnsweredAddOutcome = 'added-in-place' | 'added-to-new-workspace' | 'declined';
+
+// addFolderWithAnswer adds a folder the reader has named, with the answer the
+// naming gave recorded where the window they are in afterwards reads it, and
+// reports what that came to. The folders the window has open are handed in as
+// they were read, and the folder is appended after them.
+//
+// 🔴 THE ANSWER IS RECORDED BEFORE THE ADD, AND THE ORDER IS FORCED FROM BOTH
+// SIDES. Where the add happens in place, the folders are re-evaluated on the
+// editor's own folder-change event rather than under this function's control,
+// so an answer recorded afterwards arrives after the decision that needed it.
+// Where the add makes a new workspace, the editor takes this window down to make
+// it, so nothing after the add can rely on running at all.
+//
+// It is the one sequence both routes that add a folder go through — this row's
+// add entry, and the step that adds a folder Aggrega recognises — so the two
+// cannot come to record in different places, and a refusal is told in the one
+// sentence either route uses. Where the editor refuses, what was recorded is
+// taken back, so no window is left remembering a folder it never reached.
+export async function addFolderWithAnswer<L extends { fsPath: string }>(
+  editor: FolderAppendingEditor<L>,
+  adding: AddingWindow,
+  open: readonly FolderLike[],
+  folder: L,
+  answer: NamedAnswer,
+): Promise<AnsweredAddOutcome> {
+  const foldersAfterAdd = [...open.map((f) => f.uri.fsPath), folder.fsPath];
+  const takeBack = await recordAnswerBeforeAdd(adding, answer, foldersAfterAdd);
+  if (!editor.addFolder(folder)) {
+    await takeBack();
+    editor.showError(folderDeclinedMessage(folder.fsPath));
+    return 'declined';
+  }
+  return addingMakesNewWorkspace(adding.windowKind) ? 'added-to-new-workspace' : 'added-in-place';
+}
+
+// FolderAddingOutcome is what taking the add entry came to.
+export type FolderAddingOutcome = 'cancelled' | 'already-open' | AnsweredAddOutcome;
+
+// pickAndAddFolder asks the reader for a folder, adds it to the window as the
+// folder to work from, and reports what that came to.
+//
+// 🔴 THE FOLDER ADDED BECOMES THE PROJECT FOLDER. The reader picked it here, in
+// answer to which folder the editor works from, so the window they are in after
+// the add names it and works from it rather than asking them again. Where the
+// add happens in place the answer is this window's to keep, and the reader is
+// told the folder the editor now works from, as choosing a listed folder tells
+// them. Where the add makes a new workspace the answer is carried into it, and
+// nothing is said: the window goes down, and the one that comes back names the
+// folder on the row.
 //
 // A folder already open is told apart BEFORE the editor is asked. The editor
 // refuses a second copy of a folder it has, and answers that refusal exactly as
 // it answers every other, so a reader who picked a folder they already have
-// would otherwise be told the editor declined — true, and no help at all.
+// would otherwise be told the editor declined — true, and no help at all. It
+// records nothing and changes nothing.
 //
 // A dialog closed without a pick changes nothing and says nothing: the reader
 // took the offer back, and there is nothing to report to them.
 export async function pickAndAddFolder<L extends { fsPath: string }>(
   editor: FolderAddingEditor<L>,
+  adding: AddingWindow,
 ): Promise<FolderAddingOutcome> {
   const picked = (await editor.pickFolder())?.[0];
   if (picked === undefined) { return 'cancelled'; }
   const folderPath = picked.fsPath;
-  if (editor.openFolders().some((f) => f.uri.fsPath === folderPath)) {
+  const open = editor.openFolders();
+  if (open.some((f) => f.uri.fsPath === folderPath)) {
     editor.showInformation(folderAlreadyOpenMessage(folderPath));
     return 'already-open';
   }
-  if (!editor.addFolder(picked)) {
-    editor.showError(folderDeclinedMessage(folderPath));
-    return 'declined';
+  const outcome = await addFolderWithAnswer(
+    editor, adding, open, picked, { level: 'project', path: folderPath },
+  );
+  if (outcome === 'added-in-place') {
+    editor.showInformation(projectFolderSwitchMessage(folderPath));
   }
-  return 'added';
+  return outcome;
 }
 
 // CHOOSE_PROJECT_FOLDER_INVITATION is the offer to change which folder the

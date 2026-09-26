@@ -6,6 +6,8 @@ import * as path from 'node:path';
 
 import {
   ADD_FOLDER_DIALOG,
+  AddingWindow,
+  CARRIED_ANSWER_STATE_KEY,
   CHOOSE_PROJECT_FOLDER_COMMAND,
   FolderAddingEditor,
   FolderOpeningEditor,
@@ -13,6 +15,8 @@ import {
   PROJECT_FOLDER_STATE_KEY,
   WindowKind,
   addFolderDetail,
+  addFolderWithAnswer,
+  adoptCarriedAnswer,
   buildProjectFolderItems,
   isSavedProjectFolderValid,
   openFolderDetail,
@@ -23,7 +27,7 @@ import {
   readSavedProjectFolder,
   rememberProjectFolderChoice,
 } from '../../src/project-folder';
-import { STATE_KEY } from '../../src/anchor-picker';
+import { STATE_KEY, readSavedAnchor } from '../../src/anchor-picker';
 import { SELECTED_RELEASE_STATE_KEY } from '../../src/release-selection';
 import { WorkspaceStateLike } from '../../src/anchor-picker';
 import { FolderLike } from '../../src/workspace';
@@ -66,6 +70,23 @@ const THIRD = path.join(path.sep, 'work', 'gamma');
 // costs: one already on a workspace file, so the offer's second line names no
 // cost at all.
 const ON_WORKSPACE_FILE: WindowKind = { onWorkspaceFile: true, remote: false };
+// A window on one folder or on none, which an add turns into a new workspace. It
+// is the remote kind because that is the dev-container window the add was walked
+// in; what decides where an answer goes is the workspace file, not the remote.
+const MAKES_NEW_WORKSPACE: WindowKind = { onWorkspaceFile: false, remote: true };
+
+// A window an add is made in: its own memory, the editor's global store, and its
+// kind. The two memories are separate fakes so a case can read which one an
+// answer went into; a second window is made by handing it the SAME global store
+// and a fresh memory, which is what the editor gives a new workspace.
+interface FakeAddingWindow extends AddingWindow {
+  memory: Memory;
+  global: Memory;
+}
+
+function addingIn(windowKind: WindowKind, global = new Memory()): FakeAddingWindow {
+  return { memory: new Memory(), global, windowKind };
+}
 
 describe('the Project folder is chosen rather than derived', () => {
   it('names no folder at all until the reader chooses, where more than one is open', () => {
@@ -395,37 +416,80 @@ describe('the add entry asks for a folder and adds it to the window', () => {
     );
   });
 
-  it('adds the folder the reader picked, once, and tells them nothing', async () => {
+  it('adds the folder picked in place, once, makes it the Project folder and says so', async () => {
+    // A window already on a workspace file keeps its memory across the add, so
+    // the answer is that window's own to keep.
     const picked = { fsPath: THIRD };
     const editor = new FakeEditor([picked], OPEN_FOLDERS);
-    assert.strictEqual(await pickAndAddFolder(editor), 'added');
+    const adding = addingIn(ON_WORKSPACE_FILE);
+    assert.strictEqual(await pickAndAddFolder(editor, adding), 'added-in-place');
     assert.deepStrictEqual(editor.added, [picked], 'the add is not made exactly once, with the pick');
     // 🔴 THE VERY VALUE THE DIALOG ANSWERED WITH, not a location rebuilt from its
     // path: a rebuilt one keeps the path and loses where that path lives.
     assert.strictEqual(editor.added[0], picked, 'the folder is rebuilt rather than handed on');
-    assert.deepStrictEqual(editor.informed, [], 'an add that succeeded is announced');
+    assert.strictEqual(
+      readSavedProjectFolder(adding.memory), THIRD,
+      'the folder added in place is not remembered as the one the editor works from',
+    );
+    assert.strictEqual(
+      adding.global.get(CARRIED_ANSWER_STATE_KEY), undefined,
+      'an add that keeps the window\'s memory carried its answer through the global store as well',
+    );
+    assert.deepStrictEqual(
+      editor.informed,
+      [`Aggrega: now working from ${THIRD}.`],
+      'the reader is not told, once and by the folder\'s full path, which folder the editor now works from',
+    );
     assert.deepStrictEqual(editor.errors, [], 'an add that succeeded is reported as a refusal');
-    // 🔴 AND IT RECORDS NOTHING: the sequence asks for no act beyond the three
-    // an add needs, so nothing here records the folder as the one to work from.
+    assert.deepStrictEqual(editor.acts, ['pickFolder', 'openFolders', 'addFolder', 'showInformation']);
+  });
+
+  it('adds the folder picked into a new workspace, once, carries it across and tells nothing', async () => {
+    // 🔴 THE WINDOW WALKED: one folder open, not on a workspace file. The add
+    // makes a new workspace, whose memory the editor opens empty, so the answer is
+    // carried through the global store and this window's memory is left alone.
+    const picked = { fsPath: THIRD };
+    const editor = new FakeEditor([picked], [{ uri: { fsPath: FIRST } }]);
+    const adding = addingIn(MAKES_NEW_WORKSPACE);
+    assert.strictEqual(await pickAndAddFolder(editor, adding), 'added-to-new-workspace');
+    assert.deepStrictEqual(editor.added, [picked], 'the add is not made exactly once, with the pick');
+    assert.strictEqual(editor.added[0], picked, 'the folder is rebuilt rather than handed on');
+    assert.deepStrictEqual(
+      adding.global.get(CARRIED_ANSWER_STATE_KEY),
+      { folders: [FIRST, THIRD], answer: { level: 'project', path: THIRD } },
+      'the answer is not carried under the exact folders the new workspace will hold',
+    );
+    assert.deepStrictEqual(
+      adding.memory.snapshot(), new Map(),
+      'the answer was written into the memory of the window being left',
+    );
+    assert.deepStrictEqual(editor.informed, [], 'an add that takes the window down announced a switch first');
+    assert.deepStrictEqual(editor.errors, [], 'an add that succeeded is reported as a refusal');
     assert.deepStrictEqual(editor.acts, ['pickFolder', 'openFolders', 'addFolder']);
   });
 
   for (const [name, answer] of [['with no answer', undefined], ['with an empty answer', []]] as const) {
-    it(`changes nothing and says nothing where the dialog is closed ${name}`, async () => {
-      const editor = new FakeEditor(answer, OPEN_FOLDERS);
-      assert.strictEqual(await pickAndAddFolder(editor), 'cancelled');
-      // 🔴 THE CONTROL: the dialog WAS asked for, so the absences below are the
-      // sequence stopping at a cancel rather than never having started.
-      assert.deepStrictEqual(editor.acts, ['pickFolder'], 'the dialog was not asked for, or more followed a cancel');
-      assert.deepStrictEqual(editor.added, [], 'a cancelled dialog added a folder');
-      assert.deepStrictEqual(editor.informed, [], 'a cancelled dialog told the reader something');
-      assert.deepStrictEqual(editor.errors, [], 'a cancelled dialog reported a refusal');
-    });
+    for (const windowKind of [ON_WORKSPACE_FILE, MAKES_NEW_WORKSPACE]) {
+      it(`changes, records and says nothing where the dialog is closed ${name} (${windowKind.onWorkspaceFile ? 'in place' : 'new workspace'})`, async () => {
+        const editor = new FakeEditor(answer, OPEN_FOLDERS);
+        const adding = addingIn(windowKind);
+        assert.strictEqual(await pickAndAddFolder(editor, adding), 'cancelled');
+        // 🔴 THE CONTROL: the dialog WAS asked for, so the absences below are the
+        // sequence stopping at a cancel rather than never having started.
+        assert.deepStrictEqual(editor.acts, ['pickFolder'], 'the dialog was not asked for, or more followed a cancel');
+        assert.deepStrictEqual(editor.added, [], 'a cancelled dialog added a folder');
+        assert.deepStrictEqual(editor.informed, [], 'a cancelled dialog told the reader something');
+        assert.deepStrictEqual(editor.errors, [], 'a cancelled dialog reported a refusal');
+        assert.deepStrictEqual(adding.memory.snapshot(), new Map(), 'a cancelled dialog recorded an answer');
+        assert.deepStrictEqual(adding.global.snapshot(), new Map(), 'a cancelled dialog carried an answer');
+      });
+    }
   }
 
-  it('adds nothing where the folder picked is already open, and says so once, by its full path', async () => {
+  it('adds and records nothing where the folder picked is already open, and says so once, by its full path', async () => {
     const editor = new FakeEditor([{ fsPath: SECOND }], OPEN_FOLDERS);
-    assert.strictEqual(await pickAndAddFolder(editor), 'already-open');
+    const adding = addingIn(MAKES_NEW_WORKSPACE);
+    assert.strictEqual(await pickAndAddFolder(editor, adding), 'already-open');
     assert.deepStrictEqual(editor.added, [], 'a folder the window already has was handed to the editor');
     assert.deepStrictEqual(
       editor.informed,
@@ -433,19 +497,23 @@ describe('the add entry asks for a folder and adds it to the window', () => {
       'the reader is not told, once and by the folder\'s full path, that it is already open',
     );
     assert.deepStrictEqual(editor.errors, [], 'a folder already open is reported as a refusal');
+    assert.deepStrictEqual(adding.memory.snapshot(), new Map(), 'a folder already open was recorded');
+    assert.deepStrictEqual(adding.global.snapshot(), new Map(), 'a folder already open was carried');
 
     // 🔴 THE CONTROL: the same pick in a window that does not have it open IS
     // added, so the reading above is about the folder being open rather than a
     // sequence that refuses everything.
     const elsewhere = new FakeEditor([{ fsPath: SECOND }], [{ uri: { fsPath: FIRST } }]);
-    assert.strictEqual(await pickAndAddFolder(elsewhere), 'added');
+    assert.strictEqual(await pickAndAddFolder(elsewhere, addingIn(MAKES_NEW_WORKSPACE)), 'added-to-new-workspace');
     assert.deepStrictEqual(elsewhere.informed, []);
   });
 
-  it('tells a refusal as an error naming the folder, and nothing else', async () => {
+  it('tells a refusal in place as an error naming the folder, and puts the previous answer back', async () => {
     const picked = { fsPath: THIRD };
     const editor = new FakeEditor([picked], OPEN_FOLDERS, false);
-    assert.strictEqual(await pickAndAddFolder(editor), 'declined');
+    const adding = addingIn(ON_WORKSPACE_FILE);
+    await rememberProjectFolderChoice(adding.memory, SECOND);
+    assert.strictEqual(await pickAndAddFolder(editor, adding), 'declined');
     assert.deepStrictEqual(editor.added, [picked], 'the add was not attempted exactly once');
     assert.deepStrictEqual(
       editor.errors,
@@ -453,6 +521,179 @@ describe('the add entry asks for a folder and adds it to the window', () => {
       'the refusal is not told once, as an error naming the folder\'s full path',
     );
     assert.deepStrictEqual(editor.informed, [], 'a refusal is told as information as well');
+    assert.strictEqual(
+      readSavedProjectFolder(adding.memory), SECOND,
+      'a refused add left the window remembering a folder it never reached',
+    );
+    assert.strictEqual(adding.global.get(CARRIED_ANSWER_STATE_KEY), undefined);
+  });
+});
+
+// 🔴 THE ANSWER'S OWN FIVE CASES, one fault per case: the carried answer is
+// taken by the window it was written for and by no other, a later add replaces
+// it, a refused add deletes it, and a window with none behaves as it always did.
+// A new window is modelled as the editor makes one: a FRESH memory, and the SAME
+// global store the window that wrote it had.
+describe('the answer an add gives reaches the window the reader comes back to', () => {
+  const MARKER = path.join(path.sep, 'work', 'gamma', '.aggrega-config.yaml');
+  const one = [{ uri: { fsPath: FIRST } }];
+  const afterAdd = [{ uri: { fsPath: FIRST } }, { uri: { fsPath: THIRD } }];
+
+  it('is taken by the window holding exactly its folders, which then works from it, and is gone', async () => {
+    const left = addingIn(MAKES_NEW_WORKSPACE);
+    await pickAndAddFolder(new FakeEditor([{ fsPath: THIRD }], one), left);
+
+    const next = addingIn(MAKES_NEW_WORKSPACE, left.global);
+    const taken = await adoptCarriedAnswer(next, afterAdd);
+    assert.deepStrictEqual(taken, { level: 'project', path: THIRD }, 'the window the add made took nothing');
+    assert.strictEqual(
+      readSavedProjectFolder(next.memory), THIRD,
+      'the answer was not written into the memory of the window the add made',
+    );
+    // 🔴 WHAT THE ROW READS: the folder added is the one the editor works from
+    // there, rather than "none selected" among two open folders.
+    assert.strictEqual(projectFolderInForce(readSavedProjectFolder(next.memory), afterAdd)?.uri.fsPath, THIRD);
+    assert.strictEqual(
+      left.global.get(CARRIED_ANSWER_STATE_KEY), undefined,
+      'the answer was taken and left in the global store, so another window could take it again',
+    );
+    // Through its own level's writer and nothing else.
+    assert.strictEqual(next.memory.get(STATE_KEY), undefined, 'the Project folder answer reached another level');
+  });
+
+  it('carries the Aggrega workspace the welcome page\'s step named, the same way', async () => {
+    const left = addingIn(MAKES_NEW_WORKSPACE);
+    const editor = new FakeEditor(undefined, one);
+    assert.strictEqual(
+      await addFolderWithAnswer(editor, left, one, { fsPath: THIRD }, { level: 'workspace', path: MARKER }),
+      'added-to-new-workspace',
+    );
+    assert.deepStrictEqual(left.memory.snapshot(), new Map(), 'the answer was written into the window being left');
+
+    const next = addingIn(MAKES_NEW_WORKSPACE, left.global);
+    assert.deepStrictEqual(await adoptCarriedAnswer(next, afterAdd), { level: 'workspace', path: MARKER });
+    assert.strictEqual(readSavedAnchor(next.memory), MARKER, 'the Aggrega workspace named was not taken in');
+    assert.strictEqual(next.memory.get(PROJECT_FOLDER_STATE_KEY), undefined, 'the answer reached another level');
+    assert.strictEqual(left.global.get(CARRIED_ANSWER_STATE_KEY), undefined);
+  });
+
+  it('matches the folders as a set, whatever order the window lists them in', async () => {
+    const left = addingIn(MAKES_NEW_WORKSPACE);
+    await pickAndAddFolder(new FakeEditor([{ fsPath: THIRD }], one), left);
+    const next = addingIn(MAKES_NEW_WORKSPACE, left.global);
+    assert.deepStrictEqual(await adoptCarriedAnswer(next, [...afterAdd].reverse()), { level: 'project', path: THIRD });
+  });
+
+  it('is left untouched, and applies nothing, in a window holding other folders', async () => {
+    const left = addingIn(MAKES_NEW_WORKSPACE);
+    await pickAndAddFolder(new FakeEditor([{ fsPath: THIRD }], one), left);
+    const written = left.global.get(CARRIED_ANSWER_STATE_KEY);
+    assert.ok(written !== undefined, 'nothing was carried, so the readings below are about nothing');
+
+    // The window being left, reopened on its one folder; a window holding one
+    // folder more; and one holding a different second folder.
+    for (const folders of [one, [...afterAdd, { uri: { fsPath: SECOND } }], [{ uri: { fsPath: FIRST } }, { uri: { fsPath: SECOND } }]]) {
+      const other = addingIn(MAKES_NEW_WORKSPACE, left.global);
+      assert.strictEqual(
+        await adoptCarriedAnswer(other, folders), null,
+        `a window holding ${folders.map((f) => f.uri.fsPath).join(', ')} took an answer carried for another`,
+      );
+      assert.deepStrictEqual(other.memory.snapshot(), new Map(), 'a window the answer was not for had it applied');
+      assert.deepStrictEqual(
+        left.global.get(CARRIED_ANSWER_STATE_KEY), written,
+        'a window the answer was not for moved or deleted it',
+      );
+    }
+  });
+
+  it('is replaced by a later add, so only the last one is taken', async () => {
+    const global = new Memory();
+    await pickAndAddFolder(new FakeEditor([{ fsPath: THIRD }], one), addingIn(MAKES_NEW_WORKSPACE, global));
+    await pickAndAddFolder(
+      new FakeEditor([{ fsPath: SECOND }], one), addingIn(MAKES_NEW_WORKSPACE, global),
+    );
+    assert.deepStrictEqual(
+      global.get(CARRIED_ANSWER_STATE_KEY),
+      { folders: [FIRST, SECOND], answer: { level: 'project', path: SECOND } },
+      'the second add did not replace what the first carried',
+    );
+    assert.strictEqual(
+      await adoptCarriedAnswer(addingIn(MAKES_NEW_WORKSPACE, global), afterAdd), null,
+      'the first add\'s answer survived the second',
+    );
+    const next = addingIn(MAKES_NEW_WORKSPACE, global);
+    assert.deepStrictEqual(
+      await adoptCarriedAnswer(next, [{ uri: { fsPath: FIRST } }, { uri: { fsPath: SECOND } }]),
+      { level: 'project', path: SECOND },
+    );
+  });
+
+  it('is deleted when the editor refuses the add, by either route', async () => {
+    // An answer an earlier add left behind is present first, so the deletion is
+    // shown to remove the entry rather than to put an earlier one back.
+    const earlier = { folders: [SECOND, THIRD], answer: { level: 'project', path: THIRD } };
+
+    const byRow = addingIn(MAKES_NEW_WORKSPACE);
+    await byRow.global.update(CARRIED_ANSWER_STATE_KEY, earlier);
+    const rowEditor = new FakeEditor([{ fsPath: THIRD }], one, false);
+    assert.strictEqual(await pickAndAddFolder(rowEditor, byRow), 'declined');
+    assert.strictEqual(byRow.global.get(CARRIED_ANSWER_STATE_KEY), undefined, 'a refused add from the row left an answer carried');
+    assert.deepStrictEqual(byRow.memory.snapshot(), new Map());
+    assert.deepStrictEqual(rowEditor.errors, [`Aggrega: the editor declined to add ${THIRD} to this workspace.`]);
+
+    const byStep = addingIn(MAKES_NEW_WORKSPACE);
+    await byStep.global.update(CARRIED_ANSWER_STATE_KEY, earlier);
+    const stepEditor = new FakeEditor(undefined, one, false);
+    assert.strictEqual(
+      await addFolderWithAnswer(stepEditor, byStep, one, { fsPath: THIRD }, { level: 'workspace', path: MARKER }),
+      'declined',
+    );
+    assert.strictEqual(byStep.global.get(CARRIED_ANSWER_STATE_KEY), undefined, 'a refused add from the step left an answer carried');
+    assert.deepStrictEqual(byStep.memory.snapshot(), new Map());
+    assert.deepStrictEqual(stepEditor.errors, [`Aggrega: the editor declined to add ${THIRD} to this workspace.`]);
+  });
+
+  it('records in place in the window\'s own memory, and puts the previous answer back on a refusal, by the step too', async () => {
+    const earlierMarker = path.join(path.sep, 'work', 'alpha', '.aggrega-config.yaml');
+    const taken = addingIn(ON_WORKSPACE_FILE);
+    assert.strictEqual(
+      await addFolderWithAnswer(new FakeEditor(undefined, OPEN_FOLDERS), taken, OPEN_FOLDERS, { fsPath: THIRD }, { level: 'workspace', path: MARKER }),
+      'added-in-place',
+    );
+    assert.strictEqual(readSavedAnchor(taken.memory), MARKER, 'the workspace named in place is not remembered');
+    assert.deepStrictEqual(taken.global.snapshot(), new Map(), 'an add in place carried its answer as well');
+
+    const refused = addingIn(ON_WORKSPACE_FILE);
+    await refused.memory.update(STATE_KEY, earlierMarker);
+    assert.strictEqual(
+      await addFolderWithAnswer(new FakeEditor(undefined, OPEN_FOLDERS, false), refused, OPEN_FOLDERS, { fsPath: THIRD }, { level: 'workspace', path: MARKER }),
+      'declined',
+    );
+    assert.strictEqual(readSavedAnchor(refused.memory), earlierMarker, 'a refused add in place did not put the previous answer back');
+    assert.deepStrictEqual(refused.global.snapshot(), new Map());
+  });
+
+  it('changes nothing in a window where nothing was carried, or where what is there is not an answer', async () => {
+    const stores = addingIn(MAKES_NEW_WORKSPACE);
+    await stores.memory.update(PROJECT_FOLDER_STATE_KEY, FIRST);
+    await stores.memory.update(STATE_KEY, '/work/alpha/.aggrega-config.yaml');
+    await stores.memory.update(SELECTED_RELEASE_STATE_KEY, 'releases/prod.yaml');
+    const before = stores.memory.snapshot();
+
+    assert.strictEqual(await adoptCarriedAnswer(stores, one), null, 'a window with nothing carried took something');
+    assert.deepStrictEqual(stores.memory.snapshot(), before, 'a window with nothing carried had its memory changed');
+    assert.deepStrictEqual(stores.global.snapshot(), new Map(), 'a window with nothing carried wrote the global store');
+
+    for (const malformed of ['/work/alpha', { folders: FIRST, answer: { level: 'project', path: THIRD } },
+      { folders: [FIRST], answer: { level: 'release', path: THIRD } }, { folders: [FIRST], answer: { level: 'project', path: '' } }]) {
+      await stores.global.update(CARRIED_ANSWER_STATE_KEY, malformed);
+      assert.strictEqual(
+        await adoptCarriedAnswer(stores, one), null,
+        `${JSON.stringify(malformed)} was taken as an answer`,
+      );
+      assert.deepStrictEqual(stores.memory.snapshot(), before);
+      assert.deepStrictEqual(stores.global.get(CARRIED_ANSWER_STATE_KEY), malformed, 'an entry that is no answer was moved');
+    }
   });
 });
 
@@ -544,6 +785,12 @@ describe('the open entry asks for a folder and opens it in this window', () => {
 // The half that needs the editor — which of its calls each act is — is read off
 // the source, because the module holding it imports the editor and the editor
 // does not start here.
+// codeOf drops the lines of a scanned body that are wholly a comment, so a reading
+// of where a call sits is about the code and not about the prose beside it.
+function codeOf(body: string): string {
+  return body.split('\n').filter((line) => !line.trimStart().startsWith('//')).join('\n');
+}
+
 describe('the two last entries are wired to the editor and to nothing else', () => {
   const EXTENSION = 'src/extension.ts';
   const OPEN_BRANCH = 'if (choice.offer.kind === \'reopen\')';
@@ -619,7 +866,7 @@ describe('the two last entries are wired to the editor and to nothing else', () 
 
     const calls = callSites('pickAndAddFolder');
     assert.deepStrictEqual(calls.map((site) => site.module), ['extension.ts'], 'the sequence is run from elsewhere too');
-    const [acts] = calls[0].args;
+    const [acts, adding] = calls[0].args;
     for (const act of [
       'pickFolder: () => vscode.window.showOpenDialog(ADD_FOLDER_DIALOG)',
       'openFolders: () => vscode.workspace.workspaceFolders ?? []',
@@ -629,9 +876,16 @@ describe('the two last entries are wired to the editor and to nothing else', () 
     ]) {
       assert.ok(acts.includes(act), `the sequence is not handed ${act}; it was handed:\n${acts}`);
     }
+    // 🔴 THE SAME READING OF THE WINDOW THE ENTRY'S SECOND LINE WAS DRAWN FROM,
+    // so where the answer goes is where the line said the add would take the
+    // window.
+    assert.strictEqual(
+      adding, '{ ...answerStores(context), windowKind }',
+      'the add is not handed the window\'s two memories and the kind of window read as the choice was drawn',
+    );
   });
 
-  it('reads what adding would cost at one site, before the choice is drawn', () => {
+  it('reads what adding would do at one site, and reads it before the choice is drawn', () => {
     assert.deepStrictEqual(
       tokenModules('vscode.env.remoteName'), [['extension.ts', 1]],
       'whether the window is remote is read somewhere other than once',
@@ -640,6 +894,18 @@ describe('the two last entries are wired to the editor and to nothing else', () 
       tokenModules('vscode.workspace.workspaceFile'), [['extension.ts', 1]],
       'whether the window is on a workspace file is read somewhere other than once',
     );
+    // The one site is the reader both routes call.
+    const reader = functionBody(EXTENSION, 'function readWindowKind(');
+    for (const fact of ['vscode.env.remoteName', 'vscode.workspace.workspaceFile']) {
+      assert.ok(reader.includes(fact), `${fact} is not read in the one reader of the window's kind:\n${reader}`);
+    }
+    // 🔴 BY NAME, BOTH CALLERS: the Project folder command, as its choice is drawn,
+    // and the welcome page's step, as it adds.
+    assert.deepStrictEqual(
+      callSites('readWindowKind').map((site) => [site.module, site.args]),
+      [['extension.ts', []], ['extension.ts', []]],
+      'the window\'s kind is read by some route other than the two that add a folder',
+    );
     const handler = functionBody(EXTENSION, 'function registerChooseProjectFolderCommand(');
     assert.ok(
       handler.includes('registerCommand(CHOOSE_PROJECT_FOLDER_COMMAND'),
@@ -647,35 +913,117 @@ describe('the two last entries are wired to the editor and to nothing else', () 
     );
     const drawn = handler.indexOf('showQuickPick(');
     assert.ok(drawn > 0, `the handler draws no choice:\n${handler}`);
-    for (const fact of ['vscode.env.remoteName', 'vscode.workspace.workspaceFile']) {
-      const at = handler.indexOf(fact);
-      assert.ok(
-        at >= 0 && at < drawn,
-        `${fact} is not read inside the Project folder command before the choice is drawn`,
-      );
-    }
+    const read = handler.indexOf('readWindowKind()');
+    assert.ok(read >= 0 && read < drawn, 'the window\'s kind is not read inside the Project folder command before the choice is drawn');
+    const activation = functionBody(EXTENSION, 'export async function activate(');
+    assert.ok(
+      /addingWindow: \(\) => \(\{ \.\.\.answerStores\(context\), windowKind: readWindowKind\(\) \}\)/.test(activation),
+      'the welcome page\'s step is not handed the window\'s kind read as it adds',
+    );
   });
 
-  it('adds a folder through one call, and tells a refusal in one sentence wherever a folder is added', () => {
+  it('adds a folder through one call and one sequence, and tells a refusal in one sentence', () => {
     assert.deepStrictEqual(
       callSites('appendFolderToWindow').map((site) => [site.module, site.args]),
       [
         ['extension.ts', ['folder']],
-        ['get-started.ts', ['vscode.Uri.file(choice.directory)']],
+        ['get-started.ts', ['folder']],
       ],
       'a folder is added by some route other than the two that add one',
     );
+    // 🔴 BOTH ROUTES RECORD THROUGH THE ONE SEQUENCE, so neither can come to
+    // write its answer somewhere the other does not.
+    assert.deepStrictEqual(
+      callSites('addFolderWithAnswer').map((site) => site.module),
+      ['get-started.ts', 'project-folder.ts'],
+      'a folder the reader named is added by some route other than the one sequence',
+    );
     assert.deepStrictEqual(
       callSites('folderDeclinedMessage').map((site) => [site.module, site.args]),
-      [
-        ['get-started.ts', ['choice.directory']],
-        ['project-folder.ts', ['folderPath']],
-      ],
+      [['project-folder.ts', ['folder.fsPath']]],
       'a refusal to add a folder is told by some route other than the one sentence',
     );
     assert.deepStrictEqual(
       tokenModules('declined to add'), [['project-folder.ts', 1]],
       'the refusal\'s sentence is written a second time, and the two can come to say different things',
     );
+  });
+
+  it('adds the welcome page\'s folder through that sequence, and records in place only where it is open already', () => {
+    const GET_STARTED = 'src/get-started.ts';
+    const body = codeOf(functionBody(GET_STARTED, 'async function chooseWorkspace('));
+    const openBranch = functionBody(GET_STARTED, 'if (opened.has(choice.directory))');
+    // 🔴 THE NEEDLE ON THE BRANCH: it is the one that records into this window's
+    // memory and re-attaches, so a reading that has stopped finding it proves
+    // nothing about the add below it.
+    assert.ok(openBranch.includes('await deps.rememberAnchorChoice(choice.anchorPath);'), `the open branch records nothing:\n${openBranch}`);
+    assert.ok(openBranch.includes('await deps.reanchor();'), `the open branch does not re-attach:\n${openBranch}`);
+    assert.strictEqual(
+      body.split('rememberAnchorChoice(').length - 1, 1,
+      `the step writes the window's memory outside the branch where the folder is already open:\n${body}`,
+    );
+    const [call] = callSites('addFolderWithAnswer').filter((site) => site.module === 'get-started.ts');
+    const [acts, ...rest] = call.args;
+    assert.deepStrictEqual(
+      rest,
+      [
+        'deps.addingWindow()',
+        'vscode.workspace.workspaceFolders ?? []',
+        'vscode.Uri.file(choice.directory)',
+        '{ level: \'workspace\', path: choice.anchorPath }',
+      ],
+      'the step does not add the folder chosen, with the workspace chosen as its answer, in the window as it is',
+    );
+    for (const act of [
+      'addFolder: (folder) => appendFolderToWindow(folder)',
+      'showError: (message) => void vscode.window.showErrorMessage(message)',
+    ]) {
+      assert.ok(acts.includes(act), `the step's add is not handed ${act}; it was handed:\n${acts}`);
+    }
+    assert.ok(body.indexOf('opened.has(choice.directory)') < body.indexOf('addFolderWithAnswer('));
+  });
+
+  it('takes a carried answer in first, before anything that can evaluate the open folders', () => {
+    // Comment lines are dropped, so a word in the prose explaining the order is
+    // not read as the code it explains.
+    const body = codeOf(functionBody(EXTENSION, 'export async function activate('));
+    const adopt = body.indexOf('await adoptCarriedAnswer(');
+    assert.ok(adopt >= 0, `activation takes no carried answer in:\n${body}`);
+    // 🔴 THE NEEDLE: the last act of activation IS the first evaluation, so the
+    // readings below are measured against the thing they are about.
+    assert.ok(
+      body.trim().endsWith('await reactivate(context);'),
+      'activation does not end by evaluating the open folders, so the order below is about nothing',
+    );
+    for (const later of ['reactivate(', 'onDidChangeWorkspaceFolders', 'register', 'activateOperations(', 'activateGetStarted(']) {
+      const at = body.indexOf(later);
+      assert.ok(at > adopt, `${later} appears before the carried answer is taken in, so it can evaluate without it`);
+    }
+    assert.deepStrictEqual(
+      callSites('adoptCarriedAnswer').map((site) => [site.module, site.args]),
+      [['extension.ts', ['answerStores(context)', 'vscode.workspace.workspaceFolders ?? []']]],
+      'a carried answer is taken in by some route other than the one activation takes, or against other folders',
+    );
+  });
+
+  it('keeps the carried answer under one key, in one module, reached through one naming of the stores', () => {
+    assert.deepStrictEqual(
+      tokenModules('CARRIED_ANSWER_STATE_KEY'), [['project-folder.ts', 4]],
+      'the carried answer\'s key is named outside its declaration, its read, its write and its deletion',
+    );
+    // Counted as a token rather than as call sites: two of the three are spread
+    // into an object, and the call census deliberately reads nothing preceded by
+    // a dot.
+    assert.deepStrictEqual(
+      tokenModules('answerStores(context)'), [['extension.ts', 3]],
+      'the two memories are named for an answer somewhere other than activation and the two routes that add',
+    );
+    // The global store is reached by the configuration panel for its own
+    // presentation and, for answers, only where the two memories are named.
+    assert.deepStrictEqual(
+      tokenModules('globalState'), [['config-view.ts', 2], ['extension.ts', 1]],
+      'the editor\'s global store is reached from somewhere new',
+    );
+    assert.ok(functionBody(EXTENSION, 'function answerStores(').includes('global: context.globalState'));
   });
 });

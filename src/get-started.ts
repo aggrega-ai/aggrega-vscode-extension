@@ -27,7 +27,7 @@ import {
 } from './workspace';
 import { candidateFilesAcrossWindow } from './workspace-search';
 import { appendFolderToWindow } from './window-folders';
-import { folderDeclinedMessage } from './project-folder';
+import { AddingWindow, addFolderWithAnswer } from './project-folder';
 import {
   CHOOSE_WORKSPACE_COMMAND,
   CREATE_WORKSPACE_COMMAND,
@@ -131,6 +131,16 @@ export interface GetStartedDeps extends RendersOnReady {
   // the folder they asked to leave — silently, with every surface going on naming
   // it.
   rememberAnchorChoice(anchorPath: string | null): Promise<string | null>;
+  // addingWindow reports the two memories a reader's answer can be kept in and
+  // the kind of window this is, which decides between them when a folder is
+  // added.
+  //
+  // A folder added to a window on one folder, or on none, turns the window into a
+  // new workspace whose memory the editor opens empty, so an answer recorded
+  // through rememberAnchorChoice before that add stays with the window being
+  // left. It is a dependency because both memories and the window's kind are the
+  // editor's, held by the surface that registers this panel.
+  addingWindow(): AddingWindow;
   onSelectionChange(listener: () => void): void;
   // seedConfiguration asks the language server to seed a working configuration
   // by registering a registry and its signature trust policy.
@@ -734,30 +744,30 @@ async function chooseWorkspace(deps: GetStartedDeps, refresh: () => void): Promi
   // WHOLE FIX. The reader has named the folder they want, which is an answer that
   // outranks whatever this window last remembered; re-evaluating the open folders
   // without recording it first lets the earlier choice win, and the editor goes on
-  // working in the folder they asked to leave while every surface names it. The
-  // branch below re-attaches on an event this function does not control — the
-  // editor's own, once the folder is added — so an answer recorded afterwards
-  // would arrive after the decision that needed it.
-  const previous = await deps.rememberAnchorChoice(choice.anchorPath);
-
+  // working in the folder they asked to leave while every surface names it.
   if (opened.has(choice.directory)) {
+    await deps.rememberAnchorChoice(choice.anchorPath);
     await deps.reanchor();
     refresh();
     return;
   }
   // Adding the folder is what makes the language server anchor there. The
   // editor raises its own folders-changed event, which the extension already
-  // re-attaches on, so nothing is re-attached here.
-  const added = appendFolderToWindow(vscode.Uri.file(choice.directory));
-  if (!added) {
-    // The move did not happen, so the answer recorded for it is put back. A window
-    // left remembering a folder it never reached drops that choice on its next
-    // re-evaluation and tells the reader a folder they never chose has stopped
-    // being anchored.
-    await deps.rememberAnchorChoice(previous);
-    void vscode.window.showErrorMessage(folderDeclinedMessage(choice.directory));
-    return;
-  }
+  // re-attaches on, so nothing is re-attached here. The add records the answer
+  // first, where the window the reader is in afterwards reads it — this window's
+  // memory where the add happens in place, and the answer carried into the new
+  // workspace where it makes one — and takes it back if the editor refuses.
+  const outcome = await addFolderWithAnswer(
+    {
+      addFolder: (folder) => appendFolderToWindow(folder),
+      showError: (message) => void vscode.window.showErrorMessage(message),
+    },
+    deps.addingWindow(),
+    vscode.workspace.workspaceFolders ?? [],
+    vscode.Uri.file(choice.directory),
+    { level: 'workspace', path: choice.anchorPath },
+  );
+  if (outcome === 'declined') { return; }
   refresh();
 }
 

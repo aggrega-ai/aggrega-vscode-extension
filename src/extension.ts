@@ -173,9 +173,12 @@ import { openWorkspaceRootInvocation } from './selector-rows';
 import { FoldersTold, tellWorkspaceAboveIfDue } from './workspace-above';
 import {
   ADD_FOLDER_DIALOG,
+  AnswerStores,
   CHOOSE_PROJECT_FOLDER_COMMAND,
   CHOOSE_PROJECT_FOLDER_PLACEHOLDER,
   OPEN_FOLDER_DIALOG,
+  WindowKind,
+  adoptCarriedAnswer,
   isSavedProjectFolderValid,
   pickAndAddFolder,
   pickAndOpenFolder,
@@ -361,6 +364,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   extensionContext = context;
   outputChannel = vscode.window.createOutputChannel('Aggrega');
   context.subscriptions.push(outputChannel);
+
+  // 🔴 FIRST, BEFORE ANYTHING THAT CAN EVALUATE THE OPEN FOLDERS IS REGISTERED.
+  // Where this window was made by adding a folder to a window on one folder or
+  // none, the answer the reader gave in the window they left is carried here
+  // through the editor's global store, and it has to be in this window's memory
+  // before the first evaluation reads that memory. That evaluation is the last
+  // act below, and every control and listener registered in between can start one
+  // too, so taking the answer in here is what puts it ahead of all of them.
+  await adoptCarriedAnswer(answerStores(context), vscode.workspace.workspaceFolders ?? []);
 
   // Built before any view, because a view takes the signal as a dependency and
   // subscribes as it is registered. It reads both facts through the getters
@@ -726,6 +738,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // than on the one this window last remembered.
     rememberAnchorChoice: (anchorPath) =>
       rememberAnchorChoice(context.workspaceState, anchorPath),
+    // Read as the folder is added rather than when the panel is set up, because
+    // which memory the answer goes into depends on the window at that moment.
+    addingWindow: () => ({ ...answerStores(context), windowKind: readWindowKind() }),
     onReady: ready.onReady,
     onSelectionChange: (listener) => releaseSelection?.onChange(listener),
     seedConfiguration: requestConfigInit,
@@ -1332,6 +1347,29 @@ function registerSwitchAnchorCommand(context: vscode.ExtensionContext): void {
   }));
 }
 
+// readWindowKind reads the two facts the editor reports about this window that
+// decide what adding a folder to it does: whether it is open on a workspace file,
+// and whether it works through a remote connection.
+//
+// It is the one place either fact is read. What an add costs is shown on the
+// Project folder row's add entry, and where the answer given before an add is
+// written is decided at both routes that add a folder; written out at each, two
+// readings of one fact could come to disagree, and the line shown and the memory
+// written would then describe different windows.
+function readWindowKind(): WindowKind {
+  return {
+    onWorkspaceFile: vscode.workspace.workspaceFile !== undefined,
+    remote: vscode.env.remoteName !== undefined,
+  };
+}
+
+// answerStores names the two memories a reader's answer can be kept in: this
+// window's own, and the editor's global store, which every window shares and
+// which is kept when a window enters a new workspace.
+function answerStores(context: vscode.ExtensionContext): AnswerStores {
+  return { memory: context.workspaceState, global: context.globalState };
+}
+
 // registerChooseProjectFolderCommand wires what the Project folder row opens.
 //
 // 🔴 IT OFFERS THE FOLDERS THE WINDOW HAS AND, LAST, THE TWO WAYS TO REACH ONE
@@ -1352,11 +1390,9 @@ function registerChooseProjectFolderCommand(context: vscode.ExtensionContext): v
       const folders = [...(vscode.workspace.workspaceFolders ?? [])];
       // What adding a folder would cost is read here, as the choice is drawn,
       // because the add entry's second line has to be true of this window at
-      // the moment the reader reads it.
-      const windowKind = {
-        onWorkspaceFile: vscode.workspace.workspaceFile !== undefined,
-        remote: vscode.env.remoteName !== undefined,
-      };
+      // the moment the reader reads it. The add below decides from the same
+      // reading where the answer goes, so it does what the line said.
+      const windowKind = readWindowKind();
       const offers = projectFolderOffers(folders, windowKind).map((o) => ({
         label: o.label,
         description: o.description,
@@ -1380,16 +1416,17 @@ function registerChooseProjectFolderCommand(context: vscode.ExtensionContext): v
         return;
       }
       if (choice.offer.kind === 'add') {
-        // The sequence is the pure one; what is handed to it here is the editor
-        // and nothing else. The folder joins the list, and the choice among the
-        // listed folders stays the reader's.
+        // The sequence is the pure one; what is handed to it here is the editor,
+        // the window's two memories and the kind of window read above. The folder
+        // added becomes the one the editor works from, in whichever window the
+        // reader is in once it is added.
         await pickAndAddFolder({
           pickFolder: () => vscode.window.showOpenDialog(ADD_FOLDER_DIALOG),
           openFolders: () => vscode.workspace.workspaceFolders ?? [],
           addFolder: (folder) => appendFolderToWindow(folder),
           showInformation: (message) => void vscode.window.showInformationMessage(message),
           showError: (message) => void vscode.window.showErrorMessage(message),
-        });
+        }, { ...answerStores(context), windowKind });
         return;
       }
       const chosenPath = choice.offer.folder.uri.fsPath;
