@@ -13,7 +13,6 @@ import {
   FolderOpeningEditor,
   OPEN_FOLDER_DIALOG,
   PROJECT_FOLDER_STATE_KEY,
-  WindowKind,
   addFolderDetail,
   addFolderWithAnswer,
   adoptCarriedAnswer,
@@ -30,6 +29,7 @@ import {
 import { STATE_KEY, readSavedAnchor } from '../../src/anchor-picker';
 import { SELECTED_RELEASE_STATE_KEY } from '../../src/release-selection';
 import { WorkspaceStateLike } from '../../src/anchor-picker';
+import { WindowKind } from '../../src/window-kind';
 import { FolderLike } from '../../src/workspace';
 import { projectFolderRow } from '../../src/selector-rows';
 import { functionBody } from '../helpers/anchoring-census';
@@ -352,6 +352,48 @@ describe('what the two last entries say taking them costs', () => {
         );
       }
     }
+  });
+});
+
+// Two entries end in an add — this row's add entry and the Aggrega workspace
+// row's last entry — and each line above is pinned by what it says. What those
+// readings cannot see is a second copy of the grading that happens to agree
+// today, so where the grading lives is read off the source.
+describe('what an add costs is graded in one place', () => {
+  it('writes the grading once, and composes both lines that end in an add through it', () => {
+    // 🔴 THE LOCAL COST IS WRITTEN ONCE AND THE REMOTE BRANCH IS TAKEN ONCE, in
+    // the one module that grades. A second copy anywhere is a second entry here,
+    // whatever it agrees with today.
+    assert.deepStrictEqual(
+      tokenModules('Extensions restart'), [['window-kind.ts', 1]],
+      'what an add costs in a local window is written a second time, and the two can come to say different things',
+    );
+    assert.deepStrictEqual(
+      tokenModules('remote ?'), [['window-kind.ts', 1]],
+      'whether an add reloads the window is decided somewhere other than the one grading',
+    );
+    // 🔴 BOTH LINES ARE COMPOSED THROUGH IT, each from its own first half and
+    // the kind of window its offers were drawn for.
+    assert.deepStrictEqual(
+      callSites('withAddingCost').map((site) => [site.module, site.args]),
+      [
+        ['anchor-picker.ts', ['WIDEN_ANCHOR_OFFER_DETAIL', 'windowKind']],
+        ['project-folder.ts', ['ADD_FOLDER_DETAIL', 'windowKind']],
+      ],
+      'a line offering an add is composed some other way than through the one grading',
+    );
+    // And each entry is drawn with the composed line, where its offers are made,
+    // rather than with the first half alone.
+    assert.deepStrictEqual(
+      callSites('widenAnchorOfferDetail').map((site) => [site.module, site.args]),
+      [['anchor-picker.ts', ['windowKind']]],
+      'the Aggrega workspace row\'s last entry is drawn without the line that names what its add costs',
+    );
+    assert.deepStrictEqual(
+      callSites('addFolderDetail').map((site) => [site.module, site.args]),
+      [['project-folder.ts', ['windowKind']]],
+      'the add entry is drawn without the line that names what its add costs',
+    );
   });
 });
 
@@ -885,7 +927,7 @@ describe('the two last entries are wired to the editor and to nothing else', () 
     );
   });
 
-  it('reads what adding would do at one site, and reads it before the choice is drawn', () => {
+  it('reads what adding would do at one site, and reads it before each choice is drawn', () => {
     assert.deepStrictEqual(
       tokenModules('vscode.env.remoteName'), [['extension.ts', 1]],
       'whether the window is remote is read somewhere other than once',
@@ -894,17 +936,21 @@ describe('the two last entries are wired to the editor and to nothing else', () 
       tokenModules('vscode.workspace.workspaceFile'), [['extension.ts', 1]],
       'whether the window is on a workspace file is read somewhere other than once',
     );
-    // The one site is the reader both routes call.
+    // The one site is the reader every caller calls.
     const reader = functionBody(EXTENSION, 'function readWindowKind(');
     for (const fact of ['vscode.env.remoteName', 'vscode.workspace.workspaceFile']) {
       assert.ok(reader.includes(fact), `${fact} is not read in the one reader of the window's kind:\n${reader}`);
     }
-    // 🔴 BY NAME, BOTH CALLERS: the Project folder command, as its choice is drawn,
-    // and the welcome page's step, as it adds.
+    // 🔴 BY NAME, ALL THREE CALLERS, in source order: the welcome page's step, as
+    // it adds; the Aggrega workspace row's command, as its choice is drawn; and
+    // the Project folder command, as its choice is drawn. The count is three and
+    // each is named by a reading below, so a fourth reader, or one of these
+    // moving out of its body, fails here.
     assert.deepStrictEqual(
       callSites('readWindowKind').map((site) => [site.module, site.args]),
-      [['extension.ts', []], ['extension.ts', []]],
-      'the window\'s kind is read by some route other than the two that add a folder',
+      [['extension.ts', []], ['extension.ts', []], ['extension.ts', []]],
+      'the window\'s kind is read by some route other than the welcome page\'s step and the two commands '
+      + 'whose choice ends in an add',
     );
     const handler = functionBody(EXTENSION, 'function registerChooseProjectFolderCommand(');
     assert.ok(
@@ -915,6 +961,25 @@ describe('the two last entries are wired to the editor and to nothing else', () 
     assert.ok(drawn > 0, `the handler draws no choice:\n${handler}`);
     const read = handler.indexOf('readWindowKind()');
     assert.ok(read >= 0 && read < drawn, 'the window\'s kind is not read inside the Project folder command before the choice is drawn');
+    // The Aggrega workspace row's command reads it too, before its own choice is
+    // drawn, and draws the offers from that reading.
+    const row = codeOf(functionBody(EXTENSION, 'function registerSwitchAnchorCommand('));
+    assert.ok(
+      row.includes('registerCommand(SWITCH_ANCHOR_COMMAND'),
+      `the scanned body is not the Aggrega workspace row's command:\n${row}`,
+    );
+    const rowDrawn = row.indexOf('showQuickPick(');
+    assert.ok(rowDrawn > 0, `the row's command draws no choice:\n${row}`);
+    const rowRead = row.indexOf('const windowKind = readWindowKind();');
+    assert.ok(
+      rowRead >= 0 && rowRead < rowDrawn,
+      'the window\'s kind is not read inside the Aggrega workspace row\'s command before the choice is drawn',
+    );
+    const rowOffers = row.indexOf('anchorOffers(currentAnchored, windowKind)');
+    assert.ok(
+      rowOffers > rowRead && rowOffers < rowDrawn,
+      `the row's offers are not drawn from the reading made as the choice is drawn:\n${row}`,
+    );
     const activation = functionBody(EXTENSION, 'export async function activate(');
     assert.ok(
       /addingWindow: \(\) => \(\{ \.\.\.answerStores\(context\), windowKind: readWindowKind\(\) \}\)/.test(activation),

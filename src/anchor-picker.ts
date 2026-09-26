@@ -5,6 +5,7 @@ import * as path from 'path';
 import { AnchoredFolder, FolderLike, workspaceRootOf } from './workspace';
 import { SELECTOR_ROW_LABELS } from './selector-levels';
 import { distinguishingLabel } from './uri-display';
+import { WindowKind, withAddingCost } from './window-kind';
 
 // STATE_KEY is the workspaceState entry under which the active
 // anchor's absolute path is persisted across VS Code sessions.
@@ -208,8 +209,26 @@ export function anchorsAvailableSentence(count: number): string {
 // WIDEN_ANCHOR_OFFER_DETAIL explains, on the offer's second line, what
 // choosing it does — that the folder is one already inside the open workspace,
 // and that taking it adds it rather than opening something elsewhere.
-export const WIDEN_ANCHOR_OFFER_DETAIL =
+//
+// It is not exported, because it is only the first half of that line: what the
+// add costs is the second, and a surface drawing this alone would promise the
+// reach and leave out the restart.
+const WIDEN_ANCHOR_OFFER_DETAIL =
   'Looks through the folders you have open for one Aggrega recognises, and adds it.';
+
+// widenAnchorOfferDetail is the offer's second line for this kind of window:
+// what taking it does, and what the add it ends in costs where it costs
+// something.
+//
+// 🔴 THE COST IS THE ADD'S, AND IT IS READ FROM THE ONE GRADING THE PROJECT
+// FOLDER ROW'S ADD ENTRY READS. Taking this offer adds the folder picked to the
+// window, as that entry does, so it costs what that entry costs — and where the
+// folder picked is one the window already has open, neither adds anything. The
+// cost is composed rather than written here, so the two lines cannot come to
+// name different costs for one act.
+export function widenAnchorOfferDetail(windowKind: WindowKind): string {
+  return withAddingCost(WIDEN_ANCHOR_OFFER_DETAIL, windowKind);
+}
 
 // widenAnchorOfferLabel is the offer's label, and it is graded on whether
 // anything is attached yet: "another" is true only when there is already one to
@@ -254,8 +273,14 @@ export type AnchorOffer<F extends FolderLike = FolderLike> =
 // offers its sole candidate. It is also why the row's closing sentence needs no
 // count: the click always opens a choice, so its promise holds however many
 // workspaces are reachable.
+//
+// The kind of window is handed in rather than looked up, for the reason the
+// Project folder row's offers take theirs: it is the editor's to report, and
+// this module holds no editor. The caller reads it as the choice is drawn,
+// which is the moment the last entry's second line has to be true of.
 export function anchorOffers<F extends FolderLike>(
   anchored: readonly AnchoredFolder<F>[],
+  windowKind: WindowKind,
 ): AnchorOffer<F>[] {
   const offers: AnchorOffer<F>[] = buildPickerItems(anchored).map(
     (item) => ({ kind: 'anchored' as const, ...item }),
@@ -264,7 +289,7 @@ export function anchorOffers<F extends FolderLike>(
     kind: 'widen',
     label: widenAnchorOfferLabel(anchored.length),
     description: '',
-    detail: WIDEN_ANCHOR_OFFER_DETAIL,
+    detail: widenAnchorOfferDetail(windowKind),
   });
   return offers;
 }

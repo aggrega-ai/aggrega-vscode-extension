@@ -177,7 +177,6 @@ import {
   CHOOSE_PROJECT_FOLDER_COMMAND,
   CHOOSE_PROJECT_FOLDER_PLACEHOLDER,
   OPEN_FOLDER_DIALOG,
-  WindowKind,
   adoptCarriedAnswer,
   isSavedProjectFolderValid,
   pickAndAddFolder,
@@ -189,6 +188,7 @@ import {
   rememberProjectFolderChoice,
 } from './project-folder';
 import { appendFolderToWindow, openFolderInWindow } from './window-folders';
+import { WindowKind } from './window-kind';
 
 let daemon: Daemon | null = null;
 let outputChannel: vscode.OutputChannel | null = null;
@@ -1317,7 +1317,12 @@ function registerSwitchAnchorCommand(context: vscode.ExtensionContext): void {
       void vscode.window.showInformationMessage(NO_ANCHORED_WORKSPACE_MESSAGE);
       return;
     }
-    const offers = anchorOffers(currentAnchored).map(o => ({
+    // What adding a folder would cost is read here, as the choice is drawn,
+    // because the last entry's second line has to be true of this window at the
+    // moment the reader reads it. The add that entry ends in reads the window
+    // again as it adds, through the same reader.
+    const windowKind = readWindowKind();
+    const offers = anchorOffers(currentAnchored, windowKind).map(o => ({
       label: o.label,
       description: o.description,
       detail: o.detail,
@@ -1352,10 +1357,12 @@ function registerSwitchAnchorCommand(context: vscode.ExtensionContext): void {
 // and whether it works through a remote connection.
 //
 // It is the one place either fact is read. What an add costs is shown on the
-// Project folder row's add entry, and where the answer given before an add is
-// written is decided at both routes that add a folder; written out at each, two
-// readings of one fact could come to disagree, and the line shown and the memory
-// written would then describe different windows.
+// second line of both entries that end in one — the Project folder row's add
+// entry and the Aggrega workspace row's last entry, each read as its choice is
+// drawn — and where the answer given before an add is written is decided at
+// both routes that add a folder; written out at each, two readings of one fact
+// could come to disagree, and the line shown and the memory written would then
+// describe different windows.
 function readWindowKind(): WindowKind {
   return {
     onWorkspaceFile: vscode.workspace.workspaceFile !== undefined,

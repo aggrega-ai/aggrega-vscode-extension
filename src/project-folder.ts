@@ -5,6 +5,12 @@ import { FolderLike } from './workspace';
 import { WorkspaceStateLike, rememberAnchorChoice } from './anchor-picker';
 import { SELECTOR_ROW_LABELS } from './selector-levels';
 import { distinguishingLabel } from './uri-display';
+import {
+  WINDOW_RELOADS,
+  WindowKind,
+  addingMakesNewWorkspace,
+  withAddingCost,
+} from './window-kind';
 
 // PROJECT_FOLDER_STATE_KEY is the editor-local entry the chosen Project folder
 // is remembered under. Editor-local means per editor window, the same way the
@@ -159,11 +165,6 @@ export function buildProjectFolderItems<F extends FolderLike>(
 export const OPEN_FOLDER_ENTRY_LABEL = 'Open folder…';
 export const ADD_FOLDER_ENTRY_LABEL = 'Add folder to this window…';
 
-// WINDOW_RELOADS is how both entries' second lines name the one cost they can
-// share. Written once so the two entries cannot come to name one consequence in
-// two ways.
-const WINDOW_RELOADS = 'The window reloads.';
-
 // openFolderDetail is the open entry's second line: what taking it does to the
 // folders the window has, and what it costs.
 //
@@ -184,54 +185,14 @@ export function openFolderDetail(openCount: number): string {
 export const ADD_FOLDER_DETAIL =
   'Reaches a folder this window does not have open yet.';
 
-// WindowKind is what the editor says about a window that decides what adding a
-// folder to it costs.
-//
-// Both are facts the editor reports rather than conclusions drawn here; what
-// they cost is concluded in one place below, so the reading and the conclusion
-// cannot drift apart unseen.
-export interface WindowKind {
-  // onWorkspaceFile is whether the window is open on a workspace file, saved or
-  // untitled, rather than on a single folder or on nothing at all.
-  onWorkspaceFile: boolean;
-  // remote is whether the window works on another machine through a remote
-  // connection, a container or another host.
-  remote: boolean;
-}
-
 // addFolderDetail is the add entry's second line for this kind of window: what
 // taking it does, and what it costs where it costs something.
 //
-// 🔴 THE COST IS THE EDITOR'S, AND THIS MIRRORS HOW THE EDITOR DECIDES IT. A
-// window open on a workspace file takes another folder in place. A window open
-// on one folder, or on none, is turned into a workspace to take it, and entering
-// a workspace stops every extension and starts them again — which, in a remote
-// window, the editor does by reloading the window. A second line promising only
-// the reach would be accurate and would still surprise every reader whose window
-// reloaded under them.
-//
-// Where there is no cost the line names none, rather than reassuring the reader
-// that nothing restarts: that would be one more sentence that could stop being
-// true.
+// The cost is not written here. It is the add's, and the Aggrega workspace row's
+// last entry ends in the same add, so both lines take it from the one grading
+// every entry ending in an add is composed through.
 export function addFolderDetail(windowKind: WindowKind): string {
-  if (!addingMakesNewWorkspace(windowKind)) { return ADD_FOLDER_DETAIL; }
-  const cost = windowKind.remote ? WINDOW_RELOADS : 'Extensions restart.';
-  return `${ADD_FOLDER_DETAIL} ${cost}`;
-}
-
-// addingMakesNewWorkspace reports whether adding a folder to this kind of window
-// puts the window on a workspace it was not on before.
-//
-// 🔴 IT IS THE ONE CONCLUSION DRAWN FROM THE WINDOW'S KIND ABOUT WHAT AN ADD
-// DOES, AND TWO THINGS FOLLOW FROM IT: what the add entry's second line says the
-// add costs, and which memory an answer given before the add is written into. A
-// window open on a workspace file takes another folder in place and keeps its
-// memory. A window open on one folder, or on none, is turned into a new
-// workspace, and the editor opens that workspace's memory empty rather than
-// carrying the old one across. Drawn twice, the line could name one of those
-// while the answer went where the other is true.
-export function addingMakesNewWorkspace(windowKind: WindowKind): boolean {
-  return !windowKind.onWorkspaceFile;
+  return withAddingCost(ADD_FOLDER_DETAIL, windowKind);
 }
 
 // projectFolderOffers composes what the Project folder row opens: every folder

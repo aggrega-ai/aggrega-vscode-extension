@@ -10,7 +10,6 @@ import {
   CHOOSE_ANCHOR_INVITATION,
   CHOOSE_ANCHOR_PLACEHOLDER,
   STATE_KEY,
-  WIDEN_ANCHOR_OFFER_DETAIL,
   WorkspaceStateLike,
   anchorOffers,
   anchorSwitchMessage,
@@ -21,8 +20,10 @@ import {
   readSavedAnchor,
   rememberAnchorChoice,
   activeWorkspaceLabel,
+  widenAnchorOfferDetail,
   widenAnchorOfferLabel,
 } from '../../src/anchor-picker';
+import { WindowKind } from '../../src/window-kind';
 import {
   AnchoredFolder,
   CONFIG_FILENAME,
@@ -47,6 +48,11 @@ function fakeFolder(fsPath: string): FolderLike {
 function fakeAnchor(folderPath: string, anchorPath: string): AnchoredFolder {
   return { folder: fakeFolder(folderPath), anchorPath };
 }
+
+// The window the row's offers are drawn for where the case is not about what
+// adding costs: one already on a workspace file, so the last entry's second line
+// names no cost at all.
+const ON_WORKSPACE_FILE: WindowKind = { onWorkspaceFile: true, remote: false };
 
 // fakeWorkspaceState implements the structural slice of
 // vscode.ExtensionContext.workspaceState the anchor-picker module
@@ -242,13 +248,34 @@ describe('buildPickerItems', () => {
   });
 });
 
+// The last entry's second line, written out rather than composed from the
+// constant the source reads: a composed expectation moves with whatever it is
+// checking and cannot fail.
+const LOOKS_AND_ADDS = 'Looks through the folders you have open for one Aggrega recognises, and adds it.';
+const LOOKS_AND_ADDS_AND_RELOAD =
+  'Looks through the folders you have open for one Aggrega recognises, and adds it. The window reloads.';
+const LOOKS_AND_ADDS_AND_RESTART =
+  'Looks through the folders you have open for one Aggrega recognises, and adds it. Extensions restart.';
+
+// The four windows, each with the line its reader must be shown. Taking the
+// entry ends in the add the Project folder row's add entry makes, so it costs
+// what that entry costs: a window on a workspace file takes a folder in place,
+// remote or not; a window on one folder becomes a workspace to take it, which
+// reloads a remote window and restarts a local one's extensions.
+const WIDEN_COSTS: Array<[string, WindowKind, string]> = [
+  ['on a workspace file, remote', { onWorkspaceFile: true, remote: true }, LOOKS_AND_ADDS],
+  ['on a workspace file, local', { onWorkspaceFile: true, remote: false }, LOOKS_AND_ADDS],
+  ['on a folder, remote', { onWorkspaceFile: false, remote: true }, LOOKS_AND_ADDS_AND_RELOAD],
+  ['on a folder, local', { onWorkspaceFile: false, remote: false }, LOOKS_AND_ADDS_AND_RESTART],
+];
+
 describe('what the workspace row offers when clicked', () => {
   it('offers the sole attached folder rather than declining to show a choice', () => {
     // The defect this replaces was a row whose tooltip promised an action and
     // whose handler then refused it for exactly this case. One candidate is
     // still a choice the reader asked to see.
     const a = fakeAnchor('/ws/foo', '/ws/foo/.aggrega-config.yaml');
-    const offers = anchorOffers([a]);
+    const offers = anchorOffers([a], ON_WORKSPACE_FILE);
     assert.ok(
       offers.some(o => o.kind === 'anchored'),
       'the attached folder is not offered, so the reader cannot see where they are',
@@ -258,10 +285,10 @@ describe('what the workspace row offers when clicked', () => {
 
   it('offers the route to widening alongside what is attached, in one list', () => {
     const a = fakeAnchor('/ws/foo', '/ws/foo/.aggrega-config.yaml');
-    const offers = anchorOffers([a]);
+    const offers = anchorOffers([a], ON_WORKSPACE_FILE);
     const widen = offers.filter(o => o.kind === 'widen');
     assert.strictEqual(widen.length, 1, 'exactly one way to reach the widening');
-    assert.strictEqual(widen[0].detail, WIDEN_ANCHOR_OFFER_DETAIL);
+    assert.strictEqual(widen[0].detail, LOOKS_AND_ADDS);
     assert.strictEqual(
       offers[offers.length - 1].kind, 'widen',
       'the widening comes after what is already available, which is what a reader reads first',
@@ -272,7 +299,7 @@ describe('what the workspace row offers when clicked', () => {
     // Attached folders and the folders in the workspace Aggrega would recognise
     // are different populations. Nothing attached says nothing about the second,
     // so this is the case that must not become a dead end.
-    const offers = anchorOffers([]);
+    const offers = anchorOffers([], ON_WORKSPACE_FILE);
     assert.deepStrictEqual(offers.map(o => o.kind), ['widen']);
   });
 
@@ -281,7 +308,7 @@ describe('what the workspace row offers when clicked', () => {
     assert.ok(!widenAnchorOfferLabel(0).includes('another'));
     assert.ok(widenAnchorOfferLabel(1).includes('another'));
     assert.strictEqual(
-      anchorOffers([a]).find(o => o.kind === 'widen')?.label,
+      anchorOffers([a], ON_WORKSPACE_FILE).find(o => o.kind === 'widen')?.label,
       widenAnchorOfferLabel(1),
       'the composed offer and the label rule are one answer',
     );
@@ -293,7 +320,7 @@ describe('what the workspace row offers when clicked', () => {
     // buildPickerItems rather than repeating it.
     const a = fakeAnchor('/projects/foo/web', '/projects/foo/web/.aggrega-config.yaml');
     const b = fakeAnchor('/projects/bar/web', '/projects/bar/web/aggregate.yaml');
-    const offers = anchorOffers([a, b]);
+    const offers = anchorOffers([a, b], ON_WORKSPACE_FILE);
     const shaped = buildPickerItems([a, b]);
     assert.deepStrictEqual(
       offers.filter(o => o.kind === 'anchored').map(o => ({
@@ -307,7 +334,7 @@ describe('what the workspace row offers when clicked', () => {
     // The caller dispatches on kind and then attaches; an entry that named no
     // folder would make the widening indistinguishable from a folder choice.
     const a = fakeAnchor('/ws/foo', '/ws/foo/.aggrega-config.yaml');
-    const offer = anchorOffers([a]).find(o => o.kind === 'anchored');
+    const offer = anchorOffers([a], ON_WORKSPACE_FILE).find(o => o.kind === 'anchored');
     assert.ok(offer && offer.kind === 'anchored');
     assert.strictEqual(offer.anchored.anchorPath, '/ws/foo/.aggrega-config.yaml');
   });
@@ -333,7 +360,7 @@ describe('what the workspace row offers when clicked', () => {
     // the active folder one of the entries rather than a copy of one.
     const active = anchored[0];
 
-    const offered = anchorOffers(anchored)
+    const offered = anchorOffers(anchored, ON_WORKSPACE_FILE)
       .filter(o => o.kind === 'anchored')
       .map(o => (o.kind === 'anchored' ? o.anchored : null)!);
 
@@ -350,7 +377,7 @@ describe('what the workspace row offers when clicked', () => {
 
   it('names no internal population in anything the reader reads', () => {
     const a = fakeAnchor('/ws/foo', '/ws/foo/.aggrega-config.yaml');
-    for (const offers of [anchorOffers([]), anchorOffers([a])]) {
+    for (const offers of [anchorOffers([], ON_WORKSPACE_FILE), anchorOffers([a], ON_WORKSPACE_FILE)]) {
       for (const o of offers) {
         for (const text of [o.label, o.detail]) {
           assert.ok(
@@ -358,6 +385,37 @@ describe('what the workspace row offers when clicked', () => {
             `"${text}" describes a variable rather than the reader's situation`,
           );
         }
+      }
+    }
+  });
+});
+
+describe('what the workspace row\'s last entry says taking it costs', () => {
+  for (const [name, windowKind, expected] of WIDEN_COSTS) {
+    it(`says exactly what the add it ends in costs in a window ${name}`, () => {
+      assert.strictEqual(widenAnchorOfferDetail(windowKind), expected);
+    });
+  }
+
+  it('carries that line on the entry the row draws, with nothing attached and with one attached', () => {
+    // 🔴 THE COMPOSED ENTRY, not only the line: the row draws what the offers
+    // hand it, so a line that is right on its own and missing from the entry
+    // would still leave the reader unwarned.
+    const a = fakeAnchor('/ws/foo', '/ws/foo/.aggrega-config.yaml');
+    for (const attached of [[], [a]]) {
+      for (const [name, windowKind, expected] of WIDEN_COSTS) {
+        const last = anchorOffers(attached, windowKind).at(-1);
+        assert.ok(last?.kind === 'widen', `the last entry is not the one that adds a folder (${name})`);
+        assert.strictEqual(
+          last.label,
+          attached.length === 0 ? 'Choose a folder Aggrega recognises…' : 'Choose another folder Aggrega recognises…',
+          'the entry\'s label moved with the kind of window, which it must not',
+        );
+        assert.strictEqual(
+          last.detail, expected,
+          `with ${attached.length} attached in a window ${name}, the last entry's second line is not the one `
+          + 'its reader must be shown',
+        );
       }
     }
   });
