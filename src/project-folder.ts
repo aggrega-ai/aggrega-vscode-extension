@@ -20,11 +20,12 @@ export const PROJECT_FOLDER_STATE_KEY = 'aggrega.selectedProjectFolder';
 // that offers it and any other surface that comes to offer it must not each
 // carry their own spelling of the identifier.
 //
-// 🔴 IT IS THIS EXTENSION'S OWN COMMAND AND THE EDITOR'S OPEN-FOLDER COMMAND IS
-// NOT A SUBSTITUTE FOR IT. They answer different questions: the editor's changes
-// which folders the window HAS, and this one chooses which of the folders it has
-// is the one Aggrega works from. Both are offered, because a reader whose folder
-// is not open yet needs the first and a reader with two open needs the second.
+// 🔴 IT CHOOSES AMONG THE FOLDERS THE WINDOW HAS, AND BRINGING ANOTHER ONE IN
+// IS A DIFFERENT ACT THAT IT OFFERS LAST. Adding a folder changes which folders
+// the window HAS; choosing says which of the folders it has is the one Aggrega
+// works from. Both are reached from here, because a reader whose folder is not
+// open yet needs the first and a reader with two open needs the second — and
+// the add stops at the add, so the choice stays the reader's.
 export const CHOOSE_PROJECT_FOLDER_COMMAND = 'aggrega.project.selectFolder';
 
 // readSavedProjectFolder returns the remembered Project folder path, or null.
@@ -113,7 +114,7 @@ export interface ProjectFolderItem<F extends FolderLike = FolderLike> {
 // THE TWO ARE ONE LIST RATHER THAN TWO STEPS, for the reason the Aggrega
 // workspace row's own offer states: a reader clicking the row is asking which
 // folder the editor works from and whether they can change it, and the honest
-// answer is the folders open now together with how to open another.
+// answer is the folders open now together with how to add another.
 export type ProjectFolderOffer<F extends FolderLike = FolderLike> =
   | ({ kind: 'open' } & ProjectFolderItem<F>)
   | { kind: 'other'; label: string; description: string; detail: string };
@@ -141,6 +142,41 @@ export function buildProjectFolderItems<F extends FolderLike>(
 export const OPEN_OTHER_FOLDER_DETAIL =
   'Reaches a folder this window does not have open yet.';
 
+// WindowKind is what the editor says about a window that decides what adding a
+// folder to it costs.
+//
+// Both are facts the editor reports rather than conclusions drawn here; what
+// they cost is concluded in one place below, so the reading and the conclusion
+// cannot drift apart unseen.
+export interface WindowKind {
+  // onWorkspaceFile is whether the window is open on a workspace file, saved or
+  // untitled, rather than on a single folder or on nothing at all.
+  onWorkspaceFile: boolean;
+  // remote is whether the window works on another machine through a remote
+  // connection, a container or another host.
+  remote: boolean;
+}
+
+// openOtherFolderDetail is the offer's second line for this kind of window: what
+// taking it does, and what it costs where it costs something.
+//
+// 🔴 THE COST IS THE EDITOR'S, AND THIS MIRRORS HOW THE EDITOR DECIDES IT. A
+// window open on a workspace file takes another folder in place. A window open
+// on one folder, or on none, is turned into a workspace to take it, and entering
+// a workspace stops every extension and starts them again — which, in a remote
+// window, the editor does by reloading the window. A second line promising only
+// the reach would be accurate and would still surprise every reader whose window
+// reloaded under them.
+//
+// Where there is no cost the line names none, rather than reassuring the reader
+// that nothing restarts: that would be one more sentence that could stop being
+// true.
+export function openOtherFolderDetail(windowKind: WindowKind): string {
+  if (windowKind.onWorkspaceFile) { return OPEN_OTHER_FOLDER_DETAIL; }
+  const cost = windowKind.remote ? 'The window reloads.' : 'Extensions restart.';
+  return `${OPEN_OTHER_FOLDER_DETAIL} ${cost}`;
+}
+
 // openOtherFolderLabel is that offer's label, graded on whether the window has
 // any folder open: "another" is true only when there is already one to be
 // another of.
@@ -151,13 +187,19 @@ export function openOtherFolderLabel(openCount: number): string {
 }
 
 // projectFolderOffers composes what the Project folder row opens: every folder
-// this window has open, then the route to opening one it does not.
+// this window has open, then the route to adding one it does not.
 //
 // A SOLE OPEN FOLDER IS STILL OFFERED RATHER THAN THE OFFER BEING DECLINED,
 // for the reason the level beneath it offers its sole candidate: a reader who
 // clicked to choose and was shown nothing cannot tell that the control ran.
+//
+// The kind of window is handed in rather than looked up, because it is the
+// editor's to report and this module holds no editor: the caller reads it at
+// the moment the choice is drawn, which is the moment the second line has to be
+// true of.
 export function projectFolderOffers<F extends FolderLike>(
   folders: readonly F[],
+  windowKind: WindowKind,
 ): ProjectFolderOffer<F>[] {
   const offers: ProjectFolderOffer<F>[] = buildProjectFolderItems(folders).map(
     (item) => ({ kind: 'open' as const, ...item }),
@@ -166,9 +208,103 @@ export function projectFolderOffers<F extends FolderLike>(
     kind: 'other',
     label: openOtherFolderLabel(folders.length),
     description: '',
-    detail: OPEN_OTHER_FOLDER_DETAIL,
+    detail: openOtherFolderDetail(windowKind),
   });
   return offers;
+}
+
+// ADD_FOLDER_DIALOG is how the editor's folder dialog is asked for when the
+// reader takes that last offer: one folder, and nothing but a folder.
+//
+// It is written here rather than where the dialog is raised so that what the
+// reader is asked — and that it asks for exactly one folder — is readable with no
+// editor running. Its shape is the editor's own options for an open dialog.
+export const ADD_FOLDER_DIALOG = {
+  canSelectFiles: false,
+  canSelectFolders: true,
+  canSelectMany: false,
+  openLabel: 'Add this folder',
+  title: 'Aggrega: select a folder to add to this window',
+} as const;
+
+// folderAlreadyOpenMessage is what a reader is told when the folder they picked
+// to add is one the window already has open.
+//
+// It is said rather than passed over, because the reader asked for something
+// and nothing visible happens; and it names the full path for the reason every
+// message about a folder here does — a message is read with none of the
+// chooser's side-by-side context around it.
+export function folderAlreadyOpenMessage(folderPath: string): string {
+  return `Aggrega: ${folderPath} is already open in this window.`;
+}
+
+// folderDeclinedMessage is what a reader is told when the editor refuses to add
+// a folder to the window.
+//
+// 🔴 IT IS THE ONE SENTENCE FOR THAT REFUSAL WHEREVER A FOLDER IS ADDED. Two
+// routes add one — the last entry of the Project folder row's chooser, and the
+// step that adds a folder Aggrega recognises, reached from the welcome page and
+// from the Aggrega workspace row's chooser — and a reader meeting the same
+// refusal through either must be told the same thing.
+export function folderDeclinedMessage(folderPath: string): string {
+  return `Aggrega: the editor declined to add ${folderPath} to this workspace.`;
+}
+
+// FolderAddingEditor is what adding a folder to the window needs the editor for.
+//
+// A location is any value carrying the file-system path it stands for, and the
+// editor's own location type is one. The folder the reader picked travels back to
+// the editor as the very value the dialog answered with, never rebuilt from its
+// path, because a location rebuilt from a path keeps the path and loses whatever
+// else the editor's value said about where that path lives.
+export interface FolderAddingEditor<L extends { fsPath: string }> {
+  // pickFolder puts the folder dialog in front of the reader, and answers with
+  // what they picked, or with nothing where they closed it.
+  pickFolder(): Thenable<readonly L[] | undefined>;
+  // openFolders reports the folders the window has open as it is asked.
+  openFolders(): readonly FolderLike[];
+  // addFolder appends the folder after the ones the window has open, and
+  // answers whether the editor took it.
+  addFolder(folder: L): boolean;
+  // showInformation tells the reader something that changed nothing.
+  showInformation(message: string): void;
+  // showError tells the reader the editor refused what they asked for.
+  showError(message: string): void;
+}
+
+// FolderAddingOutcome is what taking the offer came to.
+export type FolderAddingOutcome = 'cancelled' | 'already-open' | 'added' | 'declined';
+
+// pickAndAddFolder asks the reader for a folder and adds it to the window, and
+// reports what that came to.
+//
+// 🔴 IT ADDS AND DOES NOT CHOOSE. The folder picked joins the list this row
+// offers, and which of the listed folders Aggrega works from stays the reader's
+// answer to give — choosing on their behalf would make a decision they never
+// made, which is the thing the Project folder level exists not to do.
+//
+// A folder already open is told apart BEFORE the editor is asked. The editor
+// refuses a second copy of a folder it has, and answers that refusal exactly as
+// it answers every other, so a reader who picked a folder they already have
+// would otherwise be told the editor declined — true, and no help at all.
+//
+// A dialog closed without a pick changes nothing and says nothing: the reader
+// took the offer back, and there is nothing to report to them.
+export async function pickAndAddFolder<L extends { fsPath: string }>(
+  editor: FolderAddingEditor<L>,
+): Promise<FolderAddingOutcome> {
+  const picked = (await editor.pickFolder())?.[0];
+  if (picked === undefined) { return 'cancelled'; }
+  const folderPath = picked.fsPath;
+  if (editor.openFolders().some((f) => f.uri.fsPath === folderPath)) {
+    editor.showInformation(folderAlreadyOpenMessage(folderPath));
+    return 'already-open';
+  }
+  if (!editor.addFolder(picked)) {
+    editor.showError(folderDeclinedMessage(folderPath));
+    return 'declined';
+  }
+  return 'added';
 }
 
 // CHOOSE_PROJECT_FOLDER_INVITATION is the offer to change which folder the

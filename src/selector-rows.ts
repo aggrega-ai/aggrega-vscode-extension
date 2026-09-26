@@ -176,40 +176,19 @@ export interface SelectorCandidates {
   releases: number | null;
 }
 
-// OPEN_ANOTHER_FOLDER_COMMAND brings a folder the window does not have into it.
-//
-// IT IS THE EDITOR'S OWN COMMAND RATHER THAN ONE OF THIS EXTENSION'S. Which
-// folders a window has open is the editor's to decide, so a command here would
-// be a second door onto a room that already has one, and the two would come to
-// differ the first time either changed.
-//
-// What it puts in front of a reader is the editor's business and differs
-// between platforms — a system dialogue on some, a list inside the window on
-// others. What it CHANGES is the same either way, and it is the only thing that
-// reaches a folder the window does not already have open.
-//
-// 🔴 IT IS NOT WHAT THE PROJECT FOLDER ROW RUNS, and the distinction is the one
-// this row was redrawn around. Opening a folder changes what the window HAS;
-// the row chooses which of the folders it has is the one Aggrega works from,
-// and that choice is what scopes the level beneath it. This command remains the
-// last entry inside that chooser, because a reader whose folder is not open yet
-// still needs it.
-export const OPEN_ANOTHER_FOLDER_COMMAND = 'workbench.action.openFolder';
-
 // OPEN_FOLDER_COMMAND makes the editor work in a NAMED folder, taking that
 // folder's location as its argument.
 //
-// 🔴 IT IS A DIFFERENT COMMAND FROM THE ONE ABOVE AND THE TWO ARE NOT
-// INTERCHANGEABLE, WHICH IS WHY THEY ARE WRITTEN HERE TOGETHER. The one above
-// takes no argument and puts the editor's own chooser in front of a reader, so
-// where the window ends up is their answer to a question asked at that moment.
-// This one asks nothing and opens what it is handed. Collapsing the two would
-// either take the destination away from this one or put a destination on the
-// row whose whole point is that the reader picks.
+// 🔴 IT REPLACES WHAT THE WINDOW HAS OPEN, AND IT IS NOT HOW A FOLDER IS ADDED
+// TO ONE. It asks nothing and opens what it is handed, taking the window down
+// and standing it back up on that folder alone. Bringing a folder in beside the
+// ones a window has is a different act with a different cost, and the Project
+// folder row's chooser does it through the editor's typed call for adding
+// folders rather than through any command run by name.
 //
-// It is the editor's own command in both cases, and for the reason stated
-// above: which folders a window has open is the editor's to decide, so what is
-// added here is the destination rather than a second way to open a folder.
+// It is the editor's own command: which folder a window is open on is the
+// editor's to decide, so what is added here is the destination rather than a
+// second way to open a folder.
 export const OPEN_FOLDER_COMMAND = 'vscode.openFolder';
 
 // OPEN_WORKSPACE_ROOT_COMMAND is this extension's own command behind the
@@ -285,7 +264,7 @@ export function projectFolderRow(
     warning: null,
   };
   if (candidates === 0) {
-    // The chooser this row opens carries opening a folder as its last entry, so
+    // The chooser this row opens carries adding a folder as its last entry, so
     // the click is still the way out of this state and saying so is the exit
     // rather than an instruction to hunt for a control elsewhere.
     return {

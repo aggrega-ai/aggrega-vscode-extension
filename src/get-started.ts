@@ -26,6 +26,8 @@ import {
   findAggregaWorkspaceAnchor,
 } from './workspace';
 import { candidateFilesAcrossWindow } from './workspace-search';
+import { appendFolderToWindow } from './window-folders';
+import { folderDeclinedMessage } from './project-folder';
 import {
   CHOOSE_WORKSPACE_COMMAND,
   CREATE_WORKSPACE_COMMAND,
@@ -746,20 +748,14 @@ async function chooseWorkspace(deps: GetStartedDeps, refresh: () => void): Promi
   // Adding the folder is what makes the language server anchor there. The
   // editor raises its own folders-changed event, which the extension already
   // re-attaches on, so nothing is re-attached here.
-  const added = vscode.workspace.updateWorkspaceFolders(
-    vscode.workspace.workspaceFolders?.length ?? 0,
-    null,
-    { uri: vscode.Uri.file(choice.directory) },
-  );
+  const added = appendFolderToWindow(vscode.Uri.file(choice.directory));
   if (!added) {
     // The move did not happen, so the answer recorded for it is put back. A window
     // left remembering a folder it never reached drops that choice on its next
     // re-evaluation and tells the reader a folder they never chose has stopped
     // being anchored.
     await deps.rememberAnchorChoice(previous);
-    void vscode.window.showErrorMessage(
-      `Aggrega: the editor declined to add ${choice.directory} to this workspace.`,
-    );
+    void vscode.window.showErrorMessage(folderDeclinedMessage(choice.directory));
     return;
   }
   refresh();

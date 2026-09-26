@@ -5,7 +5,6 @@ import * as assert from 'node:assert';
 import * as path from 'node:path';
 
 import {
-  OPEN_ANOTHER_FOLDER_COMMAND,
   OPEN_FOLDER_COMMAND,
   OPEN_WORKSPACE_ROOT_COMMAND,
   openWorkspaceRootInvocation,
@@ -26,19 +25,16 @@ const CANDIDATES = { projectFolders: 1, aggregaWorkspaces: 1, releases: null };
 // than silently widening them to the whole module.
 const PRESS_HANDLER = 'registerCommand(OPEN_WORKSPACE_ROOT_COMMAND, () =>';
 
-// Two commands make the editor work in a different folder and they are not one
-// command. The one that opens a chooser asks the reader where to go; the one
-// that opens a named folder asks nothing and goes where it is handed. Reading
-// either on its own leaves the difference invisible, which is why both are
-// stated here together.
+// The editor is made to work in a different folder in two ways and they are
+// not one act. Opening a named folder replaces what the window has open and
+// asks the reader nothing; adding a folder puts one beside the folders the
+// window has, and the reader picks it. The first is the editor's command,
+// spelled once; the second is the editor's typed call for adding folders, made
+// at one site. Reading either on its own leaves the difference invisible, which
+// is why both are stated here together.
 describe('the two ways the editor is made to work in another folder', () => {
-  it('keeps them as different strings, each spelled in one place', () => {
-    assert.notStrictEqual(
-      OPEN_ANOTHER_FOLDER_COMMAND, OPEN_FOLDER_COMMAND,
-      'the chooser and the named-folder command have collapsed into one, so one of the two '
-      + 'surfaces is now doing the other\'s job',
-    );
-    // 🔴 THE CONTROL ON THE CENSUS, and without it the two readings below are
+  it('spells the named-folder command once, and adds a folder by no command at all', () => {
+    // 🔴 THE CONTROL ON THE CENSUS, and without it the readings below are
     // claims about the instrument. One token is certainly present and one
     // certainly is not, so a census that had stopped reading the tree would fail
     // the first and a census matching anything would fail the second.
@@ -57,37 +53,50 @@ describe('the two ways the editor is made to work in another folder', () => {
       'the identifier that opens a NAMED folder is written somewhere else as well; a second '
       + 'spelling is a second thing to keep in step with the editor\'s own declarations',
     );
+    // 🔴 THE ADD IS A TYPED CALL, MADE ONCE, AND IT IS NOT THE NAMED-FOLDER
+    // COMMAND. A command run by name is a string nothing checks, so a wrong one
+    // fails only at the press; the typed call is checked when the extension is
+    // built. An equality over every call in the tree, so a second site adding a
+    // folder, or the one site turning into something else, fails this.
     assert.deepStrictEqual(
-      tokenModules(`'${OPEN_ANOTHER_FOLDER_COMMAND}'`),
-      [['selector-rows.ts', 1]],
-      'the identifier that opens the editor\'s own CHOOSER is written somewhere else as well',
+      callSites('vscode.workspace.updateWorkspaceFolders').map((site) => [site.module, site.args]),
+      [['window-folders.ts', ['vscode.workspace.workspaceFolders?.length ?? 0', 'null', '{ uri: location }']]],
+      'a folder is added somewhere other than the one call that appends it after the folders open',
+    );
+    // And the command that REPLACES the window's folder is named where it is
+    // declared and where the offer's invocation is composed, and nowhere else —
+    // an add routed through it would take away every folder the reader had open.
+    assert.deepStrictEqual(
+      tokenModules('OPEN_FOLDER_COMMAND'),
+      [['selector-rows.ts', 2]],
+      'the named-folder command is named outside the module that declares it and composes the '
+      + 'offer with it, so something other than the offer can replace the window\'s folders',
     );
   });
 
-  it('gives each surface the one of the two that does its job', () => {
+  it('gives each surface the command that does its job', () => {
     const rows = selectorRows(ROOT, OPENED_BELOW, OPENED_BELOW, { kind: 'unknown' }, CANDIDATES);
     const project = rows.find((row) => row.key === 'project');
     const workspace = rows.find((row) => row.key === 'workspace');
     assert.ok(project && workspace, 'both rows must be drawn');
 
-    // 🔴 THE PROJECT FOLDER ROW RUNS NEITHER OF THE EDITOR'S TWO COMMANDS. It
-    // asks which of the folders the window ALREADY HAS is the one Aggrega works
-    // from, which is a question neither editor command answers — one changes
-    // what the window has and the other goes where it is handed. The editor's
-    // chooser is the last entry inside ours, so the reader can still reach a
-    // folder the window does not hold.
-    assert.strictEqual(project.command, CHOOSE_PROJECT_FOLDER_COMMAND);
-    assert.notStrictEqual(
-      project.command, OPEN_ANOTHER_FOLDER_COMMAND,
-      'the row opens a folder instead of choosing among the ones already open, so the choice '
-      + 'that scopes the level beneath it cannot be made at all',
+    // 🔴 THE PROJECT FOLDER ROW RUNS THIS EXTENSION'S OWN COMMAND. It asks
+    // which of the folders the window ALREADY HAS is the one Aggrega works from,
+    // which is a question no editor command answers — opening a named folder
+    // replaces what the window has. Adding a folder is the last entry inside
+    // that command's chooser, so the reader can still reach a folder the window
+    // does not hold.
+    assert.strictEqual(
+      project.command, CHOOSE_PROJECT_FOLDER_COMMAND,
+      'the row runs something other than the chooser among the folders already open, so the '
+      + 'choice that scopes the level beneath it cannot be made at all',
     );
-    // The offer names the destination, so it cannot be a chooser: a chooser
-    // handed a folder would ignore it and ask anyway.
-    assert.notStrictEqual(
-      workspace.offer?.command, OPEN_ANOTHER_FOLDER_COMMAND,
-      'the offer runs the editor\'s chooser, which would put a question in front of a reader '
-      + 'who has already been shown the answer',
+    // The offer runs a command of this extension's that names its destination,
+    // so it puts no question in front of a reader who has already been shown
+    // the answer.
+    assert.strictEqual(
+      workspace.offer?.command, OPEN_WORKSPACE_ROOT_COMMAND,
+      'the offer runs something other than its own command, which opens the workspace it names',
     );
     assert.strictEqual(
       openWorkspaceRootInvocation(ROOT)?.command, OPEN_FOLDER_COMMAND,

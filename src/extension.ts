@@ -167,18 +167,21 @@ import {
   rememberAnchorChoice,
 } from './anchor-picker';
 import { SELECTOR_ROW_LABELS } from './selector-levels';
-import { OPEN_ANOTHER_FOLDER_COMMAND, openWorkspaceRootInvocation } from './selector-rows';
+import { openWorkspaceRootInvocation } from './selector-rows';
 import { FoldersTold, tellWorkspaceAboveIfDue } from './workspace-above';
 import {
+  ADD_FOLDER_DIALOG,
   CHOOSE_PROJECT_FOLDER_COMMAND,
   CHOOSE_PROJECT_FOLDER_PLACEHOLDER,
   isSavedProjectFolderValid,
+  pickAndAddFolder,
   projectFolderInForce,
   projectFolderOffers,
   projectFolderSwitchMessage,
   readSavedProjectFolder,
   rememberProjectFolderChoice,
 } from './project-folder';
+import { appendFolderToWindow } from './window-folders';
 
 let daemon: Daemon | null = null;
 let outputChannel: vscode.OutputChannel | null = null;
@@ -1327,7 +1330,7 @@ function registerSwitchAnchorCommand(context: vscode.ExtensionContext): void {
 
 // registerChooseProjectFolderCommand wires what the Project folder row opens.
 //
-// 🔴 IT OFFERS THE FOLDERS THE WINDOW HAS AND, LAST, THE WAY TO REACH ONE IT
+// 🔴 IT OFFERS THE FOLDERS THE WINDOW HAS AND, LAST, THE WAY TO ADD ONE IT
 // DOES NOT. Those are different acts — choosing among what is here, and bringing
 // something else in — and a reader clicking the row is asking the first while
 // frequently needing the second. Presenting them as one list is what keeps the
@@ -1342,7 +1345,14 @@ function registerChooseProjectFolderCommand(context: vscode.ExtensionContext): v
   context.subscriptions.push(
     vscode.commands.registerCommand(CHOOSE_PROJECT_FOLDER_COMMAND, async () => {
       const folders = [...(vscode.workspace.workspaceFolders ?? [])];
-      const offers = projectFolderOffers(folders).map((o) => ({
+      // What adding a folder would cost is read here, as the choice is drawn,
+      // because the last entry's second line has to be true of this window at
+      // the moment the reader reads it.
+      const windowKind = {
+        onWorkspaceFile: vscode.workspace.workspaceFile !== undefined,
+        remote: vscode.env.remoteName !== undefined,
+      };
+      const offers = projectFolderOffers(folders, windowKind).map((o) => ({
         label: o.label,
         description: o.description,
         detail: o.kind === 'other' ? o.detail : '',
@@ -1355,10 +1365,16 @@ function registerChooseProjectFolderCommand(context: vscode.ExtensionContext): v
       });
       if (!choice) { return; }
       if (choice.offer.kind === 'other') {
-        // The editor's own command, reached rather than reimplemented: which
-        // folders a window has open is the editor's to decide, and this is a
-        // second way in rather than a second door.
-        await vscode.commands.executeCommand(OPEN_ANOTHER_FOLDER_COMMAND);
+        // The sequence is the pure one; what is handed to it here is the editor
+        // and nothing else. The folder joins the list, and the choice among the
+        // listed folders stays the reader's.
+        await pickAndAddFolder({
+          pickFolder: () => vscode.window.showOpenDialog(ADD_FOLDER_DIALOG),
+          openFolders: () => vscode.workspace.workspaceFolders ?? [],
+          addFolder: (folder) => appendFolderToWindow(folder),
+          showInformation: (message) => void vscode.window.showInformationMessage(message),
+          showError: (message) => void vscode.window.showErrorMessage(message),
+        });
         return;
       }
       const chosenPath = choice.offer.folder.uri.fsPath;
