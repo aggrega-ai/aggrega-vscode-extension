@@ -744,7 +744,7 @@ describe('how the selection is described', () => {
     assert.strictEqual(
       described.detail,
       `Aggrega selected Release: ${path.join(ROOT, 'envs', 'prod.yaml')}\n\n`
-      + 'Click to choose a different release.',
+      + 'Click to choose a different Release.',
     );
   });
 });

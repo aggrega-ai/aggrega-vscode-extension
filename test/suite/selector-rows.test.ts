@@ -568,7 +568,7 @@ describe('the Release row', () => {
     // sentence would appear if one were still written into this hover.
     assert.strictEqual(
       releaseRow(SELECTED, 1).tooltip,
-      `Aggrega selected Release: ${SELECTED.absolute}\n\nClick to choose a different release.`,
+      `Aggrega selected Release: ${SELECTED.absolute}\n\nClick to choose a different Release.`,
     );
   });
 

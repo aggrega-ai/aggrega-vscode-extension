@@ -484,7 +484,7 @@ export function describeSelection(
         value: state.release,
         // The closing line stands apart behind a blank line: it is the one line
         // that says what a click does rather than what is selected.
-        detail: `Aggrega selected Release: ${state.absolute}\n\nClick to choose a different release.`,
+        detail: `Aggrega selected Release: ${state.absolute}\n\nClick to choose a different ${SELECTOR_ROW_LABELS.release}.`,
       };
     case 'none': {
       // The server's own account of why it named no default travels with the

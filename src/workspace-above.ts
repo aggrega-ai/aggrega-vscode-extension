@@ -69,12 +69,12 @@ export interface WorkspaceAboveAccount {
 // folder's last name, because this is read with none of the window around it and
 // two folders sharing a last name is the ordinary case rather than the odd one.
 //
-// The workspace's label is the bare word, and that is safe on the dialogue — the
-// one surface that shows that line — in a way it is not on the row: the
-// headline immediately above it has just said whose workspace it is. The
-// folder's label is the level's own name, read from the one place the levels
-// are named, so the account and the row above it cannot call one level two
-// different things.
+// Each label is the level's own name, read from the one place the levels are
+// named, so the dialogue and the rows cannot call one thing two different
+// things. That makes the workspace's line the very line the row's hover opens
+// with. The name is what the two share; each line is composed where it is
+// drawn, because the row draws its line in every state and this one exists
+// only while the workspace sits above the folder.
 //
 // 🔴 IT NAMES NO DISTANCE. The walk that finds the workspace climbs to the
 // nearest marked ancestor, which may be several directories up, so any phrasing
@@ -88,7 +88,7 @@ export function workspaceAboveAccount(
 ): WorkspaceAboveAccount | null {
   if (!workspaceSitsAboveFolder(anchoredRoot, openedFolder)) { return null; }
   return {
-    workspace: `Workspace: ${anchoredRoot}`,
+    workspace: `${SELECTOR_ROW_LABELS.workspace}: ${anchoredRoot}`,
     project: `${SELECTOR_ROW_LABELS.project}: ${openedFolder}`,
   };
 }

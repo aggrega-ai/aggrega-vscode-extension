@@ -46,7 +46,7 @@ const HEADLINE = 'Aggrega is using a workspace from outside the folder you opene
 // The warning sign the row's hover opens the headline with, as its two code
 // points: the sign, and the invisible selector asking for it as a pictograph.
 const WARNING_SIGN = '\u26A0\uFE0F';
-const WORKSPACE_LINE = `Workspace: ${ROOT}`;
+const WORKSPACE_LINE = `Aggrega workspace: ${ROOT}`;
 const PROJECT_LINE = `Project folder: ${DEEP}`;
 const OPEN_LABEL = 'Open workspace (reloads the window)';
 const CONTINUE_LABEL = 'Continue here';
@@ -184,7 +184,7 @@ describe('what the reader is told', () => {
     // 🔴 THE CONTROL ON THAT SWEEP. One label certainly IS present, so a sweep
     // that had stopped reading the text would fail here rather than report
     // clean absences.
-    assert.ok(said.includes('Workspace: '), 'the sweep sees none of the text it is reading');
+    assert.ok(said.includes('Aggrega workspace: '), 'the sweep sees none of the text it is reading');
   });
 
   it('states no distance, in a tree three directories deep', () => {
@@ -216,11 +216,14 @@ describe('what the reader is told', () => {
     );
   });
 
-  it('names the project folder from the one place the levels are named', () => {
-    // The account and the row above it must not come to call one level two
-    // different things. This is the reading that fails if either moves.
-    const said = workspaceAboveAccount(ROOT, DEEP)?.project ?? '';
-    assert.ok(said.startsWith(`${SELECTOR_ROW_LABELS.project}: `), said);
+  it('names both levels from the one place the levels are named', () => {
+    // The account and the rows must not come to call one level two different
+    // things. This is the reading that fails if either moves.
+    const account = workspaceAboveAccount(ROOT, DEEP);
+    const workspace = account?.workspace ?? '';
+    const project = account?.project ?? '';
+    assert.ok(workspace.startsWith(`${SELECTOR_ROW_LABELS.workspace}: `), workspace);
+    assert.ok(project.startsWith(`${SELECTOR_ROW_LABELS.project}: `), project);
   });
 });
 
@@ -670,8 +673,9 @@ describe('the mark on the row', () => {
     // 🔴 DISMISSING THE POP-UP MUST NOT DISMISS THE TRUTH. The mark is what
     // carries the fact once the interruption is gone, so the hover holds the
     // headline and the folder the interruption names, read from the same text.
-    // The workspace's line is the one part it leaves out, because the hover's
-    // first line already names that path.
+    // The workspace's line is the one the hover already opens with — the two
+    // surfaces name the workspace in the same words — so the hover carries it
+    // once, first, and never adds it a second time.
     const row = workspaceRow(ROOT, DEEP, 1);
     const notice = workspaceAboveNotice(ROOT, DEEP);
     const account = workspaceAboveAccount(ROOT, DEEP);
@@ -679,14 +683,18 @@ describe('the mark on the row', () => {
     const hover = row.tooltip.split('\n');
     assert.ok(row.tooltip.includes(notice.message), row.tooltip);
     assert.ok(hover.includes(account.project), `the hover drops "${account.project}":\n${row.tooltip}`);
-    assert.ok(
-      !hover.includes(account.workspace),
-      `the hover names the workspace's path a second time:\n${row.tooltip}`,
+    assert.strictEqual(
+      hover[0], account.workspace,
+      `the hover opens with something other than the line the interruption names the workspace by:\n${row.tooltip}`,
     );
-    // 🔴 THE CONTROL ON THAT ABSENCE, and the reason the two surfaces are read
-    // together: the interruption DOES carry the line the hover leaves out, so an
+    assert.strictEqual(
+      hover.filter((line) => line === account.workspace).length, 1,
+      `the hover names the workspace a second time:\n${row.tooltip}`,
+    );
+    // 🔴 THE CONTROL ON THAT COUNT, and the reason the two surfaces are read
+    // together: the interruption carries the workspace's line as well, so an
     // account that had stopped composing it would fail here rather than pass the
-    // absence above.
+    // count above.
     assert.deepStrictEqual(notice.detail.split('\n'), [account.workspace, account.project]);
   });
 
