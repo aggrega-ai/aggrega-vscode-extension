@@ -233,22 +233,36 @@ function checkCompiler(opts: InputOptions, refusals: Refusal[]): Inputs['compile
 // git can read; either one is reported as no identity.
 function catalogIdentity(dir: string, remedy: string): { commit: string; uncommitted: boolean } | { reason: string; remedy: string } {
   const recipeRemedy = 'run the runner from a checkout that holds the compiler\'s repository beside the extension\'s';
-  if (!fs.existsSync(BUILD_VERSION_RECIPE)) {
-    return { reason: `the compiler's build-provenance recipe is not at ${BUILD_VERSION_RECIPE}, so the catalog's identity cannot be read`, remedy: recipeRemedy };
+  const answer = recipeAnswer(dir);
+  if ('failure' in answer) {
+    return { reason: `${answer.failure}, so the catalog's identity cannot be read`, remedy: recipeRemedy };
   }
-  const r = spawnSync('bash', ['-c', '. "$1" && printf "%s\\n%s" "$_ver" "$_sha"', 'catalog-identity', BUILD_VERSION_RECIPE], {
+  const { version, commit } = answer;
+  if (version === '' || version === 'dev' || commit === '' || commit === 'unknown') {
+    return { reason: `git cannot name the commit ${dir} is checked out at, so the report could not say which catalog it tested`, remedy };
+  }
+  return { commit, uncommitted: version.endsWith('-dirty') };
+}
+
+// recipeAnswer is what the compiler's build-provenance recipe answers when it is
+// sourced with the working directory at `dir`: the version it composes for the
+// checkout holding `dir`, and that checkout's short commit. It is the one way the
+// runner reads a tree's provenance, for the catalog's identity and for the build
+// the extension's welcome page is expected to name.
+export function recipeAnswer(dir: string): { version: string; commit: string } | { failure: string } {
+  if (!fs.existsSync(BUILD_VERSION_RECIPE)) {
+    return { failure: `the compiler's build-provenance recipe is not at ${BUILD_VERSION_RECIPE}` };
+  }
+  const r = spawnSync('bash', ['-c', '. "$1" && printf "%s\\n%s" "$_ver" "$_sha"', 'tree-provenance', BUILD_VERSION_RECIPE], {
     cwd: dir,
     encoding: 'utf8',
     timeout: 30000,
   });
   if (r.status !== 0) {
-    return { reason: `sourcing the compiler's build-provenance recipe at ${BUILD_VERSION_RECIPE} in ${dir} exited ${r.status ?? r.signal}, so the catalog's identity cannot be read`, remedy: recipeRemedy };
+    return { failure: `sourcing the compiler's build-provenance recipe at ${BUILD_VERSION_RECIPE} in ${dir} exited ${r.status ?? r.signal}` };
   }
   const [version = '', commit = ''] = (r.stdout ?? '').split('\n');
-  if (version === '' || version === 'dev' || commit === '' || commit === 'unknown') {
-    return { reason: `git cannot name the commit ${dir} is checked out at, so the report could not say which catalog it tested`, remedy };
-  }
-  return { commit, uncommitted: version.endsWith('-dirty') };
+  return { version, commit };
 }
 
 // holdsEntity reports whether a directory holds at least one Aggrega entity file,

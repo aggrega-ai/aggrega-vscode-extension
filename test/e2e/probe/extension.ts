@@ -26,7 +26,7 @@ let server: http.Server | undefined;
 // by name, with the set listed, rather than guessed at.
 const REQUESTS: Record<string, (params: Record<string, unknown>) => Promise<unknown>> = {
   'hello': async () => ({ pid: process.pid, instance, activatedAt, editorVersion: vscode.version }),
-  'command.run': async (p) => toJson(await vscode.commands.executeCommand(str(p, 'command'), ...(Array.isArray(p.args) ? p.args : []))),
+  'command.run': async (p) => toJson(await vscode.commands.executeCommand(str(p, 'command'), ...(Array.isArray(p.args) ? p.args.map(revive) : []))),
   'diagnostics.list': async (p) => listDiagnostics(typeof p.path === 'string' ? p.path : undefined),
   'document.open': async (p) => {
     const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(str(p, 'path')));
@@ -155,6 +155,22 @@ function rangeOf(p: Record<string, unknown>): vscode.Range {
 async function documentAt(file: string): Promise<vscode.TextDocument> {
   const uri = vscode.Uri.file(file).toString();
   return vscode.workspace.textDocuments.find((d) => d.uri.toString() === uri) ?? vscode.workspace.openTextDocument(vscode.Uri.file(file));
+}
+
+// revive turns a command argument written as plain data back into the editor
+// value a command expects: `{ "$file": <path> }` into a document address and
+// `{ "$position": { line, character } }` into a position. Every other argument
+// is passed as it came. The editor's own language commands — completion and
+// hover at a position — take those two values and nothing written as JSON.
+function revive(arg: unknown): unknown {
+  if (typeof arg !== 'object' || arg === null) { return arg; }
+  const o = arg as Record<string, unknown>;
+  if (typeof o.$file === 'string') { return vscode.Uri.file(o.$file); }
+  if (typeof o.$position === 'object' && o.$position !== null) {
+    const q = o.$position as Record<string, unknown>;
+    return new vscode.Position(num(q.line, 'line'), num(q.character, 'character'));
+  }
+  return arg;
 }
 
 function pos(p: vscode.Position): { line: number; character: number } {

@@ -131,10 +131,11 @@ export const BASELINE_SETTINGS: Readonly<Record<string, unknown>> = {
 // AGGREGA_BINARY_SETTING is the one Aggrega setting the baseline sets.
 export const AGGREGA_BINARY_SETTING = 'aggrega.server.binaryPath';
 
-// writeProfile writes the profile's user settings: the baseline and the binary
-// under test.
-export function writeProfile(root: ScenarioRoot, inputs: Inputs): Record<string, unknown> {
-  const settings = { ...BASELINE_SETTINGS, [AGGREGA_BINARY_SETTING]: inputs.compiler.path };
+// writeProfile writes the profile's user settings: the baseline, the binary
+// under test, and the settings a scenario changes, which its report names. A
+// scenario never changes the setting its own checks are about.
+export function writeProfile(root: ScenarioRoot, inputs: Inputs, changes: Record<string, unknown> = {}): Record<string, unknown> {
+  const settings = { ...BASELINE_SETTINGS, [AGGREGA_BINARY_SETTING]: inputs.compiler.path, ...changes };
   fs.writeFileSync(path.join(root.userData, 'User', 'settings.json'), `${JSON.stringify(settings, null, 2)}\n`);
   // The editor writes this file on first start when it is absent, with a crash
   // reporter identity in it; writing it first keeps the reporter off and the key

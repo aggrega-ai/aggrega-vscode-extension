@@ -1,0 +1,43 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Cognitio S.r.l.
+
+apiVersion: aggrega.ai/v1alpha1
+kind: Recipe
+metadata:
+  name: nginx-probed
+  version: 1.0.0
+  description: >
+    NGINX reverse-proxy gateway on Docker Compose, declaring both a readiness
+    and a liveness probe. A Compose service carries a single healthcheck, so
+    the build translates the liveness probe, drops the readiness one, and
+    warns that it did. Deleting either probe line leaves one, and the warning
+    goes.
+spec:
+  capability: compose
+  implements: core/gateway/nginx:1.0.0
+
+  provides:
+    host: "{{ .context.instance_id }}"
+    port: "{{ .infra.port }}"
+    protocol: "http"
+
+  workload: |
+    apiVersion: aggrega.ai/v1alpha1
+    kind: Workload
+    containers:
+      main:
+        image: "nginx:{{ .infra.engine_version }}"
+        command:
+          - /bin/sh
+          - -c
+          - "echo 'server { listen {{ .infra.port }}; location {{ .values.upstream_path }} { proxy_pass http://{{ .context.inject.env.NGINX_UPSTREAM_HOST }}:{{ .context.inject.env.NGINX_UPSTREAM_PORT }}; } }' > /etc/nginx/conf.d/default.conf && exec nginx -g 'daemon off;'"
+        ports:
+          http: {{ .infra.port }}
+        health:
+          ready: { tcp: {{ .infra.port }} }
+          live: { tcp: {{ .infra.port }} }
+    services:
+      default:
+        type: NodePort
+        ports:
+          http: {{ .infra.port }}

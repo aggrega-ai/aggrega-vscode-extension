@@ -1,0 +1,7 @@
+workspace:
+  # The standard library, whose directory the editor suite writes in place of
+  # the placeholder below when it copies this folder, and this folder's own
+  # catalog, which holds the one Recipe the Manifest maps the gateway to.
+  catalog_dirs:
+    - <standard-library-catalog>
+    - ./catalog

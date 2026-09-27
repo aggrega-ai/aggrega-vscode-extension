@@ -1,0 +1,28 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Cognitio S.r.l.
+
+apiVersion: aggrega.ai/v1alpha1
+kind: Aggregate
+metadata:
+  name: gateway
+  version: 1.0.0
+  description: >
+    An NGINX reverse-proxy gateway fronting a web backend, compiled to a Docker
+    Compose stack. The gateway's `upstream` use of the backend pipes the
+    backend's host and port into the gateway's proxy_pass target.
+spec:
+  components:
+    web:
+      type: core/devtool/adminer
+    proxy:
+      type: core/gateway/nginx
+      uses:
+        upstream:
+          web:
+            target: web
+            inject:
+              env:
+                - in: NGINX_UPSTREAM_HOST
+                  from: host
+                - in: NGINX_UPSTREAM_PORT
+                  from: port

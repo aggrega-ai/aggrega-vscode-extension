@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Cognitio S.r.l.
+
+apiVersion: aggrega.ai/v1alpha1
+kind: Aggregate
+metadata:
+  name: local/sessions
+  version: 1.0.0
+  description: >
+    A session store packaged as a module: one Valkey cache. An Aggregate
+    imports it under `spec.aggregates`, and a Release routes the whole module
+    into one boundary.
+spec:
+  components:
+    store:
+      type: core/datastore/valkey

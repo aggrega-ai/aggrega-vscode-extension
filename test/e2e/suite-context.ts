@@ -1,0 +1,177 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Cognitio S.r.l.
+
+import * as fs from 'fs';
+import * as path from 'path';
+
+import { Checks, need } from './checks';
+import { ScratchHome } from './cli';
+import { UiDriver } from './drivers';
+import { Inputs } from './inputs';
+import { DiagnosticEntry, ProbeClient } from './probe-client';
+import { readCmdline } from './processes';
+import { Scenario } from './scenario';
+import { commandsPanel, documentWith, OutputLog, RUNNING, sleep, until, waitStatus } from './workbench';
+
+// What every check body of the suite reaches: the launched editor, the probe,
+// the inputs, the output channel, and the scenario's contained home.
+
+export interface Manifest {
+  contributes: {
+    commands: { command: string; title: string; category?: string }[];
+    configuration: { title: string; properties: Record<string, { description?: string; default?: unknown }> };
+  };
+}
+
+export interface SuiteContext {
+  s: Scenario;
+  d: UiDriver;
+  probe: ProbeClient;
+  inputs: Inputs;
+  checks: Checks;
+  out: OutputLog;
+  home: ScratchHome;
+  cliLog: string;
+  folder: string;
+  manifest: Manifest;
+  // shots is where the captures a person is asked to judge are written.
+  shots: string;
+}
+
+export function makeContext(s: Scenario, inputs: Inputs, checks: Checks): SuiteContext {
+  need(s.driver !== null, 'no UI driver is attached to the editor');
+  const shots = path.join(s.root.dir, 'captures');
+  fs.mkdirSync(shots, { recursive: true });
+  return {
+    s, d: s.driver, probe: s.probe, inputs, checks,
+    out: new OutputLog(s.root.userData),
+    home: { home: s.root.home, tmp: s.root.tmp },
+    cliLog: path.join(s.root.logs, 'cli.log'),
+    folder: s.folder,
+    manifest: JSON.parse(fs.readFileSync(path.join(s.root.extensionCopy, 'package.json'), 'utf8')) as Manifest,
+    shots,
+  };
+}
+
+// commandTitle is a command's title as the manifest declares it.
+export function commandTitle(m: Manifest, command: string): string {
+  const c = m.contributes.commands.find((x) => x.command === command);
+  if (!c) { throw new Error(`the manifest declares no command ${command}`); }
+  return c.title;
+}
+
+// run asks the probe to run a command and waits for its result.
+export function run<T = unknown>(ctx: SuiteContext, command: string, args: unknown[] = [], timeoutMs = 30000): Promise<T> {
+  return ctx.probe.request<T>('command.run', { command, args }, timeoutMs);
+}
+
+// send runs a command without waiting for it to finish. A command that asks
+// the reader something — a notification with a button, a picker — finishes only
+// once it is answered, so waiting for it would hold the probe until the check
+// answered it.
+export async function send(ctx: SuiteContext, command: string, args: unknown[] = []): Promise<void> {
+  await ctx.probe.request('command.run', { command, args }, 1500).catch(() => undefined);
+}
+
+// Server is the language server's process as the operating system reports it.
+export interface Server { pid: number; cmd: string; cwd: string; exe: string }
+
+export function languageServers(ctx: SuiteContext): Server[] {
+  ctx.s.table.snapshot();
+  const bin = ctx.inputs.compiler.path;
+  return ctx.s.table.alive()
+    .filter((r) => r.cmd === `${bin} serve` || r.cmd.startsWith(`${bin} serve `))
+    .map((r) => {
+      let cwd = '';
+      let exe = '';
+      try { cwd = fs.readlinkSync(`/proc/${r.pid}/cwd`); } catch { cwd = ''; }
+      try { exe = fs.readlinkSync(`/proc/${r.pid}/exe`); } catch { exe = ''; }
+      return { pid: r.pid, cmd: readCmdline(r.pid) || r.cmd, cwd, exe };
+    });
+}
+
+// theServer is the one language server this window started.
+export async function theServer(ctx: SuiteContext, boundMs = 30000, notPid?: number): Promise<Server> {
+  const found = await until(`one language server running${notPid ? ` other than ${notPid}` : ''}`, boundMs, async () => languageServers(ctx).filter((x) => x.pid !== notPid), (v) => v.length === 1);
+  return found[0];
+}
+
+// ready waits for the state every check starts from: the language server
+// running, the welcome page the extension opens at start drawn (so it does not
+// open later over whatever a check has in front), and the Aggrega side bar
+// showing the Commands panel.
+export async function ready(ctx: SuiteContext): Promise<void> {
+  await waitStatus(ctx.d, RUNNING, 90000);
+  await documentWith(ctx.d, 'the welcome page the extension opens at start', `!!document.querySelector('.version-entry')`, 30000);
+  await run(ctx, 'workbench.view.extension.aggrega');
+  await commandsPanel(ctx.d);
+}
+
+// ---- documents ---------------------------------------------------------------
+
+export interface DocumentState { path: string; isDirty: boolean; text?: string; lineCount: number }
+
+export async function open(ctx: SuiteContext, file: string): Promise<DocumentState> {
+  await ctx.probe.request('document.open', { path: file });
+  const active = await ctx.probe.request<DocumentState & { text: string } | null>('editor.active');
+  need(active !== null && active.path === file, `${file} did not become the active editor`);
+  return active;
+}
+
+// Line is one line of a document: where it is and exactly what it reads.
+export interface Line { index: number; text: string }
+
+// lineOf finds the one line of `file`, opened in the editor, whose content is
+// `text` once its indentation is set aside; a line that is not there exactly
+// once is refused, so an edit cannot land on a line nobody meant.
+export async function lineOf(ctx: SuiteContext, file: string, text: string): Promise<Line> {
+  const doc = await open(ctx, file);
+  const lines = (doc.text ?? '').split('\n');
+  const at = lines.map((l, i) => (l.trim() === text.trim() ? i : -1)).filter((i) => i !== -1);
+  need(at.length === 1, `${path.basename(file)} holds the line "${text.trim()}" ${at.length} times, not once`);
+  return { index: at[0], text: lines[at[0]] };
+}
+
+// deleteLine removes one line of an open document without saving it, and
+// returns it so it can be put back.
+export async function deleteLine(ctx: SuiteContext, file: string, text: string): Promise<Line> {
+  const line = await lineOf(ctx, file, text);
+  await ctx.probe.request('document.edit', { path: file, start: { line: line.index, character: 0 }, end: { line: line.index + 1, character: 0 }, text: '' });
+  return line;
+}
+
+// putBack writes a deleted line back where it was, without saving.
+export async function putBack(ctx: SuiteContext, file: string, line: Line): Promise<void> {
+  await open(ctx, file);
+  await ctx.probe.request('document.edit', { path: file, start: { line: line.index, character: 0 }, text: `${line.text}\n` });
+}
+
+export async function save(ctx: SuiteContext, file: string): Promise<void> {
+  const r = await ctx.probe.request<{ saved: boolean }>('document.save', { path: file });
+  need(r.saved, `${file} could not be saved`);
+}
+
+export async function closeAllEditors(ctx: SuiteContext): Promise<void> {
+  await run(ctx, 'workbench.action.closeAllEditors');
+  await sleep(300);
+}
+
+// ---- diagnostics -------------------------------------------------------------
+
+export async function diagnostics(ctx: SuiteContext, file: string): Promise<DiagnosticEntry[]> {
+  const listed = await ctx.probe.request<{ path: string; diagnostics: DiagnosticEntry[] }[]>('diagnostics.list', { path: file });
+  return listed.length === 0 ? [] : listed[0].diagnostics;
+}
+
+export function describeDiagnostics(file: string, ds: DiagnosticEntry[]): string {
+  return ds.length === 0
+    ? `${path.basename(file)}: none`
+    : ds.map((d) => `${path.basename(file)}:${d.range.start.line + 1} [${d.source ?? 'no source'}${d.code ? ` ${d.code}` : ''}] ${d.message.split('\n')[0]}`).join('; ');
+}
+
+// capture writes a screenshot for a person to judge.
+export async function capture(ctx: SuiteContext, name: string): Promise<string> {
+  const file = path.join(ctx.shots, `${name}.png`);
+  await ctx.d.screenshot(file);
+  return file;
+}

@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Cognitio S.r.l.
+
+apiVersion: aggrega.ai/v1alpha1
+kind: Release
+metadata:
+  name: gateway-local
+  environment: development
+  version: 1.0.0
+spec:
+  aggregate: gateway
+  manifest: gateway-compose
+  boundaries:
+    app:
+      directory: app
+      components:
+        web:
+          infra:
+            port: 8080
+        proxy:
+          infra:
+            port: 8081
+            engine_version: "1.27.5-alpine"

@@ -1,0 +1,8 @@
+workspace:
+  # The standard library, whose directory the editor suite writes in place of
+  # the placeholder below when it copies this folder, and this folder's own
+  # catalog, which holds one Feature and the session-store module the Aggregate
+  # imports.
+  catalog_dirs:
+    - <standard-library-catalog>
+    - ./catalog

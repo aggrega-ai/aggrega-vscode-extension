@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Cognitio S.r.l.
+
+apiVersion: aggrega.ai/v1alpha1
+kind: Component
+metadata:
+  name: scratch/unused
+  version: 1.0.0
+  description: >
+    A Component nothing in this folder uses: the Release does not reach it and
+    no catalog directory holds it. It is here to be broken on purpose, so an
+    authoring complaint can be raised in a file other than the Aggregate.
+  labels:
+    component.aggrega.ai/type: server
+spec:
+  schema:
+    values:
+      greeting:
+        type: string
+        default: "hello"

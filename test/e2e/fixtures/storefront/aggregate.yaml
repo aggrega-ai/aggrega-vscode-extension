@@ -1,0 +1,68 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Cognitio S.r.l.
+
+apiVersion: aggrega.ai/v1alpha1
+kind: Aggregate
+metadata:
+  name: storefront
+  version: 1.0.0
+  description: >
+    A small storefront compiled to a Docker Compose stack: an NGINX gateway in
+    front of an Adminer console, which reaches an orders database, beside a
+    cache and an imported session-store module. The components are grouped
+    into subsystems, one of them nested inside another.
+spec:
+  aggregates:
+    # A module read from this folder's own catalog. Its component is reached
+    # through it, so its document is the module's file, not this one.
+    sessions:
+      type: local/sessions
+  subsystems:
+    frontend:
+      description: What a visitor reaches.
+      components:
+        gateway:
+          type: core/gateway/nginx
+          uses:
+            upstream:
+              admin:
+                target: admin
+                inject:
+                  env:
+                    - in: NGINX_UPSTREAM_HOST
+                      from: host
+                    - in: NGINX_UPSTREAM_PORT
+                      from: port
+        admin:
+          type: core/devtool/adminer
+          uses:
+            databases:
+              orders:
+                target: orders
+                inject:
+                  env:
+                    - in: ADMINER_DEFAULT_SERVER
+                      from: host
+    backend:
+      description: What the frontend reads from.
+      components:
+        cache:
+          type: core/datastore/memcached
+      subsystems:
+        storage:
+          description: The durable data, one level further in.
+          components:
+            orders:
+              type: core/datastore/postgres
+              values:
+                database: orders
+                user: orders_admin
+              features:
+                # The Feature declares `origin` sensitive and leaves `key`
+                # readable. The origin below is a placeholder, not a credential
+                # for any real service.
+                password:
+                  type: core/secret-value
+                  values:
+                    key: POSTGRES_PASSWORD
+                    origin: orders-password-in-the-clear

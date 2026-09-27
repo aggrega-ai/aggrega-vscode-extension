@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Cognitio S.r.l.
+
+apiVersion: aggrega.ai/v1alpha1
+kind: Manifest
+metadata:
+  name: gateway-compose
+  version: 1.0.0
+  description: >
+    Maps the gateway to this folder's own Compose Recipe, nginx-probed, and the
+    web backend to the standard library's Compose Adminer Recipe.
+spec:
+  mappings:
+    components:
+      type:
+        core/gateway/nginx:1.0.0: compose/nginx-probed:1.0.0
+        core/devtool/adminer:1.0.0: compose/adminer:1.0.0

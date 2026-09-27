@@ -1,0 +1,22 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Cognitio S.r.l.
+
+apiVersion: aggrega.ai/v1alpha1
+kind: Feature
+metadata:
+  name: local/nightly-backup
+  version: 1.0.0
+  description: >
+    A nightly copy of a datastore's contents, declared for any component in the
+    datastore category. It is declared in this folder rather than read from the
+    standard library, and no Manifest here maps it to a realization, so it is
+    offered for attachment and a build that attaches it stops at the missing
+    mapping.
+spec:
+  appliesTo: "component.aggrega.ai/category=datastore"
+  schema:
+    values:
+      schedule:
+        type: string
+        default: "0 2 * * *"
+        description: When the copy is taken, as a cron expression.

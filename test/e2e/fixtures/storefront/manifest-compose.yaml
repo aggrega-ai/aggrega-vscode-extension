@@ -1,0 +1,24 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Cognitio S.r.l.
+
+apiVersion: aggrega.ai/v1alpha1
+kind: Manifest
+metadata:
+  name: storefront-compose
+  version: 1.0.0
+  description: >
+    Maps every component of the storefront, and the session-store module's
+    cache, to the standard library's Compose Recipes, and the orders
+    database's password to the Compose realization of a secret value.
+spec:
+  mappings:
+    components:
+      type:
+        core/gateway/nginx:1.0.0: compose/nginx:1.0.0
+        core/devtool/adminer:1.0.0: compose/adminer:1.0.0
+        core/datastore/postgres:1.0.0: compose/postgres:1.0.0
+        core/datastore/memcached:1.0.0: compose/memcached:1.0.0
+        core/datastore/valkey:1.0.0: compose/valkey:1.0.0
+    features:
+      type:
+        core/secret-value:1.0.0: dotenv-secret:1.0.0

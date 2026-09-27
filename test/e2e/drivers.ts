@@ -24,6 +24,9 @@ export interface PlatformFonts {
   fonts: { familyName: string; postScriptName?: string; glyphCount: number; isCustomFont: boolean }[];
 }
 
+// Box is an element's rectangle in the window's coordinates.
+export interface Box { x: number; y: number; width: number; height: number }
+
 // UiDriver is what the calibration and the checks need from a driver.
 export interface UiDriver {
   readonly name: string;
@@ -32,6 +35,17 @@ export interface UiDriver {
   screenshot(file: string): Promise<number>;
   drag(from: { x: number; y: number }, to: { x: number; y: number }, steps: number): Promise<void>;
   press(key: string): Promise<void>;
+  // type sends text as key presses, to whatever holds the focus.
+  type(text: string): Promise<void>;
+  // box reads the rectangle of the first element matching `selector` in a
+  // webview document, or in the workbench where `doc` is null, in the window's
+  // coordinates, so a press can be made where a person would make it.
+  box(doc: WebviewDocument | null, selector: string): Promise<Box | null>;
+  // click presses the pointer at a point — the secondary button where asked,
+  // which opens a context menu — and moveTo moves it there, which is what raises
+  // a hover.
+  click(at: { x: number; y: number }, button?: 'left' | 'right'): Promise<void>;
+  moveTo(at: { x: number; y: number }): Promise<void>;
   platformFonts(doc: WebviewDocument, selector: string): Promise<PlatformFonts>;
   // detach lets go of the editor without stopping it.
   detach(): Promise<void>;
@@ -76,6 +90,24 @@ class PlaywrightDriver implements UiDriver {
 
   press(key: string): Promise<void> {
     return this.page.keyboard.press(key);
+  }
+
+  type(text: string): Promise<void> {
+    return this.page.keyboard.type(text);
+  }
+
+  async box(doc: WebviewDocument | null, selector: string): Promise<Box | null> {
+    const frame = doc === null ? this.page.mainFrame() : (doc as PlaywrightDocument).frame;
+    const b = await frame.locator(selector).first().boundingBox({ timeout: 2000 }).catch(() => null);
+    return b === null ? null : { x: b.x, y: b.y, width: b.width, height: b.height };
+  }
+
+  click(at: { x: number; y: number }, button: 'left' | 'right' = 'left'): Promise<void> {
+    return this.page.mouse.click(at.x, at.y, { button });
+  }
+
+  moveTo(at: { x: number; y: number }): Promise<void> {
+    return this.page.mouse.move(at.x, at.y);
   }
 
   async platformFonts(doc: WebviewDocument, selector: string): Promise<PlatformFonts> {

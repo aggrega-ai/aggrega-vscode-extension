@@ -1,0 +1,31 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Cognitio S.r.l.
+
+apiVersion: aggrega.ai/v1alpha1
+kind: Release
+metadata:
+  name: storefront-local
+  environment: development
+  version: 1.0.0
+spec:
+  # Both named by path beside this file, so `aggrega inspect
+  # ./release-compose.yaml --detail` reads them as well as a build does.
+  aggregate: ./aggregate.yaml
+  manifest: ./manifest-compose.yaml
+  boundaries:
+    edge:
+      directory: edge
+      components:
+        gateway:
+          infra:
+            port: 8081
+        admin:
+          infra:
+            port: 8080
+    data:
+      directory: data
+      components:
+        orders: {}
+        cache: {}
+      aggregates:
+        sessions: {}

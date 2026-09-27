@@ -7,6 +7,7 @@ import * as path from 'path';
 import { DAEMON_STANDING_WORDS, RESTART_COMMAND } from '../../src/daemon-status';
 import { UiDriver, WebviewDocument } from './drivers';
 import { ProbeClient } from './probe-client';
+import { statusObserver } from './workbench';
 
 // The calibration: seven readings a UI driver must get right before any check is
 // written on top of it. Each one is a thing the checks do all the time — draw
@@ -290,26 +291,6 @@ function needleKey(ctx: CalibrationContext): Promise<NeedleResult> {
     const passed = after.active !== before.first && after.active === before.last;
     return { passed, evidence: { key: 'End', before, after } };
   });
-}
-
-// statusObserver is installed in the workbench before the action it watches, so
-// a reading that lasts a moment is caught as it is drawn rather than hoped for by
-// a later poll.
-function statusObserver(words: string[]): string {
-  return `(() => {
-    if (window.__editorSuiteStatus) { return window.__editorSuiteStatus.length; }
-    const words = ${JSON.stringify(words)};
-    const bar = document.getElementById('workbench.parts.statusbar');
-    const read = () => [...bar.querySelectorAll('.statusbar-item')].map((e) => (e.innerText || '').trim())
-      .filter((t) => words.some((w) => t === 'Aggrega: ' + w)).join(' | ');
-    const log = [];
-    let last = null;
-    const sample = () => { const v = read(); if (v !== last) { log.push({ at: Date.now(), reading: v }); last = v; } };
-    sample();
-    new MutationObserver(sample).observe(bar, { subtree: true, childList: true, characterData: true, attributes: true });
-    window.__editorSuiteStatus = log;
-    return log.length;
-  })()`;
 }
 
 // needleStatusRestart: the status bar reads running, then starting, then running

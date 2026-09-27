@@ -4,18 +4,14 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-import { NeedleResult, runNeedles, writeCalibrationFolder } from './calibration';
-import { connectOverDevTools, launchWithElectron, UiDriver } from './drivers';
-import {
-  createScenarioRoot, copyExtension, copyProbe, editorArguments, editorEnvironment, freePort,
-  languageServer, launchEditor, LaunchShape, markRunnerEnvironment, readEnvironment, sameArguments, ScenarioRoot,
-  writeProfile,
-} from './editor';
+import { NeedleResult, runNeedles } from './calibration';
+import { markRunnerEnvironment } from './editor';
 import { checkInputs, EDITOR_VERSION, INPUT_NAMES, InputOptions, Inputs, REPO_ROOT } from './inputs';
 import { checkLibraries, libraryRefusal, LibraryReport } from './libraries';
-import { ProbeClient } from './probe-client';
 import { runProbeProofs } from './probe-proofs';
-import { ProcessTable, readCmdline, TeardownReport } from './processes';
+import { TeardownReport } from './processes';
+import { active, bringUp, Scenario, SCREEN, tearDown, waitForServer } from './scenario';
+import { runSuite } from './suite';
 
 // The editor suite's runner: launches the real editor with no display, drives it
 // from outside, and reports what it read.
@@ -30,6 +26,9 @@ import { ProcessTable, readCmdline, TeardownReport } from './processes';
 //   probe           prove the probe answers, matches the Problems panel and
 //                   survives a window reload
 //   teardown-study  signal the editor alone and watch which process outlives it
+//   suite           build the fixtures and run the checks, scenario by scenario:
+//                   which build is under test, the inspection toggle and the two
+//                   diagnostic layers, and the capabilities walked end to end
 //
 // Options (each input also reads the environment variable named beside it):
 //   --scratch <dir>          where every scratch root of the run is created
@@ -43,18 +42,19 @@ import { ProcessTable, readCmdline, TeardownReport } from './processes';
 //   --editor <dir>           the editor build (AGGREGA_E2E_EDITOR); default: the
 //                            extension's .vscode-test download
 //   --driver <name>          playwright-devtools, playwright-electron or all
-//                            (calibrate: all; probe: playwright-devtools)
+//                            (calibrate: all; probe and suite: playwright-devtools)
+//   --only <scenarios>       suite: a comma-separated subset of its scenarios
 //
-// Exit status: 0 when every reading passed, 1 when one failed, 2 when the run was
-// refused before it launched anything.
+// Exit status: 0 when every reading passed, 1 when one failed or was not run,
+// 2 when the run was refused before it launched anything.
 
-const SCREEN = { width: 1600, height: 1000 };
 const DRIVERS = ['playwright-devtools', 'playwright-electron'];
 
 interface Options {
   command: string;
   scratch?: string;
   driver?: string;
+  only?: string[];
   inputs: Omit<InputOptions, 'scratch'>;
 }
 
@@ -66,7 +66,7 @@ function parseArgs(argv: string[]): Options {
     if (!a.startsWith('--') || i + 1 >= rest.length) { throw new Usage(`unexpected argument ${a}`); }
     flags[a.slice(2)] = rest[++i];
   }
-  const known = new Set(['scratch', 'driver', 'extension', 'compiler', 'compiler-commit', 'catalog', 'registry-server', 'editor']);
+  const known = new Set(['scratch', 'driver', 'only', 'extension', 'compiler', 'compiler-commit', 'catalog', 'registry-server', 'editor']);
   for (const k of Object.keys(flags)) { if (!known.has(k)) { throw new Usage(`unknown option --${k}`); } }
   if (flags.driver !== undefined && flags.driver !== 'all' && !DRIVERS.includes(flags.driver)) {
     throw new Usage(`unknown driver ${flags.driver}; the drivers are ${DRIVERS.join(', ')}, or all`);
@@ -76,6 +76,7 @@ function parseArgs(argv: string[]): Options {
     command,
     scratch: pick('scratch', 'AGGREGA_E2E_SCRATCH'),
     driver: flags.driver,
+    only: flags.only === undefined ? undefined : flags.only.split(',').map((s) => s.trim()).filter((s) => s !== ''),
     inputs: {
       extension: path.resolve(pick('extension', INPUT_NAMES.extension.env) ?? REPO_ROOT),
       compiler: resolved(pick('compiler', INPUT_NAMES.compiler.env)),
@@ -127,7 +128,7 @@ function prepareRun(opts: Options): { inputs: Inputs; runDir: string; libraries:
   return { inputs: checked.inputs, runDir, libraries: libs };
 }
 
-function header(inputs: Inputs): Record<string, string> {
+export function header(inputs: Inputs): Record<string, string> {
   return {
     extensionBuild: inputs.extension.buildStamp,
     compiler: `${inputs.compiler.version} (commit ${inputs.compiler.commit})`,
@@ -135,107 +136,6 @@ function header(inputs: Inputs): Record<string, string> {
     catalog: `${inputs.catalog.commit}${inputs.catalog.uncommitted ? ', in a checkout with uncommitted changes' : ''}`,
     registryServer: inputs.registryServer.version,
   };
-}
-
-// Scenario is one launched editor, with what the runner holds of it.
-interface Scenario {
-  root: ScenarioRoot;
-  table: ProcessTable;
-  probe: ProbeClient;
-  driver: UiDriver | null;
-  bringUpMs: number;
-  close: () => Promise<void>;
-}
-
-async function bringUp(name: string, inputs: Inputs, runDir: string, driverName: string | null): Promise<Scenario> {
-  const t0 = Date.now();
-  const root = createScenarioRoot(runDir, name);
-  copyExtension(inputs.extension.dir, root.extensionCopy);
-  copyProbe(inputs.extension.dir, root.probeCopy);
-  writeProfile(root, inputs);
-  const { folder } = writeCalibrationFolder(path.join(root.dir, 'folder'), inputs.catalog.dir);
-  const shape: LaunchShape = { folder, screen: SCREEN };
-  let table: ProcessTable;
-  let probe: ProbeClient;
-  let driver: UiDriver | null = null;
-  let electronClose: (() => Promise<void>) | null = null;
-  let stated: { env: Record<string, string>; args: string[]; pid: number };
-  let debugPort = 0;
-  if (driverName === 'playwright-electron') {
-    const probePort = await freePort();
-    const env = editorEnvironment(root, probePort);
-    const args = editorArguments(root, shape);
-    const launched = await launchWithElectron({ executable: inputs.editor.executable, args, env, cwd: root.home, log: path.join(root.logs, 'editor.log'), boundMs: 60000 });
-    table = new ProcessTable(root.stateFile);
-    table.addRoot('editor', launched.pid);
-    table.snapshot();
-    probe = new ProbeClient(probePort);
-    driver = launched.driver;
-    electronClose = async () => { await launched.app.close().catch(() => undefined); };
-    stated = { env, args, pid: launched.pid };
-  } else {
-    const launch = await launchEditor(root, inputs, shape);
-    table = launch.table;
-    probe = new ProbeClient(launch.probePort);
-    stated = { env: launch.env, args: launch.args, pid: launch.pid };
-    debugPort = launch.debugPort;
-  }
-  active.add(table);
-  let hello: Awaited<ReturnType<ProbeClient['waitHello']>>;
-  try {
-    if (driverName === 'playwright-devtools') { driver = await connectOverDevTools(debugPort, 30000); }
-    hello = await probe.waitHello(60000);
-  } catch (err) {
-    // A launch that never became drivable is still stopped by identity.
-    await table.teardown({ closeBoundMs: 0, termBoundMs: 3000, killBoundMs: 2000 });
-    active.delete(table);
-    await driver?.detach().catch(() => undefined);
-    if (electronClose) { await electronClose(); }
-    throw err;
-  }
-  table.snapshot();
-  const commandLine = readCmdline(stated.pid);
-  const server = await waitForServer(table, inputs.compiler.path, 30000);
-  fs.writeFileSync(path.join(root.logs, 'launch.json'), `${JSON.stringify({
-    rootPid: stated.pid,
-    executable: inputs.editor.executable,
-    cwd: root.home,
-    statedEnvironment: stated.env,
-    environmentOfTheLanguageServer: server ? readEnvironment(server.pid, stated.env) : 'the language server did not start within 30000 ms',
-    statedArguments: stated.args,
-    commandLineAsStarted: commandLine,
-    commandLineIsTheStatedOne: sameArguments(commandLine, inputs.editor.executable, stated.args),
-    probe: hello,
-  }, null, 2)}\n`);
-  const bringUpMs = Date.now() - t0;
-  return {
-    root, table, probe, driver, bringUpMs,
-    close: async () => {
-      await driver?.detach().catch(() => undefined);
-      if (electronClose) { await electronClose(); }
-    },
-  };
-}
-
-// active holds the process tables of every editor still up, so an interrupted
-// run stops what it started.
-const active = new Set<ProcessTable>();
-
-async function tearDown(s: Scenario): Promise<TeardownReport> {
-  const report = await s.table.teardown({
-    // The clean close is the editor's own quit, asked through the probe: it
-    // deactivates every extension, which stops the language server the Aggrega
-    // extension started, and then exits the processes the editor started.
-    close: async () => {
-      await s.probe.request('command.run', { command: 'workbench.action.quit' }, 3000).catch(() => undefined);
-    },
-    closeBoundMs: 8000,
-    termBoundMs: 3000,
-    killBoundMs: 2000,
-  });
-  await s.close();
-  active.delete(s.table);
-  return report;
 }
 
 function writeReport(runDir: string, name: string, data: unknown, summary: string[]): void {
@@ -345,14 +245,12 @@ async function commandTeardownStudy(opts: Options): Promise<number> {
   return rest.stillAlive.length === 0 ? 0 : 1;
 }
 
-async function waitForServer(table: ProcessTable, compiler: string, boundMs: number): Promise<{ pid: number; cmd: string } | null> {
-  const until = Date.now() + boundMs;
-  while (Date.now() < until) {
-    const hit = languageServer(table, compiler);
-    if (hit) { return hit; }
-    await new Promise((resolve) => setTimeout(resolve, 200));
-  }
-  return null;
+async function commandSuite(opts: Options): Promise<number> {
+  const { inputs, runDir } = prepareRun(opts);
+  const driverName = opts.driver === undefined || opts.driver === 'all' ? DRIVERS[0] : opts.driver;
+  const report = await runSuite({ inputs, runDir, driverName, only: opts.only, header: header(inputs) });
+  writeReport(runDir, 'suite', report.data, report.summary);
+  return report.allPassed ? 0 : 1;
 }
 
 function stopEverything(signal: NodeJS.Signals): void {
@@ -373,7 +271,8 @@ async function main(): Promise<number> {
     case 'calibrate': return commandCalibrate(opts);
     case 'probe': return commandProbe(opts);
     case 'teardown-study': return commandTeardownStudy(opts);
-    default: throw new Usage(`unknown command ${JSON.stringify(opts.command)}; the commands are inputs, fetch-editor, calibrate, probe and teardown-study`);
+    case 'suite': return commandSuite(opts);
+    default: throw new Usage(`unknown command ${JSON.stringify(opts.command)}; the commands are inputs, fetch-editor, calibrate, probe, teardown-study and suite`);
   }
 }
 
