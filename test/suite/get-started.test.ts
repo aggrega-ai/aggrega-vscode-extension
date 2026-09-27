@@ -2685,9 +2685,9 @@ describe('the welcome panel seeds a configuration without starting a process', (
   });
 
   it('gives the seeding decision no way to reach a process at all', () => {
-    // The module that owns the seeding imports three things, and none can start
-    // anything: the classification of an ending, how far a configuration write
-    // reached, and what a registration produced. Read as the whole import list
+    // None of what the module that owns the seeding imports can start anything:
+    // the classification of an ending, how far a configuration write reached,
+    // what a registration produced, and whether a write is in effect. Read as the whole import list
     // rather than as an absence, so a module added to it has to be looked at —
     // including one that could reach a process, and one that would carry the
     // editor in, which is what keeps this decision readable without a host.
@@ -2699,7 +2699,7 @@ describe('the welcome panel seeds a configuration without starting a process', (
     // pass unnoticed.
     assert.deepStrictEqual(
       valueImports('src/config-seeding.ts'),
-      ['./config-write-scope', './operation-outcome', './registration-outcome'],
+      ['./config-change-watch', './config-write-scope', './operation-outcome', './registration-outcome'],
     );
     assert.deepStrictEqual(typeOnlyImports('src/config-seeding.ts'), [WIRE_CONTRACT]);
     assert.strictEqual(launchFacilityCount('src/config-seeding.ts'), 0);
@@ -2707,6 +2707,7 @@ describe('the welcome panel seeds a configuration without starting a process', (
     // rather than trusted for being small.
     assert.strictEqual(launchFacilityCount('src/config-write-scope.ts'), 0);
     assert.strictEqual(launchFacilityCount('src/registration-outcome.ts'), 0);
+    assert.strictEqual(launchFacilityCount('src/config-change-watch.ts'), 0);
   });
 
   it('sends the seeding to the language server under the compiler\'s own method name', () => {

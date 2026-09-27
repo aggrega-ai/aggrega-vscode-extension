@@ -12,6 +12,7 @@ import { CancellationSignal } from './cancellation';
 import type { RegistrySearchParams, SearchDoc } from './catalog-search-run';
 import type { ConfigInitParams, ConfigInitResult } from './config-seeding';
 import {
+  AppliedWrite,
   ConfigurationWatch,
   configurationChangedWarning,
   createConfigurationWatch,
@@ -455,6 +456,7 @@ const configurationWatch: ConfigurationWatch = createConfigurationWatch({
     if (restarted) {
       outputChannel?.appendLine(ownWriteRestartLine(file));
     }
+    return restarted;
   },
   isServerRunning: isLanguageServerRunning,
   timer: {
@@ -2644,11 +2646,12 @@ async function requestCacheClear(): Promise<CacheClearResponse> {
 // offered.
 //
 // A seeding that wrote is followed by a restart of the language server, which
-// reads configuration only when it starts; see configurationWatch.
+// reads configuration only when it starts; see configurationWatch. The answer
+// carries whether the restarted server has read it, for the ending to say.
 //
 // Throws when the server is not running, so a caller reports that state rather
 // than presenting a seeding that never ran as one that found nothing to do.
-async function requestConfigInit(params: ConfigInitParams): Promise<ConfigInitResult> {
+async function requestConfigInit(params: ConfigInitParams): Promise<AppliedWrite<ConfigInitResult>> {
   if (!daemon || daemon.getState() !== DaemonState.Running) {
     throw new Error('the Aggrega language server is not running');
   }
@@ -2700,11 +2703,12 @@ async function requestRegistryList(): Promise<RegistryListDoc> {
 //
 // The registration is followed by a restart of the language server, which reads
 // configuration only when it starts, so the registry it wrote is in force the
-// moment the operation ends; see configurationWatch.
+// moment the operation ends; see configurationWatch. The answer carries whether
+// the restarted server has read it, which is what the ending says.
 //
 // Throws when the server is not running, so a caller reports that state rather
 // than presenting a registration that never ran as one that changed nothing.
-async function requestRegistryAdd(params: RegistryAddParams): Promise<RegistryAddResult> {
+async function requestRegistryAdd(params: RegistryAddParams): Promise<AppliedWrite<RegistryAddResult>> {
   if (!daemon || daemon.getState() !== DaemonState.Running) {
     throw new Error('the Aggrega language server is not running');
   }
@@ -2729,7 +2733,7 @@ async function requestRegistryAdd(params: RegistryAddParams): Promise<RegistryAd
 // than presenting a removal that never ran as one that found nothing to remove.
 async function requestRegistryRemove(
   params: RegistryRemoveParams,
-): Promise<RegistryRemoveResult> {
+): Promise<AppliedWrite<RegistryRemoveResult>> {
   if (!daemon || daemon.getState() !== DaemonState.Running) {
     throw new Error('the Aggrega language server is not running');
   }
@@ -2840,7 +2844,7 @@ async function requestLint(
 async function requestPluginAdd(
   params: PluginAddParams,
   signal?: CancellationSignal,
-): Promise<PluginAddResult> {
+): Promise<AppliedWrite<PluginAddResult>> {
   if (!daemon || daemon.getState() !== DaemonState.Running) {
     throw new Error('the Aggrega language server is not running');
   }
@@ -2870,7 +2874,7 @@ async function requestPluginAdd(
 //
 // Throws when the server is not running, so a caller reports that state rather
 // than presenting a removal that never ran as one that found nothing to remove.
-async function requestPluginRemove(params: PluginRemoveParams): Promise<PluginRemoveResult> {
+async function requestPluginRemove(params: PluginRemoveParams): Promise<AppliedWrite<PluginRemoveResult>> {
   if (!daemon || daemon.getState() !== DaemonState.Running) {
     throw new Error('the Aggrega language server is not running');
   }

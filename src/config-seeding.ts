@@ -2,6 +2,7 @@
 // Copyright 2026 Cognitio S.r.l.
 
 import type * as wire from '@aggrega-ai/aggrega-abi/dist/servewire_gen';
+import { AppliedWrite, endingInEffect } from './config-change-watch';
 import { reachPhrase } from './config-write-scope';
 import { OperationOutcome, outcomeOf } from './operation-outcome';
 import { registrationSentence, trustPhrase } from './registration-outcome';
@@ -77,9 +78,10 @@ export type ConfigInitResult = wire.ConfigInitResult;
 // It is declared this narrowly so the surface that owns the panel passes its own
 // richer dependency set here unchanged, and so a test drives the whole decision
 // with a fake answer and no transport at all. It takes no cancellation, for the
-// reason stated at the head of this module.
+// reason stated at the head of this module. It answers the compiler's answer and
+// whether the language server running afterwards has read what was written.
 export interface ConfigSeedingDeps {
-  seedConfiguration(params: ConfigInitParams): Promise<ConfigInitResult>;
+  seedConfiguration(params: ConfigInitParams): Promise<AppliedWrite<ConfigInitResult>>;
 }
 
 // OFFICIAL_HUB_LABEL is how the unnamed registry is named to a reader.
@@ -119,7 +121,8 @@ export function seedParams(host: string | null): ConfigInitParams {
 // It returns the ending rather than announcing it, because the words a reader
 // reads and the place they read them belong to the surface. What is decided here
 // is whether the seeding completed and, if it did, the sentence naming what was
-// actually seeded and where.
+// actually seeded and where — followed by the sentence saying it is in effect,
+// where the language server running afterwards has read it.
 //
 // A refusal is classified through the extension's one home for that, so the
 // compiler's own diagnostic travels intact — including the one that says an
@@ -134,8 +137,8 @@ export async function runSeeding(
   host: string | null,
 ): Promise<OperationOutcome> {
   try {
-    const result = await deps.seedConfiguration(seedParams(host));
-    return { kind: 'ok', detail: seedingDetail(result) };
+    const { answer, inEffect } = await deps.seedConfiguration(seedParams(host));
+    return { kind: 'ok', detail: endingInEffect(seedingDetail(answer), inEffect) };
   } catch (err) {
     return outcomeOf(err);
   }

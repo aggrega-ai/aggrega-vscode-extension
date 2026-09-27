@@ -4,9 +4,11 @@
 import * as assert from 'node:assert';
 import {
   ConfigurationWatch,
+  IN_EFFECT_SENTENCE,
   configurationChangedWarning,
   createConfigurationWatch,
   deferredChangeLine,
+  endingInEffect,
   ownWriteRestartLine,
   ownWriteRestartTitle,
   watchedConfigurationFiles,
@@ -70,6 +72,10 @@ class Harness {
   // duringRestart runs inside the restart, before the restarted server becomes
   // answerable — the window in which a late report of the write can land.
   duringRestart: (() => Promise<void>) | null = null;
+  // restartSucceeds decides how the next restart ends. A restart that fails
+  // leaves no server running and nothing re-armed, which is what the extension's
+  // one restart leaves when the new server does not start.
+  restartSucceeds = true;
   private readonly listeners = new Map<string, Set<() => void>>();
   private readonly closers = new Map<string, () => void>();
   readonly watch: ConfigurationWatch;
@@ -95,9 +101,14 @@ class Harness {
       restartForWrite: async (file) => {
         this.restarts.push(file);
         if (this.duringRestart) { await this.duringRestart(); }
+        if (!this.restartSucceeds) {
+          this.running = false;
+          return false;
+        }
         // The restarted server becoming answerable is the rising edge the
         // extension re-arms the watch on; it happens inside the restart.
         void this.watch.reload();
+        return true;
       },
       isServerRunning: () => this.running,
       timer: this.timer,
@@ -304,7 +315,7 @@ describe('a write the extension makes itself', () => {
       return answer(WORKSPACE);
     }, (r) => writtenFile(r.scope));
     await h.settle();
-    assert.deepStrictEqual(result, answer(WORKSPACE));
+    assert.deepStrictEqual(result, { answer: answer(WORKSPACE), inEffect: true });
     assert.deepStrictEqual(h.warned, []);
     assert.deepStrictEqual(h.restarts, [WORKSPACE]);
     // The report did arrive, and was held back rather than lost.
@@ -406,6 +417,94 @@ describe('a write the extension makes itself', () => {
     }, (r) => writtenFile(r.scope));
     assert.deepStrictEqual(h.restarts, []);
   });
+
+  it('restarts once for each write, and once only', async () => {
+    const h = await armedOver('workspace: {}\n');
+    for (const content of ['registries: [a.invalid]\n', 'registries: [a.invalid, b.invalid]\n']) {
+      await h.watch.ownWrite(async () => {
+        h.disk.set(WORKSPACE, content);
+        return answer(WORKSPACE);
+      }, (r) => writtenFile(r.scope));
+    }
+    assert.deepStrictEqual(h.restarts, [WORKSPACE, WORKSPACE]);
+  });
+});
+
+// 🔴 WHETHER A WRITE IS IN EFFECT WHEN IT ENDS IS ANSWERED BY THE WATCH THAT
+// DECIDED THE RESTART, and each outcome here is an equality over the whole answer
+// rather than a reading of the flag alone, so an answer that dropped the
+// compiler's own reply while getting the flag right fails as well.
+describe('whether a write the extension makes itself is in effect when it ends', () => {
+  it('is in effect once the restart it asked for has succeeded', async () => {
+    const h = await armedOver('workspace: {}\n');
+    const applied = await h.watch.ownWrite(async () => {
+      h.disk.set(WORKSPACE, 'registries: [registry.invalid]\n');
+      return answer(WORKSPACE);
+    }, (r) => writtenFile(r.scope));
+    assert.deepStrictEqual(applied, { answer: answer(WORKSPACE), inEffect: true });
+    assert.deepStrictEqual(h.restarts, [WORKSPACE]);
+  });
+
+  it('is not in effect where that restart failed', async () => {
+    const h = await armedOver('workspace: {}\n');
+    h.restartSucceeds = false;
+    const applied = await h.watch.ownWrite(async () => {
+      h.disk.set(WORKSPACE, 'registries: [registry.invalid]\n');
+      return answer(WORKSPACE);
+    }, (r) => writtenFile(r.scope));
+    assert.deepStrictEqual(applied, { answer: answer(WORKSPACE), inEffect: false });
+    assert.deepStrictEqual(h.restarts, [WORKSPACE]);
+  });
+
+  it('is not in effect where no server was running to restart', async () => {
+    const h = await armedOver('workspace: {}\n');
+    h.running = false;
+    const applied = await h.watch.ownWrite(async () => {
+      h.disk.set(WORKSPACE, 'registries: [registry.invalid]\n');
+      return answer(WORKSPACE);
+    }, (r) => writtenFile(r.scope));
+    assert.deepStrictEqual(applied, { answer: answer(WORKSPACE), inEffect: false });
+    assert.deepStrictEqual(h.restarts, []);
+  });
+
+  it('is not in effect where the write wrote nothing', async () => {
+    const h = await armedOver('workspace: {}\n');
+    const applied = await h.watch.ownWrite(async () => answer(WORKSPACE), () => null);
+    assert.deepStrictEqual(applied, { answer: answer(WORKSPACE), inEffect: false });
+    assert.deepStrictEqual(h.restarts, []);
+  });
+
+  it('is in effect where a server that started after the write began has read it', async () => {
+    const h = new Harness();
+    h.running = false;
+    h.layers = [];
+    await h.watch.reload();
+    const applied = await h.watch.ownWrite(async () => {
+      h.disk.set(WORKSPACE, 'workspace: {}\n');
+      // The write's own re-attachment starts a server over the new file.
+      h.running = true;
+      h.layers = [WORKSPACE];
+      void h.watch.reload();
+      return true;
+    }, () => WORKSPACE);
+    assert.deepStrictEqual(applied, { answer: true, inEffect: true });
+    assert.deepStrictEqual(h.restarts, []);
+  });
+
+  it('is not in effect where a server started after the write began and is no longer running', async () => {
+    const h = new Harness();
+    h.running = false;
+    h.layers = [];
+    await h.watch.reload();
+    const applied = await h.watch.ownWrite(async () => {
+      h.disk.set(WORKSPACE, 'workspace: {}\n');
+      h.layers = [WORKSPACE];
+      void h.watch.reload();
+      return true;
+    }, () => WORKSPACE);
+    assert.deepStrictEqual(applied, { answer: true, inEffect: false });
+    assert.deepStrictEqual(h.restarts, []);
+  });
 });
 
 describe('what the reader is told', () => {
@@ -431,6 +530,41 @@ describe('what the reader is told', () => {
       deferredChangeLine(WORKSPACE),
       '/work/project/.aggrega-config.yaml changed while the extension was writing configuration; '
       + 'the change is judged once the language server has read that write.',
+    );
+  });
+
+  it('ends a write that is in effect by saying so, in one sentence added to its own ending', () => {
+    // Independent literals on both sides, so a re-wording of the sentence or of
+    // the way it joins the ending fails here rather than moving both halves.
+    assert.strictEqual(
+      IN_EFFECT_SENTENCE,
+      'The change is now in effect: the running language server has read it.',
+    );
+    assert.strictEqual(
+      endingInEffect('removed the registry registry.invalid from /work/project/.aggrega-config.yaml.', true),
+      'removed the registry registry.invalid from /work/project/.aggrega-config.yaml. '
+      + 'The change is now in effect: the running language server has read it.',
+    );
+  });
+
+  it('closes an ending that stops on the compiler\'s own words before saying it is in effect', () => {
+    // A registration can end on a reason carried verbatim from the registry's
+    // answer, with no full stop of its own; the sentence must not run on from it.
+    assert.strictEqual(
+      endingInEffect('registered registry.invalid. It advertises no signature trust policy. egress: the network is off', true),
+      'registered registry.invalid. It advertises no signature trust policy. egress: the network is off. '
+      + 'The change is now in effect: the running language server has read it.',
+    );
+    assert.strictEqual(
+      endingInEffect('registered registry.invalid. egress: the network is off', false),
+      'registered registry.invalid. egress: the network is off',
+    );
+  });
+
+  it('adds nothing to the ending of a write that is not in effect', () => {
+    assert.strictEqual(
+      endingInEffect('removed the registry registry.invalid from /work/project/.aggrega-config.yaml.', false),
+      'removed the registry registry.invalid from /work/project/.aggrega-config.yaml.',
     );
   });
 

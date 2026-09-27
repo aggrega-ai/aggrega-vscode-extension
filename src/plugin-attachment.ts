@@ -3,6 +3,7 @@
 
 import type * as wire from '@aggrega-ai/aggrega-abi/dist/servewire_gen';
 import { CancellationSignal } from './cancellation';
+import { AppliedWrite, endingInEffect } from './config-change-watch';
 import { reachPhrase } from './config-write-scope';
 import { OperationOutcome, outcomeOf } from './operation-outcome';
 import { withSubject } from './operation-groups';
@@ -165,9 +166,10 @@ export type PluginRetraction = wire.PluginRetraction;
 //
 // It is declared this narrowly so the surface that owns the panel passes its own
 // richer dependency set here unchanged, and so a test drives the whole decision
-// with a fake answer and no transport at all.
+// with a fake answer and no transport at all. It answers the compiler's answer and
+// whether the language server running afterwards has read the attachment.
 export interface PluginAttachmentDeps {
-  addPlugin(params: PluginAddParams, signal?: CancellationSignal): Promise<PluginAddResult>;
+  addPlugin(params: PluginAddParams, signal?: CancellationSignal): Promise<AppliedWrite<PluginAddResult>>;
 }
 
 // --- composing the request -----------------------------------------------
@@ -233,7 +235,8 @@ export function attachmentRequest(attachment: PluginAttachment): PluginAddParams
 // It returns the ending rather than announcing it, because the words a reader
 // reads and the place they read them belong to the surface. What is decided here
 // is whether the attachment completed and, if it did, the sentence naming what
-// was actually attached and where.
+// was actually attached and where — followed by the sentence saying it is in
+// effect, where the language server running afterwards has read it.
 //
 // 🔴 IT TAKES A STOP, AND THAT IS THE POINT RATHER THAN A CONVENIENCE. The signal
 // reaches the compiler as the cancellation of the request this call was sent as,
@@ -246,8 +249,8 @@ export async function runPluginAttachment(
   signal?: CancellationSignal,
 ): Promise<OperationOutcome> {
   try {
-    const result = await deps.addPlugin(attachmentRequest(attachment), signal);
-    return { kind: 'ok', detail: attachmentDetail(result) };
+    const { answer, inEffect } = await deps.addPlugin(attachmentRequest(attachment), signal);
+    return { kind: 'ok', detail: endingInEffect(attachmentDetail(answer), inEffect) };
   } catch (err) {
     return outcomeOf(err);
   }

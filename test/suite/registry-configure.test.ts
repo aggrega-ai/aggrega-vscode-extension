@@ -100,25 +100,31 @@ function settle<T>(result: Answer<T>): Promise<T> {
 // recorder stands in for the language server: it records what each operation was
 // asked and answers as told, so every decision below runs with no transport, no
 // compiler and no editor.
+//
+// The two writes answer whether the language server running afterwards has read
+// them, as the extension's own requests do; that is false unless a spec says
+// otherwise, which is the reading under which an ending adds nothing.
 function recorder(answers: {
   add?: Answer<RegistryAddResult>;
   remove?: Answer<RegistryRemoveResult>;
   logout?: Answer<LogoutResult>;
+  inEffect?: boolean;
 }) {
   const addSent: RegistryAddParams[] = [];
   const removeSent: RegistryRemoveParams[] = [];
   const logoutSent: LogoutParams[] = [];
+  const inEffect = answers.inEffect ?? false;
   return {
     addSent,
     removeSent,
     logoutSent,
     addRegistry(params: RegistryAddParams) {
       addSent.push(params);
-      return settle(answers.add ?? addAnswer());
+      return settle(answers.add ?? addAnswer()).then((answer) => ({ answer, inEffect }));
     },
     removeRegistry(params: RegistryRemoveParams) {
       removeSent.push(params);
-      return settle(answers.remove ?? removeAnswer());
+      return settle(answers.remove ?? removeAnswer()).then((answer) => ({ answer, inEffect }));
     },
     logOutOfRegistry(params: LogoutParams) {
       logoutSent.push(params);
@@ -456,6 +462,45 @@ describe('a completed removal says what was removed and from where', () => {
       'The removal removed the registry registry.example.test from '
       + '/work/project/aggrega.yaml, this project\'s own configuration file.',
     );
+  });
+});
+
+// The ending of each configuration write says the change is in force once the
+// language server running afterwards has read it, and says nothing of the kind
+// otherwise. Both halves are whole-message equalities over the ending a reader
+// meets, driven through the operation rather than read off the composer.
+describe('a registration and a removal say they are in effect once the language server has read them', () => {
+  it('ends a registration the restarted server has read by saying it is in effect', async () => {
+    const outcome = await runRegistryAdd(recorder({ inEffect: true }), 'registry.example.test', 'global');
+    assert.strictEqual(
+      terminalLine(REGISTRATION_SUBJECT, outcome),
+      'The registration registered registry.example.test in '
+      + '/home/reader/.config/aggrega/config.yaml, the global file shared by every project on '
+      + 'this machine. Its advertised signature trust policy was pinned, naming 2 identities. '
+      + 'The change is now in effect: the running language server has read it.',
+    );
+  });
+
+  it('ends a removal the restarted server has read by saying it is in effect', async () => {
+    const outcome = await runRegistryRemove(recorder({ inEffect: true }), 'registry.example.test', 'global');
+    assert.strictEqual(
+      terminalLine(REGISTRY_REMOVAL_SUBJECT, outcome),
+      'The removal removed the registry registry.example.test from '
+      + '/home/reader/.config/aggrega/config.yaml, the global file shared by every project on '
+      + 'this machine. The change is now in effect: the running language server has read it.',
+    );
+  });
+
+  it('says nothing of the kind where no running server has read the write', async () => {
+    const add = await runRegistryAdd(recorder({ inEffect: false }), 'registry.example.test', 'global');
+    const remove = await runRegistryRemove(recorder({ inEffect: false }), 'registry.example.test', 'global');
+    for (const outcome of [add, remove]) {
+      assert.strictEqual(outcome.kind, 'ok');
+      assert.ok(
+        !terminalLine(REGISTRATION_SUBJECT, outcome).includes('in effect'),
+        'an ending claims the change is in effect when no running server has read it',
+      );
+    }
   });
 });
 

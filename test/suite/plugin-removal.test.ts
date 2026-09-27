@@ -63,8 +63,10 @@ function answer(over: Partial<PluginRemoveResult> = {}): PluginRemoveResult {
 
 // recorder is a removal that records what it was asked and answers as told. It
 // stands in for the language server, so the whole decision runs with no
-// transport, no compiler and no editor.
-function recorder(result: PluginRemoveResult | Error | DaemonRefusal) {
+// transport, no compiler and no editor. It answers whether the language server
+// running afterwards has read the write, as the extension's own request does;
+// false unless a spec says otherwise.
+function recorder(result: PluginRemoveResult | Error | DaemonRefusal, inEffect = false) {
   const sent: PluginRemoveParams[] = [];
   return {
     sent,
@@ -72,7 +74,7 @@ function recorder(result: PluginRemoveResult | Error | DaemonRefusal) {
       sent.push(params);
       if (result instanceof Error) { return Promise.reject(result); }
       if ('code' in result) { return Promise.reject(result); }
-      return Promise.resolve(result);
+      return Promise.resolve({ answer: result, inEffect });
     },
   };
 }
@@ -157,6 +159,19 @@ describe('a completed removal says what was removed and from where', () => {
       terminalLine(REMOVAL_SUBJECT, outcome),
       'The removal removed the linter plugin publishing from /work/project/aggrega.yaml, '
       + 'this project\'s own configuration file.',
+    );
+  });
+
+  it('says the removal is in effect once the restarted language server has read it', async () => {
+    // The ending a reader meets, driven through the operation: the one sentence
+    // is added where the answer says the running server has read the write, and
+    // the ending above — the same answer, not read — carries none.
+    const outcome = await runPluginRemoval(recorder(answer(), true), 'linter', 'publishing');
+    assert.strictEqual(
+      terminalLine(REMOVAL_SUBJECT, outcome),
+      'The removal removed the linter plugin publishing from /work/project/aggrega.yaml, '
+      + 'this project\'s own configuration file. '
+      + 'The change is now in effect: the running language server has read it.',
     );
   });
 
@@ -326,7 +341,7 @@ describe('the removal reaches the compiler without a launch', () => {
     // pass unnoticed.
     assert.deepStrictEqual(
       valueImports('src/plugin-removal.ts'),
-      ['./config-write-scope', './operation-groups', './operation-outcome'],
+      ['./config-change-watch', './config-write-scope', './operation-groups', './operation-outcome'],
     );
     assert.deepStrictEqual(typeOnlyImports('src/plugin-removal.ts'), [WIRE_CONTRACT]);
   });

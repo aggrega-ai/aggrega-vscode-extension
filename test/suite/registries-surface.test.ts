@@ -322,6 +322,7 @@ describe('the registries panel and the catalog search reach the compiler without
     assert.deepStrictEqual(
       valueImports('src/registry-configure.ts'),
       [
+        './config-change-watch',
         './config-write-scope',
         './operation-groups',
         './operation-outcome',
@@ -330,6 +331,12 @@ describe('the registries panel and the catalog search reach the compiler without
     );
     assert.deepStrictEqual(typeOnlyImports('src/registry-configure.ts'), [WIRE_CONTRACT]);
     assert.strictEqual(launchFacilityCount('src/registry-configure.ts'), 0);
+    // The module that says whether a write is in effect is on the same side of
+    // the claim, so it is measured too: it names the editor nowhere and starts
+    // nothing, and the one module it reaches for a declaration is erased.
+    assert.deepStrictEqual(valueImports('src/config-change-watch.ts'), ['path']);
+    assert.deepStrictEqual(typeOnlyImports('src/config-change-watch.ts'), ['./binary-restart']);
+    assert.strictEqual(launchFacilityCount('src/config-change-watch.ts'), 0);
   });
 
   it('reaches no process-launching helper from the module that owns the search', () => {

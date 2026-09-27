@@ -61,8 +61,10 @@ function answer(over: Partial<ConfigInitResult> = {}): ConfigInitResult {
 
 // recorder is a seeding that records what it was asked and answers as told. It
 // stands in for the language server, so the whole decision runs with no
-// transport, no compiler and no editor.
-function recorder(result: ConfigInitResult | Error | DaemonRefusal) {
+// transport, no compiler and no editor. It answers whether the language server
+// running afterwards has read the write, as the extension's own request does;
+// false unless a spec says otherwise.
+function recorder(result: ConfigInitResult | Error | DaemonRefusal, inEffect = false) {
   const sent: ConfigInitParams[] = [];
   return {
     sent,
@@ -70,7 +72,7 @@ function recorder(result: ConfigInitResult | Error | DaemonRefusal) {
       sent.push(params);
       if (result instanceof Error) { return Promise.reject(result); }
       if ('code' in result) { return Promise.reject(result); }
-      return Promise.resolve(result);
+      return Promise.resolve({ answer: result, inEffect });
     },
   };
 }
@@ -146,6 +148,20 @@ describe('a completed seeding says what was seeded and where', () => {
       + '/home/reader/.config/aggrega/config.yaml, the global file shared by every project '
       + 'on this machine. Its advertised signature trust policy was pinned, naming 3 '
       + 'identities.',
+    );
+  });
+
+  it('says the seeding is in effect once the restarted language server has read it', async () => {
+    // The ending a reader meets, driven through the operation: the one sentence
+    // is added to it where the answer says the running server has read the write,
+    // and the ending above — the same answer, not read — carries none.
+    const outcome = await runSeeding(recorder(answer(), true), null);
+    assert.strictEqual(
+      terminalLine(SEEDING_SUBJECT, outcome),
+      'The seeding registered hub.aggrega.ai in '
+      + '/home/reader/.config/aggrega/config.yaml, the global file shared by every project '
+      + 'on this machine. Its advertised signature trust policy was pinned, naming 3 '
+      + 'identities. The change is now in effect: the running language server has read it.',
     );
   });
 

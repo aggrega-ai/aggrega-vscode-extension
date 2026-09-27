@@ -68,6 +68,20 @@ export function writtenFile(scope: { configFile?: string } | null | undefined): 
   return typeof file === 'string' && file !== '' ? file : null;
 }
 
+// AppliedWrite is a configuration write's own answer together with whether the
+// language server running once the write is over has read what it wrote.
+//
+// 🔴 inEffect IS DECIDED WHERE THE RESTART IS DECIDED, AND NOWHERE ELSE. The
+// surface that raises the write's ending reads it rather than working out for
+// itself whether a restart ran or worked: a second reading of that question would
+// agree with the watch until the day one of the two moved, and the sentence it
+// governs would then tell a reader a change is in force that the server never
+// read.
+export interface AppliedWrite<T> {
+  answer: T;
+  inEffect: boolean;
+}
+
 // ConfigurationWriter is how a surface that writes a configuration file itself
 // hands the write to the watch, so the write is followed by the restart and
 // raises no warning. written reports the file the write landed in, or null where
@@ -75,7 +89,7 @@ export function writtenFile(scope: { configFile?: string } | null | undefined): 
 export type ConfigurationWriter = <T>(
   write: () => Promise<T>,
   written: (result: T) => string | null,
-) => Promise<T>;
+) => Promise<AppliedWrite<T>>;
 
 // configurationChangedWarning is what the reader is told when a file the running
 // server read has changed on disk: which file, and why the change is not yet in
@@ -99,6 +113,29 @@ export function ownWriteRestartTitle(file: string): string {
 
 export function ownWriteRestartLine(file: string): string {
   return `restarted the language server so it reads ${file}, which the change just made wrote.`;
+}
+
+// IN_EFFECT_SENTENCE is what the ending of a configuration write the extension
+// made says once the language server running afterwards has read that write.
+//
+// It is one sentence added to the ending the operation already raises, never a
+// notification of its own: the reader asked for one change and is told about it
+// once, and the restart that put it in force has already said what it was doing
+// while it did it. Where the restart failed, or nothing was running to restart,
+// the sentence is not said, because the change is then on disk and not in force.
+export const IN_EFFECT_SENTENCE = 'The change is now in effect: the running language server has read it.';
+
+// endingInEffect is the ending of a configuration write, with the sentence above
+// added where the write is in effect and nothing added where it is not.
+//
+// An ending can close on the compiler's own words, which do not always end a
+// sentence — a reason carried verbatim from a registry's answer, say — so the
+// ending is closed with a full stop before the sentence is added where it does
+// not already end in one. Nothing else in the ending is touched.
+export function endingInEffect(detail: string, inEffect: boolean): string {
+  if (!inEffect) { return detail; }
+  const closed = /[.!?]$/.test(detail) ? detail : `${detail}.`;
+  return `${closed} ${IN_EFFECT_SENTENCE}`;
 }
 
 // watchingLine and deferredChangeLine are what the output channel is told about
@@ -129,8 +166,9 @@ export interface ConfigurationWatchDeps {
   // whichever way the reader closed it. Its action is the editor's to run.
   warn(file: string): Promise<void>;
   // restartForWrite replaces the running server after a write the extension
-  // made, naming the file that write landed in.
-  restartForWrite(file: string): Promise<void>;
+  // made, naming the file that write landed in, and answers whether a server is
+  // running afterwards — which is whether the restart put the write in force.
+  restartForWrite(file: string): Promise<boolean>;
   // isServerRunning reports whether a server is answering right now.
   isServerRunning(): boolean;
   timer: Pick<TimerLike, 'setTimeout' | 'clearTimeout'>;
@@ -150,7 +188,9 @@ export interface ConfigurationWatch {
   disarm(): void;
   // ownWrite runs a configuration write the extension is making, then restarts
   // the server so it reads what was written — unless a server started after the
-  // write began, which has read it already. No warning is raised for it.
+  // write began, which has read it already. No warning is raised for it. It
+  // answers the write's own answer and whether the server running afterwards has
+  // read the write.
   ownWrite: ConfigurationWriter;
   // watched is the set armed now, in the order the server reported it.
   watched(): string[];
@@ -274,21 +314,25 @@ export function createConfigurationWatch(deps: ConfigurationWatchDeps): Configur
   const ownWrite = async <T>(
     write: () => Promise<T>,
     written: (result: T) => string | null,
-  ): Promise<T> => {
+  ): Promise<AppliedWrite<T>> => {
     pendingWrites += 1;
     const reloadsBefore = reloads;
     try {
       const result = await write();
       const file = written(result);
+      let inEffect = false;
       if (file !== null) {
-        // A server that started after the write began has read it already, and
-        // restarting it again would be a second restart for one change.
-        if (reloads === reloadsBefore && deps.isServerRunning()) {
-          await deps.restartForWrite(file);
+        if (reloads !== reloadsBefore) {
+          // A server that started after the write began has read it already, and
+          // restarting it again would be a second restart for one change. Any
+          // server running now started no earlier than that one.
+          inEffect = deps.isServerRunning();
+        } else if (deps.isServerRunning()) {
+          inEffect = await deps.restartForWrite(file);
         }
         await loading;
       }
-      return result;
+      return { answer: result, inEffect };
     } finally {
       pendingWrites -= 1;
       if (pendingWrites === 0) {

@@ -50,6 +50,13 @@ const CONFIG_TEMPLATE = `build:
 // it started, so without the restart it would never read this one, and a
 // change made to it afterwards would go unannounced as well — a file the
 // server did not read is not a file anything watches on its behalf.
+//
+// Whether the restarted server read the file is not said here, because this
+// operation ends by opening the file rather than in a sentence, and a
+// notification raised only to say it would be a second one for one act. What
+// the reader came to write is the value they type next, and saving that is a
+// change the running server has not read, which the watch reports with the
+// restart beside it.
 export async function openAuthoringReleaseConfig(
   workspaceRoot: string,
   writeConfiguration: ConfigurationWriter,

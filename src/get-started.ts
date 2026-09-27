@@ -50,7 +50,7 @@ import {
   stepReadings,
 } from './get-started-steps';
 import type { DaemonReading } from './daemon-status';
-import type { ConfigurationWriter } from './config-change-watch';
+import { AppliedWrite, ConfigurationWriter, endingInEffect } from './config-change-watch';
 import {
   VersionStandings,
   dismissHtml,
@@ -183,7 +183,7 @@ export interface GetStartedDeps extends RendersOnReady {
   // because passing it in is what lets the whole seeding decision — the request
   // sent, the ending reached, and the sentence a reader is left with — be read
   // back without an editor or a compiler.
-  seedConfiguration(params: ConfigInitParams): Promise<ConfigInitResult>;
+  seedConfiguration(params: ConfigInitParams): Promise<AppliedWrite<ConfigInitResult>>;
   // listRegistries asks the language server which registries the resolved
   // configuration names, which is how the registry condition is read.
   //
@@ -769,7 +769,8 @@ async function setShown(shown: boolean): Promise<void> {
 
 // createWorkspace writes the smallest configuration that makes a directory the
 // root of an Aggrega workspace, then re-attaches so the step reports itself met
-// without the window being reloaded.
+// without the window being reloaded. Where a language server has read the file
+// once that is over, its ending says the change is in effect.
 async function createWorkspace(deps: GetStartedDeps, refresh: () => void): Promise<void> {
   const folder = vscode.workspace.workspaceFolders?.[0];
   if (!folder) {
@@ -787,7 +788,7 @@ async function createWorkspace(deps: GetStartedDeps, refresh: () => void): Promi
   // one attached — anchored by a Release or an Aggregate in the same folder rather
   // than by a configuration file — re-attaching changes nothing, the running
   // server never read the new file, and it is the watch that restarts it.
-  const attached = await deps.writeConfiguration(async () => {
+  const { answer: attached, inEffect } = await deps.writeConfiguration(async () => {
     try {
       // Exclusive creation, so an existing configuration is never overwritten by
       // a control a reader pressed to make one.
@@ -825,7 +826,7 @@ async function createWorkspace(deps: GetStartedDeps, refresh: () => void): Promi
   await vscode.window.showTextDocument(doc);
   void vscode.window.showInformationMessage(
     created
-      ? `Aggrega: ${CONFIG_FILENAME} created; this folder is now the workspace root.`
+      ? endingInEffect(`Aggrega: ${CONFIG_FILENAME} created; this folder is now the workspace root.`, inEffect)
       : `Aggrega: ${CONFIG_FILENAME} already exists here, so it was opened rather than replaced.`,
   );
 }

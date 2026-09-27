@@ -211,7 +211,7 @@ export function activateRegistriesView(
     vscode.commands.registerCommand(REGISTRY_ADD_COMMAND, async () => {
       const host = await vscode.window.showInputBox({
         title: 'Aggrega: add a registry',
-        prompt: 'Host of the registry to register, such as registry.example.com',
+        prompt: 'Host of the registry to register, such as hub.aggrega.ai',
         ignoreFocusOut: true,
       });
       if (!host) { return; }

@@ -2,6 +2,7 @@
 // Copyright 2026 Cognitio S.r.l.
 
 import type * as wire from '@aggrega-ai/aggrega-abi/dist/servewire_gen';
+import { AppliedWrite, endingInEffect } from './config-change-watch';
 import { reachPhrase } from './config-write-scope';
 import { OperationOutcome, outcomeOf } from './operation-outcome';
 import { withSubject } from './operation-groups';
@@ -63,9 +64,10 @@ export type PluginRemoveResult = wire.PluginRemoveResult;
 // It is declared this narrowly so the surface that owns the panel passes its own
 // richer dependency set here unchanged, and so a test drives the whole decision
 // with a fake answer and no transport at all. It takes no cancellation, for the
-// reason stated at the head of this module.
+// reason stated at the head of this module. It answers the compiler's answer and
+// whether the language server running afterwards has read the removal.
 export interface PluginRemovalDeps {
-  removePlugin(params: PluginRemoveParams): Promise<PluginRemoveResult>;
+  removePlugin(params: PluginRemoveParams): Promise<AppliedWrite<PluginRemoveResult>>;
 }
 
 // REMOVAL_SUBJECT is the removal in the reader's terms, used for the sentence
@@ -104,7 +106,8 @@ export function removeParams(type: string, reference: string): PluginRemoveParam
 // It returns the ending rather than announcing it, because the words a reader
 // reads and the place they read them belong to the surface. What is decided here
 // is whether the removal completed and, if it did, the sentence naming what was
-// actually removed and from where.
+// actually removed and from where — followed by the sentence saying it is in
+// effect, where the language server running afterwards has read it.
 //
 // 🔴 IT TAKES THREE ARGUMENTS AND MUST KEEP TAKING THREE. A fourth carrying a
 // stop would be a stop the compiler cannot honour, for the reason at the head of
@@ -116,8 +119,8 @@ export async function runPluginRemoval(
   reference: string,
 ): Promise<OperationOutcome> {
   try {
-    const result = await deps.removePlugin(removeParams(type, reference));
-    return { kind: 'ok', detail: removalDetail(result) };
+    const { answer, inEffect } = await deps.removePlugin(removeParams(type, reference));
+    return { kind: 'ok', detail: endingInEffect(removalDetail(answer), inEffect) };
   } catch (err) {
     return outcomeOf(err);
   }

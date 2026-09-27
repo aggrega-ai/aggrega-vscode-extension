@@ -15,6 +15,7 @@ import {
 } from '../../src/plugin-attachment';
 import { ATTACHABLE_PLUGIN_TYPES, GOVERNANCE_ROLES } from '../../src/plugins-run';
 import { CancellationSignal, OperationCancelled } from '../../src/cancellation';
+import type { AppliedWrite } from '../../src/config-change-watch';
 import { terminalLine } from '../../src/operation-outcome';
 import {
   EXTENSION_ROOT,
@@ -41,9 +42,11 @@ import {
 
 // A recorded transport. It answers with whatever it was given and keeps every
 // request and every signal, so what was sent is a measurement rather than an
-// inference.
-function recorder(answer: PluginAddResult | unknown): {
-  deps: { addPlugin(params: PluginAddParams, signal?: CancellationSignal): Promise<PluginAddResult> };
+// inference. It answers whether the language server running afterwards has read
+// the write, as the extension's own request does; false unless a spec says
+// otherwise.
+function recorder(answer: PluginAddResult | unknown, inEffect = false): {
+  deps: { addPlugin(params: PluginAddParams, signal?: CancellationSignal): Promise<AppliedWrite<PluginAddResult>> };
   sent: PluginAddParams[];
   signals: Array<CancellationSignal | undefined>;
 } {
@@ -53,13 +56,13 @@ function recorder(answer: PluginAddResult | unknown): {
     sent,
     signals,
     deps: {
-      addPlugin(params: PluginAddParams, signal?: CancellationSignal): Promise<PluginAddResult> {
+      addPlugin(params: PluginAddParams, signal?: CancellationSignal): Promise<AppliedWrite<PluginAddResult>> {
         sent.push(params);
         signals.push(signal);
         if (answer instanceof Error || (answer && typeof (answer as { code?: unknown }).code === 'number')) {
           return Promise.reject(answer);
         }
-        return Promise.resolve(answer as PluginAddResult);
+        return Promise.resolve({ answer: answer as PluginAddResult, inEffect });
       },
     },
   };
@@ -478,6 +481,7 @@ describe('the attachment reaches the compiler without a launch', () => {
       valueImports('src/plugin-attachment.ts'),
       [
         './cancellation',
+        './config-change-watch',
         './config-write-scope',
         './operation-groups',
         './operation-outcome',
@@ -672,6 +676,21 @@ describe('a retraction reaches the reader in the ending, not in a channel', () =
       'The attachment added linter/publishing-conventions:1.4.0 as a linter plugin in '
       + "/work/project/aggrega.yaml, this project's own configuration file."
       + ' Retracted and not selected: 2.0.0 (withdrawn in favour of a successor).',
+    );
+  });
+
+  it('ends by saying the attachment is in effect once the restarted language server has read it', async () => {
+    // The sentence comes last, after what the compiler concluded about the
+    // attachment, because it is about what the running server now holds rather
+    // than about the plugin that was chosen.
+    const { deps } = recorder(SUBSTITUTED, true);
+    const outcome = await runPluginAttachment(deps, { type: 'linter', query: 'publishing' });
+    assert.strictEqual(
+      terminalLine(ATTACHMENT_SUBJECT, outcome),
+      'The attachment added linter/publishing-conventions:1.4.0 as a linter plugin in '
+      + "/work/project/aggrega.yaml, this project's own configuration file."
+      + ' Retracted and not selected: 2.0.0 (withdrawn in favour of a successor).'
+      + ' The change is now in effect: the running language server has read it.',
     );
   });
 });
