@@ -1,0 +1,16 @@
+{
+  "name": "aggrega-editor-suite-probe",
+  "displayName": "Editor suite probe",
+  "description": "A test-only extension the editor suite loads beside the Aggrega extension, to read the extension host's state from outside the editor. It is never packaged.",
+  "version": "0.0.0",
+  "publisher": "aggrega-editor-suite",
+  "private": true,
+  "license": "Apache-2.0",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "activationEvents": [
+    "*"
+  ],
+  "main": "./extension.js"
+}
