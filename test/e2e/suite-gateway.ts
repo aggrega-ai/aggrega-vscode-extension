@@ -173,7 +173,7 @@ export async function gatewayChecks(ctx: SuiteContext, referenceFolder: string):
 
   await c.run('language-server.runs-the-binary-under-test', {
     expected: `aggrega.server.binaryPath holds the binary under test (${bin}) in the user settings; the running language server's executable is that file, started as "${bin} serve"; and that binary answers \`version -o json\` with commit ${ctx.inputs.compiler.commit}`,
-    plant: 'in the scratch profile, aggrega.server.binaryPath pointed at a copy of the binary under another name',
+    plant: 'in the scratch copy, out/src/daemon.js made to start the language server by the binary\'s file name alone, so the configured file is not what runs',
   }, async () => {
     const setting = await settingValue(ctx, 'aggrega.server.binaryPath');
     const srv = await theServer(ctx);
@@ -195,7 +195,7 @@ export async function gatewayChecks(ctx: SuiteContext, referenceFolder: string):
   let drawnDescription = '';
   await c.run('settings.build-on-inspect-label-is-derived-from-its-key', {
     expected: `searching the settings editor for "buildOnInspect" draws the label "${label}" — the configuration's title "${title}" and the key path ${BUILD_ON_INSPECT} as the editor words it, with no title of the property's own — and beside it the description the manifest declares`,
-    plant: 'in the scratch copy\'s package.json, a title given to the property, or its description changed',
+    plant: 'in the scratch copy\'s package.json, a markdown description given to the property, which the settings editor draws in place of the declared one',
   }, async () => {
     const item = await openSettingsOn(ctx, 'buildOnInspect', label);
     drawnDescription = item.description;
@@ -214,7 +214,7 @@ export async function gatewayChecks(ctx: SuiteContext, referenceFolder: string):
   const workspaceSettings = path.join(ctx.folder, '.vscode', 'settings.json');
   await c.run('settings.build-on-inspect-toggle-is-kept-in-the-user-settings', {
     expected: 'ticking the setting in the settings editor keeps it ticked after the editor is closed and opened again, writes it to the user settings file, and writes nothing to the folder\'s workspace settings',
-    plant: 'in the scratch copy\'s package.json, the property\'s scope changed from machine to resource',
+    plant: 'in the scratch copy\'s package.json, the property declared on by default',
   }, async () => {
     const box = `.settings-editor .setting-item-bool .setting-value-checkbox`;
     await openSettingsOn(ctx, 'buildOnInspect', label);
@@ -291,7 +291,7 @@ export async function gatewayChecks(ctx: SuiteContext, referenceFolder: string):
   let recipeLine: Line | null = null;
   await c.run('problems.render-advisory-clears-on-save-and-not-on-an-unsaved-edit', {
     expected: 'with the graph panel open behind another tab, deleting the Recipe\'s liveness probe without saving leaves the render advisory under "aggrega-build" (watched for 8 s), and saving takes it out within 20 s with no press on Graph',
-    plant: 'in the scratch copy, out/src/extension.js made to stop redrawing the graph when a document is saved',
+    plant: 'in the scratch copy, out/src/extension.js made not to redraw an open graph when a document changes on disk',
   }, async () => {
     need(layersReady, 'the render advisory was not standing under "aggrega-build" with the analysis on');
     recipeLine = await deleteLine(ctx, recipe, 'live: { tcp: {{ .infra.port }} }');
@@ -325,7 +325,7 @@ export async function gatewayChecks(ctx: SuiteContext, referenceFolder: string):
 
   await c.run('problems.render-advisory-does-not-return-without-the-graph', {
     expected: 'with the graph panel closed, putting the liveness probe back and saving leaves the render advisory out of "aggrega-build" (watched for 10 s); showing the graph again brings it back',
-    plant: 'in the scratch copy, out/src/extension.js made to compile the Release on every save whether or not a graph panel is open',
+    plant: 'in the scratch copy, out/src/extension.js made to show the graph, and so compile the Release, whenever a document changes on disk, whether or not a graph panel is open',
   }, async () => {
     const taken = recipeLine;
     need(taken !== null, 'the Recipe\'s probe was not taken out, so there is nothing to put back');
@@ -394,7 +394,7 @@ export async function contextRowsCheck(ctx: SuiteContext): Promise<void> {
   ];
   await ctx.checks.run('commands-panel.context-rows-name-the-opened-folder', {
     expected: `the first three rows read ${CONTEXT_ROW_LABELS.join(', ')} in that order; the first two name the folder opened ("${base}"), and the Release row names its only Release ("${releases[0] ?? ''}") with nothing chosen`,
-    plant: 'in the scratch copy of the folder, a second Release file beside the first, or the folder\'s configuration removed so the root is found above it',
+    plant: 'in the scratch copy, out/src/selector-levels.js with the first context row\'s label changed',
   }, async () => {
     need(releases.length === 1, `the folder holds ${releases.length} Release files, not one`);
     const doc = await commandsPanel(ctx.d);

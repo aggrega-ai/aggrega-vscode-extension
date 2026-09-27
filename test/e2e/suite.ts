@@ -4,15 +4,16 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-import { CheckResult, Checks, tally } from './checks';
+import { CheckResult, Checks, EnoughReported, tally } from './checks';
 import { ScratchHome } from './cli';
 import { createScenarioRoot, ScenarioRoot } from './editor';
 import { FixtureError, FixtureProof, placeFolder, placeWorkspaceAbove, proveMissing, proveUnreachable, UNREACHABLE_HOST, writeLockfile } from './fixtures';
 import { Inputs, REPO_ROOT } from './inputs';
+import { applyPlant, Plant } from './plants';
 import { aboveChecks, ABOVE_CHECKS } from './suite-above';
-import { ProcessTable, TeardownReport } from './processes';
+import { ProcessTable } from './processes';
 import { populateRegistry, ScratchRegistry, startRegistry } from './registry';
-import { bringUp, Scenario, tearDown } from './scenario';
+import { bringUp, DisplayReading, Scenario, ScenarioEnd, tearDown } from './scenario';
 import { makeContext, SuiteContext } from './suite-context';
 import { gatewayChecks, GATEWAY_CHECKS } from './suite-gateway';
 import { KILLED_CHECKS, KILLED_SETTINGS, killedChecks } from './suite-killed';
@@ -26,6 +27,15 @@ import { storefrontChecks, STOREFRONT_CHECKS } from './suite-storefront';
 
 export interface SuiteReport { data: unknown; summary: string[]; allPassed: boolean }
 
+// SCENARIO_CHECKS names every scenario and the checks it runs, in order.
+export const SCENARIO_CHECKS: Readonly<Record<string, readonly string[]>> = {
+  'gateway': GATEWAY_CHECKS,
+  'storefront': STOREFRONT_CHECKS,
+  'workspace-above': ABOVE_CHECKS,
+  'storefront-killed-server': KILLED_CHECKS,
+  'storefront-with-registries': REGISTRY_CHECKS,
+};
+
 // ScenarioResult is one scenario as the report states it.
 interface ScenarioResult {
   name: string;
@@ -35,9 +45,14 @@ interface ScenarioResult {
   results: CheckResult[];
   bringUpMs: number | null;
   wallMs: number;
-  teardown: TeardownReport | null;
+  teardown: ScenarioEnd | null;
+  display: DisplayReading | null;
+  planted?: string;
   stopped?: string;
 }
+
+// PlantOutcome is what a plant run shows for each check the plant was made for.
+interface PlantOutcome { check: string; verdict: string; moved: boolean }
 
 // Prepared is what a scenario's preparation built before the launch.
 interface Prepared { folder: string; fixtures: FixtureProof[]; extra?: Record<string, unknown> }
@@ -153,10 +168,10 @@ async function stopTable(table: ProcessTable): Promise<void> {
   await table.teardown({ closeBoundMs: 0, termBoundMs: 5000, killBoundMs: 2000 });
 }
 
-async function runScenario(plan: ScenarioPlan, inputs: Inputs, runDir: string, driverName: string): Promise<ScenarioResult> {
+async function runScenario(plan: ScenarioPlan, inputs: Inputs, runDir: string, driverName: string, plant: Plant | null): Promise<ScenarioResult> {
   const t0 = Date.now();
-  const result: ScenarioResult = { name: plan.name, folder: null, settingsChanged: plan.settings ?? {}, fixtures: [], results: [], bringUpMs: null, wallMs: 0, teardown: null };
-  const checks = new Checks(plan.name);
+  const result: ScenarioResult = { name: plan.name, folder: null, settingsChanged: plan.settings ?? {}, fixtures: [], results: [], bringUpMs: null, wallMs: 0, teardown: null, display: null };
+  const checks = new Checks(plan.name, plant === null ? undefined : plant.checks);
   const root = createScenarioRoot(runDir, plan.name);
   const home: ScratchHome = { home: root.home, tmp: root.tmp };
   const log = path.join(root.logs, 'cli.log');
@@ -166,11 +181,18 @@ async function runScenario(plan: ScenarioPlan, inputs: Inputs, runDir: string, d
     prepared = await plan.prepare(root, home, log);
     result.fixtures = prepared.fixtures;
     result.folder = prepared.folder;
-    s = await bringUp(plan.name, inputs, runDir, driverName, { root, folder: prepared.folder, settings: plan.settings });
+    if (plant !== null && plant.target === 'folder') { result.planted = applyPlant(plant, prepared.folder); }
+    const beforeLaunch = plant !== null && plant.target === 'extension'
+      ? (r: ScenarioRoot): void => { result.planted = applyPlant(plant, r.extensionCopy); }
+      : undefined;
+    s = await bringUp(plan.name, inputs, runDir, driverName, { root, folder: prepared.folder, settings: plan.settings, beforeLaunch });
     result.bringUpMs = s.bringUpMs;
+    result.display = s.display;
     await plan.body(makeContext(s, inputs, checks), prepared);
   } catch (err) {
-    if (err instanceof FixtureError) {
+    if (err instanceof EnoughReported) {
+      result.stopped = `the plant run ended here: ${err.message}`;
+    } else if (err instanceof FixtureError) {
       result.fixtures.push({ fixture: err.fixture, built: false, proof: err.step });
       result.stopped = `the fixture "${err.fixture}" could not be built: ${err.step}`;
     } else {
@@ -184,7 +206,7 @@ async function runScenario(plan: ScenarioPlan, inputs: Inputs, runDir: string, d
   const reported = new Set(checks.results.map((r) => r.name));
   for (const name of plan.checks) {
     if (!reported.has(name)) {
-      checks.notRun(name, { expected: '', plant: '' }, result.stopped ?? 'the scenario ended before this check ran');
+      checks.reportUnrun(name, result.stopped ?? 'the scenario ended before this check ran');
     }
   }
   result.results = checks.results;
@@ -192,44 +214,93 @@ async function runScenario(plan: ScenarioPlan, inputs: Inputs, runDir: string, d
   return result;
 }
 
+function clip(text: string, n: number): string {
+  const flat = text.replace(/\s+/g, ' ');
+  return flat.length > n ? `${flat.slice(0, n)}…` : flat;
+}
+
 function line(r: CheckResult): string[] {
   const tag = r.verdict === 'failed' ? 'FAILED' : r.verdict;
   const out = [`  [${tag}] ${r.name} (${r.elapsedMs} ms)`];
+  if (r.expected !== '') { out.push(`      expected: ${r.verdict === 'failed' ? r.expected : clip(r.expected, 400)}`); }
   if (r.verdict === 'failed') {
-    out.push(`      expected: ${r.expected}`, `      seen: ${r.seen}`);
+    out.push(`      seen: ${r.seen}`);
   } else if (r.verdict === 'not run') {
     out.push(`      not run: ${r.reason ?? ''}`);
   } else if (r.verdict === 'for a person') {
-    out.push(`      question: ${r.forPerson?.question ?? ''}`, `      capture: ${r.forPerson?.screenshot ?? 'none'}`, `      drawn: ${(r.forPerson?.drawnText ?? '').replace(/\s+/g, ' ').slice(0, 400)}`);
+    out.push(`      question: ${r.forPerson?.question ?? ''}`, `      capture: ${r.forPerson?.screenshot ?? 'none'}`, `      drawn: ${clip(r.forPerson?.drawnText ?? '', 400)}`);
   } else {
-    out.push(`      seen: ${r.seen.slice(0, 300)}`);
+    out.push(`      seen: ${clip(r.seen, 300)}`);
   }
   return out;
 }
 
-export async function runSuite(opts: { inputs: Inputs; runDir: string; driverName: string; only?: string[]; header: Record<string, string> }): Promise<SuiteReport> {
+// useLine states what one launch used, with how it was read.
+function useLine(end: ScenarioEnd): string {
+  const u = end.resources;
+  const g = (name: string, x: typeof u.editor): string => `${name}: peak ${x.peakRssMb} MB resident (${x.peakPssMb} MB proportional) across ${x.peakProcesses} process(es), ${x.cpuSeconds} CPU-seconds over ${x.processesSeen} process(es)`;
+  return `  used: ${g("the editor's process tree", u.editor)}; ${g('its language servers', u.languageServer)}; read ${u.readings} times, every ${u.intervalMs} ms`;
+}
+
+function displayLine(d: DisplayReading | null): string {
+  if (d === null) { return '  display: not read (the editor did not come up)'; }
+  const stated = d.stated.length === 0 ? 'the editor was given no display variable' : `the editor was given ${d.stated.join(', ')}`;
+  const server = d.languageServer === null ? 'the language server was not found to read' : d.languageServer.length === 0 ? 'none reached the language server' : `${d.languageServer.join(', ')} reached the language server`;
+  return `  display: ${stated}, and ${server}; the editor draws on the headless platform`;
+}
+
+// plantOutcomes reads, for each check a plant was made for, whether it moved the
+// way the plant says.
+function plantOutcomes(plant: Plant, results: CheckResult[]): PlantOutcome[] {
+  return plant.checks.map((check) => {
+    const r = results.find((x) => x.scenario === plant.scenario && x.name === check);
+    const verdict = r?.verdict ?? 'not reported';
+    return { check, verdict, moved: plant.moves === 'red' ? verdict === 'failed' : verdict === 'passed' };
+  });
+}
+
+export async function runSuite(opts: { inputs: Inputs; runDir: string; driverName: string; only?: string[]; plant?: Plant; header: Record<string, string> }): Promise<SuiteReport> {
   const t0 = Date.now();
   const all = plans(opts.inputs);
-  const unknown = (opts.only ?? []).filter((n) => !all.some((p) => p.name === n));
+  const plant = opts.plant ?? null;
+  const only = plant !== null ? [plant.scenario] : opts.only;
+  const unknown = (only ?? []).filter((n) => !all.some((p) => p.name === n));
   if (unknown.length > 0) { throw new Error(`unknown scenario ${unknown.join(', ')}; the scenarios are ${all.map((p) => p.name).join(', ')}`); }
-  const chosen = opts.only && opts.only.length > 0 ? all.filter((p) => opts.only?.includes(p.name)) : all;
+  const chosen = only && only.length > 0 ? all.filter((p) => only.includes(p.name)) : all;
   const scenarios: ScenarioResult[] = [];
   for (const plan of chosen) {
-    scenarios.push(await runScenario(plan, opts.inputs, opts.runDir, opts.driverName));
+    scenarios.push(await runScenario(plan, opts.inputs, opts.runDir, opts.driverName, plant));
   }
   const results = scenarios.flatMap((s) => s.results);
   const t = tally(results);
   const fixturesFailed = scenarios.flatMap((s) => s.fixtures).filter((f) => !f.built);
   const summary = ['suite', ...Object.entries(opts.header).map(([k, v]) => `  ${k}: ${v}`)];
+  const outcomes = plant === null ? null : plantOutcomes(plant, results);
+  if (plant !== null && outcomes !== null) {
+    summary.push(`  plant: ${plant.name} — ${plant.says}; made in the scratch copy of the ${plant.target === 'extension' ? 'extension' : 'folder'} (${plant.file}); it must turn ${plant.checks.join(', ')} ${plant.moves}`);
+  }
   for (const s of scenarios) {
     summary.push('', `scenario ${s.name}: ${s.folder ?? 'no folder'}; bring-up ${s.bringUpMs ?? '-'} ms; wall ${s.wallMs} ms; teardown ${s.teardown ? `${s.teardown.elapsedMs} ms, ${s.teardown.stillAlive.length} still alive of ${s.teardown.recorded} recorded` : '-'}`);
+    summary.push(displayLine(s.display));
+    if (s.teardown) { summary.push(useLine(s.teardown)); }
     if (Object.keys(s.settingsChanged).length > 0) { summary.push(`  settings this scenario changes: ${JSON.stringify(s.settingsChanged)}`); }
     for (const f of s.fixtures) { summary.push(`  fixture ${f.built ? 'built' : 'NOT BUILT'}: ${f.fixture} — ${f.proof}`); }
+    if (s.planted) { summary.push(`  planted: ${s.planted}`); }
     if (s.stopped) { summary.push(`  stopped: ${s.stopped.split('\n')[0]}`); }
     for (const r of s.results) { summary.push(...line(r)); }
   }
   summary.push('', `checks: ${t.passed} passed, ${t.failed} failed, ${t['not run']} not run, ${t['for a person']} for a person; not run is not counted as passed`, `wall clock ${Date.now() - t0} ms`);
-  const data = { header: opts.header, wallMs: Date.now() - t0, tally: t, scenarios };
+  if (plant !== null && outcomes !== null) {
+    const failed = results.filter((r) => r.verdict === 'failed').map((r) => r.name);
+    summary.push(
+      `plant ${plant.name}: ${outcomes.map((o) => `${o.check} ${o.verdict}, ${o.moved ? `turned ${plant.moves} as the plant must` : `NOT turned ${plant.moves}`}`).join('; ')}`,
+      `checks that failed in this run: ${failed.length === 0 ? 'none' : failed.join(', ')}`,
+    );
+  }
+  const data = { header: opts.header, wallMs: Date.now() - t0, tally: t, plant: plant === null ? null : { ...plant, outcomes }, scenarios };
   fs.writeFileSync(path.join(opts.runDir, 'suite.checks.json'), `${JSON.stringify(results, null, 2)}\n`);
-  return { data, summary, allPassed: t.failed === 0 && t['not run'] === 0 && fixturesFailed.length === 0 };
+  const allPassed = outcomes !== null
+    ? outcomes.every((o) => o.moved) && fixturesFailed.length === 0
+    : t.failed === 0 && t['not run'] === 0 && fixturesFailed.length === 0;
+  return { data, summary, allPassed };
 }

@@ -360,6 +360,85 @@ build is off by default, so `npm test` does not pay for it: those specs stand
 down and each says which coverage it skipped. Set
 `AGGREGA_EDITOR_COMPILER_FIXTURE=1` to build the binary and run them.
 
+### The end-to-end suite
+
+The unit suite never draws an editor. The end-to-end suite does: it launches the
+real editor with no display, loads this extension and a real `aggrega` language
+server into it, drives the workbench from outside, and checks what the editor
+shows and does. It is a runner of its own, and nothing else invokes it. It runs
+on Linux, because it reads the processes it starts from `/proc`.
+
+It compiles nothing and builds no compiler. Everything it tests is handed to it,
+and it refuses to start, naming the input, when one is missing or is not what it
+claims to be:
+
+- **The compiled extension** — this repository after `npx tsc -p ./` and
+  `node build/stamp-build-version.js`. A compiled output older than its source,
+  or a build stamp older than the compiled output, is refused.
+- **An `aggrega` binary built from a committed revision**, and that commit:
+  `--compiler <file> --compiler-commit <sha>`. A binary reporting a build of a
+  working tree with uncommitted changes is refused.
+- **The standard-library catalog**, the `aggrega-catalog` directory of a git
+  checkout: `--catalog <dir>`.
+- **A `zot` registry server binary**: `--registry-server <file>`. The suite
+  starts its own registry on a free loopback port, with a data directory of its
+  own and no authentication, for the checks that need one.
+- **The editor build** the runner drives, fetched once into `.vscode-test/` with
+  `node out/test/e2e/run.js fetch-editor`.
+- **The editor's shared libraries.** Before the first launch the runner runs
+  `ldd` on the editor and refuses, naming each library the loader cannot find. No
+  display is needed: the editor draws on Chromium's headless platform.
+- **A scratch directory**: `--scratch <dir>`. Everything a run writes goes
+  beneath it — the editor's profile, a home directory and its configuration
+  directories, the copies of the folders the checks open, the registry's data.
+
+```bash
+npx tsc -p ./
+node build/stamp-build-version.js
+node out/test/e2e/run.js suite --scratch <dir> \
+  --compiler <aggrega binary> --compiler-commit <commit> \
+  --catalog <aggrega-catalog directory> --registry-server <zot binary>
+```
+
+`npm run test:e2e -- suite …` runs the same, and npm then writes a debug log of
+its own under your home directory, which invoking `node` directly does not.
+
+Each run writes `suite.json` beside a plain summary, `suite.txt`, in a directory
+of its own under the scratch directory. The report is headed with the
+extension's build stamp, the compiler's version and commit, the editor's version
+and the catalog's commit, and gives each check one of four outcomes:
+
+- **passed** or **failed**, with what was seen against what was expected;
+- **not run**, with the reason: a precondition that could not be built or
+  reached. A check not run is never counted as passed;
+- **for a person**, where the question is a judgement: the check stops at the
+  state to judge and leaves a capture and the drawn text for someone to look at.
+
+The report also gives each scenario's bring-up, wall clock and teardown, each
+check's elapsed time, the peak memory and the CPU time of the editor's processes
+and of the language server, what it found newer than the run's start in the
+places outside the scratch directory a run could write to (another program on the
+machine may have written there too, so the report lists what it found rather
+than attributing it), and whether any process the run started is still alive. The runner
+exits 0 when every check passed, 1 when one failed or was not run, and 2 when it
+refused to start.
+
+Other commands and options:
+
+- `--only <scenario,…>` runs some of the scenarios.
+- `node out/test/e2e/run.js plants` lists the plants — each one edit to a scratch
+  copy of the extension, made to show that a check can fail — and checks each
+  one against the compiled extension without launching anything.
+  `suite --plant <name>` makes that edit, runs the scenario holding its check,
+  and reports whether the check moved the way the plant says.
+- `node out/test/e2e/run.js compare <run> <run>` compares two reports, header
+  and verdict by verdict.
+- `inputs` checks the inputs and prints the report's header without launching
+  anything; `calibrate`, `probe` and `teardown-study` exercise the runner's own
+  driver, probe and teardown.
+
+The head of `test/e2e/run.ts` lists every command and option.
+
 ## Lifecycle
 
 The extension manages the daemon process's full lifecycle. When it stops the daemon — the editor closing, the language server moving to a different Aggrega workspace, or no single workspace being left for it to attach to — it first asks the daemon to exit cooperatively, which lets in-flight work finish. If the daemon is still working when that grace window closes, it is asked once more — this time to abandon that work rather than finish it. If it still has not exited, the extension falls back to OS-level termination. A restart — the restart command, a change of `aggrega.server.binaryPath`, or a configuration change the extension made itself — does not ask: it terminates the process at the operating-system level and starts a fresh one. Each of these steps is reported to the Aggrega output channel, so a slow shutdown shows which step is taking the time and whether the daemon answered at all. The semantics are identical across POSIX and Windows hosts. See `src/daemon.ts` for implementation detail.

@@ -12,7 +12,8 @@ import {
 } from './editor';
 import { Inputs } from './inputs';
 import { Hello, ProbeClient } from './probe-client';
-import { ProcessTable, readCmdline, TeardownReport } from './processes';
+import { ProcessTable, readCmdline, readEnviron, TeardownReport } from './processes';
+import { ResourceReport, ResourceSampler } from './resources';
 import { observeWorkbench } from './workbench';
 
 // One launched editor: bring-up from an empty scratch root to a probe that
@@ -31,16 +32,38 @@ export interface Scenario {
   folder: string;
   settings: Record<string, unknown>;
   bringUpMs: number;
+  display: DisplayReading;
+  resources: ResourceSampler;
   close: () => Promise<void>;
 }
 
+// DisplayReading says which display variables the editor was given and which
+// reached the language server it started. The editor draws on the headless
+// platform, so both lists are expected empty; a display the developer's shell
+// names is not handed on.
+export interface DisplayReading {
+  stated: string[];
+  languageServer: string[] | null;
+}
+
+const DISPLAY_VARIABLES = ['DISPLAY', 'WAYLAND_DISPLAY'];
+
 // BringUpOptions are what a scenario chooses beyond the baseline: the folder the
 // window opens (the calibration folder where none is given), the root it was
-// prepared in, and the settings it changes, each named in its report.
+// prepared in, and the settings it changes, each named in its report. beforeLaunch
+// runs once the extension has been copied into the scratch root and before the
+// editor starts, so an edit made to the copy there is what the editor loads.
 export interface BringUpOptions {
   root?: ScenarioRoot;
   folder?: string;
   settings?: Record<string, unknown>;
+  beforeLaunch?: (root: ScenarioRoot) => void;
+}
+
+// ScenarioEnd is what tearing a launch down reports: the teardown itself and what
+// the launch used.
+export interface ScenarioEnd extends TeardownReport {
+  resources: ResourceReport;
 }
 
 // active holds the process tables of every editor still up, so an interrupted
@@ -52,6 +75,7 @@ export async function bringUp(name: string, inputs: Inputs, runDir: string, driv
   const root = opts.root ?? createScenarioRoot(runDir, name);
   copyExtension(inputs.extension.dir, root.extensionCopy);
   copyProbe(inputs.extension.dir, root.probeCopy);
+  if (opts.beforeLaunch) { opts.beforeLaunch(root); }
   const settings = writeProfile(root, inputs, opts.settings ?? {});
   const folder = opts.folder ?? writeCalibrationFolder(path.join(root.dir, 'folder'), inputs.catalog.dir).folder;
   const shape: LaunchShape = { folder, screen: SCREEN };
@@ -81,6 +105,8 @@ export async function bringUp(name: string, inputs: Inputs, runDir: string, driv
     debugPort = launch.debugPort;
   }
   active.add(table);
+  const resources = new ResourceSampler(table, inputs.compiler.path);
+  resources.start();
   let hello: Hello;
   try {
     if (driverName === 'playwright-devtools') { driver = await connectOverDevTools(debugPort, 30000); }
@@ -92,6 +118,7 @@ export async function bringUp(name: string, inputs: Inputs, runDir: string, driv
   } catch (err) {
     // A launch that never became drivable is still stopped by identity.
     await table.teardown({ closeBoundMs: 0, termBoundMs: 3000, killBoundMs: 2000 });
+    resources.stop();
     active.delete(table);
     await driver?.detach().catch(() => undefined);
     if (electronClose) { await electronClose(); }
@@ -100,6 +127,11 @@ export async function bringUp(name: string, inputs: Inputs, runDir: string, driv
   table.snapshot();
   const commandLine = readCmdline(stated.pid);
   const server = await waitForServer(table, inputs.compiler.path, 30000);
+  const serverEnvironment = server ? readEnviron(server.pid) : null;
+  const display: DisplayReading = {
+    stated: DISPLAY_VARIABLES.filter((k) => k in stated.env),
+    languageServer: serverEnvironment === null ? null : DISPLAY_VARIABLES.filter((k) => k in serverEnvironment),
+  };
   fs.writeFileSync(path.join(root.logs, 'launch.json'), `${JSON.stringify({
     rootPid: stated.pid,
     executable: inputs.editor.executable,
@@ -111,10 +143,11 @@ export async function bringUp(name: string, inputs: Inputs, runDir: string, driv
     statedArguments: stated.args,
     commandLineAsStarted: commandLine,
     commandLineIsTheStatedOne: sameArguments(commandLine, inputs.editor.executable, stated.args),
+    display,
     probe: hello,
   }, null, 2)}\n`);
   return {
-    name, root, table, probe, driver, hello, folder, settings,
+    name, root, table, probe, driver, hello, folder, settings, display, resources,
     bringUpMs: Date.now() - t0,
     close: async () => {
       await driver?.detach().catch(() => undefined);
@@ -123,7 +156,7 @@ export async function bringUp(name: string, inputs: Inputs, runDir: string, driv
   };
 }
 
-export async function tearDown(s: Scenario): Promise<TeardownReport> {
+export async function tearDown(s: Scenario): Promise<ScenarioEnd> {
   const report = await s.table.teardown({
     // The clean close is the editor's own quit, asked through the probe: it
     // deactivates every extension, which stops the language server the Aggrega
@@ -137,7 +170,7 @@ export async function tearDown(s: Scenario): Promise<TeardownReport> {
   });
   await s.close();
   active.delete(s.table);
-  return report;
+  return { ...report, resources: s.resources.stop() };
 }
 
 export async function waitForServer(table: ProcessTable, compiler: string, boundMs: number): Promise<{ pid: number; cmd: string } | null> {

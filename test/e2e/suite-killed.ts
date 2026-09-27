@@ -6,7 +6,7 @@ import * as path from 'path';
 import { need } from './checks';
 import { open, ready, SuiteContext, theServer } from './suite-context';
 import { killServer, STOPPED_RESPONDING } from './suite-storefront';
-import { sleep, toasts, toastsSince, until } from './workbench';
+import { RUNNING, sleep, toasts, toastsSince, until, waitStatus } from './workbench';
 
 // The checks run with the language server killed from outside, repeatedly: that
 // it starts without an error notification, and what happens once it has been
@@ -54,6 +54,13 @@ export async function killedChecks(ctx: SuiteContext): Promise<void> {
         const restarted = await theServer(ctx, 200, killed.pid).then(() => true, () => false);
         return { notified, restarted };
       }, (v) => v.notified || v.restarted).catch(() => ({ notified: false, restarted: false }));
+      // A restart is a server that reads running again, not merely a new
+      // process: the next kill waits for it, so it lands on a server that has
+      // finished starting rather than on one still in its handshake, which is a
+      // different fault from the one the bound is about.
+      if (outcome.restarted && !outcome.notified) {
+        outcome.restarted = await waitStatus(ctx.d, RUNNING, 30000).then(() => true, () => false);
+      }
       kills.push({ kill: k, pid: killed.pid, ...outcome });
       if (outcome.notified || !outcome.restarted) { break; }
       await sleep(500);

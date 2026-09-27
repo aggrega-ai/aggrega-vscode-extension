@@ -20,6 +20,9 @@ export interface ProcStat {
   session: number;
   // start is the start time in clock ticks since boot, as the kernel reports it.
   start: string;
+  // cpuTicks is the user and system time the process itself has used, in clock
+  // ticks; a child's time is its own, not its parent's, until it is reaped.
+  cpuTicks: number;
 }
 
 // readStat reads one process's stat line, or null where the process is gone.
@@ -35,7 +38,7 @@ export function readStat(pid: number): ProcStat | null {
   const close = raw.lastIndexOf(')');
   const comm = raw.slice(raw.indexOf('(') + 1, close);
   const f = raw.slice(close + 2).split(' ');
-  return { pid, comm, state: f[0], ppid: Number(f[1]), session: Number(f[3]), start: f[19] };
+  return { pid, comm, state: f[0], ppid: Number(f[1]), session: Number(f[3]), start: f[19], cpuTicks: Number(f[11]) + Number(f[12]) };
 }
 
 // readCmdline reads one process's command line, arguments joined by spaces.
@@ -73,6 +76,9 @@ export interface ProcRecord {
   // via says how the process came to be recorded: as a root the runner started,
   // as a member of a root's session, or as a child of a recorded process.
   via: string;
+  // root names the root the process descends from, so what a launch used can be
+  // told apart from what a process the runner started beside it used.
+  root: string;
   // seenMs is when the record was first taken, in milliseconds after the table
   // was created.
   seenMs: number;
@@ -114,6 +120,15 @@ function allPids(): number[] {
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
+// tables holds every process table this runner created, so a run can say at its
+// end, from the records themselves, whether anything it started is still alive.
+const tables = new Set<ProcessTable>();
+
+// everyTable lists every process table this runner created.
+export function everyTable(): ProcessTable[] {
+  return [...tables];
+}
+
 // ProcessTable holds every process one launch started, written to a state file
 // after each change so a separate reader can see what was recorded.
 export class ProcessTable {
@@ -121,7 +136,9 @@ export class ProcessTable {
   private readonly roots: { name: string; pid: number; start: string }[] = [];
   private readonly t0 = Date.now();
 
-  constructor(private readonly stateFile: string) {}
+  constructor(private readonly stateFile: string) {
+    tables.add(this);
+  }
 
   // addRoot records a process the runner started itself. It throws where the
   // process is already gone, because a root that cannot be recorded cannot be
@@ -132,7 +149,7 @@ export class ProcessTable {
       throw new Error(`the ${name} process ${pid} exited before it could be recorded`);
     }
     this.roots.push({ name, pid, start: st.start });
-    const rec = this.put(st, `root:${name}`);
+    const rec = this.put(st, `root:${name}`, name);
     this.save();
     return rec;
   }
@@ -146,15 +163,16 @@ export class ProcessTable {
     for (const root of this.roots) {
       if (!this.isSame(root.pid, root.start)) { continue; }
       for (const st of stats) {
-        if (st.session === root.pid && st.pid !== root.pid && this.record(st, `session:${root.name}`)) { added++; }
+        if (st.session === root.pid && st.pid !== root.pid && this.record(st, `session:${root.name}`, root.name)) { added++; }
       }
     }
     let grew = true;
     while (grew) {
       grew = false;
-      const live = new Set(this.alive().map((r) => r.pid));
+      const live = new Map(this.alive().map((r) => [r.pid, r.root]));
       for (const st of stats) {
-        if (live.has(st.ppid) && this.record(st, `child-of:${st.ppid}`)) { added++; grew = true; }
+        const parentRoot = live.get(st.ppid);
+        if (parentRoot !== undefined && this.record(st, `child-of:${st.ppid}`, parentRoot)) { added++; grew = true; }
       }
     }
     if (added > 0) { this.save(); }
@@ -268,15 +286,15 @@ export class ProcessTable {
     return st !== null && st.start === start && st.state !== 'Z';
   }
 
-  private record(st: ProcStat, via: string): boolean {
+  private record(st: ProcStat, via: string, root: string): boolean {
     const key = `${st.pid}:${st.start}`;
     if (this.records.has(key) || st.state === 'Z') { return false; }
-    this.put(st, via);
+    this.put(st, via, root);
     return true;
   }
 
-  private put(st: ProcStat, via: string): ProcRecord {
-    const rec: ProcRecord = { pid: st.pid, start: st.start, comm: st.comm, cmd: readCmdline(st.pid), via, seenMs: Date.now() - this.t0 };
+  private put(st: ProcStat, via: string, root: string): ProcRecord {
+    const rec: ProcRecord = { pid: st.pid, start: st.start, comm: st.comm, cmd: readCmdline(st.pid), via, root, seenMs: Date.now() - this.t0 };
     this.records.set(`${st.pid}:${st.start}`, rec);
     return rec;
   }

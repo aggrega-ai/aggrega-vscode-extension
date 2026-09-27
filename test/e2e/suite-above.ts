@@ -301,7 +301,7 @@ export async function aboveChecks(ctx: SuiteContext, layout: { root: string; ref
   });
   await c.run('build-options.tick-is-not-kept-across-a-reload', {
     expected: 'a ticked option is not kept across a window reload: the box is empty again afterwards',
-    plant: 'in the scratch copy, out/src/operations.js made to keep the ticked options in the workspace state',
+    plant: 'in the scratch copy, out/src/operations.js made to start every window with Auto pull ticked, as a tick kept across the reload would leave it',
   }, async () => {
     await pressIn(ctx.d, panel, CARET);
     await menuOpen();
@@ -366,7 +366,7 @@ export async function aboveChecks(ctx: SuiteContext, layout: { root: string; ref
   });
   await c.run('preview.never-carries-auto-pull', {
     expected: 'with the box still ticked and the lockfile moved aside again, Preview is refused with the same lockfile refusal an unticked build gets, and nothing refuses the combination of a preview and a pull',
-    plant: 'in the scratch copy, out/src/operations.js made to send the build\'s options with the preview',
+    plant: 'in the scratch copy, out/src/build-dials.js made to send Auto pull with the preview',
   }, async () => {
     need(refusal !== '', 'the unticked build gave no refusal to compare with');
     need(fs.existsSync(lock), 'the lockfile is not back after the ticked build');
@@ -422,12 +422,24 @@ export async function aboveChecks(ctx: SuiteContext, layout: { root: string; ref
     need(entity !== undefined, `no Catalog row's context menu offers "Validate this entity": ${tried.join('; ')}`);
     const mark2 = ctx.out.mark();
     const toastMark2 = (await toasts(ctx.d)).length;
-    await pressIn(ctx.d, null, item);
+    // The editor's context menu can let a click that lands as it finishes
+    // opening go by, and then nothing runs at all. So the pointer rests on the
+    // item first, and a menu still open after the click is taken by Enter, as a
+    // reader takes it from the keyboard; what the check judges is what the
+    // operation writes, not whether one click landed.
+    const itemBox = await ctx.d.box(null, item);
+    need(itemBox !== null, 'the context menu draws no "Validate this entity" item to press');
+    await ctx.d.moveTo(centre(itemBox));
+    await sleep(300);
+    await ctx.d.click(centre(itemBox));
+    const menuGone = (): Promise<boolean> => ctx.d.workbench<boolean>(`!document.querySelector('.context-view .monaco-menu')`);
+    const tookByPointer = await until('the context menu closing on the press', 3000, menuGone, (v) => v).then(() => true, () => false);
+    if (!tookByPointer) { await ctx.d.press('Enter'); }
     const validated = await ctx.out.waitFor('the entity validation writing to the channel', mark2, (t) => dollar(t).length > 0, 20000).catch(() => ctx.out.since(mark2));
     const validateLine = dollar(validated)[0];
     const told = (await toastsSince(ctx.d, toastMark2)).map((t) => t.message);
     const wrote = validated.split('\n').filter((l) => l.trim() !== '').slice(0, 4);
-    seen.push(`Validate this entity (${entity.label}): ${validateLine ?? `no $ line; the channel ${JSON.stringify(wrote)}; notifications ${JSON.stringify(told)}`}`);
+    seen.push(`Validate this entity (${entity.label}, taken ${tookByPointer ? 'by the pointer' : 'by Enter, the pointer\'s press having left the menu open'}): ${validateLine ?? `no $ line; the channel ${JSON.stringify(wrote)}; notifications ${JSON.stringify(told)}`}`);
     all = all && validateLine !== undefined && dollarShape(validateLine);
     // Generate entities, for real, into an empty directory.
     const overlays = path.join(ctx.s.root.dir, 'generate', 'overlays');
@@ -448,7 +460,7 @@ export async function aboveChecks(ctx: SuiteContext, layout: { root: string; ref
   });
   await c.run('output-channel.server-operations-write-no-dollar-line', {
     expected: 'Build, Preview, Lint, Validate, Show config and Search catalog each write no line beginning "$" (each watched to its ending, or for 5 s); the Pull line in the same scenario shows the observation fires',
-    plant: 'in the scratch copy, out/src/operations.js with Lint run as a command instead of a request',
+    plant: 'in the scratch copy, out/src/operations.js made to write a command line before a build\'s report, as an operation run as a command does',
   }, async () => {
     need(control, 'its positive control did not fire: no $ line was recorded for Pull in this scenario');
     await open(ctx, path.join(ctx.folder, RELEASE_FILE));

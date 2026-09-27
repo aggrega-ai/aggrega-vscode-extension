@@ -182,7 +182,7 @@ export async function storefrontChecks(ctx: SuiteContext, referenceFolder: strin
   const referenceAggregate = path.join(referenceFolder, 'aggregate.yaml');
   await c.run('problems.cascade-names-the-entity-that-broke', {
     expected: 'with the Aggregate open, deleting metadata.version from the module it imports and saving that file, then pressing Validate with the Aggregate in front, files on the Aggregate the compiler\'s answer for it, which names the module\'s file and its missing metadata.version',
-    plant: 'in the scratch copy, out/src/diagnostics-shape.js made to keep only a message\'s first line',
+    plant: 'in the scratch copy, out/src/diagnostics-shape.js made to cut a message at its note, which drops the part naming the file that broke',
   }, async () => {
     await open(ctx, aggregate);
     const removed = await deleteLine(ctx, moduleFile, 'version: 1.0.0');
@@ -293,7 +293,7 @@ export async function storefrontChecks(ctx: SuiteContext, referenceFolder: strin
   let noRegistry = '';
   await c.run('catalog-search.palette-shows-its-facets', {
     expected: `Search catalog on the Commands panel opens a list titled "${SEARCH_TITLE}", placeholder "${SEARCH_PLACEHOLDER}", with one row per facet (${SEARCH_FACETS.join(', ')}) each showing its current value, and a last row "${SEARCH_ROW}"`,
-    plant: 'in the scratch copy, out/src/catalog-views.js with one facet row dropped',
+    plant: 'in the scratch copy, out/src/catalog-search-run.js with the Plugin type row dropped',
   }, async () => {
     await closeAllEditors(ctx);
     await pressOperation(ctx.d, await commandsPanel(ctx.d), 'aggrega.catalog.searchPublished');
@@ -343,7 +343,7 @@ export async function storefrontChecks(ctx: SuiteContext, referenceFolder: strin
   const copyName = entityNames(path.dirname(copySource), 'Component')[0];
   await c.run('catalog-view.new-entity-appears-after-refresh', {
     expected: `a Component file saved at the folder's root (a copy of the gateway folder's scratch Component) appears as "${copyName}" once "Refresh workspace catalog" is pressed, with no restart`,
-    plant: 'in the scratch copy, out/src/workspace-catalog-view.js made to keep the rows it first read',
+    plant: 'in the scratch copy, out/src/workspace-catalog-view.js made to redraw nothing on refresh, so it keeps the rows it first read',
   }, async () => {
     fs.copyFileSync(copySource, copyPath);
     await pressViewAction(ctx, 'Catalog', 'Refresh workspace catalog');
@@ -405,7 +405,7 @@ export async function storefrontChecks(ctx: SuiteContext, referenceFolder: strin
   });
   await c.run('operations.build-ends-in-words-and-writes-its-files', {
     expected: 'Build opens the channel on "Build of release-compose.yaml.", lists each file it wrote, closes with the command line\'s own summary "Build completed: <n> files written to <directory>/", and raises "Aggrega: built release-compose.yaml — <n> file(s) written to <directory>/."; every listed file is on disk under <directory>',
-    plant: 'in the scratch copy, out/src/operations.js made to report a build without asking for one',
+    plant: 'in the scratch copy, out/src/operations.js made to count one file more in the build\'s notification than the build wrote',
   }, async () => {
     const cli = await runCompiler(bin, ['--offline', 'build', '--release', RELEASE, '--quiet'], { cwd: referenceFolder, home: ctx.home, boundMs: 180000, log: ctx.cliLog });
     const cliSummary = `${cli.stdout}\n${cli.stderr}`.split('\n').find((l) => l.startsWith('Build completed:')) ?? '';
@@ -481,7 +481,7 @@ export async function storefrontChecks(ctx: SuiteContext, referenceFolder: strin
   let errorToasts = 0;
   await c.run('settings-that-are-wrong.missing-compiler-is-named', {
     expected: `aggrega.server.binaryPath pointed at a file that does not exist (${missing}) is said: the status bar reads "${NOT_RUNNING}" and something the extension draws or writes names that path`,
-    plant: 'in the scratch copy, out/src/daemon.js made to swallow the spawn error',
+    plant: 'in the scratch copy, out/src/daemon.js made to swallow the spawn error, reporting a failure to start in a sentence naming no path',
   }, async () => {
     need(!fs.existsSync(missing), `${missing} exists`);
     const mark = ctx.out.mark();

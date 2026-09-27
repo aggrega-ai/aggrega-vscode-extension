@@ -70,6 +70,10 @@ export async function registryChecks(ctx: SuiteContext, registry: ScratchRegistr
   try { records = (JSON.parse(reference.stdout) as { records?: SearchRecord[] }).records ?? []; } catch { records = []; }
   const target = records.find((r) => r.name === `${PUBLISHED_ENTITY.kind}/${PUBLISHED_ENTITY.name}`);
   let matchList: QuickInput | null = null;
+  // searched says a search ran to its answer; what the channel then holds is
+  // what the freshness check judges, so an empty channel after a search is a
+  // finding, never a missing precondition.
+  let searched = false;
   let channelAfterSearch = '';
 
   await c.run('catalog-search.lists-matches-and-copies-a-reference', {
@@ -79,6 +83,7 @@ export async function registryChecks(ctx: SuiteContext, registry: ScratchRegistr
     need(reference.status === 0 && target !== undefined, `the compiler's own search found no ${PUBLISHED_ENTITY.name} in the index (exit ${reference.status})`);
     const outMark = ctx.out.mark();
     matchList = await searchFor(ctx, QUERY);
+    searched = true;
     channelAfterSearch = ctx.out.since(outMark);
     need(matchList !== null, 'the search answered with a notification instead of a match list');
     const placeholderOk = matchList.placeholder === `${records.length} match(es) — select to copy the reference`;
@@ -93,7 +98,7 @@ export async function registryChecks(ctx: SuiteContext, registry: ScratchRegistr
 
   await c.run('catalog-search.rows-carry-no-withdrawal-marking', {
     expected: `the match list's row for ${PUBLISHED_ENTITY.name} names the entity, the version a resolution would take (${target?.version ?? '?'}, as the compiler's own search reports it), its kind and its description, and carries no withdrawal marking although ${PUBLISHED_ENTITY.newer} is withdrawn`,
-    plant: 'in the scratch copy, out/src/catalog-views.js made to show the highest published version',
+    plant: 'in the scratch copy, out/src/catalog-search-run.js made to name a row\'s withdrawn versions beside the one it offers',
   }, async () => {
     const list = matchList as QuickInput | null;
     need(list !== null && target !== undefined, 'no match list was drawn');
@@ -110,7 +115,7 @@ export async function registryChecks(ctx: SuiteContext, registry: ScratchRegistr
     expected: `after the search, the channel names each registry's index: "Index for ${registry.host} last updated <time>", <time> being the one the compiler's own search reports, and "registry ${UNREACHABLE_HOST}: no local index has been built.", followed by "${REFRESH_REMEDIATION}"`,
     plant: 'in the scratch copy, out/src/catalog-search-run.js made to write no freshness lines',
   }, async () => {
-    need(channelAfterSearch !== '', 'no search ran, so the channel has nothing to say about it');
+    need(searched, 'no search ran, so the channel has nothing to say about it');
     const updated = `${reference.stderr}`.split('\n').find((l) => l.startsWith(`Index for ${registry.host} last updated `)) ?? '';
     need(updated !== '', `the compiler's own search named no freshness for ${registry.host}: ${reference.stderr.slice(0, 200)}`);
     const lines = channelAfterSearch.split('\n').map((l) => l.trim());

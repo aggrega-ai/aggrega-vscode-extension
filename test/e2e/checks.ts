@@ -14,9 +14,11 @@ import { WaitExpired } from './workbench';
 
 export type Verdict = 'passed' | 'failed' | 'not run' | 'for a person';
 
-// CheckMeta is what a check states before it runs: what it expects, and the one
-// edit to the scratch copy of the extension or of a fixture that must turn it
-// red, so a check nothing can turn red is visible as such.
+// CheckMeta is what a check states before it runs: what it expects, and in
+// words the one edit to the scratch copy of the extension or of a fixture that
+// must turn it red, so a check nothing can turn red is visible as such. The edit
+// itself, the text it replaces and the text it writes, is in the plant catalogue
+// (plants.ts), from which a plant run applies it.
 export interface CheckMeta {
   expected: string;
   plant: string;
@@ -36,6 +38,12 @@ export interface CheckResult extends CheckMeta {
 // NotRun stops a check whose precondition does not hold, with the reason.
 export class NotRun extends Error {}
 
+// EnoughReported ends a scenario once every check it was asked to watch for has
+// reported. A plant run uses it: what a plant is to show is the verdict of the
+// checks it was made for, so the checks after them are reported as not run,
+// with that reason, rather than run to no purpose.
+export class EnoughReported extends Error {}
+
 // need stops the check as not run unless `cond` holds.
 export function need(cond: unknown, reason: string): asserts cond {
   if (!cond) { throw new NotRun(reason); }
@@ -47,8 +55,21 @@ export interface Outcome { passed: boolean; seen: string; evidence?: unknown }
 // Checks runs one scenario's checks in order and keeps their results.
 export class Checks {
   readonly results: CheckResult[] = [];
+  private readonly waitingFor: Set<string> | null;
 
-  constructor(readonly scenario: string) {}
+  // endAfter, where given, names the checks after whose results the scenario
+  // ends.
+  constructor(readonly scenario: string, endAfter?: readonly string[]) {
+    this.waitingFor = endAfter === undefined ? null : new Set(endAfter);
+  }
+
+  private keep(r: CheckResult): CheckResult {
+    this.results.push(r);
+    if (this.waitingFor !== null && this.waitingFor.delete(r.name) && this.waitingFor.size === 0) {
+      throw new EnoughReported(`every check this run watches for has reported, the last being ${r.name}`);
+    }
+    return r;
+  }
 
   async run(name: string, meta: CheckMeta, body: () => Promise<Outcome>): Promise<CheckResult> {
     const t0 = Date.now();
@@ -65,14 +86,18 @@ export class Checks {
         r = { scenario: this.scenario, name, ...meta, verdict: 'failed', seen: `the check stopped: ${err instanceof Error ? err.message : String(err)}`, elapsedMs: Date.now() - t0 };
       }
     }
-    this.results.push(r);
-    return r;
+    return this.keep(r);
   }
 
   notRun(name: string, meta: CheckMeta, reason: string): CheckResult {
-    const r: CheckResult = { scenario: this.scenario, name, ...meta, verdict: 'not run', seen: '', reason, elapsedMs: 0 };
-    this.results.push(r);
-    return r;
+    return this.keep({ scenario: this.scenario, name, ...meta, verdict: 'not run', seen: '', reason, elapsedMs: 0 });
+  }
+
+  // reportUnrun reports as not run a check the scenario names that never
+  // reported. It ends nothing: it is how a scenario that has already ended
+  // accounts for the rest of its checks.
+  reportUnrun(name: string, reason: string): void {
+    this.results.push({ scenario: this.scenario, name, expected: '', plant: '', verdict: 'not run', seen: '', reason, elapsedMs: 0 });
   }
 
   // forPerson leaves a judgement for a person: a capture of the state the check
@@ -86,8 +111,7 @@ export class Checks {
     } catch (err) {
       r = { scenario: this.scenario, name, expected: meta.expected, plant: meta.plant, verdict: 'not run', seen: '', reason: err instanceof NotRun ? err.message : `the state could not be captured: ${err instanceof Error ? err.message : String(err)}`, elapsedMs: Date.now() - t0 };
     }
-    this.results.push(r);
-    return r;
+    return this.keep(r);
   }
 
   passed(name: string): boolean {

@@ -5,18 +5,24 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { NeedleResult, runNeedles } from './calibration';
+import { containmentSummary, ContainmentStart, markStart, placesFor, readContainment } from './containment';
 import { markRunnerEnvironment } from './editor';
+import { DOCS_EXAMPLE } from './fixtures';
 import { checkInputs, EDITOR_VERSION, INPUT_NAMES, InputOptions, Inputs, REPO_ROOT } from './inputs';
 import { checkLibraries, libraryRefusal, LibraryReport } from './libraries';
+import { checkPlant, PLANTS, Plant, plantNamed, PlantRefused } from './plants';
 import { runProbeProofs } from './probe-proofs';
 import { TeardownReport } from './processes';
 import { active, bringUp, Scenario, SCREEN, tearDown, waitForServer } from './scenario';
-import { runSuite } from './suite';
+import { runSuite, SCENARIO_CHECKS } from './suite';
 
 // The editor suite's runner: launches the real editor with no display, drives it
 // from outside, and reports what it read.
 //
-//   npm run test:e2e -- <command> [options]
+//   node out/test/e2e/run.js <command> [options]
+//
+// (`npm run test:e2e -- <command> [options]` runs the same, and npm writes a
+// debug log of its own under the home directory as it does.)
 //
 // Commands:
 //   inputs          check every input and the editor's libraries, and print the
@@ -28,7 +34,13 @@ import { runSuite } from './suite';
 //   teardown-study  signal the editor alone and watch which process outlives it
 //   suite           build the fixtures and run the checks, scenario by scenario:
 //                   which build is under test, the inspection toggle and the two
-//                   diagnostic layers, and the capabilities walked end to end
+//                   diagnostic layers, and the capabilities walked end to end;
+//                   then read whether anything was written outside the scratch
+//                   directory and whether any process it started is alive
+//   plants          list the plants, and check each one's replaced text occurs
+//                   exactly once in the compiled extension; launches nothing
+//   compare <a> <b> compare two suite reports (a run's directory or its
+//                   suite.json), header and verdict by verdict
 //
 // Options (each input also reads the environment variable named beside it):
 //   --scratch <dir>          where every scratch root of the run is created
@@ -44,39 +56,53 @@ import { runSuite } from './suite';
 //   --driver <name>          playwright-devtools, playwright-electron or all
 //                            (calibrate: all; probe and suite: playwright-devtools)
 //   --only <scenarios>       suite: a comma-separated subset of its scenarios
+//   --plant <name>           suite: make that plant's one edit in the scratch
+//                            copy, run the scenario that holds its checks until
+//                            they have reported, and report whether they moved
+//                            the way the plant says
 //
-// Exit status: 0 when every reading passed, 1 when one failed or was not run,
-// 2 when the run was refused before it launched anything.
+// Exit status: 0 when every reading passed (for a plant run: when every check
+// the plant was made for moved the way it says; for compare: when the two
+// reports agree), 1 otherwise, 2 when the run was refused before it launched
+// anything.
 
 const DRIVERS = ['playwright-devtools', 'playwright-electron'];
 
 interface Options {
   command: string;
+  positional: string[];
   scratch?: string;
   driver?: string;
   only?: string[];
+  plant?: string;
   inputs: Omit<InputOptions, 'scratch'>;
 }
 
 function parseArgs(argv: string[]): Options {
   const [command = '', ...rest] = argv;
   const flags: Record<string, string> = {};
+  const positional: string[] = [];
   for (let i = 0; i < rest.length; i++) {
     const a = rest[i];
-    if (!a.startsWith('--') || i + 1 >= rest.length) { throw new Usage(`unexpected argument ${a}`); }
+    if (!a.startsWith('--')) { positional.push(a); continue; }
+    if (i + 1 >= rest.length) { throw new Usage(`the option ${a} needs a value`); }
     flags[a.slice(2)] = rest[++i];
   }
-  const known = new Set(['scratch', 'driver', 'only', 'extension', 'compiler', 'compiler-commit', 'catalog', 'registry-server', 'editor']);
+  if (positional.length > 0 && command !== 'compare') { throw new Usage(`unexpected argument ${positional[0]}`); }
+  const known = new Set(['scratch', 'driver', 'only', 'plant', 'extension', 'compiler', 'compiler-commit', 'catalog', 'registry-server', 'editor']);
   for (const k of Object.keys(flags)) { if (!known.has(k)) { throw new Usage(`unknown option --${k}`); } }
   if (flags.driver !== undefined && flags.driver !== 'all' && !DRIVERS.includes(flags.driver)) {
     throw new Usage(`unknown driver ${flags.driver}; the drivers are ${DRIVERS.join(', ')}, or all`);
   }
+  if (flags.plant !== undefined && flags.only !== undefined) { throw new Usage('--plant runs the scenario its plant names, so it takes no --only'); }
   const pick = (flag: string, env: string): string | undefined => flags[flag] ?? (process.env[env] || undefined);
   return {
     command,
+    positional,
     scratch: pick('scratch', 'AGGREGA_E2E_SCRATCH'),
     driver: flags.driver,
     only: flags.only === undefined ? undefined : flags.only.split(',').map((s) => s.trim()).filter((s) => s !== ''),
+    plant: flags.plant,
     inputs: {
       extension: path.resolve(pick('extension', INPUT_NAMES.extension.env) ?? REPO_ROOT),
       compiler: resolved(pick('compiler', INPUT_NAMES.compiler.env)),
@@ -106,12 +132,15 @@ function stamp(): string {
 
 // prepareRun checks the inputs and the libraries and creates the run's directory.
 // Nothing is launched until both pass.
-function prepareRun(opts: Options): { inputs: Inputs; runDir: string; libraries: LibraryReport } {
+function prepareRun(opts: Options): { inputs: Inputs; runDir: string; libraries: LibraryReport; start: ContainmentStart } {
   if (!opts.scratch) {
     throw new Refused(['refused: no scratch directory was given (--scratch or AGGREGA_E2E_SCRATCH); the runner writes nowhere else']);
   }
   const runDir = path.join(path.resolve(opts.scratch), stamp());
   fs.mkdirSync(runDir, { recursive: true });
+  // The run's start, marked before anything else is done, so that anything
+  // written outside the scratch directory afterwards is newer than the marker.
+  const start = markStart(runDir);
   // Everything the runner's own process writes, a driver library's temporary
   // files included, goes under the run's directory.
   const runnerTmp = path.join(runDir, 'runner-tmp');
@@ -125,7 +154,7 @@ function prepareRun(opts: Options): { inputs: Inputs; runDir: string; libraries:
   const libs = checkLibraries(checked.inputs.editor.executable);
   const refusal = libraryRefusal(libs);
   if (refusal !== null) { throw new Refused([`refused: ${refusal}`]); }
-  return { inputs: checked.inputs, runDir, libraries: libs };
+  return { inputs: checked.inputs, runDir, libraries: libs, start };
 }
 
 export function header(inputs: Inputs): Record<string, string> {
@@ -232,6 +261,7 @@ async function commandTeardownStudy(opts: Options): Promise<number> {
   const signalled = s.table.signalRoots('SIGTERM');
   const watched = await s.table.observe(20000);
   const rest = await s.table.teardown({ closeBoundMs: 0, termBoundMs: 3000, killBoundMs: 2000 });
+  s.resources.stop();
   active.delete(s.table);
   const summary = [
     'teardown study: SIGTERM to the editor alone, then watch',
@@ -246,11 +276,90 @@ async function commandTeardownStudy(opts: Options): Promise<number> {
 }
 
 async function commandSuite(opts: Options): Promise<number> {
-  const { inputs, runDir } = prepareRun(opts);
+  let plant: Plant | undefined;
+  if (opts.plant !== undefined) {
+    try { plant = plantNamed(opts.plant); } catch (err) { throw new Refused([`refused: ${err instanceof Error ? err.message : String(err)}`]); }
+  }
+  const { inputs, runDir, start } = prepareRun(opts);
+  if (plant !== undefined && plant.target === 'extension') {
+    const { file, found } = checkPlant(plant, inputs.extension.dir);
+    if (found !== 1) {
+      throw new Refused([`refused: the plant ${plant.name} replaces text that occurs ${found === -1 ? 'nowhere, the file being absent,' : `${found} times`} in ${file}, not once; it was written against a compiled extension that has since changed`]);
+    }
+  }
   const driverName = opts.driver === undefined || opts.driver === 'all' ? DRIVERS[0] : opts.driver;
-  const report = await runSuite({ inputs, runDir, driverName, only: opts.only, header: header(inputs) });
-  writeReport(runDir, 'suite', report.data, report.summary);
-  return report.allPassed ? 0 : 1;
+  const report = await runSuite({ inputs, runDir, driverName, only: opts.only, plant, header: header(inputs) });
+  const scratch = path.resolve(opts.scratch as string);
+  const containment = readContainment(start, scratch, placesFor(start, {
+    extension: inputs.extension.dir,
+    catalog: inputs.catalog.dir,
+    compiler: inputs.compiler.path,
+    registryServer: inputs.registryServer.path,
+    editor: inputs.editor.dir,
+    docsExample: path.join(REPO_ROOT, '..', DOCS_EXAMPLE),
+  }));
+  const summary = [...report.summary, ...containmentSummary(containment)];
+  writeReport(runDir, 'suite', { ...(report.data as Record<string, unknown>), containment }, summary);
+  const contained = containment.processes.alive.length === 0;
+  return report.allPassed && contained ? 0 : 1;
+}
+
+// commandPlants lists the plants and checks each against the compiled extension
+// and the scenarios' check lists, launching nothing.
+function commandPlants(opts: Options): number {
+  const extension = opts.inputs.extension;
+  const lines: string[] = [`plants: ${PLANTS.length}, checked against ${extension}`];
+  let sound = true;
+  for (const p of PLANTS) {
+    const names = SCENARIO_CHECKS[p.scenario];
+    const unknown = names === undefined ? p.checks : p.checks.filter((c) => !names.includes(c));
+    const at = p.target === 'extension' ? checkPlant(p, extension) : null;
+    const where = at === null ? 'checked when its folder is placed' : at.found === 1 ? 'its replaced text occurs once' : `its replaced text occurs ${at.found === -1 ? 'nowhere (no such file)' : `${at.found} times`}, not once`;
+    const ok = unknown.length === 0 && (at === null || at.found === 1);
+    sound = sound && ok;
+    lines.push(`  ${ok ? 'ok' : 'REFUSED'} ${p.name} [${p.scenario}] turns ${p.checks.join(', ')} ${p.moves} — ${p.says}; ${p.file}: ${where}${unknown.length > 0 ? `; names no check of that scenario: ${unknown.join(', ')}` : ''}`);
+  }
+  const planted = new Set(PLANTS.flatMap((p) => p.checks.map((c) => `${p.scenario}/${c}`)));
+  const without = Object.entries(SCENARIO_CHECKS).flatMap(([s, cs]) => cs.filter((c) => !planted.has(`${s}/${c}`)).map((c) => `${s}/${c}`));
+  lines.push(`checks no plant is made for (each is left for a person, or cannot be run, or fails on the product as it stands with no one-edit correction): ${without.join(', ')}`);
+  process.stdout.write(`${lines.join('\n')}\n`);
+  return sound ? 0 : 1;
+}
+
+interface ReportShape { header?: Record<string, string>; scenarios?: { name: string; results: { name: string; verdict: string }[] }[] }
+
+function loadReport(p: string): ReportShape {
+  const file = fs.existsSync(p) && fs.statSync(p).isDirectory() ? path.join(p, 'suite.json') : p;
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf8')) as ReportShape;
+  } catch (err) {
+    throw new Refused([`refused: ${file} is not a suite report: ${err instanceof Error ? err.message : String(err)}`]);
+  }
+}
+
+// commandCompare compares two suite reports: whether they were taken over the
+// same inputs, and whether every check has the same verdict in both.
+function commandCompare(opts: Options): number {
+  if (opts.positional.length !== 2) { throw new Usage('compare takes two reports: a run\'s directory or its suite.json, twice'); }
+  const [a, b] = opts.positional.map(loadReport);
+  const lines: string[] = [`compare ${opts.positional[0]} with ${opts.positional[1]}`];
+  const keys = new Set([...Object.keys(a.header ?? {}), ...Object.keys(b.header ?? {})]);
+  const headerDiffers = [...keys].filter((k) => (a.header ?? {})[k] !== (b.header ?? {})[k]);
+  for (const k of keys) {
+    lines.push(`  ${k}: ${(a.header ?? {})[k] ?? '-'}${headerDiffers.includes(k) ? ` | ${(b.header ?? {})[k] ?? '-'} — DIFFERS` : ' — the same'}`);
+  }
+  const verdicts = (r: ReportShape): Map<string, string> => new Map((r.scenarios ?? []).flatMap((s) => s.results.map((x) => [`${s.name}/${x.name}`, x.verdict] as [string, string])));
+  const va = verdicts(a);
+  const vb = verdicts(b);
+  const all = [...new Set([...va.keys(), ...vb.keys()])];
+  const differ = all.filter((k) => va.get(k) !== vb.get(k));
+  for (const k of differ) { lines.push(`  ${k}: ${va.get(k) ?? 'absent'} | ${vb.get(k) ?? 'absent'} — DIFFERS`); }
+  const count = (m: Map<string, string>, v: string): number => [...m.values()].filter((x) => x === v).length;
+  const tally = (m: Map<string, string>): string => ['passed', 'failed', 'not run', 'for a person'].map((v) => `${count(m, v)} ${v}`).join(', ');
+  lines.push(`checks compared: ${all.length}; ${differ.length === 0 ? 'every verdict the same' : `${differ.length} verdict(s) differ`}; first ${tally(va)}; second ${tally(vb)}`);
+  lines.push(`inputs: ${headerDiffers.length === 0 ? 'the same header in both' : `the headers differ in ${headerDiffers.join(', ')}`}`);
+  process.stdout.write(`${lines.join('\n')}\n`);
+  return differ.length === 0 && headerDiffers.length === 0 ? 0 : 1;
 }
 
 function stopEverything(signal: NodeJS.Signals): void {
@@ -272,13 +381,21 @@ async function main(): Promise<number> {
     case 'probe': return commandProbe(opts);
     case 'teardown-study': return commandTeardownStudy(opts);
     case 'suite': return commandSuite(opts);
-    default: throw new Usage(`unknown command ${JSON.stringify(opts.command)}; the commands are inputs, fetch-editor, calibrate, probe, teardown-study and suite`);
+    case 'plants': return commandPlants(opts);
+    case 'compare': return commandCompare(opts);
+    default: throw new Usage(`unknown command ${JSON.stringify(opts.command)}; the commands are inputs, fetch-editor, calibrate, probe, teardown-study, suite, plants and compare`);
   }
 }
 
 main().then((rc) => process.exit(rc), (err: unknown) => {
   if (err instanceof Refused) {
     process.stderr.write(`${err.lines.join('\n')}\n`);
+    process.exit(2);
+  }
+  if (err instanceof PlantRefused) {
+    // A plant refused inside a scenario is reported by the scenario; one that
+    // reaches here was refused before anything launched.
+    process.stderr.write(`refused: ${err.message}\n`);
     process.exit(2);
   }
   if (err instanceof Usage) {
