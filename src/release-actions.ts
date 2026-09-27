@@ -5,6 +5,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as vscode from 'vscode';
 
+import type { ConfigurationWriter } from './config-change-watch';
 import {
   ACTIVE_RELEASE_MARKER_BASENAME,
   AGGREGA_DIR,
@@ -43,7 +44,16 @@ const CONFIG_TEMPLATE = `build:
 // sits in and the same one the language server is anchored at, so the
 // key written here is the key that server reads. Filesystem write
 // failures surface as error toasts rather than crashing.
-export async function openAuthoringReleaseConfig(workspaceRoot: string): Promise<void> {
+//
+// Creating the file goes through writeConfiguration, which restarts the
+// running language server once it exists. The server read no such file when
+// it started, so without the restart it would never read this one, and a
+// change made to it afterwards would go unannounced as well — a file the
+// server did not read is not a file anything watches on its behalf.
+export async function openAuthoringReleaseConfig(
+  workspaceRoot: string,
+  writeConfiguration: ConfigurationWriter,
+): Promise<void> {
   const configPath = path.join(workspaceRoot, CONFIG_FILENAME);
   let created = false;
   try {
@@ -51,7 +61,10 @@ export async function openAuthoringReleaseConfig(workspaceRoot: string): Promise
   } catch {
     // File absent — create from template.
     try {
-      await fs.writeFile(configPath, CONFIG_TEMPLATE, { flag: 'wx' });
+      await writeConfiguration(
+        () => fs.writeFile(configPath, CONFIG_TEMPLATE, { flag: 'wx' }),
+        () => configPath,
+      );
       created = true;
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);

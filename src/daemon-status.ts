@@ -31,6 +31,13 @@ export const LIFECYCLE_ACTIONS_COMMAND = 'aggrega.server.lifecycleActions';
 export const STATUS_BAR_MENU_COMMAND = 'aggrega.statusBar.openMenu';
 export const TOGGLE_BUILD_ON_INSPECT_COMMAND = 'aggrega.server.toggleBuildOnInspect';
 
+// RESTART_SERVER_ACTION is the button a notification carries when what it
+// reports takes effect only once the language server starts again — a preference
+// the server reads at start, or a configuration file changed since it started.
+// Pressing it runs RESTART_COMMAND. One label, so the same act reads the same
+// wherever it is offered.
+export const RESTART_SERVER_ACTION = 'Restart server';
+
 // enablementClause is the exact condition string a gated command carries in the
 // manifest. This is the one home for it: the manifest is declarative data the
 // editor reads and nothing here can generate into it, so the two are held

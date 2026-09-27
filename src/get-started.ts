@@ -50,6 +50,7 @@ import {
   stepReadings,
 } from './get-started-steps';
 import type { DaemonReading } from './daemon-status';
+import type { ConfigurationWriter } from './config-change-watch';
 import {
   VersionStandings,
   dismissHtml,
@@ -147,6 +148,12 @@ export interface GetStartedDeps extends RendersOnReady {
   // registered only once a language server has been established, so in the very
   // state the compiler step is for there is nothing listening.
   reanchor(): Promise<void>;
+  // writeConfiguration runs a write of a configuration file this panel makes
+  // itself, so that a language server already running where the file lands is
+  // restarted to read it — and one started by the write's own re-attachment is
+  // not restarted a second time. A running server reads its configuration only
+  // when it starts, and the reader who pressed the control asked for the change.
+  writeConfiguration: ConfigurationWriter;
   // rememberAnchorChoice records which anchored folder this window works in, and
   // answers with the path it replaced.
   //
@@ -773,34 +780,45 @@ async function createWorkspace(deps: GetStartedDeps, refresh: () => void): Promi
   }
   const target = path.join(folder.uri.fsPath, CONFIG_FILENAME);
   let created = false;
-  try {
-    // Exclusive creation, so an existing configuration is never overwritten by a
-    // control a reader pressed to make one.
-    await fs.writeFile(target, WORKSPACE_ANCHOR_CONFIG, { flag: 'wx' });
-    created = true;
-  } catch (err) {
-    if (!isAlreadyExists(err)) {
-      void vscode.window.showErrorMessage(
-        `Aggrega: could not create ${CONFIG_FILENAME}: ${describeError(err)}`,
-      );
-      return;
+  // 🔴 THE RE-ATTACHMENT IS PART OF THE WRITE HANDED TO THE WATCH, AND THAT IS
+  // WHAT KEEPS THE RESTART TO ONE. Re-attaching starts a server where none was
+  // running and moves one that ran somewhere else, and either of those reads the
+  // file just written, so nothing more is owed. Where the folder was already the
+  // one attached — anchored by a Release or an Aggregate in the same folder rather
+  // than by a configuration file — re-attaching changes nothing, the running
+  // server never read the new file, and it is the watch that restarts it.
+  const attached = await deps.writeConfiguration(async () => {
+    try {
+      // Exclusive creation, so an existing configuration is never overwritten by
+      // a control a reader pressed to make one.
+      await fs.writeFile(target, WORKSPACE_ANCHOR_CONFIG, { flag: 'wx' });
+      created = true;
+    } catch (err) {
+      if (!isAlreadyExists(err)) {
+        void vscode.window.showErrorMessage(
+          `Aggrega: could not create ${CONFIG_FILENAME}: ${describeError(err)}`,
+        );
+        return false;
+      }
     }
-  }
 
-  // The sentence below tells the reader this folder is now the workspace root, and
-  // recording the choice is what makes that true. A window with another folder
-  // already anchored and remembered would otherwise go on working there, leaving a
-  // message that names one folder beside surfaces that name another.
-  //
-  // The marker is looked for rather than assumed to be the file just written:
-  // which marker anchors a folder is one rule with one home, and a configuration
-  // higher up can be the one that answers.
-  const anchorPath = await findAggregaWorkspaceAnchor(folder.uri.fsPath);
-  if (anchorPath !== null) {
-    await deps.rememberAnchorChoice(anchorPath);
-  }
+    // The sentence below tells the reader this folder is now the workspace root,
+    // and recording the choice is what makes that true. A window with another
+    // folder already anchored and remembered would otherwise go on working there,
+    // leaving a message that names one folder beside surfaces that name another.
+    //
+    // The marker is looked for rather than assumed to be the file just written:
+    // which marker anchors a folder is one rule with one home, and a configuration
+    // higher up can be the one that answers.
+    const anchorPath = await findAggregaWorkspaceAnchor(folder.uri.fsPath);
+    if (anchorPath !== null) {
+      await deps.rememberAnchorChoice(anchorPath);
+    }
 
-  await deps.reanchor();
+    await deps.reanchor();
+    return true;
+  }, () => (created ? target : null));
+  if (!attached) { return; }
   refresh();
 
   const doc = await vscode.workspace.openTextDocument(target);

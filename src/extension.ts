@@ -11,6 +11,14 @@ import { readBuildStamp } from './build-stamp';
 import { CancellationSignal } from './cancellation';
 import type { RegistrySearchParams, SearchDoc } from './catalog-search-run';
 import type { ConfigInitParams, ConfigInitResult } from './config-seeding';
+import {
+  ConfigurationWatch,
+  configurationChangedWarning,
+  createConfigurationWatch,
+  ownWriteRestartLine,
+  ownWriteRestartTitle,
+  writtenFile,
+} from './config-change-watch';
 import type { ImportParams, ImportResult } from './import-request';
 import type { PluginAddParams, PluginAddResult } from './plugin-attachment';
 import type { PluginRemoveParams, PluginRemoveResult } from './plugin-removal';
@@ -68,6 +76,7 @@ import {
   DaemonStatusBar,
   LIFECYCLE_ACTIONS_COMMAND,
   RESTART_COMMAND,
+  RESTART_SERVER_ACTION,
   STATUS_BAR_MENU_COMMAND,
   TOGGLE_BUILD_ON_INSPECT_COMMAND,
   DaemonReading,
@@ -391,6 +400,71 @@ const refreshGraphView = debounce(
   () => getSettings().debounceMs,
 );
 
+// configurationWatch notices a change to a configuration file the running
+// language server read, which that server goes on ignoring until it starts again,
+// and says so with the restart beside it. A write this extension makes itself
+// goes through it too, and is followed by the restart instead of by a warning.
+//
+// It is armed from the readiness signal's rising edge — every start, restart and
+// respawn — rather than from a lifecycle listener of its own, and it asks the
+// server which files it read rather than composing that list here. What it
+// decides, and in which order its events may arrive, is in config-change-watch.ts.
+//
+// The burst window is the one the editor already collapses a burst of edits with,
+// for the reason it is used for the graph: one save can reach the disk as more
+// than one write, and it is one change.
+const configurationWatch: ConfigurationWatch = createConfigurationWatch({
+  readLayers: async () => {
+    const answer = await requestEffectiveConfiguration();
+    return (answer as { layers?: unknown } | null)?.layers;
+  },
+  // 🔴 A PATTERN ROOTED AT THE FILE'S OWN DIRECTORY, NOT THE WORKSPACE-RELATIVE
+  // GLOB THE AUTHORED-DOCUMENT WATCHER USES. The global configuration sits
+  // outside every folder the window has open, and a pattern given as a plain glob
+  // is matched only inside those folders.
+  watchFile: (file, onEvent) => {
+    const watcher = vscode.workspace.createFileSystemWatcher(
+      new vscode.RelativePattern(vscode.Uri.file(path.dirname(file)), path.basename(file)),
+    );
+    watcher.onDidChange(onEvent);
+    watcher.onDidCreate(onEvent);
+    watcher.onDidDelete(onEvent);
+    return watcher;
+  },
+  readContent: async (file) => {
+    try {
+      return await fs.promises.readFile(file, 'utf8');
+    } catch {
+      return null;
+    }
+  },
+  warn: async (file) => {
+    const choice = await vscode.window.showWarningMessage(
+      configurationChangedWarning(file),
+      RESTART_SERVER_ACTION,
+    );
+    if (choice === RESTART_SERVER_ACTION) {
+      void vscode.commands.executeCommand(RESTART_COMMAND);
+    }
+  },
+  restartForWrite: async (file) => {
+    const restarted = await vscode.window.withProgress(
+      { location: vscode.ProgressLocation.Notification, title: ownWriteRestartTitle(file) },
+      () => replaceLanguageServer(),
+    );
+    if (restarted) {
+      outputChannel?.appendLine(ownWriteRestartLine(file));
+    }
+  },
+  isServerRunning: isLanguageServerRunning,
+  timer: {
+    setTimeout: (handler, ms) => setTimeout(handler, ms),
+    clearTimeout: (handle) => clearTimeout(handle as NodeJS.Timeout),
+  },
+  settleMs: () => getSettings().debounceMs,
+  log: (line) => outputChannel?.appendLine(line),
+});
+
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   extensionContext = context;
   outputChannel = vscode.window.createOutputChannel('Aggrega');
@@ -429,6 +503,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       answerable,
     );
   });
+
+  // The configuration files watched are the ones the server that just became
+  // answerable says it read, so they are asked for on every rising edge: a restart
+  // that loaded a different set is then watched over the new one.
+  ready.onReady(() => { void configurationWatch.reload(); });
 
   // Registered here rather than when a language server attaches, which is the
   // defect this replaces: the command that starts one is needed precisely in
@@ -764,6 +843,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // re-run the activation path rather than waiting for something that will
     // not happen.
     reanchor: () => reactivate(context),
+    // The control that writes a workspace configuration hands that write to the
+    // configuration watch, so a language server already running where the file
+    // lands is restarted to read it rather than left on the configuration it had.
+    writeConfiguration: configurationWatch.ownWrite,
     // A control through which the reader NAMES a folder records that answer before
     // re-attaching, so the activation path settles on the folder they chose rather
     // than on the one this window last remembered.
@@ -1240,6 +1323,9 @@ async function stopDaemon(): Promise<void> {
     await daemon.stop();
     daemon = null;
   }
+  // Nothing is running to be out of date, so nothing is watched on its behalf.
+  // The next server to become answerable re-arms the watch over what it read.
+  configurationWatch.disarm();
   activeAnchored = null;
   // Both facts go with the server they were settled for, and they are dropped
   // together: a root cleared while the folder stood would leave the Project
@@ -1517,7 +1603,7 @@ function registerReleaseActionCommands(context: vscode.ExtensionContext): void {
         void vscode.window.showInformationMessage(NO_ANCHORED_WORKSPACE_MESSAGE);
         return;
       }
-      await openAuthoringReleaseConfig(workspaceRootForCommands);
+      await openAuthoringReleaseConfig(workspaceRootForCommands, configurationWatch.ownWrite);
     }),
     vscode.commands.registerCommand('aggrega.workspace.createActiveReleaseMarker', async () => {
       if (!workspaceRootForCommands) {
@@ -1530,6 +1616,7 @@ function registerReleaseActionCommands(context: vscode.ExtensionContext): void {
 }
 
 export async function deactivate(): Promise<void> {
+  configurationWatch.disarm();
   if (daemon) {
     await daemon.stop();
     daemon = null;
@@ -1795,13 +1882,31 @@ function registerRestartCommand(context: vscode.ExtensionContext): void {
       await startLanguageServer();
       return;
     }
-    try {
-      await daemon.restart();
-      vscode.window.showInformationMessage('Aggrega language server restarted.');
-    } catch (err) {
-      notifyDaemonStartupFailed((err as Error).message);
+    if (await replaceLanguageServer()) {
+      void vscode.window.showInformationMessage('Aggrega language server restarted.');
     }
   }));
+}
+
+// replaceLanguageServer is the one implementation of replacing the running
+// language server with a fresh one, which resolves the workspace's configuration
+// again as it starts. It answers whether a server is running afterwards.
+//
+// It reports a failure to start itself and says nothing about a success, because
+// what is worth saying then depends on why the restart happened: the command a
+// reader ran says the server restarted, while a restart following a write the
+// extension made says which file it is reading while it does it — one statement
+// for one act rather than two notifications stacked for it. Both reach it, so the
+// two can never come to restart differently.
+async function replaceLanguageServer(): Promise<boolean> {
+  if (!daemon) { return false; }
+  try {
+    await daemon.restart();
+    return true;
+  } catch (err) {
+    notifyDaemonStartupFailed((err as Error).message);
+    return false;
+  }
 }
 
 // startLanguageServer puts a language server where there is none, by running
@@ -2078,9 +2183,9 @@ async function toggleBuildOnInspect(): Promise<void> {
   }
   const choice = await vscode.window.showInformationMessage(
     buildOnInspectConfirmation(next),
-    'Restart server',
+    RESTART_SERVER_ACTION,
   );
-  if (choice === 'Restart server') {
+  if (choice === RESTART_SERVER_ACTION) {
     void vscode.commands.executeCommand(RESTART_COMMAND);
   }
 }
@@ -2538,13 +2643,20 @@ async function requestCacheClear(): Promise<CacheClearResponse> {
 // stop sent here would stop this client waiting and not the work, so none is
 // offered.
 //
+// A seeding that wrote is followed by a restart of the language server, which
+// reads configuration only when it starts; see configurationWatch.
+//
 // Throws when the server is not running, so a caller reports that state rather
 // than presenting a seeding that never ran as one that found nothing to do.
 async function requestConfigInit(params: ConfigInitParams): Promise<ConfigInitResult> {
   if (!daemon || daemon.getState() !== DaemonState.Running) {
     throw new Error('the Aggrega language server is not running');
   }
-  return await daemon.request<ConfigInitResult>('aggrega/configInit', params);
+  const client = daemon;
+  return await configurationWatch.ownWrite(
+    () => client.request<ConfigInitResult>('aggrega/configInit', params),
+    (result) => (result.written ? writtenFile(result.scope) : null),
+  );
 }
 
 // requestRegistryList asks the language server which registries this workspace's
@@ -2586,13 +2698,21 @@ async function requestRegistryList(): Promise<RegistryListDoc> {
 // A stop sent here would stop this client waiting and not the work, so none is
 // offered.
 //
+// The registration is followed by a restart of the language server, which reads
+// configuration only when it starts, so the registry it wrote is in force the
+// moment the operation ends; see configurationWatch.
+//
 // Throws when the server is not running, so a caller reports that state rather
 // than presenting a registration that never ran as one that changed nothing.
 async function requestRegistryAdd(params: RegistryAddParams): Promise<RegistryAddResult> {
   if (!daemon || daemon.getState() !== DaemonState.Running) {
     throw new Error('the Aggrega language server is not running');
   }
-  return await daemon.request<RegistryAddResult>('aggrega/registryAdd', params);
+  const client = daemon;
+  return await configurationWatch.ownWrite(
+    () => client.request<RegistryAddResult>('aggrega/registryAdd', params),
+    (result) => writtenFile(result.scope),
+  );
 }
 
 // requestRegistryRemove asks the language server to drop a registry's entry.
@@ -2603,7 +2723,7 @@ async function requestRegistryAdd(params: RegistryAddParams): Promise<RegistryAd
 // than that something finished.
 //
 // It carries no cancellation, for the same measured reason as the registration
-// above.
+// above, and it is followed by the same restart.
 //
 // Throws when the server is not running, so a caller reports that state rather
 // than presenting a removal that never ran as one that found nothing to remove.
@@ -2613,7 +2733,11 @@ async function requestRegistryRemove(
   if (!daemon || daemon.getState() !== DaemonState.Running) {
     throw new Error('the Aggrega language server is not running');
   }
-  return await daemon.request<RegistryRemoveResult>('aggrega/registryRemove', params);
+  const client = daemon;
+  return await configurationWatch.ownWrite(
+    () => client.request<RegistryRemoveResult>('aggrega/registryRemove', params),
+    (result) => writtenFile(result.scope),
+  );
 }
 
 // requestLogout asks the language server to remove a registry's stored
@@ -2708,6 +2832,9 @@ async function requestLint(
 // client's own listing call — so a reader's stop ends the search rather than only
 // ending this side's wait for an answer.
 //
+// An attachment that wrote is followed by a restart of the language server, which
+// reads configuration only when it starts; see configurationWatch.
+//
 // Throws when the server is not running, so a caller reports that state rather
 // than presenting an attachment that never ran as one that found no plugin.
 async function requestPluginAdd(
@@ -2717,7 +2844,11 @@ async function requestPluginAdd(
   if (!daemon || daemon.getState() !== DaemonState.Running) {
     throw new Error('the Aggrega language server is not running');
   }
-  return await daemon.request<PluginAddResult>('aggrega/pluginAdd', params, signal);
+  const client = daemon;
+  return await configurationWatch.ownWrite(
+    () => client.request<PluginAddResult>('aggrega/pluginAdd', params, signal),
+    (result) => (result.written ? writtenFile(result.scope) : null),
+  );
 }
 
 // requestPluginRemove asks the language server to drop a configured plugin's
@@ -2734,13 +2865,20 @@ async function requestPluginAdd(
 // stop sent here would stop this client waiting and not the work, so none is
 // offered.
 //
+// The removal is followed by a restart of the language server, which reads
+// configuration only when it starts; see configurationWatch.
+//
 // Throws when the server is not running, so a caller reports that state rather
 // than presenting a removal that never ran as one that found nothing to remove.
 async function requestPluginRemove(params: PluginRemoveParams): Promise<PluginRemoveResult> {
   if (!daemon || daemon.getState() !== DaemonState.Running) {
     throw new Error('the Aggrega language server is not running');
   }
-  return await daemon.request<PluginRemoveResult>('aggrega/pluginRemove', params);
+  const client = daemon;
+  return await configurationWatch.ownWrite(
+    () => client.request<PluginRemoveResult>('aggrega/pluginRemove', params),
+    (result) => writtenFile(result.scope),
+  );
 }
 
 // The three publication requests: publishing a catalog entity, signing what is
