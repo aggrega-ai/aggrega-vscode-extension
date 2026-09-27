@@ -394,9 +394,10 @@ body {
 }
 
 /* What is running, at the very foot and centred on the same axis as the switch
-   above it. It sits last because it is the only thing on the page that asks
+   above it: the versions, and beneath them whether the language server is
+   running. Both sit last because they are the only things on the page that ask
    nothing of the reader: the steps are the work, the switch is a decision, and
-   this is a fact to be read when it is wanted.
+   these are facts to be read when they are wanted.
 
    🔴 IT IS NEVER PUT AWAY, WHICH IS WHY IT CARRIES NO PAIRED RULE FOR THE
    ATTRIBUTE THAT WOULD DO IT. A declared `display` outranks the user agent's own
@@ -417,6 +418,14 @@ body {
   margin-bottom: 0;
   font-size: 0.9em;
   color: var(--vscode-descriptionForeground, inherit);
+}
+
+/* The language server's line sits close under the versions, so the two read as
+   one block of facts about what is running rather than as two unrelated lines.
+   It is declared after the rule above because both carry one class of equal
+   weight, and the later of two equal rules is the one that holds. */
+.welcome-server {
+  margin-top: 0.25rem;
 }
 
 /* Each reading keeps its label beside its value, so a wrap moves a whole reading

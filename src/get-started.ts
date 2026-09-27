@@ -49,10 +49,12 @@ import {
   readCollapsedSteps,
   stepReadings,
 } from './get-started-steps';
+import type { DaemonReading } from './daemon-status';
 import {
   VersionStandings,
   dismissHtml,
   initiallyCollapsedStepIds,
+  serverHtml,
   stepsHtml,
   versionsHtml,
   welcomeDocumentHtml,
@@ -91,7 +93,31 @@ const BINARY_PATH_KEY = 'binaryPath';
 // alone would ask the compiler twice for one drawing.
 interface PanelReading {
   steps: Record<StepId, StepReading>;
+  versions: VersionsReading;
+  // lifecycleAt is how many lifecycle moves had been reported when the pass
+  // began, so a panel created from it can tell whether the language server
+  // moved while it was being read.
+  lifecycleAt: number;
+}
+
+// VersionsReading is one reading of the versions, and whether it is still the
+// most recent one asked for.
+interface VersionsReading {
   versions: VersionStandings;
+  current(): boolean;
+}
+
+// WelcomePage is the handle the extension holds to the welcome page.
+export interface WelcomePage {
+  // refresh re-reads the four conditions and redraws the steps and the
+  // versions; its first invocation also settles and opens the page, for the
+  // reason activateGetStarted states.
+  refresh(): void;
+  // followLifecycle redraws the page's foot readings that follow the language
+  // server — the line saying whether it is running, and the versions beside it —
+  // and nothing else. The extension calls it from every point that refreshes
+  // the lifecycle indicator.
+  followLifecycle(): void;
 }
 
 // GetStartedDeps is the live state the panel reads. Every field is a fact some
@@ -169,16 +195,23 @@ export interface GetStartedDeps extends RendersOnReady {
   // also what lets the whole region be read back without an editor or a
   // compiler.
   readVersions(): Promise<VersionStandings>;
+  // readServerStanding reports what the language server's lifecycle reads as
+  // right now, for the page's last line. It is a dependency because the
+  // lifecycle, and the record of whether the last attempt to start failed, are
+  // held by the surface that starts the server; it answers at once, so the line
+  // is drawn from the position it names rather than from one read earlier.
+  readServerStanding(): DaemonReading;
   output: vscode.OutputChannel;
 }
 
 // activateGetStarted publishes the four conditions, registers the controls, and
-// hands back the one call that re-reads the conditions.
+// hands back two calls: the one that re-reads the conditions, and the one that
+// redraws the foot readings following the language server.
 //
-// The caller invokes it after re-evaluating the open folders, and that is not
-// optional: the readiness signal every other view renders from announces itself
-// only when a workspace root AND an answerable language server are both in
-// hand, so a workspace that is anchored but whose compiler will not start
+// The caller invokes the first after re-evaluating the open folders, and that
+// is not optional: the readiness signal every other view renders from announces
+// itself only when a workspace root AND an answerable language server are both
+// in hand, so a workspace that is anchored but whose compiler will not start
 // reaches readiness never — and its met workspace condition would go
 // unpublished, telling exactly the reader on the compiler step that they had
 // not even got that far.
@@ -212,7 +245,7 @@ export interface GetStartedDeps extends RendersOnReady {
 export function activateGetStarted(
   context: vscode.ExtensionContext,
   deps: GetStartedDeps,
-): () => void {
+): WelcomePage {
   // The one panel, reused. A second press reveals the one already open rather
   // than stacking tabs, and closing it clears this so a later refresh has
   // nothing to draw into.
@@ -243,6 +276,52 @@ export function activateGetStarted(
   // created, and afterwards it moves only when the reader moves it.
   let collapsed: StepId[] = [];
 
+  // versionsAsked numbers the readings of the versions, so the region is drawn
+  // only from the most recent one asked for.
+  //
+  // 🔴 TWO PATHS READ THE VERSIONS AND THEIR READINGS OVERLAP. The steps'
+  // re-read takes one, and so does every move of the language server's
+  // lifecycle — and a restart is several moves in quick succession, each asking
+  // the compiler it finds. The answers arrive in whatever order the subprocesses
+  // finish, so a reading taken while a server was still up could land after one
+  // taken once it had gone, and draw a compiler beside a line saying nothing is
+  // running. Numbering them puts the order back: a reading superseded before it
+  // arrived is dropped.
+  let versionsAsked = 0;
+  const readVersions = async (): Promise<VersionsReading> => {
+    const asked = ++versionsAsked;
+    const versions = await deps.readVersions();
+    return { versions, current: () => asked === versionsAsked };
+  };
+  const postVersions = (read: VersionsReading): void => {
+    if (!read.current()) { return; }
+    panel?.webview.postMessage({ type: 'versions', html: versionsHtml(read.versions) });
+  };
+
+  // lifecycleMoves counts the lifecycle moves reported, whether or not a panel
+  // was there to draw them, so a panel being created can tell whether one landed
+  // while its reading was being taken.
+  let lifecycleMoves = 0;
+
+  // followLifecycle redraws the foot readings that follow the language server,
+  // and leaves the steps where they are.
+  //
+  // 🔴 THE STEPS ARE NOT RE-READ HERE, AND THAT IS THE RULE THIS KEEPS RATHER
+  // THAN A SAVING. A step keeps its standing while the language server
+  // restarts, which is why only the rising edge of readiness redraws the steps;
+  // the line saying whether the server is running exists to follow every move,
+  // falling edges included. The two regions are therefore driven apart: this is
+  // called on every lifecycle move and redraws only the foot.
+  //
+  // The line is drawn at once, from the position the call was made in; the
+  // versions follow when the compiler has answered.
+  const followLifecycle = (): void => {
+    lifecycleMoves += 1;
+    if (panel === null) { return; }
+    panel.webview.postMessage({ type: 'server', html: serverHtml(deps.readServerStanding()) });
+    void readVersions().then(postVersions);
+  };
+
   // Two events can ask for a re-read while one is still in flight, because
   // reading the registry condition asks the compiler. Coalescing means the
   // panel settles on the last answer asked for rather than on whichever
@@ -261,7 +340,8 @@ export function activateGetStarted(
   // intermittently and invisibly. Decided from the returned value it is decided
   // from the reading the caller actually took, whatever else lands around it.
   const reread = async (): Promise<PanelReading> => {
-    const [facts, versions] = await Promise.all([readFacts(deps), deps.readVersions()]);
+    const lifecycleAt = lifecycleMoves;
+    const [facts, versions] = await Promise.all([readFacts(deps), readVersions()]);
     const read = stepReadings(facts);
     // 🔴 THE LIST IS RE-COMPOSED FROM THE STANDINGS JUST READ, IN BOTH
     // DIRECTIONS. A step whose condition has lapsed is composed as still to do
@@ -278,8 +358,8 @@ export function activateGetStarted(
     // different events, and one message carrying two regions would redraw a
     // region nothing had changed. A compiler restarted onto another binary moves
     // this one and leaves the marks where they are.
-    panel?.webview.postMessage({ type: 'versions', html: versionsHtml(versions) });
-    return { steps: read, versions };
+    postVersions(versions);
+    return { steps: read, versions, lifecycleAt };
   };
   const refresh = (): void => {
     if (inFlight) { again = true; return; }
@@ -345,8 +425,24 @@ export function activateGetStarted(
       read.steps,
       collapsed,
       opensWithEditor(),
-      read.versions,
+      read.versions.versions,
+      deps.readServerStanding(),
     );
+    // A lifecycle move reported while the reading above was being taken found
+    // no panel to draw into, so the versions composed here may predate it. The
+    // foot is drawn again now there is a panel for it; the steps are not, for
+    // the reason followLifecycle gives.
+    if (lifecycleMoves !== read.lifecycleAt) { followLifecycle(); }
+  };
+
+  // reuseOpenPanel refreshes the panel that is already open, bringing it to the
+  // front where the reader asked for it, and answers whether there was one.
+  const reuseOpenPanel = (reveal: boolean): boolean => {
+    const open = panel;
+    if (open === null) { return false; }
+    if (reveal) { open.reveal(vscode.ViewColumn.Active); }
+    refresh();
+    return true;
   };
 
   // openPanel is what a reader asking for the panel reaches.
@@ -360,13 +456,19 @@ export function activateGetStarted(
   // arrangement is decided when a panel is CREATED, and a reader pressing the
   // command again is asking to be shown the panel they have, not to have it
   // rearranged around them.
+  //
+  // 🔴 THE PANEL IS LOOKED FOR AGAIN ONCE THE READING HAS ARRIVED, AND THAT IS
+  // WHAT KEEPS IT ONE PANEL. The reading asks the compiler, so it takes long
+  // enough for the page's own opening to land in the meantime — a reader who
+  // asks for the page while the editor is starting is asking at exactly that
+  // moment. Creating a second panel then would leave two tabs, and the first
+  // would be drawn into by nothing again: it would never follow a step or the
+  // language server, and closing it would drop the panel that is still open.
   const openPanel = async (): Promise<void> => {
-    if (panel) {
-      panel.reveal(vscode.ViewColumn.Active);
-      refresh();
-      return;
-    }
-    createPanel(await reread());
+    if (reuseOpenPanel(true)) { return; }
+    const read = await reread();
+    if (reuseOpenPanel(true)) { return; }
+    createPanel(read);
   };
 
   // settle is where the panel opens by itself, from the first reading of the
@@ -380,12 +482,16 @@ export function activateGetStarted(
   // nothing would draw the answer. Otherwise the panel is created from one
   // reading taken here, which is the case the whole arrangement rule exists for.
   const settle = async (): Promise<void> => {
-    if (panel !== null) { refresh(); return; }
+    if (reuseOpenPanel(false)) { return; }
     // What the preference gates is whether the panel OPENS BY ITSELF, not
     // whether it exists — the command that brings it back is in the palette
     // either way, which is what makes the dismissal safe to offer at all.
     if (!opensWithEditor()) { return; }
-    createPanel(await reread());
+    const read = await reread();
+    // A reader who asked for the page while this reading was being taken has
+    // it already, arranged from their own reading; it is refreshed and left.
+    if (reuseOpenPanel(false)) { return; }
+    createPanel(read);
   };
 
   // Whenever the compiler becomes answerable, or the selection moves. Only the
@@ -440,13 +546,16 @@ export function activateGetStarted(
   // re-arranging it would fold a step away under their cursor. So the later
   // invocations move the marks and nothing else, which is what they did before.
   let settled = false;
-  return (): void => {
-    if (settled) {
-      refresh();
-      return;
-    }
-    settled = true;
-    void settle();
+  return {
+    refresh: (): void => {
+      if (settled) {
+        refresh();
+        return;
+      }
+      settled = true;
+      void settle();
+    },
+    followLifecycle,
   };
 }
 
@@ -480,6 +589,7 @@ function welcomeHtml(
   collapsed: readonly StepId[],
   opensWithEditor: boolean,
   versions: VersionStandings,
+  server: DaemonReading,
 ): string {
   return welcomeDocumentHtml({
     nonce: makeNonce(),
@@ -494,6 +604,7 @@ function welcomeHtml(
     collapsed,
     opensWithEditor,
     versions,
+    server,
   });
 }
 

@@ -123,13 +123,73 @@ export function daemonStanding(state: DaemonState | null): DaemonStanding {
   }
 }
 
+// DaemonReading is what the welcome page's last line reads. It is the three
+// standings and one more: a server whose most recent attempt to start failed,
+// with none running since.
+//
+// 🔴 THE FOURTH READING IS THE PAGE'S AND NOT THE INDICATOR'S, and the
+// difference is what each surface is for. The indicator's colour is what a
+// reader acts on, and the act is the same whether the server stopped or never
+// came up — start it — so a fourth standing would put a difference into the
+// colour that the colour cannot carry. The page's line is where a reader looks
+// to find out what happened, and there a failed start and a stopped server are
+// different news, which a reader needs told apart before going to look for why.
+export type DaemonReading = DaemonStanding | 'failedToStart';
+
+// daemonReading maps a lifecycle position, and whether the most recent attempt
+// to start failed, onto what the welcome page's last line reads.
+//
+// It is built on daemonStanding rather than beside it, so the three standings
+// the two surfaces share are decided in one place. A failed start refines only
+// the not-running standing: a server starting again after a failure is
+// starting, and one that reached running has by definition started.
+export function daemonReading(
+  state: DaemonState | null,
+  lastStartFailed: boolean,
+): DaemonReading {
+  const standing = daemonStanding(state);
+  return standing === 'notRunning' && lastStartFailed ? 'failedToStart' : standing;
+}
+
+// DAEMON_STANDING_WORDS is what each standing is called in words, on every
+// surface that names it.
+//
+// 🔴 THE WORDS HAVE THIS ONE HOME, and the indicator's label and the welcome
+// page's line are both composed from it. A reader who is told a server is "not
+// running" in one place and something else in another has to work out whether
+// the two are the same state.
+export const DAEMON_STANDING_WORDS: Record<DaemonStanding, string> = {
+  running: 'running',
+  starting: 'starting',
+  notRunning: 'not running',
+};
+
+// DAEMON_READING_WORDS is what each of the welcome page's four readings is
+// called: the three standings in their own words, and the words the
+// notification raised for a failed start already uses.
+export const DAEMON_READING_WORDS: Record<DaemonReading, string> = {
+  ...DAEMON_STANDING_WORDS,
+  failedToStart: 'failed to start',
+};
+
+// DAEMON_STANDING_ICON is the glyph beside each standing on the indicator.
+const DAEMON_STANDING_ICON: Record<DaemonStanding, string> = {
+  running: '$(check)',
+  starting: '$(sync~spin)',
+  notRunning: '$(error)',
+};
+
+function standingLabel(standing: DaemonStanding): string {
+  return `${DAEMON_STANDING_ICON[standing]} Aggrega: ${DAEMON_STANDING_WORDS[standing]}`;
+}
+
 // DAEMON_STANDING_LABEL is what the indicator reads, per standing. The icon
 // carries the standing at a glance and the words carry it for a reader who does
 // not read icons; neither stands alone.
 export const DAEMON_STANDING_LABEL: Record<DaemonStanding, string> = {
-  running: '$(check) Aggrega: running',
-  starting: '$(sync~spin) Aggrega: starting',
-  notRunning: '$(error) Aggrega: not running',
+  running: standingLabel('running'),
+  starting: standingLabel('starting'),
+  notRunning: standingLabel('notRunning'),
 };
 
 // DAEMON_STANDING_IS_ALARMING reports whether a standing is drawn in the

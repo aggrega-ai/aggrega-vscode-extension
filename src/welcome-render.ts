@@ -14,6 +14,7 @@ import {
   WELCOME_PANEL_TITLE,
   panelSettingCommand,
 } from './get-started-steps';
+import { DAEMON_READING_WORDS, DaemonReading } from './daemon-status';
 import { escapeHtml } from './html';
 
 // This module composes the welcome panel's document and holds no editor types,
@@ -293,6 +294,34 @@ export function versionsHtml(versions: VersionStandings): string {
     + entry(COMPILER_VERSION_LABEL, versions.compiler);
 }
 
+// SERVER_LABEL names the language server on the page's last line, the way the
+// rest of the extension names it.
+export const SERVER_LABEL = 'Language server';
+
+// serverHtml composes the page's last line: whether the language server is
+// running, in the words the rest of the extension uses for its states, and,
+// while it runs, the version it reports about itself.
+//
+// 🔴 THE RUNNING SERVER REPORTS NO VERSION OF ITS OWN, SO THE LINE SAYS SO
+// RATHER THAN BORROWING ONE. Its answer when the extension connects names the
+// workspace it attached to and how positions are counted, and nothing about
+// which build it is. The Compiler reading above is a different fact — what the
+// binary the server was started from says when asked — and the two genuinely
+// differ when that file is replaced in place while the older process runs on,
+// so printing the binary's answer here would state as the server's something
+// the server never said. The words are the absent reading's own, so a reader
+// meets one phrase for "not reported" wherever the page uses it.
+//
+// No failure reason is drawn. The output channel carries it, as does the
+// notification a failed first start or restart raises, and the page is not
+// where a diagnosis belongs.
+export function serverHtml(reading: DaemonReading): string {
+  const version = reading === 'running'
+    ? `, <span class="version-value version-value-absent">${escapeHtml(VERSION_ABSENT)}</span>`
+    : '';
+  return `<span class="version-entry">${escapeHtml(SERVER_LABEL)} ${escapeHtml(DAEMON_READING_WORDS[reading])}${version}</span>`;
+}
+
 // WelcomeDocumentOptions carries the addresses the editor resolves for a panel's
 // own resources. They are plain strings so this module keeps no editor types,
 // and the caller passes what the webview gave it.
@@ -315,6 +344,9 @@ export interface WelcomeDocumentOptions {
   // versions is what the two pieces of software report about themselves, read
   // afresh by the caller for the same reason the standings are.
   versions: VersionStandings;
+  // server is what the language server's lifecycle reads as at the moment of
+  // composing, for the page's last line.
+  server: DaemonReading;
 }
 
 // welcomeDocumentHtml composes the whole panel.
@@ -328,12 +360,14 @@ export interface WelcomeDocumentOptions {
 // not partway through someone else's flow, and offering a way "back" to a page
 // they never came from would say they are.
 //
-// The versions sit last, below the foot control, because they are context rather
-// than anything to act on — and because the two things above them are what the
-// page is for. They are on this page rather than behind a control of their own:
-// one affordance already brings a reader here, and a second one whose whole
-// answer is two short strings would be a surface to learn for something that
-// fits on the one they are already looking at.
+// The versions and the language server's line sit last, below the foot control,
+// because they are context rather than anything to act on — and because the two
+// things above them are what the page is for. They are on this page rather than
+// behind a control of their own: one affordance already brings a reader here,
+// and a second one whose whole answer is a few short strings would be a surface
+// to learn for something that fits on the one they are already looking at. The
+// server's line is the very last, and a region of its own, because it moves on
+// the language server's lifecycle and nothing else.
 export function welcomeDocumentHtml(opts: WelcomeDocumentOptions): string {
   const csp = [
     `default-src 'none'`,
@@ -358,6 +392,7 @@ export function welcomeDocumentHtml(opts: WelcomeDocumentOptions): string {
     <div id="steps" class="steps">${stepsHtml(opts.readings, opts.collapsed)}</div>
     <div id="dismiss" class="welcome-dismiss">${dismissHtml(opts.opensWithEditor)}</div>
     <p id="versions" class="welcome-versions">${versionsHtml(opts.versions)}</p>
+    <p id="server" class="welcome-versions welcome-server">${serverHtml(opts.server)}</p>
   </main>
   <script nonce="${opts.nonce}" src="${opts.scriptUri}"></script>
 </body>

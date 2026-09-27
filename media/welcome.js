@@ -10,6 +10,7 @@
   const steps = document.getElementById('steps');
   const dismiss = document.getElementById('dismiss');
   const versions = document.getElementById('versions');
+  const server = document.getElementById('server');
 
   // remember tells the extension which sections are closed, so the next list it
   // composes arrives already in the shape the reader left rather than in the
@@ -81,12 +82,13 @@
   //
   // Each region is posted separately because they move on different events: a
   // condition changing re-draws the steps and leaves the foot alone, the
-  // preference changing does the reverse, and the compiler being restarted onto
-  // another binary moves only the versions.
+  // preference changing does the reverse, and the language server starting,
+  // stopping, restarting or failing moves only the versions and the line that
+  // says whether it is running.
   //
   // Each region is named in its own branch rather than looked up in a table
   // keyed by the message. A table indexed by an arriving name answers for every
-  // name on the object's prototype as well as the two intended, so a message
+  // name on the object's prototype as well as the ones intended, so a message
   // naming one of those would resolve to something that is not a region at all.
   // 🔴 REPLACING THE FOOT DESTROYS WHATEVER IN IT HAD FOCUS, AND THE FOOT IS THE
   // ONE CONTROL HERE THAT IS ORDINARILY OPERATED FROM THE KEYBOARD. Pressing the
@@ -112,10 +114,12 @@
     const message = event.data;
     if (!message) { return; }
     if (message.type === 'steps') { steps.innerHTML = message.html; return; }
-    // The versions hold nothing to press and nothing to focus, so they are
-    // swapped outright: there is no control here whose focus a replacement could
-    // take away, which is the one thing the foot has to be careful about.
+    // The versions and the server's line hold nothing to press and nothing to
+    // focus, so they are swapped outright: there is no control here whose focus a
+    // replacement could take away, which is the one thing the foot has to be
+    // careful about.
     if (message.type === 'versions') { versions.innerHTML = message.html; return; }
+    if (message.type === 'server') { server.innerHTML = message.html; return; }
     if (message.type === 'dismiss') { replaceFoot(message.html); }
   });
 })();

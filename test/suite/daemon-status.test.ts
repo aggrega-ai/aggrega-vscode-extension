@@ -10,8 +10,11 @@ import {
   DAEMON_ACTION_DETAIL,
   DAEMON_ACTION_LABEL,
   DAEMON_ACTION_PLACEHOLDER,
+  DAEMON_READING_WORDS,
   DAEMON_STANDING_IS_ALARMING,
   DAEMON_STANDING_LABEL,
+  DAEMON_STANDING_WORDS,
+  DaemonReading,
   DaemonStanding,
   DaemonStatusItemLike,
   GATED_ON_ANSWERABLE,
@@ -21,6 +24,7 @@ import {
   STATUS_BAR_MENU_COMMAND,
   TOGGLE_BUILD_ON_INSPECT_COMMAND,
   createDaemonStatusBar,
+  daemonReading,
   daemonStanding,
   daemonStandingAction,
   daemonStandingTooltip,
@@ -179,6 +183,94 @@ describe('what the language server\'s lifecycle looks like to a reader', () => {
         `${standing} is drawn as an icon alone, which says nothing to a reader who does not read icons`,
       );
     }
+  });
+});
+
+describe('what the welcome page\'s last line reads the lifecycle as', () => {
+  // The page's line has four readings where the indicator has three: a failed
+  // start is told apart from a server that is merely not running. This is that
+  // decision written out for every lifecycle position, and for no client at
+  // all, each with the last attempt having failed and not — none inferred, and
+  // the table checked against the enum so a position added later has nowhere to
+  // fall through to.
+  const POSITIONS: (DaemonState | null)[] = [null, ...Object.values(DaemonState)];
+  const EXPECTED: Record<string, { failed: DaemonReading; notFailed: DaemonReading }> = {
+    none: { failed: 'failedToStart', notFailed: 'notRunning' },
+    [DaemonState.Stopped]: { failed: 'failedToStart', notFailed: 'notRunning' },
+    [DaemonState.Stopping]: { failed: 'failedToStart', notFailed: 'notRunning' },
+    [DaemonState.Starting]: { failed: 'starting', notFailed: 'starting' },
+    [DaemonState.Restarting]: { failed: 'starting', notFailed: 'starting' },
+    [DaemonState.Running]: { failed: 'running', notFailed: 'running' },
+  };
+
+  it('covers every lifecycle position the client can be in, and no client', () => {
+    assert.deepStrictEqual(
+      Object.keys(EXPECTED).sort(),
+      POSITIONS.map((p) => p ?? 'none').sort(),
+      'a lifecycle position is unaccounted for, so what the page says in it is nobody\'s decision',
+    );
+  });
+
+  it('maps each position and each outcome of the last start onto the reading decided for it', () => {
+    for (const position of POSITIONS) {
+      const row = EXPECTED[position ?? 'none'];
+      assert.strictEqual(
+        daemonReading(position, true),
+        row.failed,
+        `${position ?? 'no client'} after a failed start no longer reads as ${row.failed}`,
+      );
+      assert.strictEqual(
+        daemonReading(position, false),
+        row.notFailed,
+        `${position ?? 'no client'} with no failed start no longer reads as ${row.notFailed}`,
+      );
+    }
+  });
+
+  // 🔴 THE FOURTH READING REFINES ONE STANDING AND NO OTHER. A failed start that
+  // is being retried is a server on its way up, and one that reached running has
+  // started; only a server that is not running can be one that failed to.
+  it('tells a failed start apart from a server that is merely not running', () => {
+    assert.notStrictEqual(daemonReading(DaemonState.Stopped, true), daemonReading(DaemonState.Stopped, false));
+    for (const position of POSITIONS) {
+      const standing = daemonStanding(position);
+      const reading = daemonReading(position, true);
+      if (standing === 'notRunning') {
+        assert.strictEqual(reading, 'failedToStart');
+      } else {
+        assert.strictEqual(reading, standing, `${position} is refined although it is not a not-running standing`);
+      }
+    }
+  });
+
+  // The words have one home. The indicator's label for each standing ends in
+  // the page's word for it, so the two surfaces cannot come to call one state
+  // two things; and the words are written out here so a rewording has to be
+  // made on purpose.
+  it('calls each state by one set of words on the indicator and the page', () => {
+    assert.deepStrictEqual(DAEMON_READING_WORDS, {
+      running: 'running',
+      starting: 'starting',
+      notRunning: 'not running',
+      failedToStart: 'failed to start',
+    });
+    for (const standing of Object.keys(DAEMON_STANDING_WORDS) as DaemonStanding[]) {
+      assert.strictEqual(DAEMON_READING_WORDS[standing], DAEMON_STANDING_WORDS[standing]);
+      assert.ok(
+        DAEMON_STANDING_LABEL[standing].endsWith(`Aggrega: ${DAEMON_STANDING_WORDS[standing]}`),
+        `the indicator calls ${standing} something other than the page does`,
+      );
+    }
+  });
+
+  // The indicator is unchanged by the page's fourth reading: the same three
+  // labels, byte for byte.
+  it('leaves the indicator\'s three labels as they were', () => {
+    assert.deepStrictEqual(DAEMON_STANDING_LABEL, {
+      running: '$(check) Aggrega: running',
+      starting: '$(sync~spin) Aggrega: starting',
+      notRunning: '$(error) Aggrega: not running',
+    });
   });
 });
 

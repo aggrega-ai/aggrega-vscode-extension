@@ -51,6 +51,7 @@ import {
   MenuContribution,
   commandsPanelTitleBar,
 } from '../helpers/title-bar';
+import { DAEMON_READING_WORDS, DaemonReading } from '../../src/daemon-status';
 import {
   COMPILER_VERSION_LABEL,
   EXTENSION_VERSION_LABEL,
@@ -62,6 +63,7 @@ import {
   dismissHtml,
   initiallyCollapsedStepIds,
   inlineHtml,
+  serverHtml,
   stepsHtml,
   toggleLabel,
   versionsHtml,
@@ -267,11 +269,14 @@ function manifest(): {
 // nothing about them composes the panel of a reader whose compiler is running.
 // The default is a value rather than an absence for the same reason
 // opensWithEditor's is: the common case should be what a caller gets for free.
+// server defaults to a running language server for the same reason, and to
+// agree with the versions beside it.
 function renderedPanel(
   readings: Record<StepId, StepReading>,
   collapsed: readonly StepId[] = [],
   opensWithEditor = true,
   versions: VersionStandings = { extension: '9.9.9', compiler: '8.8.8' },
+  server: DaemonReading = 'running',
 ): string {
   return welcomeDocumentHtml({
     nonce: 'test-nonce',
@@ -282,7 +287,22 @@ function renderedPanel(
     collapsed,
     opensWithEditor,
     versions,
+    server,
   });
+}
+
+// textOf is a composed fragment as a reader reads it: the markup removed and
+// nothing else touched, so an equality against it is an equality against the
+// words on the page.
+function textOf(html: string): string {
+  return html.replace(/<[^>]*>/g, '');
+}
+
+// regionText is the words one region of a composed page carries, or null where
+// the page has no such region.
+function regionText(page: string, id: string): string | null {
+  const region = new RegExp(`<p id="${id}"[^>]*>([\\s\\S]*?)</p>`).exec(page);
+  return region ? textOf(region[1]) : null;
 }
 
 // RETIRED_UNMET_WORD is the word the unmet standing used to read, kept here as
@@ -2209,6 +2229,78 @@ describe('the welcome panel', () => {
         `these hold the manifest's own version as a literal, so a release moves one of the two and `
         + `leaves the other: ${copies.join(', ')}`,
       );
+    });
+
+    // The page's last line says whether the language server is running and,
+    // while it runs, what it reports about its own version — which is nothing.
+    describe('its last line says whether the language server is running', () => {
+      // 🔴 THE LINES ARE LITERALS ON PURPOSE. A comparison whose expected side
+      // was composed from the page's own constants would move with them and
+      // pass a line that had dropped half of what it says; these are the words
+      // a reader is meant to read, held where an edit to the page cannot reach.
+      const LINE: Record<DaemonReading, string> = {
+        running: 'Language server running, version not reported',
+        starting: 'Language server starting',
+        notRunning: 'Language server not running',
+        failedToStart: 'Language server failed to start',
+      };
+
+      it('has a line for every reading the lifecycle is read as', () => {
+        assert.deepStrictEqual(
+          Object.keys(LINE).sort(),
+          Object.keys(DAEMON_READING_WORDS).sort(),
+          'a reading has no line decided for it, or a line names a reading nothing produces',
+        );
+      });
+
+      for (const [reading, line] of Object.entries(LINE) as [DaemonReading, string][]) {
+        it(`reads exactly "${line}" where the server reads as ${reading}`, () => {
+          assert.strictEqual(textOf(serverHtml(reading)), line);
+        });
+      }
+
+      // 🔴 THE VERSION ON THIS LINE IS THE RUNNING SERVER'S OWN, AND IT REPORTS
+      // NONE. The Compiler reading beside it is what the binary the server was
+      // started from says, and it is a different fact: the file at that path
+      // can be replaced while the older process runs on. So the page shows both,
+      // and the line never shows the binary's answer as though the server had
+      // given it.
+      it('says the running server reports no version, and leaves the binary\'s reading beside it', () => {
+        const page = renderedPanel(
+          stepReadings(EVERYTHING_MET),
+          [],
+          true,
+          { extension: '0.4.2', compiler: '1.9.3-rc1' },
+          'running',
+        );
+        assert.strictEqual(regionText(page, 'server'), LINE.running);
+        assert.strictEqual(regionText(page, 'versions'), 'Extension 0.4.2Compiler 1.9.3-rc1');
+      });
+
+      it('draws the missing version the way the page draws every reading it did not get', () => {
+        assert.ok(
+          serverHtml('running').includes(
+            `<span class="version-value version-value-absent">${VERSION_ABSENT}</span>`,
+          ),
+          'the running server\'s missing version is drawn unlike the page\'s other absent readings',
+        );
+      });
+
+      it('is the page\'s last line, beneath the versions', () => {
+        const page = renderedPanel(stepReadings(NOTHING_MET), [], true, {
+          extension: null,
+          compiler: null,
+        }, 'failedToStart');
+        const main = page.slice(page.indexOf('<main'), page.indexOf('</main>')).trimEnd();
+        const server = main.indexOf('<p id="server"');
+        assert.ok(server >= 0, 'the page carries no language server line');
+        assert.ok(
+          main.lastIndexOf('<p ') === server && main.endsWith('</p>'),
+          `the language server's line is not the last thing on the page:\n${main.slice(-300)}`,
+        );
+        assert.ok(main.indexOf('id="versions"') < server);
+        assert.strictEqual(regionText(page, 'server'), LINE.failedToStart);
+      });
     });
   });
 

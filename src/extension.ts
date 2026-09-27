@@ -70,7 +70,9 @@ import {
   RESTART_COMMAND,
   STATUS_BAR_MENU_COMMAND,
   TOGGLE_BUILD_ON_INSPECT_COMMAND,
+  DaemonReading,
   createDaemonStatusBar,
+  daemonReading,
   daemonStanding,
   daemonStandingAction,
 } from './daemon-status';
@@ -296,6 +298,24 @@ let operationsView: OperationsView | null = null;
 // workspace that is anchored but whose compiler will not start would otherwise
 // never publish the one condition it has met.
 let refreshGetStarted: (() => void) | null = null;
+// welcomeFollowsLifecycle redraws the welcome page's foot readings that follow
+// the language server — the line saying whether it is running, and the versions
+// — without re-reading the steps. It is called beside every refresh of the
+// lifecycle indicator, which is the set of points at which what the lifecycle
+// reads as can have moved: the one lifecycle subscription, and the places that
+// drop or settle the client outside it.
+let welcomeFollowsLifecycle: (() => void) | null = null;
+// droppedOnFailedStart records that there is no client because the last one
+// was dropped when its start failed.
+//
+// 🔴 IT IS A FACT ABOUT THIS EXTENSION'S OWN ACT, NOT A COPY OF THE CLIENT'S.
+// While a client exists it answers for its own most recent attempt, and that is
+// what is read. The one place a client is thrown away because its start failed
+// is the first start, and after that there is no client left to ask — so what
+// remains to be said, that the server failed to start and none has run since,
+// is said by this. A new client replaces it, and a deliberate teardown clears
+// it, because the extension then decided to run nothing here.
+let droppedOnFailedStart = false;
 
 // anchoredWorkspaceRoot is the folder the language server reported having
 // anchored to, or null before it has reported one.
@@ -323,6 +343,17 @@ function selectedRelease(): string | null {
 // come to disagree about what "running" means.
 function isLanguageServerRunning(): boolean {
   return daemon?.getState() === DaemonState.Running;
+}
+
+// languageServerReading is what the welcome page's last line reports: the
+// lifecycle position, refined by whether the most recent attempt to start
+// failed. It reads the client through its own getters and keeps no copy of
+// either fact.
+function languageServerReading(): DaemonReading {
+  return daemonReading(
+    daemon?.getState() ?? null,
+    daemon ? daemon.lastStartFailed() : droppedOnFailedStart,
+  );
 }
 
 // requireSelectedRelease tells the reader that an operation needs a Release and
@@ -717,7 +748,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // reader whose workspace has started nothing at all; what is registered here
   // is the reading of the four conditions, the controls that satisfy them, and
   // the opening of the panel itself.
-  refreshGetStarted = activateGetStarted(context, {
+  const welcome = activateGetStarted(context, {
     getWorkspaceRoot: () => workspaceRootForCommands,
     getBinaryPath: () => getSettings().binaryPath,
     isCompilerAnswering: isLanguageServerRunning,
@@ -746,8 +777,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     seedConfiguration: requestConfigInit,
     listRegistries: requestRegistryList,
     readVersions: readRunningVersions,
+    readServerStanding: languageServerReading,
     output: outputChannel,
   });
+  refreshGetStarted = welcome.refresh;
+  welcomeFollowsLifecycle = welcome.followLifecycle;
 
   // The status-bar indicator renders the editor's selected Release — the value
   // every request carries — so what the operator reads is the Release the
@@ -830,8 +864,10 @@ async function reactivate(context: vscode.ExtensionContext): Promise<void> {
   // And the same for the lifecycle indicator. Two of the four branches build no
   // client at all, so nothing there fires the lifecycle listener and the
   // indicator would otherwise go on reporting whatever it last saw — in the
-  // workspace where what it reports matters most.
+  // workspace where what it reports matters most. The welcome page's line saying
+  // whether the server is running reads the same lifecycle, so it moves with it.
   daemonStatusBar?.refresh();
+  welcomeFollowsLifecycle?.();
   // And the same again for the Commands panel, whose rows report how many
   // folders the window has open and how many of them Aggrega resolved a root
   // for. Both numbers are settled here and by nothing else. The branch that
@@ -991,6 +1027,7 @@ async function completeReachableWorkspaces(
   await applyActivationDecision(context, reached);
   refreshGetStarted?.();
   daemonStatusBar?.refresh();
+  welcomeFollowsLifecycle?.();
   operationsView?.refresh();
 }
 
@@ -1098,6 +1135,7 @@ async function ensureDaemonAt(
   );
 
   daemon = new Daemon(getSettings(), msg => outputChannel?.appendLine(msg));
+  droppedOnFailedStart = false;
   daemon.on('stoppedResponding', () => notifyStoppedResponding());
   daemon.on('stateChange', (next) => {
     if (next === DaemonState.Running || next === DaemonState.Restarting) {
@@ -1116,6 +1154,10 @@ async function ensureDaemonAt(
     // client's own getter, and it is refreshed from this listener rather than
     // from a second one of its own.
     daemonStatusBar?.refresh();
+    // The welcome page's last line reads four readings rather than three, and
+    // follows every move where the page's steps follow only the rising edge; it
+    // is still this one lifecycle, redrawn from this listener.
+    welcomeFollowsLifecycle?.();
   });
   daemon.on('notification:aggrega/publishDiagnostics', (params: PublishDiagnosticsParams) => {
     // 🔴 THIS DRIVES THE EDITOR'S PROBLEM LIST AND NOTHING ELSE. A view that
@@ -1175,6 +1217,9 @@ async function ensureDaemonAt(
   } catch (err) {
     notifyDaemonStartupFailed((err as Error).message);
     daemon = null;
+    // The client is dropped, and with it the record of its failed attempt; this
+    // is what goes on saying it, for the reason droppedOnFailedStart states.
+    droppedOnFailedStart = true;
     activeAnchored = null;
     return;
   }
@@ -1225,7 +1270,12 @@ async function stopDaemon(): Promise<void> {
   // The client is gone, so the last position it reported is no longer what is
   // true. Refreshing after the reference is dropped is what makes the indicator
   // read the absence rather than the memory.
+  //
+  // The teardown is deliberate, so whatever the last start did, what the page
+  // reports now is a server the extension decided not to run.
+  droppedOnFailedStart = false;
   daemonStatusBar?.refresh();
+  welcomeFollowsLifecycle?.();
 }
 
 // watchActiveReleaseMarker registers a callback against edits to the

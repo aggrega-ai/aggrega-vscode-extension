@@ -192,4 +192,47 @@ describe('Daemon spawn-error handling', function () {
     await assert.rejects(() => daemon.start('/tmp'));
     assert.strictEqual(daemon.getState(), DaemonState.Stopped);
   });
+
+  // 🔴 A FAILED ATTEMPT IS RECORDED BY THE CLIENT THAT MADE IT, AND A LISTENER
+  // TOLD OF THE NEXT POSITION ALREADY READS IT. Whatever reports the failure to a
+  // reader does so from the lifecycle event, so the record has to be in place
+  // before the position leaves Starting — and it has to answer for the most
+  // recent attempt, which is why a new attempt clears it on the way in.
+  it('records that its most recent start failed, before it reports the position that follows', async () => {
+    const { Daemon, DaemonState } = await import('../../src/daemon');
+    const { settingsFromObject } = await import('../../src/settings');
+    const daemon = new Daemon(
+      settingsFromObject({
+        binaryPath: '/nonexistent/aggrega-binary-that-does-not-exist',
+        respawnAttempts: 3,
+        respawnWindowSeconds: 60,
+      }),
+    );
+    assert.strictEqual(daemon.lastStartFailed(), false, 'a client that never tried reads as having failed');
+
+    const seen: [string, boolean][] = [];
+    daemon.on('stateChange', (next: string) => { seen.push([next, daemon.lastStartFailed()]); });
+
+    await assert.rejects(() => daemon.start('/tmp'));
+    assert.strictEqual(daemon.lastStartFailed(), true);
+    assert.deepStrictEqual(seen[0], [DaemonState.Starting, false]);
+    const after = seen.slice(1);
+    assert.ok(after.length > 0, `no position was reported after the attempt: ${JSON.stringify(seen)}`);
+    for (const [state, failed] of after) {
+      assert.strictEqual(
+        failed,
+        true,
+        `${state} was reported before the failure was recorded: ${JSON.stringify(seen)}`,
+      );
+    }
+
+    // A second attempt clears the record as it begins, and sets it again when it
+    // too fails.
+    seen.length = 0;
+    await assert.rejects(() => daemon.restart());
+    const starting = seen.find(([state]) => state === DaemonState.Starting);
+    assert.deepStrictEqual(starting, [DaemonState.Starting, false], 'a new attempt still reads as the last one having failed');
+    assert.strictEqual(daemon.lastStartFailed(), true);
+    assert.strictEqual(daemon.getState(), DaemonState.Stopped);
+  });
 });

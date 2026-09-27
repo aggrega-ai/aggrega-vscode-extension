@@ -217,6 +217,9 @@ export class Daemon extends EventEmitter {
   // rather than read from the settings on demand. getLaunchedBinaryPath says why
   // those are not the same value.
   private launchedBinaryPath: string | null = null;
+  // Whether the most recent attempt to start a subprocess ended in failure.
+  // lastStartFailed says what it covers and when it moves.
+  private startFailed = false;
 
   constructor(
     private settings: Settings,
@@ -251,6 +254,25 @@ export class Daemon extends EventEmitter {
   // the reader's requests.
   getLaunchedBinaryPath(): string | null {
     return this.proc === null ? null : this.launchedBinaryPath;
+  }
+
+  // lastStartFailed reports whether this client's most recent attempt to start a
+  // subprocess ended in failure.
+  //
+  // 🔴 IT IS RECORDED HERE, WHERE EVERY ATTEMPT IS MADE, RATHER THAN WHERE A
+  // CALLER CATCHES ONE. A start is attempted from three places — the first
+  // start, a restart, and the respawn after an unexpected exit — and all three
+  // run the one spawn-and-handshake below. The respawn's failure is caught inside
+  // this class and only logged, so a record kept by the callers that catch would
+  // miss exactly the attempt no caller hears about.
+  //
+  // It is cleared when an attempt begins rather than when one succeeds, so it
+  // answers for the MOST RECENT attempt: an attempt abandoned by a deliberate
+  // stop did not fail, and a server that reached Running cleared it on the way
+  // there. It is set before the state leaves Starting, so a listener told of
+  // the next position already reads it.
+  lastStartFailed(): boolean {
+    return this.startFailed;
   }
 
   // getServerInitMetadata returns the workspaceRoot + configSource
@@ -439,6 +461,7 @@ export class Daemon extends EventEmitter {
   }
 
   private async spawnAndInitialize(): Promise<void> {
+    this.startFailed = false;
     this.setState(DaemonState.Starting);
     const launching = this.settings.binaryPath;
     try {
@@ -447,6 +470,7 @@ export class Daemon extends EventEmitter {
         stdio: ['pipe', 'pipe', 'pipe'],
       });
     } catch (err) {
+      this.startFailed = true;
       this.setState(DaemonState.Stopped);
       throw err;
     }
@@ -461,6 +485,7 @@ export class Daemon extends EventEmitter {
     try {
       await this.initializeHandshake();
     } catch (err) {
+      this.startFailed = true;
       this.log(`initialize failed: ${(err as Error).message}; falling back to UTF-16`);
       this.serverEncoding = 'utf-16';
       // Move to Stopping before killing the child so its 'exit' event is

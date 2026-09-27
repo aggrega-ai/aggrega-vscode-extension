@@ -2,6 +2,7 @@
 // Copyright 2026 Cognitio S.r.l.
 
 import * as vscode from 'vscode';
+import { DAEMON_READING_WORDS } from './daemon-status';
 
 // CacheMissDecision is the user's response to the cache-miss
 // notification: Revalidate triggers a fresh validate+retry, Dismiss
@@ -31,6 +32,12 @@ export function notifyStoppedResponding(): void {
 // notifyDaemonStartupFailed surfaces a one-shot error when the
 // daemon exits during or right after spawn (workspace-config-missing,
 // binary-not-found, etc.).
+//
+// The words for the failure are the welcome page's own for the same state, so
+// a reader told here that the server failed to start finds the page saying so
+// in the same words.
 export function notifyDaemonStartupFailed(reason: string): void {
-  vscode.window.showErrorMessage(`Aggrega language server failed to start: ${reason}`);
+  vscode.window.showErrorMessage(
+    `Aggrega language server ${DAEMON_READING_WORDS.failedToStart}: ${reason}`,
+  );
 }
