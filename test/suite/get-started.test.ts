@@ -44,6 +44,7 @@ import {
   typeOnlyImports,
   valueImports,
 } from '../helpers/launch-census';
+import { cssRuleBody } from '../helpers/stylesheet';
 import {
   COMMANDS_PANEL_VIEW,
   COMMANDS_TITLE_BAR_ENTRIES,
@@ -416,23 +417,6 @@ function proseRegionOf(section: string): string {
 // the file the document links rather than restated here.
 function welcomeCss(): string {
   return fs.readFileSync(path.join(EXTENSION_ROOT, 'media', 'welcome.css'), 'utf8');
-}
-
-// cssRuleBody returns the body of the rule whose selector list names exactly
-// the selector given, or null where no rule does.
-//
-// 🔴 EXACTLY, NOT AS A SUBSTRING. A rule for `.step-value-absent` contains the
-// text of `.step-value`, so a substring match would read one rule's body as the
-// other's and an assertion about the value's own treatment would pass on a rule
-// about something else. Comments are dropped first, because these stylesheets
-// carry their reasoning in prose that names selectors.
-function cssRuleBody(css: string, selector: string): string | null {
-  const withoutComments = css.replace(/\/\*[\s\S]*?\*\//g, '');
-  for (const match of withoutComments.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
-    const selectors = match[1].split(',').map((s) => s.trim());
-    if (selectors.includes(selector)) { return match[2]; }
-  }
-  return null;
 }
 
 // remIn reads one declaration's value in rem, or null where the rule does not

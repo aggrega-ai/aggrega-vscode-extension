@@ -204,12 +204,17 @@ body {
    How many lines it takes is decided by the width and the labels, and by
    nothing else. NO BREAK IS EVER FORCED: a break written in here would hold at
    the width it was written for and be wrong at every other one, and it would
-   break the wrapping the whole shape depends on. */
+   break the wrapping the whole shape depends on.
+
+   The space between two controls is named once, because a button and the caret
+   held together with it are spaced by it too: they then sit exactly as far
+   apart as any control sits from the next, and cannot come to differ. */
 .ops-flow {
+  --ops-flow-gap: 0.35rem;
   flex-direction: row;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.35rem;
+  gap: var(--ops-flow-gap);
   padding: 0 0.6rem;
 }
 
@@ -252,9 +257,10 @@ body {
    control rather than as another operation competing for the reader's scan — and
    so the flow spends almost none of its width on it.
 
-   It never shrinks and never wraps, on the same terms as the button beside it:
-   the flow wraps between controls, and a caret that could be pushed onto the
-   next line would sit under a button other than its own. */
+   It never shrinks and never wraps inside itself, on the same terms as the
+   button beside it. What keeps it on its button's line is not written here: the
+   flow may end a line between any two of its items, so the caret is held beside
+   its button by the unit the two are drawn in, below. */
 .op-caret {
   flex: 0 0 auto;
   display: inline-flex;
@@ -278,6 +284,25 @@ body {
 .op-caret:focus-visible {
   outline: 1px solid var(--vscode-focusBorder);
   outline-offset: 1px;
+}
+
+/* A button and the caret beside it, held together as ONE item of the flow, so
+   the pair wraps as a whole or not at all. Drawn as two items, the flow could
+   end a line between them — the button at the end of one line, its caret alone
+   at the start of the next, reading as part of whatever sits beside it — and no
+   rule on either control prevents that, because a wrapping row breaks between
+   its items and never inside one. So the pair is one item: it does not shrink,
+   and its own two controls never wrap.
+
+   It spaces them with the flow's own gap and draws nothing of its own — no
+   border, no background, no padding — so the pair looks exactly like the two
+   controls standing side by side. */
+.ops-flow .op-pair {
+  flex: 0 0 auto;
+  display: inline-flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: var(--ops-flow-gap);
 }
 
 /* --- a section per group ------------------------------------------------- */
@@ -354,6 +379,14 @@ body {
   background: none;
   border-radius: 0;
   padding: 0 0.6rem 0 2.5rem;
+}
+
+/* The unit a button and its caret are drawn in is a plain block here, so each
+   of its two controls keeps the full width of a row and the caret stays the
+   row beneath its button. Nothing wraps in this shape, so the unit changes
+   nothing a reader sees. */
+.groups-sections .op-pair {
+  display: block;
 }
 
 .groups-sections .op-caret:hover {

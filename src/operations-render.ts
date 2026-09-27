@@ -64,7 +64,8 @@ import {
 // Build gets a build with the current settings, with no dialog and no choice in
 // the way. The caret is therefore a control of its own, drawn immediately after
 // the button in both shapes and in the roving walk, carrying no command because
-// nothing it does reaches the compiler.
+// nothing it does reaches the compiler — and drawn together with the button in
+// one unit, so the flow's wrapping moves the two as one.
 
 // PANEL_TITLE is the document's title. The view's own name comes from the
 // manifest; this is what a reader's assistive technology announces for the
@@ -307,7 +308,45 @@ function dialsDrawnFor(
   if (dials === null) { return ''; }
   const control = dialsControlId(op.id);
   const on = dials.filter((dial) => body.dials.includes(dial.value)).length;
-  return `\n    ${dialsCaretHtml(op, control === rovingKey, on)}`;
+  return dialsCaretHtml(op, control === rovingKey, on);
+}
+
+// operationEntryHtml draws one operation as a reader meets it: its button and,
+// where the next press can be adjusted, the caret beside it — the two drawn as
+// ONE unit. Both shapes draw every entry through here, so which controls are
+// held together is decided once.
+//
+// 🔴 THE UNIT IS AN ELEMENT OF ITS OWN BECAUSE ADJACENCY DOES NOT KEEP TWO
+// CONTROLS ON ONE LINE. The flow is a wrapping row, and a wrapping row may end a
+// line between ANY two of its items, so a button and a caret drawn as two items
+// side by side are parted by the wrapping at some width: the button ends one
+// line and its caret starts the next, where it reads as belonging to whatever
+// sits beside it. No rule written on either control prevents that — only a
+// single item is never broken across lines — so the pair is made one item, and
+// the stylesheet keeps its two controls on one line inside it.
+//
+// The unit is drawn ONLY where a caret is. An operation that offers no
+// adjustments, and one whose caret is withheld because it cannot run, is its
+// button alone, exactly as every other entry is. The unit carries no role, no
+// name and no focus key, so it adds nothing a reader is told about or can stop
+// on: the walk, the names and the presses remain the two controls' own.
+function operationEntryHtml(
+  op: OperationDef,
+  group: OperationGroupId,
+  body: OperationsBody,
+  rovingKey: string | null,
+): string {
+  const button = operationHtml(
+    op,
+    group,
+    body.unavailable[op.id] ?? null,
+    commandIdFor(op) === rovingKey,
+  );
+  const caret = dialsDrawnFor(op, body, rovingKey);
+  if (caret === '') { return button; }
+  return `<span class="op-pair">${button}
+    ${caret}
+    </span>`;
 }
 
 // menuOptionHtml draws one choice.
@@ -540,16 +579,10 @@ function buttonsFlowHtml(
   const pieces: string[] = [];
   for (const group of OPERATION_GROUPS) {
     for (const op of group.operations) {
-      // The caret is appended to the operation's own piece rather than pushed as
-      // one of its own, so the two are adjacent in the flow by construction: a
-      // control and the adjustments to it cannot be separated by the wrapping,
-      // because there is nothing between them to wrap at.
-      pieces.push(operationHtml(
-        op,
-        group.id,
-        body.unavailable[op.id] ?? null,
-        commandIdFor(op) === rovingKey,
-      ) + dialsDrawnFor(op, body, rovingKey));
+      // One piece per operation, and a caret is inside its button's piece rather
+      // than a piece of its own: the entry is one item of the flow, so the
+      // wrapping moves a button and the adjustments to it together.
+      pieces.push(operationEntryHtml(op, group.id, body, rovingKey));
     }
   }
   return `<div class="groups ops-flow" role="toolbar" aria-label="${escapeHtml(FLOW_LABEL)}" aria-orientation="horizontal" data-flow data-roving data-orientation="horizontal">
@@ -571,12 +604,7 @@ function sectionsGroupHtml(
   const open = !body.collapsed.includes(group.id);
   const toggleKey = `toggle:${group.id}`;
   const controls = group.operations
-    .map((op) => operationHtml(
-      op,
-      group.id,
-      body.unavailable[op.id] ?? null,
-      commandIdFor(op) === rovingKey,
-    ) + dialsDrawnFor(op, body, rovingKey))
+    .map((op) => operationEntryHtml(op, group.id, body, rovingKey))
     .join('\n    ');
   return `<section class="${groupClasses(group)}" role="group" aria-labelledby="grp-${group.id}" data-group="${group.id}">
   <button class="section-head" type="button" id="grp-${group.id}" aria-expanded="${open}" aria-controls="sec-${group.id}" tabindex="${toggleKey === rovingKey ? '0' : '-1'}" data-toggle="${group.id}" data-focus-key="${toggleKey}">

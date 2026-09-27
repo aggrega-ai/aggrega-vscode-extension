@@ -2,10 +2,13 @@
 // Copyright 2026 Cognitio S.r.l.
 
 import * as assert from 'node:assert';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 
 import {
   CACHE_OPERATIONS,
   OPERATION_GROUPS,
+  OperationDef,
   OperationId,
   OperationsLayout,
   allOperations,
@@ -29,6 +32,8 @@ import {
   rowCommands,
   selectorRows,
 } from '../../src/selector-rows';
+import { EXTENSION_ROOT } from '../helpers/launch-census';
+import { cssRuleBody, declarationOf } from '../helpers/stylesheet';
 
 // The composer holds no editor type, so every assertion here reads back exactly
 // the markup a reader is shown. What no test in this repository can reach is
@@ -140,12 +145,120 @@ function flowOf(html: string): string {
 // different class, as a different element, or as a bare character would pass it;
 // a residue reports whatever is there. Buttons do not nest, so removing each
 // complete button cannot swallow anything that sat outside one.
+//
+// The unit a button and its caret are drawn in is taken apart first, and ONLY
+// where it holds exactly an operation's button followed by a caret: it is how
+// those two controls are drawn rather than something between them. A unit
+// holding anything else, or wrapped around any other control, is left in place
+// and comes back as residue — so the unwrapping cannot become the route by which
+// something is drawn among the buttons unseen.
 function betweenTheButtonsOf(html: string): string {
   return flowOf(html)
     .replace(/^<div\b[^>]*>/, '')
     .replace(/<\/div>[\s\S]*$/, '')
+    .replace(pairHoldingExactlyTwo(), '$1$2')
     .replace(/<button\b[\s\S]*?<\/button>/g, '')
     .trim();
+}
+
+// PAIR_CLASS is the class of the unit a button and its caret are drawn in, and
+// PAIR_OPENING is that unit's whole opening tag: a class, and nothing a reader
+// is told about or can stop on.
+const PAIR_CLASS = 'op-pair';
+const PAIR_OPENING = `<span class="${PAIR_CLASS}">`;
+
+// pairHoldingExactlyTwo matches one unit holding an operation's button and then
+// a caret, with nothing but whitespace around or between them, capturing the
+// two. Built fresh per call, because a global expression carries a position
+// from one use to the next.
+function pairHoldingExactlyTwo(): RegExp {
+  return new RegExp(
+    `${PAIR_OPENING}\\s*(<button class="op"[\\s\\S]*?</button>)\\s*`
+      + '(<button class="op-caret"[\\s\\S]*?</button>)\\s*</span>',
+    'g',
+  );
+}
+
+// controlOf names one complete button by what it is: `op:<command>` for an
+// operation, `caret:<holder>` for the caret beside one, and its opening tag for
+// anything else — so a control of some third kind is reported as itself rather
+// than taken for one of the two.
+function controlOf(button: string): string {
+  const tag = /^<button [^>]*>/.exec(button)?.[0] ?? button;
+  if (tag.startsWith('<button class="op-caret"')) {
+    return `caret:${/data-dials="([^"]*)"/.exec(tag)?.[1] ?? '?'}`;
+  }
+  if (tag.startsWith('<button class="op"')) {
+    return `op:${/data-command="([^"]*)"/.exec(tag)?.[1] ?? '?'}`;
+  }
+  return tag;
+}
+
+// entriesIn reads, in order, what a container holds DIRECTLY — from just inside
+// its opening tag up to its own closing tag — naming each complete button by
+// what it is, and the unit a button and its caret are drawn in as
+// `pair(<a>, <b>)`, with whatever that unit holds read the same way.
+//
+// 🔴 IT READS STRUCTURE, NOT PRESENCE. Anything that is neither a button nor
+// that unit's exact opening tag is reported as `other:<its opening tag>` and
+// ends the read, so a wrapper of another kind, a unit that gained an attribute,
+// or anything drawn among the controls comes back as what it is and fails the
+// comparison rather than being stepped over. Buttons do not nest, so a lazy
+// match to the first closing tag is one whole button.
+function entriesIn(markup: string, closing: string): { entries: string[]; rest: string } {
+  const entries: string[] = [];
+  let rest = markup;
+  for (;;) {
+    rest = rest.trimStart();
+    if (rest.startsWith(closing)) { return { entries, rest: rest.slice(closing.length) }; }
+    const button = /^<button\b[\s\S]*?<\/button>/.exec(rest);
+    if (button !== null) {
+      entries.push(controlOf(button[0]));
+      rest = rest.slice(button[0].length);
+      continue;
+    }
+    if (rest.startsWith(PAIR_OPENING)) {
+      const inner = entriesIn(rest.slice(PAIR_OPENING.length), '</span>');
+      entries.push(`pair(${inner.entries.join(', ')})`);
+      rest = inner.rest;
+      continue;
+    }
+    entries.push(`other:${/^<[^>]*>/.exec(rest)?.[0] ?? rest.slice(0, 60)}`);
+    return { entries, rest: '' };
+  }
+}
+
+// flowEntriesOf reads what the flow holds directly.
+function flowEntriesOf(html: string): string[] {
+  const flow = flowOf(html);
+  const opening = /^<div\b[^>]*>/.exec(flow);
+  assert.ok(opening !== null, 'the flow has no opening tag to read inside');
+  return entriesIn(flow.slice(opening[0].length), '</div>').entries;
+}
+
+// sectionEntriesOf reads what each section's body holds directly, one list per
+// group, in document order.
+function sectionEntriesOf(html: string): string[][] {
+  return Array.from(html.matchAll(/<div class="section-body"[^>]*>/g))
+    .map((m) => entriesIn(html.slice((m.index ?? 0) + m[0].length), '</div>').entries);
+}
+
+// entriesExpected is what a container must hold for a run of operations: each
+// operation's button alone, except that an operation in the literal list of
+// adjustable ones, while it can run, is ONE unit holding its button and then
+// its caret, and nothing else.
+function entriesExpected(ops: OperationDef[], cannotRun: OperationId[] = []): string[] {
+  return ops.map((op) => {
+    const button = `op:${commandIdFor(op)}`;
+    const adjustable = DIALS_RULED.some((ruled) => ruled.holder === op.id);
+    return adjustable && !cannotRun.includes(op.id) ? `pair(${button}, caret:${op.id})` : button;
+  });
+}
+
+// operationsCss is the stylesheet the panel is drawn through, read from the file
+// the document links rather than restated here.
+function operationsCss(): string {
+  return fs.readFileSync(path.join(EXTENSION_ROOT, 'media', 'operations.css'), 'utf8');
 }
 
 // MENUS_RULED is the set of controls that answer a press by offering a choice
@@ -400,8 +513,8 @@ describe('the Commands panel document', () => {
     );
     // A closed set over what the flow is built from, so a title cannot arrive
     // as some element the checks above do not name. The container, the
-    // controls, and the spans that are their icons, their labels and their
-    // reasons — and nothing else.
+    // controls, and the spans that are their icons, their labels, their reasons
+    // and the unit holding a button together with its caret — and nothing else.
     //
     // Asserted this way rather than by searching for each group's name as
     // content, which cannot work: one group is called Build and so is one of
@@ -1770,7 +1883,9 @@ describe('a button whose next press can be adjusted', () => {
     // nothing between the two but whitespace — because the flow wraps at
     // whatever width the reader drags the panel to, and a caret with another
     // control between it and its button could wrap onto a line under a button
-    // that is not its own.
+    // that is not its own. Adjacency alone does not keep the two on one line,
+    // though: a wrapping row may end a line between any two of its items, which
+    // is why they are drawn as one unit — the clause below.
     for (const layout of BOTH) {
       const html = operationsBodyHtml(body({ layout }));
       for (const ruled of DIALS_RULED) {
@@ -1786,6 +1901,126 @@ describe('a button whose next press can be adjusted', () => {
         );
       }
     }
+  });
+
+  it('🔴 holds each button and its caret in ONE unit, and draws no unit around anything else', () => {
+    // The flow is a wrapping row, and a wrapping row may end a line between ANY
+    // two of its items. A caret drawn as an item of its own beside its button is
+    // therefore parted from it at some width — the button ends one line and the
+    // caret starts the next, alone, reading as belonging to whatever sits beside
+    // it. So the two are drawn as one item, and the flow moves them together.
+    //
+    // Asserted as an EQUALITY over everything each container holds directly, in
+    // both shapes, against the literal list of adjustable operations rather than
+    // the description the composer reads: every one of them is a unit holding
+    // its button and then its caret and nothing else, and every other operation
+    // is its button alone. A unit missing, a caret left outside its unit, a
+    // third thing inside one, and a unit around an operation that has no caret
+    // each change the comparison.
+    const flow = operationsBodyHtml(body({ layout: 'buttons' }));
+    assert.deepStrictEqual(
+      flowEntriesOf(flow), entriesExpected(allOperations()),
+      'the flow does not hold each adjustable button and its caret as one unit, and every other button alone',
+    );
+    const sections = operationsBodyHtml(body({ layout: 'sections' }));
+    assert.deepStrictEqual(
+      sectionEntriesOf(sections),
+      OPERATION_GROUPS.map((group) => entriesExpected(group.operations)),
+      'a section does not hold each adjustable button and its caret as one unit, and every other button alone',
+    );
+    // THE UNIT IS A CLASS AND NOTHING ELSE — no role, no name, no tab index and
+    // no focus key — so a reader is told nothing about it and cannot stop on it,
+    // and the walk, the names and the presses stay the two controls' own. Read
+    // off every element carrying the class, so a unit drawn under a different
+    // opening tag is counted here rather than missed.
+    for (const html of [flow, sections]) {
+      assert.deepStrictEqual(
+        Array.from(html.matchAll(new RegExp(`<[a-z]+ [^>]*\\b${PAIR_CLASS}\\b[^>]*>`, 'g'))).map((m) => m[0]),
+        DIALS_RULED.map(() => PAIR_OPENING),
+        'the unit carries something besides its class, or is drawn other than once per adjustable button',
+      );
+    }
+    // A negative control on the comparison: the expectation holds units AND bare
+    // buttons, so the equalities above are not between two lists of one kind.
+    const expected = entriesExpected(allOperations());
+    assert.strictEqual(
+      expected.filter((entry) => entry.startsWith('pair(')).length, DIALS_RULED.length,
+      'the expectation holds no unit, so the comparison cannot see one missing',
+    );
+    assert.strictEqual(
+      expected.filter((entry) => entry.startsWith('op:')).length,
+      allOperations().length - DIALS_RULED.length,
+      'the expectation holds no bare button, so the comparison cannot see a unit drawn around one',
+    );
+  });
+
+  it('draws a button that cannot run as its button alone, with no unit around it', () => {
+    // The caret is withdrawn from a button that cannot run, so there is no pair
+    // left to hold together — and a unit drawn around the button by itself would
+    // be an element the reader's panel carries for nothing. It is drawn exactly as
+    // a button that has no adjustments is.
+    const cannotRun = DIALS_RULED.map((ruled) => ruled.holder);
+    const unavailable: Partial<Record<OperationId, string | null>> = {};
+    for (const holder of cannotRun) { unavailable[holder] = NO_RELEASE_SELECTED_CONTROL_REASON; }
+    const flow = operationsBodyHtml(body({ layout: 'buttons', unavailable }));
+    assert.deepStrictEqual(
+      flowEntriesOf(flow), entriesExpected(allOperations(), cannotRun),
+      'the flow draws a unit around a button that cannot run, or no longer holds that button directly',
+    );
+    const sections = operationsBodyHtml(body({ layout: 'sections', unavailable }));
+    assert.deepStrictEqual(
+      sectionEntriesOf(sections),
+      OPERATION_GROUPS.map((group) => entriesExpected(group.operations, cannotRun)),
+      'a section draws a unit around a button that cannot run, or no longer holds that button directly',
+    );
+    for (const html of [flow, sections]) {
+      assert.strictEqual(
+        occurrences(html, new RegExp(`\\b${PAIR_CLASS}\\b`)), 0,
+        'a unit is drawn although no button beside a caret can run',
+      );
+    }
+  });
+
+  it('keeps the unit on one line in the stylesheet the panel loads, spaced as any two controls are', () => {
+    // The markup makes the pair ONE item of the flow; what holds that item's two
+    // controls on one line is the stylesheet, where the wrapping is decided — so
+    // it is read from the file the document links, each declaration exactly, by
+    // selector and by property.
+    const css = operationsCss();
+    const flow = cssRuleBody(css, '.ops-flow');
+    const unit = cssRuleBody(css, `.ops-flow .${PAIR_CLASS}`);
+    assert.ok(flow !== null, 'the stylesheet lays out no flow');
+    assert.ok(unit !== null, 'the stylesheet lays out no unit inside the flow, so the pair is drawn as two items');
+    // A negative control: the flow itself wraps, so what the unit declares is
+    // what keeps the pair together rather than a flow that never wraps at all.
+    assert.strictEqual(declarationOf(flow, 'flex-wrap'), 'wrap', 'the flow does not wrap, so nothing here is tested');
+    assert.strictEqual(declarationOf(unit, 'display'), 'inline-flex', 'the unit does not lay its two controls out in a row');
+    assert.strictEqual(declarationOf(unit, 'flex-wrap'), 'nowrap', 'the unit lets its own two controls wrap apart');
+    assert.strictEqual(
+      declarationOf(unit, 'flex'), '0 0 auto',
+      'the unit can grow or shrink, so a narrow line squeezes the pair instead of moving it whole',
+    );
+    // Spaced by the flow's own gap and drawing nothing of its own, so the caret
+    // sits exactly as far from its button as any control sits from the next.
+    assert.notStrictEqual(declarationOf(flow, 'gap'), null, 'the flow declares no gap to compare against');
+    assert.strictEqual(
+      declarationOf(unit, 'gap'), declarationOf(flow, 'gap'),
+      'the caret sits a different distance from its button than any control sits from the next',
+    );
+    for (const property of ['padding', 'margin', 'border', 'background']) {
+      assert.strictEqual(
+        declarationOf(unit, property), null,
+        `the unit declares a ${property} of its own, so the pair no longer looks like the two controls side by side`,
+      );
+    }
+    // In the section shape the unit is a plain block, so the caret stays the
+    // full-width row beneath its button.
+    const rows = cssRuleBody(css, `.groups-sections .${PAIR_CLASS}`);
+    assert.ok(rows !== null, 'the stylesheet does not lay out the unit in the section shape');
+    assert.strictEqual(
+      declarationOf(rows, 'display'), 'block',
+      'the section shape does not keep the caret as the full-width row beneath its button',
+    );
   });
 
   it('gives the caret no command, no group, and a place in the roving walk', () => {
