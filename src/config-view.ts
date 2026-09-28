@@ -143,8 +143,9 @@ export function activateConfigPanel(
         'Aggrega configuration',
         vscode.ViewColumn.Active,
         {
-          // The document runs no script: it reports, and its one control is a
-          // link the editor resolves rather than something the page handles.
+          // The document runs no script: it reports, its one control reaching a
+          // command is a link the editor resolves, and its column grips are
+          // resized by the editor itself rather than by anything the page runs.
           // Leaving scripts disabled is what makes that structural rather than a
           // property of the markup as it stands today.
           enableScripts: false,

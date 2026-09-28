@@ -6,8 +6,10 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 import {
+  COLUMN_GRIP_CLASS,
   PRESENTATION_MEMENTO_KEY,
   PRESENTATION_TOGGLE_COMMAND,
+  configDocumentHtml,
   configPanelBodyHtml,
   configTableHtml,
   shapePhrase,
@@ -24,6 +26,9 @@ import {
   sourceLabel,
 } from '../../src/config-model';
 import { ConfigControl } from '../../src/config-schema';
+import { blockAfter, sourceOf } from '../helpers/graph-refresh-census';
+import { EXTENSION_ROOT } from '../helpers/launch-census';
+import { cssRuleBody, declarationOf } from '../helpers/stylesheet';
 
 // The fixture is SYNTHETIC, for the same two reasons the generator's own
 // fixtures are: the subject is the table rather than any one schema, and reading
@@ -274,8 +279,9 @@ describe('every setting drawn as one row of one table', () => {
   it('is a table a reader using a screen reader can navigate', () => {
     assert.ok(html.includes('<caption>'), 'the table carries no caption');
     // A header cell scoped to its column is what lets a screen reader announce
-    // which column a cell belongs to while moving across a row.
-    const headers = Array.from(html.matchAll(/<th scope="col">/g)).length;
+    // which column a cell belongs to while moving across a row. The opening is
+    // matched up to the scope, because a labelled heading also carries its grip.
+    const headers = Array.from(html.matchAll(/<th scope="col"[ >]/g)).length;
     assert.strictEqual(headers, 8, 'a column carries no scoped header');
   });
 });
@@ -457,5 +463,120 @@ describe('the derivations both presentations read', () => {
       'hub',
     );
     assert.strictEqual(setValue({ ...row, provenance: { kind: 'unattributed' }, value: undefined }), undefined);
+  });
+});
+
+describe('the columns a reader resizes, in a document that runs no script', () => {
+  const model = configPanelModel(SCHEMA, REPORT);
+  const CSP_SOURCE = 'vscode-resource:';
+  const html = configDocumentHtml({
+    model,
+    presentation: 'table',
+    nonce: 'NONCE',
+    styleUri: 'vscode-resource://media/config.css',
+    cspSource: CSP_SOURCE,
+  });
+
+  // The stylesheet is read from the file the panel links, because whether a
+  // heading can be dragged is decided there and nowhere in the markup.
+  const css = fs.readFileSync(path.join(EXTENSION_ROOT, 'media', 'config.css'), 'utf8');
+
+  // headings reads the table's header row back as the words each heading
+  // carries and its opening tag, in the order drawn.
+  function headings(page: string): [string, string][] {
+    const head = page.match(/<thead>([\s\S]*?)<\/thead>/);
+    assert.ok(head, 'the document draws no table header');
+    return Array.from(head[1].matchAll(/(<th\b[^>]*>)([\s\S]*?)<\/th>/g))
+      .map((m): [string, string] => [text(m[2]), m[1]]);
+  }
+
+  it('makes every labelled heading its column\'s grip, and the unlabelled one not', () => {
+    // Written out rather than read from the source, so a heading dropped or
+    // renamed there changes what is drawn without changing what is expected.
+    const labelled = ['Setting', 'Name', 'Set', 'Default', 'Effective', 'Takes', 'Source'];
+    assert.deepStrictEqual(headings(html), [
+      ...labelled.map((label): [string, string] => [label, `<th scope="col" class="${COLUMN_GRIP_CLASS}">`]),
+      ['What it means', '<th scope="col">'],
+    ]);
+  });
+
+  it('resizes a heading carrying the grip by dragging, and adds nothing to it until then', () => {
+    const grip = cssRuleBody(css, `.config-table th.${COLUMN_GRIP_CLASS}`);
+    assert.ok(grip !== null, 'the stylesheet has no rule for the grip, so no heading can be dragged');
+    assert.strictEqual(
+      declarationOf(grip, 'resize'), 'horizontal',
+      'a heading carrying the grip cannot be resized sideways',
+    );
+    // Resizing applies only to an element whose overflow is not visible.
+    assert.strictEqual(
+      declarationOf(grip, 'overflow'), 'hidden',
+      'the grip\'s overflow is not hidden, so the resizing rule may apply to nothing',
+    );
+    // 🔴 NOTHING THAT TAKES ROOM. With nothing dragged the table must lay out as
+    // it would without a grip, so the rule declares no size and no box edge of
+    // its own.
+    for (const property of ['width', 'min-width', 'max-width', 'padding', 'padding-right', 'margin', 'border', 'border-right']) {
+      assert.strictEqual(
+        declarationOf(grip, property), null,
+        `the grip declares a ${property}, so the table no longer lays out as it does before a drag`,
+      );
+    }
+    // The table is laid out from its content, which is what holds a column to
+    // the width a drag sets on its heading. A fixed layout would size every
+    // column from the header row alone, dragged or not.
+    const table = cssRuleBody(css, '.config-table');
+    assert.ok(table !== null, 'the stylesheet has no rule for the table');
+    assert.strictEqual(declarationOf(table, 'width'), '100%', 'the rule read is not the table\'s own');
+    assert.strictEqual(declarationOf(table, 'table-layout'), null, 'the table no longer lays out from its content');
+  });
+
+  it('reads the stylesheet the panel loads', () => {
+    // The needle on the file read above: the panel links this stylesheet, so
+    // what its rules say is what a reader is drawn through.
+    const compose = blockAfter(sourceOf('src/config-view.ts'), 'const compose = ');
+    assert.ok(
+      compose !== null && compose.includes('configDocumentHtml('),
+      'the composition of the panel\'s document was not found',
+    );
+    assert.ok(
+      compose.includes(`'media', 'config.css'`),
+      'the panel links a different stylesheet from the one read here',
+    );
+  });
+
+  it('admits no script source, draws no script, and is created with scripts off', () => {
+    const policy = html.match(/<meta http-equiv="Content-Security-Policy" content="([^"]*)">/);
+    assert.ok(policy, 'the document carries no content policy');
+    assert.strictEqual(
+      policy[1],
+      `default-src 'none'; style-src ${CSP_SOURCE}; font-src ${CSP_SOURCE}`,
+      'the content policy is not the stylesheet-and-font policy with no script source',
+    );
+    assert.strictEqual(Array.from(html.matchAll(/<script/g)).length, 0, 'the document carries a script');
+
+    const view = sourceOf('src/config-view.ts');
+    const options = blockAfter(view, 'vscode.window.createWebviewPanel(');
+    assert.ok(options !== null, 'the panel\'s creation was not found');
+    // The needle on the extraction: the options end with the resource roots, so
+    // a block that stopped short fails here rather than reporting an absence.
+    assert.ok(
+      options.includes('localResourceRoots:'),
+      'the extracted block is not the whole of the panel\'s options',
+    );
+    assert.strictEqual(
+      options.match(/\benableScripts:\s*([^,\s]+),/)?.[1], 'false',
+      'the panel is created with scripts on',
+    );
+    assert.strictEqual(
+      options.match(/\benableCommandUris:\s*(\[[^\]]*\])/)?.[1], '[PRESENTATION_TOGGLE_COMMAND]',
+      'the panel admits command links other than the one control\'s',
+    );
+    // One creation and one statement about scripts in the whole module, so
+    // nothing else in it turns them on.
+    assert.strictEqual(view.split('createWebviewPanel(').length - 1, 1, 'the module creates a second panel');
+    assert.strictEqual(
+      view.split('enableScripts').length - 1, 1,
+      'the module states whether scripts run somewhere other than the panel\'s creation',
+    );
   });
 });

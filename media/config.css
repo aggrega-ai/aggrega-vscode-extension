@@ -210,6 +210,31 @@ body {
   z-index: 3;
 }
 
+/* Each labelled heading is the grip its column is resized by. Dragging the
+   corner the editor draws at the heading's right edge sets a width on the
+   heading, and a heading with a width is what the table holds its column to:
+   the column follows the pointer both ways and the other columns share what is
+   left. It never narrows past the longest run its cells cannot break — the
+   heading's own word, a name's longest word, the setting column's measure —
+   and every other cell's text wraps inside it rather than running into the next
+   column.
+
+   🔴 THE GRIP IS THE HEADING CELL ITSELF, NOT AN ELEMENT INSIDE IT. A width set
+   on something inside a cell only raises the column's floor: the table is still
+   free to widen the column past it, so the column would lag the pointer and
+   could widen at the start of a drag meant to narrow it.
+
+   Nothing here adds width, padding or a border, and a heading's intrinsic size
+   is the same whether or not its overflow is hidden, so until a reader drags
+   the table lays out exactly as it would without these two lines. The grip is
+   reached with a pointer, not with the keyboard, and a width set by dragging
+   lasts until the page is drawn again: nothing without a script can remember
+   it. */
+.config-table th.config-column-grip {
+  resize: horizontal;
+  overflow: hidden;
+}
+
 .config-cell-path code,
 .config-cell-value {
   font-family: var(--vscode-editor-font-family);

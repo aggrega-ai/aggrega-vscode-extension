@@ -150,6 +150,12 @@ export function coverageSentence(model: ConfigPanelModel): string {
 // column for assistive technology and draws nothing.
 const TABLE_COLUMNS = ['Setting', 'Name', 'Set', 'Default', 'Effective', 'Takes', 'Source'];
 
+// COLUMN_GRIP_CLASS marks a labelled heading as the grip its column is resized
+// by. The stylesheet makes an element carrying it resizable by dragging, so the
+// panel offers resizing with no script at all; the unlabelled last heading does
+// not carry it, because that column holds a single small control.
+export const COLUMN_GRIP_CLASS = 'config-column-grip';
+
 // configTableHtml draws every setting as one row of one table.
 //
 // 🔴 THE ROW SET IS THE MODEL'S OWN ROWS, at every group depth, and the table is
@@ -159,9 +165,14 @@ const TABLE_COLUMNS = ['Setting', 'Name', 'Set', 'Default', 'Effective', 'Takes'
 // down a column of. Reading the model's rows rather than re-walking the schema
 // is what keeps the coverage sentence true of this presentation as well as the
 // other.
+//
+// Each labelled heading cell is its column's grip rather than holding one,
+// because the table holds a column to a width set on one of its cells and not
+// to one set on anything inside a cell; the grip's rule in the stylesheet
+// carries the whole reason.
 export function configTableHtml(model: ConfigPanelModel): string {
   const head = TABLE_COLUMNS
-    .map((column) => `<th scope="col">${escapeHtml(column)}</th>`)
+    .map((column) => `<th scope="col" class="${COLUMN_GRIP_CLASS}">${escapeHtml(column)}</th>`)
     .join('');
   const body = everyRow(model).map(tableRowHtml).join('');
   return `<table class="config-table">
@@ -386,10 +397,11 @@ export interface ConfigDocumentOptions {
 // The content policy admits this installation's own stylesheet and nothing else:
 // the page runs no script, so no script source is allowed at all. A page that
 // only reports needs none, and the narrowest policy that works is the one that
-// cannot later admit something by accident. The one control on the page is a
-// link the editor resolves to a command, which needs no script source and no
-// widening of the policy — which is why the policy below is unchanged by its
-// presence.
+// cannot later admit something by accident. The one control on the page that
+// reaches a command is a link the editor resolves, and the column grips are
+// headings the editor itself resizes under the pointer; neither needs a script
+// source or any widening of the policy — which is why the policy below is
+// unchanged by their presence.
 export function configDocumentHtml(opts: ConfigDocumentOptions): string {
   const csp = [
     `default-src 'none'`,
