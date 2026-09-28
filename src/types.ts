@@ -207,6 +207,15 @@ export type ValidateResponse = wire.ValidateResult;
 // Release was run.
 export const CHECKED_DOCUMENT = 'document';
 
+// HoverResponse is the aggrega/hover result. contents is null where there is
+// nothing to say about what is under the cursor, and otherwise a MarkupContent.
+// The published shape types it as unknown, because it is a choice between the
+// two, so a reader narrows it before showing anything.
+export type HoverResponse = wire.HoverResult;
+
+// MarkupContent is text to show together with the name of how it is marked up.
+export type MarkupContent = wire.MarkupContent;
+
 // ReleaseCandidatesResponse is the aggrega/releaseCandidates result: the
 // absolute paths of the workspace's Release-kind documents, determined by the
 // daemon by content (`kind: Release`). The extension delegates Release

@@ -4,6 +4,7 @@
 import * as assert from 'node:assert';
 import {
   convertPosition,
+  hoverResponseToMarkup,
   locationToLspLocation,
   lspCompletionToCompletion,
   lspDefinitionToResolve,
@@ -90,6 +91,52 @@ describe('request-direction translators (utf-8 server)', () => {
   it('lspCompletionToCompletion omits trigger character when undefined', () => {
     const out = lspCompletionToCompletion(uri, pos, content, 'utf-8', undefined);
     assert.deepStrictEqual(out, { uri, position: { line: 0, character: 6 } });
+  });
+});
+
+describe('hoverResponseToMarkup', () => {
+  // The answer carrying content is an object, and the editor's markdown string
+  // accepts only a string: an answer handed to it as it arrives throws inside
+  // the provider, so the reader is shown nothing and nothing says why. Each
+  // case below asserts the whole reading rather than one member of it.
+  it('reads a markdown answer as markdown, with its text as it arrived', () => {
+    const value = '**Feature** `local/nightly-backup` `v1.0.0`\n\nA nightly copy of a datastore.';
+    assert.deepStrictEqual(
+      hoverResponseToMarkup({ contents: { kind: 'markdown', value } }),
+      { kind: 'markdown', value },
+    );
+  });
+
+  it('reads a plaintext answer as plaintext, so no markdown is read into it', () => {
+    const value = '**not emphasis** and `not code`';
+    assert.deepStrictEqual(
+      hoverResponseToMarkup({ contents: { kind: 'plaintext', value } }),
+      { kind: 'plaintext', value },
+    );
+  });
+
+  it('shows nothing for a null contents, and for no answer at all', () => {
+    assert.deepStrictEqual(hoverResponseToMarkup({ contents: null }), undefined);
+    assert.deepStrictEqual(hoverResponseToMarkup(null), undefined);
+  });
+
+  it('shows nothing for an empty value, or one of whitespace alone', () => {
+    assert.deepStrictEqual(hoverResponseToMarkup({ contents: { kind: 'markdown', value: '' } }), undefined);
+    assert.deepStrictEqual(hoverResponseToMarkup({ contents: { kind: 'plaintext', value: ' \n\t' } }), undefined);
+  });
+
+  it('shows nothing for contents in a shape it does not recognise', () => {
+    for (const contents of [
+      'a bare string',
+      ['an', 'array'],
+      { kind: 'html', value: '<b>a markup it does not know</b>' },
+      { kind: 'markdown' },
+      { kind: 'markdown', value: 42 },
+      { value: 'no markup named' },
+      42,
+    ]) {
+      assert.deepStrictEqual(hoverResponseToMarkup({ contents }), undefined, JSON.stringify(contents));
+    }
   });
 });
 

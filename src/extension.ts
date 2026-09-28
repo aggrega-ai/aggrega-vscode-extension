@@ -117,6 +117,7 @@ import { scheduleBinaryRestart, RestartHandle } from './binary-restart';
 import { checkDaemonVersion, readDaemonVersion } from './version-check';
 import { ServerReading, VersionStandings } from './welcome-render';
 import {
+  hoverResponseToMarkup,
   lspCompletionToCompletion,
   lspDefinitionToResolve,
   lspHoverToHover,
@@ -134,6 +135,7 @@ import {
   CacheStatusResponse,
   DaemonLocation,
   ERR_FILE_NOT_VALIDATED,
+  HoverResponse,
   PublishDiagnosticsParams,
   ReleaseCandidatesResponse,
   RequestMethod,
@@ -1850,9 +1852,12 @@ function registerLanguageFeatures(context: vscode.ExtensionContext): void {
     provideHover: async (doc, position) => {
       if (!daemon) { return undefined; }
       const params = lspHoverToHover(doc.uri.toString(), position, doc.getText(), daemon.getServerEncoding());
-      const result = await tryRequest<{ contents: string } | null>('aggrega/hover', params, doc);
-      if (!result || !result.contents) { return undefined; }
-      return new vscode.Hover(new vscode.MarkdownString(result.contents));
+      const result = await tryRequest<HoverResponse>('aggrega/hover', params, doc);
+      const shown = hoverResponseToMarkup(result);
+      if (!shown) { return undefined; }
+      return new vscode.Hover(shown.kind === 'markdown'
+        ? new vscode.MarkdownString(shown.value)
+        : new vscode.MarkdownString().appendText(shown.value));
     },
   }));
 

@@ -8,9 +8,11 @@ import {
   FindImplementationsParams,
   FindReferencesParams,
   HoverParams,
+  HoverResponse,
   LspLocation,
   LspPosition,
   LspRange,
+  MarkupContent,
   ResolveParams,
   ServerEncoding,
 } from './types';
@@ -118,6 +120,35 @@ export function lspHoverToHover(
   serverEncoding: ServerEncoding,
 ): HoverParams {
   return { uri, position: convertPosition(documentContent, lspPosition, 'utf-16', serverEncoding) };
+}
+
+// HoverMarkup is a hover's text in one of the two markups the protocol names:
+// markdown, which is rendered, and plaintext, which is shown as text with
+// nothing in it read as markdown.
+export type HoverMarkup = MarkupContent & { kind: 'markdown' | 'plaintext' };
+
+// hoverResponseToMarkup reads an aggrega/hover answer into the text a hover
+// shows, or undefined where it shows none: no answer, a null contents, a value
+// that is empty or only whitespace, and contents in any shape other than a
+// MarkupContent in one of those two markups.
+//
+// A markup this reader does not know is shown as nothing rather than as one of
+// the two it does: text rendered in a markup it was not written in shows the
+// reader something other than what the compiler wrote, and nothing on the
+// screen says so.
+export function hoverResponseToMarkup(answer: HoverResponse | null): HoverMarkup | undefined {
+  const contents = answer?.contents;
+  if (contents === null || typeof contents !== 'object' || Array.isArray(contents)) {
+    return undefined;
+  }
+  const { kind, value } = contents as { [K in keyof MarkupContent]?: unknown };
+  if (typeof value !== 'string' || value.trim() === '') {
+    return undefined;
+  }
+  if (kind === 'markdown' || kind === 'plaintext') {
+    return { kind, value };
+  }
+  return undefined;
 }
 
 // lspCompletionToCompletion composes the completion request.
