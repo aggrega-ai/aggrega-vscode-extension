@@ -117,6 +117,18 @@ export function clearUriInEverySource(
   }
 }
 
+// holdsFindings reports whether any layer holds an entry for uri — whether the
+// Problems panel shows something the language server published on that file.
+export function holdsFindings(
+  collections: SourcedCollections,
+  uri: vscode.Uri,
+): boolean {
+  for (const source of collections.known()) {
+    if ((collections.for(source).get(uri)?.length ?? 0) > 0) { return true; }
+  }
+  return false;
+}
+
 // publishShapes replaces the collection's entries for uri with
 // pre-converted ConvertedShape values. Used by the error-surfaces
 // dispatcher, which produces shapes directly without touching the

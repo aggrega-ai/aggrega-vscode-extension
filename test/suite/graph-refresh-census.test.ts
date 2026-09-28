@@ -5,7 +5,11 @@ import * as assert from 'node:assert';
 
 import {
   GRAPH_REFRESH,
+  GRAPH_WITHOUT_DRAWING,
+  GRAPH_WITHOUT_DRAWING_DECLARATION,
   blockAfter,
+  callersOf,
+  callsOf,
   graphRefreshCallers,
   notificationHandlers,
   sourceOf,
@@ -21,7 +25,8 @@ import {
 // is closed; a view refreshed by nothing at all shows a topology that stopped
 // being true, which is the same defect wearing the opposite sign. So the specs
 // below check that no compiler push reaches a redraw AND that a document reaching
-// disk does.
+// disk does — and the same of the graph asked for without drawing, which a
+// lockfile reaching disk sends where no open graph shows its Release to redraw.
 
 const EXTENSION = 'src/extension.ts';
 
@@ -58,6 +63,34 @@ describe('what causes an open topology graph to be redrawn', () => {
     );
   });
 
+  it('asks for a graph without drawing it from the on-disk watcher and nowhere else', () => {
+    const source = sourceOf(EXTENSION);
+    const watcher = blockAfter(source, 'function registerFileWatcher');
+    assert.ok(
+      watcher !== null && watcher.includes('context.subscriptions.push(watcher)'),
+      'the watcher block was not extracted whole, so nothing measured over it means anything',
+    );
+    assert.ok(
+      watcher.includes(GRAPH_WITHOUT_DRAWING),
+      'a lockfile reaching disk with no graph showing its Release no longer asks for the graph, '
+      + 'so a drift warning a pull resolved stays in the Problems panel until somebody presses Graph',
+    );
+    // The needle on the exclusion below. The declaration is the one occurrence
+    // of the pattern that is not a call, so it has to be there, once, for the
+    // count with it taken out to be a count of callers.
+    assert.strictEqual(
+      callsOf(source, GRAPH_WITHOUT_DRAWING_DECLARATION), 1,
+      'the graph asked for without drawing is not declared exactly once as a function in '
+      + EXTENSION + ', so the caller count below takes out something other than its one declaration',
+    );
+    assert.strictEqual(
+      callersOf(source, GRAPH_WITHOUT_DRAWING, GRAPH_WITHOUT_DRAWING_DECLARATION), 1,
+      'the graph is asked for without drawing from somewhere other than the on-disk watcher; '
+      + 'that request makes the compiler report as a redraw does, so read the call sites and '
+      + 'check none of them is driven by something a request of this panel produced',
+    );
+  });
+
   it('is never a message the compiler pushed', () => {
     const handlers = notificationHandlers();
     // The instrument's own control, on the same side of the claim as the
@@ -82,6 +115,12 @@ describe('what causes an open topology graph to be redrawn', () => {
     );
 
     for (const handler of handlers) {
+      assert.ok(
+        !handler.body.includes(GRAPH_WITHOUT_DRAWING),
+        `${handler.module} asks for a graph when the compiler pushes ${handler.method}. The graph `
+        + 'request is what makes the compiler push, so the two would drive each other and the '
+        + 'workspace would recompile continuously with nobody typing.',
+      );
       assert.ok(
         !handler.body.includes(GRAPH_REFRESH),
         `${handler.module} redraws the topology when the compiler pushes ${handler.method}. `

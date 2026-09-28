@@ -50,9 +50,11 @@ import {
   SourcedCollections,
   clearUriInEverySource,
   createSourcedCollections,
+  holdsFindings,
   publishDiagnostics,
   publishShapes,
 } from './diagnostics';
+import { ON_DISK_PATTERN, createDiskChangeHandler } from './disk-change';
 import { DIAGNOSTIC_SOURCE_FALLBACK } from './diagnostics-shape';
 import {
   describeError,
@@ -381,12 +383,14 @@ function requireSelectedRelease(): void {
   });
 }
 
-// refreshGraphView re-renders an open topology graph after a document it could
-// have been drawn from changes on disk. A save touching several files produces a
-// burst; the same window the editor already uses to collapse a burst of edits
-// into one validation collapses this into one re-render, and reads the setting
-// on each call so a change to it takes effect without a restart. When no graph
-// is open the callback finds nothing to do.
+// refreshGraphView re-renders an open topology graph after a file it could have
+// been drawn from changes on disk: an authored document, or the selected
+// Release's lockfile, which the graph request reads its pins from and checks for
+// drift. A save touching several files produces a burst; the same window the
+// editor already uses to collapse a burst of edits into one validation collapses
+// this into one re-render, and reads the setting on each call so a change to it
+// takes effect without a restart. When no graph is open the callback finds
+// nothing to do.
 //
 // 🔴 WHAT MAY CALL THIS IS PART OF ITS CONTRACT, and the rule is causal rather
 // than about cost. A refresh asks the compiler for a graph, and that request
@@ -394,12 +398,39 @@ function requireSelectedRelease(): void {
 // must not call this, or the panel becomes both the cause and the consumer of
 // its own refresh and recompiles the workspace until it is closed. Disk is the
 // right trigger because the compiler reads the graph off disk: the drawing goes
-// stale exactly when a document there changes, and never because the compiler
-// said something about a compile this panel asked for.
+// stale exactly when a file there changes, and never because the compiler said
+// something about a compile this panel asked for.
 const refreshGraphView = debounce(
   () => graphView?.refresh(),
   () => getSettings().debounceMs,
 );
+
+// requestGraphWithoutDrawing asks the language server for the topology of a
+// Release and discards the answer. It is sent for what answering does rather
+// than for the answer: the graph request is the one request that checks the
+// Release's lockfile against what the Release now resolves to, and as it answers
+// it publishes the lockfile's drift warning, or clears it.
+//
+// 🔴 WHAT MAY CALL THIS IS THE REDRAW'S RULE, FOR THE REDRAW'S REASON. It makes
+// the compiler report what it found, so anything driven by such a report must not
+// call it, or the two turn each other for as long as the window is open. The one
+// trigger is the selected Release's lockfile reaching disk while no graph panel
+// shows that Release to be redrawn — none is open, or the one open shows another
+// Release — and it is wired beside the redraw, in the on-disk watcher.
+//
+// Nobody pressed for this request, so a failure raises nothing: it is kept in the
+// output channel, and the warning it could not settle stays where it is.
+async function requestGraphWithoutDrawing(release: string): Promise<void> {
+  const client = daemon;
+  if (!client || client.getState() !== DaemonState.Running) { return; }
+  try {
+    await client.request<unknown>('aggrega/irGraph', { release });
+  } catch (err) {
+    outputChannel?.appendLine(
+      `the topology of ${release}, asked for to settle what its lockfile reports, was not built: ${describeError(err)}`,
+    );
+  }
+}
 
 // configurationWatch notices a change to a configuration file the running
 // language server read, which that server goes on ignoring until it starts again,
@@ -1415,9 +1446,12 @@ function registerSelectReleaseCommand(context: vscode.ExtensionContext): void {
 }
 
 // revalidateOpenDocuments re-validates every open YAML document against the
-// selection that is now in force. Without this the Problems panel would go on
-// showing findings computed against the previous Release until each file
-// happened to be edited, which reads as the new selection having no effect.
+// selection and the lockfile now in force. It runs when the selection changes,
+// and when the selected Release's lockfile reaches disk, because validation reads
+// its pins and the withdrawal markers it reports from that lockfile. Without it
+// the Problems panel would go on showing findings computed against the previous
+// Release, or the previous lockfile, until each file happened to be edited, which
+// reads as the change having no effect.
 function revalidateOpenDocuments(): void {
   if (!daemon || daemon.getState() !== DaemonState.Running) { return; }
   for (const doc of vscode.workspace.textDocuments) {
@@ -1829,34 +1863,60 @@ function registerLanguageFeatures(context: vscode.ExtensionContext): void {
   }, '/'));
 }
 
-// registerFileWatcher wires what an authored document changing ON DISK means to
-// the two surfaces that hold something derived from it: the compiler's per-file
+// registerFileWatcher wires what a file the compiler reads changing ON DISK means
+// to the surfaces that hold something derived from it: the compiler's per-file
 // caches, which are told to drop their entry, and an open topology graph, which
-// is redrawn.
+// is redrawn. The files are the authored documents and the selected Release's
+// lockfile; a lockfile additionally has the open documents validated again and,
+// where no graph panel shows the selected Release, a drift warning standing on it
+// settled by a graph request whose answer is discarded. What each event asks for
+// is decided in disk-change.ts; what is here is the editor's side of each.
 //
 // 🔴 THE GRAPH IS REDRAWN FROM HERE AND FROM NOWHERE ELSE, and disk is the right
 // coordinate rather than the buffer. A graph request names a Release and carries
-// no text, so the compiler builds it from the documents as they stand on disk —
-// which means an unsaved keystroke changes nothing it would draw, and a compile
-// per keystroke would spend a full pipeline run to redraw the same picture. What
-// does change the picture is a document reaching disk, which is exactly the event
-// this watcher reports.
+// no text, so the compiler builds it from the documents as they stand on disk and
+// pins it against the lockfile as it stands there — which means an unsaved
+// keystroke changes nothing it would draw, and a compile per keystroke would
+// spend a full pipeline run to redraw the same picture. What does change the
+// picture is a document or the lockfile reaching disk, which is exactly the event
+// this watcher reports — and it reports a lockfile whoever wrote it, a pull on the
+// Commands panel, a build with Auto pull, or a pull typed in a terminal.
 //
-// The two calls share one handler because they answer to one fact. Splitting them
+// The calls share one handler because they answer to one fact. Splitting them
 // would let a later change tell the compiler its cache is stale while leaving the
 // panel showing a topology built from the entry that was just dropped.
 function registerFileWatcher(context: vscode.ExtensionContext): void {
-  const watcher = vscode.workspace.createFileSystemWatcher('**/*.yaml');
-  const documentChangedOnDisk = (uri: vscode.Uri) => {
-    if (!daemon) { return; }
-    daemon.request('aggrega/invalidate', { file: uri.fsPath }).catch(err => {
-      outputChannel?.appendLine(`invalidate failed: ${describeError(err)}`);
-    });
+  const watcher = vscode.workspace.createFileSystemWatcher(ON_DISK_PATTERN);
+  const redraw = (): void => {
     refreshGraphView();
   };
-  watcher.onDidChange(documentChangedOnDisk);
-  watcher.onDidCreate(documentChangedOnDisk);
-  watcher.onDidDelete(documentChangedOnDisk);
+  const changedOnDisk = createDiskChangeHandler({
+    invalidate: (file) => {
+      daemon?.request('aggrega/invalidate', { file }).catch(err => {
+        outputChannel?.appendLine(`invalidate failed: ${describeError(err)}`);
+      });
+    },
+    redraw,
+    revalidate: revalidateOpenDocuments,
+    shownRelease: () => graphView?.shownRelease() ?? null,
+    findingStands: (file) =>
+      diagnosticCollections !== null && holdsFindings(diagnosticCollections, vscode.Uri.file(file)),
+    selectedRelease,
+    workspaceRoot: anchoredWorkspaceRoot,
+    requestGraph: (release) => { void requestGraphWithoutDrawing(release); },
+    timer: {
+      setTimeout: (handler, ms) => setTimeout(handler, ms),
+      clearTimeout: (handle) => clearTimeout(handle as NodeJS.Timeout),
+    },
+    settleMs: () => getSettings().debounceMs,
+  });
+  const fileChangedOnDisk = (uri: vscode.Uri) => {
+    if (!daemon) { return; }
+    changedOnDisk(uri.fsPath);
+  };
+  watcher.onDidChange(fileChangedOnDisk);
+  watcher.onDidCreate(fileChangedOnDisk);
+  watcher.onDidDelete(fileChangedOnDisk);
   context.subscriptions.push(watcher);
 }
 

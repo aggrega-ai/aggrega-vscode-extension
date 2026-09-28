@@ -26,6 +26,22 @@ import { EXTENSION_ROOT, readSourceTree } from './launch-census';
 // ASKS for a redraw.
 export const GRAPH_REFRESH = 'refreshGraphView(';
 
+// GRAPH_WITHOUT_DRAWING is the call that asks for a graph and draws nothing,
+// which a lockfile reaching disk sends where no graph panel shows the selected
+// Release to be redrawn. It makes the compiler report exactly as a redraw does,
+// so the same causal rule binds it and the same census holds it.
+export const GRAPH_WITHOUT_DRAWING = 'requestGraphWithoutDrawing(';
+
+// GRAPH_WITHOUT_DRAWING_DECLARATION is how that call is declared: as a function,
+// which is how this extension declares every function a request is sent from.
+// Unlike the redraw's, this declaration spells the call's pattern as well, so a
+// plain count of the pattern takes the declaration for one more caller.
+// callersOf takes it out explicitly, and the spec requires the declaration to
+// occur exactly once — the needle showing that what is taken out is the one
+// declaration of the function counted, in the module counted, rather than
+// nothing at all or a second definition.
+export const GRAPH_WITHOUT_DRAWING_DECLARATION = 'function requestGraphWithoutDrawing(';
+
 // blockAfter returns the brace-matched block that opens at the first `{` after
 // anchor, anchor included, or null when anchor does not occur.
 //
@@ -96,5 +112,18 @@ export function sourceOf(relativePath: string): string {
 
 // graphRefreshCallers reports how many times a redraw is asked for in one module.
 export function graphRefreshCallers(source: string): number {
-  return source.split(GRAPH_REFRESH).length - 1;
+  return callsOf(source, GRAPH_REFRESH);
+}
+
+// callsOf reports how many times the call a pattern names is asked for in one
+// module.
+export function callsOf(source: string, call: string): number {
+  return source.split(call).length - 1;
+}
+
+// callersOf reports how many times a call is asked for in one module when its
+// declaration spells the same pattern: every occurrence of the declaration also
+// spells the call once, so each is subtracted from the count of the call.
+export function callersOf(source: string, call: string, declaration: string): number {
+  return callsOf(source, call) - callsOf(source, declaration);
 }

@@ -98,10 +98,15 @@ export interface GraphDeps extends RendersOnReady {
 }
 
 // GraphView is the handle the extension holds to re-render the open panel on
-// events the panel cannot see for itself — the language server reporting that
-// it has recompiled.
+// events the panel cannot see for itself — a file it was drawn from changing on
+// disk.
 export interface GraphView {
   refresh(): void;
+  // shownRelease is the Release the open panel is showing, which is the Release
+  // refresh redraws, or null where no panel is open and refresh draws nothing.
+  // A panel keeps the Release it was shown with when the selection moves, so
+  // this can name a Release other than the selected one.
+  shownRelease(): string | null;
 }
 
 // activateGraphView registers the topology-graph command. A single panel is
@@ -249,7 +254,11 @@ export function activateGraphView(context: vscode.ExtensionContext, deps: GraphD
   // that is not open is unaffected, because refresh has nothing to draw.
   deps.onReady(refresh);
 
-  return { refresh };
+  // Read from the same two values refresh is guarded by, so the answer and what
+  // a refresh would do cannot come apart.
+  const releaseOnPanel = (): string | null => (panel && shownRelease ? shownRelease : null);
+
+  return { refresh, shownRelease: releaseOnPanel };
 }
 
 // renderGraph requests the IR graph and posts it to the webview, surfacing any

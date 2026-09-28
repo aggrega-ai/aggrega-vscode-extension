@@ -305,7 +305,7 @@ export async function gatewayChecks(ctx: SuiteContext, referenceFolder: string):
 
   await c.run('problems.lockfile-drift-clears-after-pull', {
     expected: 'the save that changed the Recipe files a drift warning on the lockfile under "aggrega"; pressing Pull on the Commands panel ends in its completion line, and the warning then leaves the panel within 15 s with no press on Graph',
-    plant: 'in the scratch copy, out/src/operations.js made to skip what follows the pull\'s completion',
+    plant: 'in the scratch copy, out/src/disk-change.js made to leave the lockfile out of what the on-disk watcher reports',
   }, async () => {
     const changed = recipeLine;
     need(changed !== null, 'the Recipe was not changed and saved, so no drift was raised');
@@ -341,7 +341,7 @@ export async function gatewayChecks(ctx: SuiteContext, referenceFolder: string):
     return { passed: absent.held && back, seen: `for 10 s with no graph: ${absent.held ? 'absent' : `back at ${absent.atMs} ms`}; with the graph shown: ${back ? 'returned' : 'did not return'}`, evidence: { observations } };
   });
   await c.forPerson('problems.which-trigger-moved-the-build-layer', {
-    expected: 'the build layer moves only on a request that compiles the Release: the graph shown, a save with its panel open, a restart with its panel open, a build or a preview',
+    expected: 'the build layer moves only on a request that compiles the Release: the graph shown, a save or a write of its lockfile with its panel open, a restart with its panel open, a build, a preview, or a write of its lockfile while a finding stands on that lockfile and no panel shows the Release',
     plant: 'none: this records what was observed',
     question: 'The runner recorded whether the render advisory moved on an unsaved edit, and on a save with no graph panel open. Does either contradict the reading that only a compile of the Release moves the build layer?',
   }, async () => ({ screenshot: null, drawnText: observations.join('; ') || 'nothing was observed: the checks before it did not run' }));
