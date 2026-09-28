@@ -27,17 +27,20 @@ import { OperationOutcome, outcomeOf } from './operation-outcome';
 // compiler's text unaltered.
 //
 // 🔴 THIS ONE CAN BE STOPPED, AND THAT IS READ OFF THE COMPILER RATHER THAN
-// ASSUMED. The request's own context reaches the walk: it is observed once per
-// registry, ahead of that registry's own walk, and it is carried into every
-// network call the walk makes — the repository enumeration, each conditional tag
-// listing, each manifest resolve and each referrer read. So stopping this ends the
-// walk rather than only ending this side's wait for an answer.
+// ASSUMED. The request's own context reaches the walk: it is observed ahead of
+// each registry's walk and again ahead of writing that registry's index, and it
+// is carried into every network call the walk makes — the repository enumeration,
+// each conditional tag listing, each manifest resolve and each referrer read. So
+// stopping this ends the walk rather than only ending this side's wait for an
+// answer.
 //
 // 🔴 AND WHAT A STOP LEAVES BEHIND, STATED RATHER THAN GLOSSED: the registries
 // already indexed have been written, so a withdrawn walk leaves a partial index
-// rather than none. That is the shared operation's own decision and it is the
-// right one — an index is per-registry and a registry that was read is read — but
-// it means a stop is not an undo, and a reader is owed that distinction.
+// rather than none, and the registry being walked when the stop lands keeps the
+// index it had, because only a finished walk writes. That is the shared
+// operation's own decision and it is the right one — an index is per-registry and
+// a registry that was read is read — but it means a stop is not an undo, and a
+// reader is owed that distinction.
 //
 // 🔴 NOTHING HERE IS ASKED OF A PERSON. Credentials resolve from a supplied or
 // ambient source and are never prompted for: a registry needing one the machine
@@ -316,11 +319,12 @@ export function indexBuildOutcome(result: RegistryUpdateResult): OperationOutcom
   const hosts = result.hosts ?? [];
   const reached = hosts.filter((host) => !host.error);
   const missed = hosts.filter((host) => host.error).map((host) => host.host);
-  const entities = countOf(indexedEntities(hosts), 'entity', 'entities');
+  const entityCount = indexedEntities(hosts);
+  const entities = countOf(entityCount, 'entity', 'entities');
   if (missed.length > 0) {
     const indexed = reached.length === 0
       ? 'nothing was indexed'
-      : `${entities} were indexed from `
+      : `${entities} ${entityCount === 1 ? 'was' : 'were'} indexed from `
         + `${countOf(reached.length, 'registry', 'registries')}`;
     return {
       kind: 'failed',

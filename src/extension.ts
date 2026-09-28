@@ -3035,17 +3035,19 @@ async function requestDeprecateArtifact(
 // registries.
 //
 // 🔴 IT REACHES THE REGISTRIES THEMSELVES, AND ITS STOP REACHES THE WALK. The
-// request's own context is what the shared walk observes: once per registry,
-// ahead of that registry's own walk, and carried into every network call the walk
-// makes. Measured against a registry that accepts a connection and never answers:
-// a stop sent four seconds in leaves no walk running eleven seconds in, while an
-// unstopped run is still inside the repository enumeration at the same moment. So
-// a reader's stop ends the walk rather than only ending this side's wait.
+// request's own context is what the shared walk observes: ahead of each
+// registry's walk, again ahead of writing that registry's index, and in every
+// network call the walk makes. Measured against a registry that accepts a
+// connection and never answers: a stop sent four seconds in leaves no walk
+// running eleven seconds in, while an unstopped run is still inside the
+// repository enumeration at the same moment. So a reader's stop ends the walk
+// rather than only ending this side's wait.
 //
-// 🔴 WHAT A STOP LEAVES BEHIND, STATED RATHER THAN GLOSSED: the registries
-// already indexed have been written, because each registry's records land as its
-// own walk finishes. A stop is not an undo, which is why the ending names how
-// many registries were reached.
+// 🔴 WHAT A STOP LEAVES BEHIND, STATED RATHER THAN GLOSSED: the registries whose
+// walks had finished have been written, because each registry's records land
+// only once its own walk finishes, and the registry being walked keeps the index
+// it had. A stop is not an undo. The compiler sends no answer to a stopped
+// request, so the ending says the build was stopped and names no count.
 //
 // 🔴 NOTHING IS PROMPTED FOR. Credentials resolve from a supplied or ambient
 // source, and a registry needing one the machine does not carry is refused with

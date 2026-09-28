@@ -239,12 +239,13 @@ export function activateRegistriesView(
     // registry, and one named registry — so they differ by that one value and
     // share every word after it.
     //
-    // The stop reaches the walk: the request's own context is observed once per
-    // registry and carried into every network call, so a reader who started a
-    // walk over every registry can end it. What a stop leaves behind is a
-    // partial index rather than none, because each registry's records are
-    // written as its own walk finishes — which is why the ending names how many
-    // registries were reached rather than reporting the walk as all-or-nothing.
+    // The stop reaches the walk: the request's own context is observed ahead of
+    // each registry's walk and of its write, and carried into every network call,
+    // so a reader who started a walk over every registry can end it. What a stop
+    // leaves behind is a partial index rather than none, because each registry's
+    // records are written only once its own walk finishes, and the registry being
+    // walked keeps the index it had. A walk that ends with some registries not
+    // indexed names them and how many were, rather than reporting all-or-nothing.
     vscode.commands.registerCommand('aggrega.registries.update', () => buildIndex(deps)),
 
     vscode.commands.registerCommand(

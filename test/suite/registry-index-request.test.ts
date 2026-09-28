@@ -378,6 +378,23 @@ describe('the sentence an index build ends in', () => {
     );
   });
 
+  it('agrees the verb with a single indexed entity', () => {
+    const outcome = indexBuildOutcome({
+      ...WALKED,
+      hosts: [
+        host({ host: 'one.example.test', indexed: 1 }),
+        host({ host: 'bad.example.test', error: 'unauthorized' }),
+      ],
+      failed: ['bad.example.test'],
+    });
+    assert.strictEqual(outcome.kind, 'failed');
+    assert.strictEqual(
+      terminalLine(INDEX_BUILD_SUBJECT, outcome),
+      'The index build did not complete: 1 registry could not be indexed '
+      + '(bad.example.test); 1 entity was indexed from 1 registry.',
+    );
+  });
+
   it('says nothing was indexed when no registry was reached at all', () => {
     assert.strictEqual(
       terminalLine(INDEX_BUILD_SUBJECT, indexBuildOutcome({

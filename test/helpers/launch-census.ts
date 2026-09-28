@@ -229,9 +229,10 @@ export const RECORDED_LAUNCH_SITES: Readonly<Record<LaunchHelper, ReadonlyArray<
   //
   // 🔴 TWO OPERATIONS ARE ABSENT FROM THIS TABLE AND THEIR ABSENCE IS THE
   // MEASUREMENT. The registry index build is absent because its walk observes the
-  // request's own context once per registry and carries it into every network
-  // call, so the stop survives on the request surface. The per-entity conventions
-  // check is absent because a publish carries the subject it was about, so an
+  // request's own context ahead of each registry's walk and write and carries it
+  // into every network call, so the stop survives on the request surface. The
+  // per-entity conventions check is absent because a publish carries the subject
+  // it was about, so an
   // answer covering one entity replaces that entity's entries rather than the
   // whole panel — which is the only thing that kept it on a command. An entry
   // appearing in `registries-view.ts`, or a second one in
