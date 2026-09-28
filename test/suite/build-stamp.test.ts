@@ -70,7 +70,7 @@ function composedPage(extension: string | null): string {
     collapsed: [],
     opensWithEditor: true,
     versions,
-    server: 'notRunning',
+    server: { reading: 'notRunning', version: null },
   });
 }
 

@@ -276,9 +276,9 @@ export class Daemon extends EventEmitter {
   }
 
   // getServerInitMetadata returns the workspaceRoot + configSource
-  // fields the daemon reported in its aggrega/initialize response,
-  // or null when the handshake has not completed or the response
-  // omitted them.
+  // fields the daemon reported in its aggrega/initialize response, with
+  // the optional ones it also reported, or null when the handshake has not
+  // completed or the response omitted them.
   getServerInitMetadata(): ServerInitMetadata | null { return this.serverInitMetadata; }
 
   /**

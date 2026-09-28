@@ -35,7 +35,9 @@ import {
   unmetStepIds,
 } from '../../src/get-started-steps';
 import { escapeHtml } from '../../src/html';
+import { extractServerInitMetadata } from '../../src/init-metadata';
 import { REGISTRY_ADD_COMMAND } from '../../src/registry-configure';
+import { functionBody } from '../helpers/anchoring-census';
 import {
   WIRE_CONTRACT,
   assertCensusInstrumentFires,
@@ -58,6 +60,7 @@ import {
   MET_LABEL,
   UNMET_LABEL,
   VALUE_LEAD_IN,
+  ServerReading,
   VERSION_ABSENT,
   VersionStandings,
   dismissHtml,
@@ -269,14 +272,14 @@ function manifest(): {
 // nothing about them composes the panel of a reader whose compiler is running.
 // The default is a value rather than an absence for the same reason
 // opensWithEditor's is: the common case should be what a caller gets for free.
-// server defaults to a running language server for the same reason, and to
-// agree with the versions beside it.
+// server defaults to a running language server for the same reason, reporting
+// the version the Compiler reading beside it names, so the two agree.
 function renderedPanel(
   readings: Record<StepId, StepReading>,
   collapsed: readonly StepId[] = [],
   opensWithEditor = true,
   versions: VersionStandings = { extension: '9.9.9', compiler: '8.8.8' },
-  server: DaemonReading = 'running',
+  server: ServerReading = { reading: 'running', version: '8.8.8' },
 ): string {
   return welcomeDocumentHtml({
     nonce: 'test-nonce',
@@ -2232,18 +2235,28 @@ describe('the welcome panel', () => {
     });
 
     // The page's last line says whether the language server is running and,
-    // while it runs, what it reports about its own version — which is nothing.
+    // while it runs, the version the running server reported about itself.
     describe('its last line says whether the language server is running', () => {
+      // REPORTED is a version a running server reports, in the shape the
+      // compiler's build gives one.
+      const REPORTED = '0.7.4-11-g20ddd35e';
+
       // 🔴 THE LINES ARE LITERALS ON PURPOSE. A comparison whose expected side
       // was composed from the page's own constants would move with them and
       // pass a line that had dropped half of what it says; these are the words
       // a reader is meant to read, held where an edit to the page cannot reach.
+      // Each is the line for a server reporting REPORTED, so the three that do
+      // not run show that a version is drawn only while the server runs.
       const LINE: Record<DaemonReading, string> = {
-        running: 'Language server running, version not reported',
+        running: 'Language server running, 0.7.4-11-g20ddd35e',
         starting: 'Language server starting',
         notRunning: 'Language server not running',
         failedToStart: 'Language server failed to start',
       };
+
+      // RUNNING_UNREPORTED is the running line for a server that reported no
+      // version, in the page's own words for a reading it did not get.
+      const RUNNING_UNREPORTED = 'Language server running, version not reported';
 
       it('has a line for every reading the lifecycle is read as', () => {
         assert.deepStrictEqual(
@@ -2254,43 +2267,111 @@ describe('the welcome panel', () => {
       });
 
       for (const [reading, line] of Object.entries(LINE) as [DaemonReading, string][]) {
-        it(`reads exactly "${line}" where the server reads as ${reading}`, () => {
-          assert.strictEqual(textOf(serverHtml(reading)), line);
+        it(`reads exactly "${line}" where the server reads as ${reading} and reported ${REPORTED}`, () => {
+          assert.strictEqual(textOf(serverHtml({ reading, version: REPORTED })), line);
         });
       }
 
-      // 🔴 THE VERSION ON THIS LINE IS THE RUNNING SERVER'S OWN, AND IT REPORTS
-      // NONE. The Compiler reading beside it is what the binary the server was
-      // started from says, and it is a different fact: the file at that path
-      // can be replaced while the older process runs on. So the page shows both,
-      // and the line never shows the binary's answer as though the server had
-      // given it.
-      it('says the running server reports no version, and leaves the binary\'s reading beside it', () => {
-        const page = renderedPanel(
-          stepReadings(EVERYTHING_MET),
-          [],
-          true,
-          { extension: '0.4.2', compiler: '1.9.3-rc1' },
-          'running',
-        );
-        assert.strictEqual(regionText(page, 'server'), LINE.running);
-        assert.strictEqual(regionText(page, 'versions'), 'Extension 0.4.2Compiler 1.9.3-rc1');
+      // 🔴 THE VERSION IS THE ONE THE RUNNING SERVER REPORTED, AND WHERE IT
+      // REPORTED NONE THE LINE SAYS SO. An absent reading and an empty one are
+      // both a server that named no build, and neither may read as though it
+      // had named one.
+      it('says the version was not reported where the running server reported none', () => {
+        assert.strictEqual(textOf(serverHtml({ reading: 'running', version: null })), RUNNING_UNREPORTED);
       });
 
-      it('draws the missing version the way the page draws every reading it did not get', () => {
+      it('says the version was not reported where the running server reported an empty one', () => {
+        assert.strictEqual(textOf(serverHtml({ reading: 'running', version: '' })), RUNNING_UNREPORTED);
+      });
+
+      // The line from the server's own answer to the words a reader reads,
+      // through the one reading of that answer the extension makes, for the
+      // three answers a server can give: a version, no version key at all, and
+      // an empty version.
+      describe('drawn from the running server\'s answer when the extension connects', () => {
+        const ANSWER = {
+          capabilities: { positionEncoding: 'utf-8' },
+          workspaceRoot: '/abs/workspace',
+          configSource: 'workspace',
+          workspaceMarker: 'config',
+        };
+        const lineFor = (answer: unknown): string =>
+          textOf(serverHtml({ reading: 'running', version: extractServerInitMetadata(answer)?.version ?? null }));
+
+        it('names the version the answer carries', () => {
+          assert.strictEqual(lineFor({ ...ANSWER, version: REPORTED }), LINE.running);
+        });
+
+        it('says the version was not reported where the answer carries no version', () => {
+          assert.strictEqual(lineFor(ANSWER), RUNNING_UNREPORTED);
+        });
+
+        it('says the version was not reported where the answer carries an empty version', () => {
+          assert.strictEqual(lineFor({ ...ANSWER, version: '' }), RUNNING_UNREPORTED);
+        });
+      });
+
+      // 🔴 THE LINE'S VERSION AND THE COMPILER READING ARE TWO FACTS, AND EACH
+      // IS SHOWN AS WHAT IT IS. The Compiler reading is what the binary the
+      // server was started from says; the file at that path can be replaced
+      // while the process started from it runs on, so the two can differ. The
+      // page shows both, and the line never shows the binary's answer as though
+      // the server had given it — including where the server gave none.
+      it('shows the running server\'s version and the binary\'s reading beside it, neither standing in for the other', () => {
+        const versions = { extension: '0.4.2', compiler: '1.9.3-rc1' };
+        const reporting = renderedPanel(stepReadings(EVERYTHING_MET), [], true, versions, {
+          reading: 'running',
+          version: REPORTED,
+        });
+        assert.strictEqual(regionText(reporting, 'server'), LINE.running);
+        assert.strictEqual(regionText(reporting, 'versions'), 'Extension 0.4.2Compiler 1.9.3-rc1');
+        const silent = renderedPanel(stepReadings(EVERYTHING_MET), [], true, versions, {
+          reading: 'running',
+          version: null,
+        });
+        assert.strictEqual(regionText(silent, 'server'), RUNNING_UNREPORTED);
+        assert.strictEqual(regionText(silent, 'versions'), 'Extension 0.4.2Compiler 1.9.3-rc1');
+      });
+
+      it('draws a reported version as a reading taken, and a missing one the way the page draws every reading it did not get', () => {
         assert.ok(
-          serverHtml('running').includes(
+          serverHtml({ reading: 'running', version: REPORTED }).includes(
+            `<span class="version-value">${REPORTED}</span>`,
+          ),
+          'the running server\'s version is drawn unlike the page\'s other readings',
+        );
+        assert.ok(
+          serverHtml({ reading: 'running', version: null }).includes(
             `<span class="version-value version-value-absent">${VERSION_ABSENT}</span>`,
           ),
           'the running server\'s missing version is drawn unlike the page\'s other absent readings',
         );
       });
 
+      // 🔴 THE WIRING IS READ FROM THE SOURCE, BECAUSE IT CANNOT BE DRIVEN HERE.
+      // The reading the page is handed is composed in the module that holds the
+      // editor, which does not start in a headless run. What is asserted is that
+      // its version comes from the server's own answer and from nothing that
+      // asks a binary — the Compiler reading's own question.
+      it('takes the running version from the server\'s own answer, never from a binary asked on its behalf', () => {
+        const body = functionBody('src/extension.ts', 'function languageServerReading(');
+        assert.ok(
+          body.includes('getServerInitMetadata()?.version'),
+          'the page\'s line no longer takes its version from the running server\'s answer',
+        );
+        for (const binaryReading of ['getLaunchedBinaryPath', 'readDaemonVersion', 'readRunningVersions', 'getBinaryPath']) {
+          assert.ok(
+            !body.includes(binaryReading),
+            `the page's line reads ${binaryReading}, which answers for a binary rather than for the running server`,
+          );
+        }
+      });
+
       it('is the page\'s last line, beneath the versions', () => {
         const page = renderedPanel(stepReadings(NOTHING_MET), [], true, {
           extension: null,
           compiler: null,
-        }, 'failedToStart');
+        }, { reading: 'failedToStart', version: null });
         const main = page.slice(page.indexOf('<main'), page.indexOf('</main>')).trimEnd();
         const server = main.indexOf('<p id="server"');
         assert.ok(server >= 0, 'the page carries no language server line');

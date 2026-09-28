@@ -139,18 +139,23 @@ export const ERR_ENTITY_NOT_RESOLVABLE = 1004;
 export const ERR_SHUTTING_DOWN = 1005;
 
 // ServerInitMetadata is the subset of the aggrega/initialize
-// response that the extension surfaces in the status bar. Populated
-// when the handshake completes; null until then.
+// response that the extension surfaces in the status bar and on the
+// welcome page. Populated when the handshake completes; null until then.
 //
 // workspaceMarker names the marker tier that anchored the workspace
 // root: "config" | "directory" | "aggregate-glob" | "release-glob" |
 // "manifest-glob". Optional: daemons anchored via --workspace-root
 // omit it (no marker was consulted in that path). Extensions reading
 // it must tolerate undefined.
-export type ServerInitMetadata = Pick<
-  wire.InitializeResult,
-  'workspaceRoot' | 'configSource' | 'workspaceMarker'
->;
+//
+// version is the running server's own build version, the value `aggrega
+// version` reports for the binary it runs. The published shape declares it
+// required, and it is optional here all the same: a server whose answer carries
+// none still connects, and what the extension holds must be able to say that it
+// reported none rather than being typed as though every answer had one.
+export type ServerInitMetadata =
+  Pick<wire.InitializeResult, 'workspaceRoot' | 'configSource' | 'workspaceMarker'>
+  & Partial<Pick<wire.InitializeResult, 'version'>>;
 
 // DaemonCodeDescription mirrors the protocol's code-description structure: a
 // reference to open for more information about a diagnostic.

@@ -60,7 +60,7 @@ const SEARCH_TITLE = 'Aggrega: search published catalog';
 const SEARCH_PLACEHOLDER = 'Narrow the search, then choose Search';
 
 // The stopped-responding notification, held as written for the same reason.
-export const STOPPED_RESPONDING = 'Aggrega language server has stopped responding. Run "Aggrega: Restart language server" to recover.';
+export const STOPPED_RESPONDING = 'Aggrega language server has stopped responding. Run "Aggrega: Start or restart the language server" to recover.';
 
 // entityNames reads the metadata.name of every document of `kind` under a
 // catalog directory, as the compiler's catalog would list them.

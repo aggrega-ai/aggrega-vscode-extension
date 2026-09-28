@@ -38,6 +38,47 @@ export const TOGGLE_BUILD_ON_INSPECT_COMMAND = 'aggrega.server.toggleBuildOnInsp
 // wherever it is offered.
 export const RESTART_SERVER_ACTION = 'Restart server';
 
+// commandTitle reads the name one command is listed under in the editor's command
+// palette, from the manifest the editor loaded, or null where that manifest
+// declares no title for it.
+//
+// 🔴 THE TITLE HAS ONE HOME, AND IT IS THE MANIFEST. A sentence telling a reader
+// which command to run has to name it as the palette lists it, and the palette
+// lists what the manifest declares. A copy of the title in the source would agree
+// until the manifest was edited, and a reader would then be sent looking for a
+// command that is not there.
+//
+// The palette shows a command's category ahead of its title, joined by a colon,
+// where the entry declares one, so the name is composed the same way here.
+export function commandTitle(manifest: unknown, command: string): string | null {
+  const commands = (manifest as { contributes?: { commands?: unknown } } | null | undefined)
+    ?.contributes?.commands;
+  if (!Array.isArray(commands)) { return null; }
+  for (const entry of commands) {
+    if (!entry || typeof entry !== 'object') { continue; }
+    const declared = entry as { command?: unknown; title?: unknown; category?: unknown };
+    if (declared.command !== command) { continue; }
+    if (typeof declared.title !== 'string' || declared.title === '') { return null; }
+    return typeof declared.category === 'string' && declared.category !== ''
+      ? `${declared.category}: ${declared.title}`
+      : declared.title;
+  }
+  return null;
+}
+
+// stoppedRespondingMessage is what the notification raised once the language
+// server has exited unexpectedly more often, within the respawn window, than its
+// respawn attempts allow says: that it has stopped, since nothing will start it
+// again by itself, and the command that does, named as the palette lists it.
+//
+// Where no title could be read the sentence names no command, rather than one
+// written here: a name the manifest does not declare sends a reader looking for
+// a command that is not there.
+export function stoppedRespondingMessage(restartTitle: string | null): string {
+  const stopped = 'Aggrega language server has stopped responding.';
+  return restartTitle === null ? stopped : `${stopped} Run "${restartTitle}" to recover.`;
+}
+
 // enablementClause is the exact condition string a gated command carries in the
 // manifest. This is the one home for it: the manifest is declarative data the
 // editor reads and nothing here can generate into it, so the two are held

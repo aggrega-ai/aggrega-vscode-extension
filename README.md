@@ -122,20 +122,22 @@ moves the reading. Where a reading cannot be taken — the extension was built w
 build it is, nothing is running to ask, or what is running did not answer — the label stays and says
 the version was not reported, so an absent reading is never mistaken for one you failed to notice.
 
-**The page's last line says whether the language server is running.** It reads **Language server
-running**, **starting**, **not running** or **failed to start**, in the words the status bar and the
-notifications use; **failed to start** means the most recent attempt to start it failed and none has
-run since. The Aggrega output channel says why, and so does the notification raised when the first
-start or a restart fails. While the server runs, the line adds **version not reported**: the running
-server does not report a version of its own, and the **Compiler** reading above it is what the binary
-the server was started from says when asked — a different fact, because the file at that path can be
-replaced while the server started from it goes on running. The line and the two readings above it
-follow the server as it starts, stops, restarts or fails, without the page being reopened; the steps
-keep their marks through a restart.
+**The page's last line says whether the language server is running, and which build it is.** It reads
+**Language server running**, **starting**, **not running** or **failed to start**, in the words the
+status bar and the notifications use; **failed to start** means the most recent attempt to start it
+failed and none has run since. The Aggrega output channel says why, and so does the notification raised
+when the first start or a restart fails. While the server runs, the line adds the version the running
+server reported about itself when the extension connected to it, written the way the **Compiler**
+reading writes a version. The **Compiler** reading above it is a different fact: it is what the binary
+the server was started from says when asked, and the two differ when the file at that path is replaced
+while the server started from it goes on running, so the page shows both. A language server that
+reports no version of its own reads **version not reported** there, rather than borrowing the binary's.
+The line and the two readings above it follow the server as it starts, stops, restarts or fails,
+without the page being reopened; the steps keep their marks through a restart.
 
 ## Features
 
-- **Welcome page** — Aggrega's own page in its own editor tab, saying what Aggrega is and then listing what the extension needs in this workspace, marking each condition **Met** or **To do**. Each step offers a way to create the thing and a way to point at one you already have, explains the condition, and a step already met asks you nothing. A step marked **Met** goes back to **To do** if its condition lapses. A step already met opens folded, so the page opens on the work that remains. Each step also shows what it currently stands at — the workspace root, the compiler, the Release, the registries — set larger and heavier than the guidance, introduced by **Selected:**, under the title when the step is folded and immediately above the buttons when it is open, and saying so in words where you have not chosen yet — **None selected.** where there is something to choose, **None available.** where there is nothing to choose from at all. Its foot carries the checkbox that decides whether it opens on startup, the same switch the settings screen holds, below that the versions of the extension and of the compiler you are running, and last whether the language server is running. A house icon in the Commands panel title bar opens it again at any time. It costs the Aggrega view no space. See [The welcome page](#the-welcome-page).
+- **Welcome page** — Aggrega's own page in its own editor tab, saying what Aggrega is and then listing what the extension needs in this workspace, marking each condition **Met** or **To do**. Each step offers a way to create the thing and a way to point at one you already have, explains the condition, and a step already met asks you nothing. A step marked **Met** goes back to **To do** if its condition lapses. A step already met opens folded, so the page opens on the work that remains. Each step also shows what it currently stands at — the workspace root, the compiler, the Release, the registries — set larger and heavier than the guidance, introduced by **Selected:**, under the title when the step is folded and immediately above the buttons when it is open, and saying so in words where you have not chosen yet — **None selected.** where there is something to choose, **None available.** where there is nothing to choose from at all. Its foot carries the checkbox that decides whether it opens on startup, the same switch the settings screen holds, below that the versions of the extension and of the compiler you are running, and last whether the language server is running and which version it reports. A house icon in the Commands panel title bar opens it again at any time. It costs the Aggrega view no space. See [The welcome page](#the-welcome-page).
 - **Language server state** — a status-bar indicator on the left, beside the Release indicator, reading **running**, **starting**, or **not running** in red. It is the one surface that is there whatever the compiler is doing, so it is where you find out that nothing is running rather than being left to infer it from surfaces that have gone quiet — and its tooltip says which of the two reasons applies: no folder here is one Aggrega recognises, or there is one and the server is not attached to it. Clicking it offers **Start** when nothing is running and **Restart** when something is, and does the one you choose. See [When the language server is not running](#when-the-language-server-is-not-running).
 - **Selected Release** — a status-bar indicator and a **Release** row at the top of the Commands panel, each naming the one Release the editor is working on. Everything that acts on a Release — validation, the topology graph, build, preview build and pull — acts on that one, so the Problems panel and the graph always describe the same Release. See [Selecting a Release](#selecting-a-release).
 - **Diagnostics** — YAML and schema validation surfaced inline as you edit, checked against the selected Release.

@@ -23,14 +23,17 @@ import {
   RESTART_COMMAND,
   STATUS_BAR_MENU_COMMAND,
   TOGGLE_BUILD_ON_INSPECT_COMMAND,
+  commandTitle,
   createDaemonStatusBar,
   daemonReading,
   daemonStanding,
   daemonStandingAction,
   daemonStandingTooltip,
   enablementClause,
+  stoppedRespondingMessage,
 } from '../../src/daemon-status';
 import { COMPILER_ANSWERABLE_CONTEXT_KEY } from '../../src/readiness';
+import { callArguments } from '../helpers/anchoring-census';
 
 // The manifest is read and parsed rather than pattern-matched: what is asserted
 // below is a property of the declared contributions, and only a parse can see
@@ -447,6 +450,80 @@ describe('what the manifest declares about availability', () => {
   it('names the quick-action menu as the one command it gates', () => {
     assert.deepStrictEqual([...GATED_ON_ANSWERABLE], [STATUS_BAR_MENU_COMMAND]);
     assert.ok(NEVER_GATED.includes(TOGGLE_BUILD_ON_INSPECT_COMMAND));
+  });
+});
+
+describe('the notification raised when the language server stops responding', () => {
+  // 🔴 THE SENTENCE IS A LITERAL ON PURPOSE. It is the words a reader is meant to
+  // read, naming the command as the palette lists it, and it is held here where
+  // an edit to the composition or to the manifest cannot reach it — so a
+  // composition that went back to naming a command the manifest does not declare
+  // fails, and so does a manifest rename nobody meant.
+  const STOPPED_RESPONDING =
+    'Aggrega language server has stopped responding. Run "Aggrega: Start or restart the language server" to recover.';
+
+  it('names the command that starts the server again, under the title the manifest declares', () => {
+    const pkg = JSON.parse(fs.readFileSync(MANIFEST, 'utf8'));
+    assert.strictEqual(commandTitle(pkg, RESTART_COMMAND), 'Aggrega: Start or restart the language server');
+    assert.strictEqual(stoppedRespondingMessage(commandTitle(pkg, RESTART_COMMAND)), STOPPED_RESPONDING);
+  });
+
+  // The title is read rather than held, shown by reading two manifests: the
+  // sentence follows the one it is handed.
+  it('names the command as the manifest it is handed declares it', () => {
+    const renamed = {
+      contributes: { commands: [{ command: RESTART_COMMAND, title: 'Aggrega: Bring the language server back' }] },
+    };
+    assert.strictEqual(
+      stoppedRespondingMessage(commandTitle(renamed, RESTART_COMMAND)),
+      'Aggrega language server has stopped responding. Run "Aggrega: Bring the language server back" to recover.',
+    );
+  });
+
+  it('composes the name the palette shows where the entry declares a category', () => {
+    const categorised = {
+      contributes: {
+        commands: [{ command: RESTART_COMMAND, title: 'Start or restart the language server', category: 'Aggrega' }],
+      },
+    };
+    assert.strictEqual(commandTitle(categorised, RESTART_COMMAND), 'Aggrega: Start or restart the language server');
+  });
+
+  // 🔴 A COMMAND THE MANIFEST DOES NOT NAME IS NEVER NAMED. Where no title can be
+  // read the sentence says the server stopped and names nothing, because a name
+  // written in its place is exactly the defect of sending a reader to a command
+  // that is not there.
+  it('names no command where the manifest declares no title for it', () => {
+    const untitled: unknown[] = [
+      undefined,
+      null,
+      42,
+      {},
+      { contributes: {} },
+      { contributes: { commands: [] } },
+      { contributes: { commands: [{ command: RESTART_COMMAND }] } },
+      { contributes: { commands: [{ command: RESTART_COMMAND, title: '' }] } },
+      { contributes: { commands: [{ command: 'aggrega.another', title: 'Aggrega: Another' }] } },
+    ];
+    for (const manifest of untitled) {
+      assert.strictEqual(
+        commandTitle(manifest, RESTART_COMMAND),
+        null,
+        `a title was read out of ${JSON.stringify(manifest)}`,
+      );
+    }
+    assert.strictEqual(stoppedRespondingMessage(null), 'Aggrega language server has stopped responding.');
+  });
+
+  // 🔴 THE WIRING IS READ FROM THE SOURCE, BECAUSE IT CANNOT BE DRIVEN HERE. The
+  // notification is raised from the module that holds the editor, which does not
+  // start in a headless run; what is asserted is that the one place it is raised
+  // hands it the title read from the manifest the editor loaded.
+  it('is raised with the title read from the loaded manifest, at the one place it is raised', () => {
+    assert.deepStrictEqual(
+      callArguments('src/extension.ts', 'notifyStoppedResponding'),
+      [['commandTitle(context.extension.packageJSON, RESTART_COMMAND)']],
+    );
   });
 });
 

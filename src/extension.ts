@@ -82,7 +82,7 @@ import {
   RESTART_SERVER_ACTION,
   STATUS_BAR_MENU_COMMAND,
   TOGGLE_BUILD_ON_INSPECT_COMMAND,
-  DaemonReading,
+  commandTitle,
   createDaemonStatusBar,
   daemonReading,
   daemonStanding,
@@ -114,7 +114,7 @@ import {
 } from './status-bar';
 import { scheduleBinaryRestart, RestartHandle } from './binary-restart';
 import { checkDaemonVersion, readDaemonVersion } from './version-check';
-import { VersionStandings } from './welcome-render';
+import { ServerReading, VersionStandings } from './welcome-render';
 import {
   lspCompletionToCompletion,
   lspDefinitionToResolve,
@@ -359,13 +359,25 @@ function isLanguageServerRunning(): boolean {
 
 // languageServerReading is what the welcome page's last line reports: the
 // lifecycle position, refined by whether the most recent attempt to start
-// failed. It reads the client through its own getters and keeps no copy of
-// either fact.
-function languageServerReading(): DaemonReading {
-  return daemonReading(
-    daemon?.getState() ?? null,
-    daemon ? daemon.lastStartFailed() : droppedOnFailedStart,
-  );
+// failed, and the version the server reported about itself in its answer when
+// the extension connected. It reads the client through its own getters and
+// keeps no copy of any of them.
+//
+// 🔴 THE VERSION IS THE SERVER'S OWN ANSWER, NEVER A BINARY ASKED ON ITS BEHALF.
+// The page draws it only while the reading is running, and while it is, the
+// answer it comes from is the running server's: the lifecycle reports running
+// only once the handshake that records that answer has completed. Asking the
+// binary the server was started from instead would answer for the file at that
+// path, which can be replaced while the process started from it runs on — and
+// that is the Compiler reading's question, not this one's.
+function languageServerReading(): ServerReading {
+  return {
+    reading: daemonReading(
+      daemon?.getState() ?? null,
+      daemon ? daemon.lastStartFailed() : droppedOnFailedStart,
+    ),
+    version: daemon?.getServerInitMetadata()?.version ?? null,
+  };
 }
 
 // requireSelectedRelease tells the reader that an operation needs a Release and
@@ -1252,7 +1264,11 @@ async function ensureDaemonAt(
 
   daemon = new Daemon(getSettings(), msg => outputChannel?.appendLine(msg));
   droppedOnFailedStart = false;
-  daemon.on('stoppedResponding', () => notifyStoppedResponding());
+  // The notification names the command that starts the server again, under the
+  // title the loaded manifest declares for it; commandTitle says why the title is
+  // read rather than written here.
+  daemon.on('stoppedResponding', () =>
+    notifyStoppedResponding(commandTitle(context.extension.packageJSON, RESTART_COMMAND)));
   daemon.on('stateChange', (next) => {
     if (next === DaemonState.Running || next === DaemonState.Restarting) {
       resetSessionDedup(toastDebounce);

@@ -279,19 +279,41 @@ export const VERSION_ABSENT = 'version not reported';
 export const EXTENSION_VERSION_LABEL = 'Extension';
 export const COMPILER_VERSION_LABEL = 'Compiler';
 
+// versionValueHtml draws the value of one version reading: the value as it was
+// read, or the words for a reading not obtained, marked as absent. An empty value
+// names no build, so it is drawn as the absence it is.
+//
+// It is the one place a version's value is drawn, so the readings at the foot and
+// the language server's line say "not reported" in the same words and the same
+// mark.
+function versionValueHtml(value: string | null): string {
+  const known = value !== null && value !== '';
+  const valueClass = known ? 'version-value' : 'version-value version-value-absent';
+  return `<span class="${valueClass}">${escapeHtml(known ? value : VERSION_ABSENT)}</span>`;
+}
+
 // versionsHtml composes the region reporting both versions.
 //
 // Each reading is drawn as its label and its value, and a missing reading keeps
 // its label: a row that vanished would leave a reader unable to tell a version
 // they failed to notice from one the page never had.
 export function versionsHtml(versions: VersionStandings): string {
-  const entry = (label: string, value: string | null): string => {
-    const known = value !== null && value !== '';
-    const valueClass = known ? 'version-value' : 'version-value version-value-absent';
-    return `<span class="version-entry">${escapeHtml(label)} <span class="${valueClass}">${escapeHtml(known ? value : VERSION_ABSENT)}</span></span>`;
-  };
+  const entry = (label: string, value: string | null): string =>
+    `<span class="version-entry">${escapeHtml(label)} ${versionValueHtml(value)}</span>`;
   return entry(EXTENSION_VERSION_LABEL, versions.extension)
     + entry(COMPILER_VERSION_LABEL, versions.compiler);
+}
+
+// ServerReading is what the page's last line is drawn from: what the language
+// server's lifecycle reads as, and the version the running server reported
+// about itself in its answer when the extension connected to it.
+//
+// version is null where the server reported none. It is drawn only while the
+// server runs, because it describes a running process and a server that is not
+// running has no version to report.
+export interface ServerReading {
+  reading: DaemonReading;
+  version: string | null;
 }
 
 // SERVER_LABEL names the language server on the page's last line, the way the
@@ -302,24 +324,22 @@ export const SERVER_LABEL = 'Language server';
 // running, in the words the rest of the extension uses for its states, and,
 // while it runs, the version it reports about itself.
 //
-// 🔴 THE RUNNING SERVER REPORTS NO VERSION OF ITS OWN, SO THE LINE SAYS SO
-// RATHER THAN BORROWING ONE. Its answer when the extension connects names the
-// workspace it attached to and how positions are counted, and nothing about
-// which build it is. The Compiler reading above is a different fact — what the
-// binary the server was started from says when asked — and the two genuinely
-// differ when that file is replaced in place while the older process runs on,
-// so printing the binary's answer here would state as the server's something
-// the server never said. The words are the absent reading's own, so a reader
+// 🔴 THE VERSION IS WHAT THE RUNNING SERVER SAID ABOUT ITSELF, NEVER WHAT THE
+// BINARY SAYS. The server names its own build in its answer when the extension
+// connects, and that is the value drawn here. The Compiler reading above is a
+// different fact — what the binary the server was started from says when asked —
+// and the two genuinely differ when that file is replaced in place while the
+// process started from it runs on, so each is shown as what it is and neither
+// stands in for the other. A server whose answer carries no version is drawn in
+// the absent reading's own words rather than borrowing the binary's, so a reader
 // meets one phrase for "not reported" wherever the page uses it.
 //
 // No failure reason is drawn. The output channel carries it, as does the
 // notification a failed first start or restart raises, and the page is not
 // where a diagnosis belongs.
-export function serverHtml(reading: DaemonReading): string {
-  const version = reading === 'running'
-    ? `, <span class="version-value version-value-absent">${escapeHtml(VERSION_ABSENT)}</span>`
-    : '';
-  return `<span class="version-entry">${escapeHtml(SERVER_LABEL)} ${escapeHtml(DAEMON_READING_WORDS[reading])}${version}</span>`;
+export function serverHtml(server: ServerReading): string {
+  const version = server.reading === 'running' ? `, ${versionValueHtml(server.version)}` : '';
+  return `<span class="version-entry">${escapeHtml(SERVER_LABEL)} ${escapeHtml(DAEMON_READING_WORDS[server.reading])}${version}</span>`;
 }
 
 // WelcomeDocumentOptions carries the addresses the editor resolves for a panel's
@@ -345,8 +365,9 @@ export interface WelcomeDocumentOptions {
   // afresh by the caller for the same reason the standings are.
   versions: VersionStandings;
   // server is what the language server's lifecycle reads as at the moment of
-  // composing, for the page's last line.
-  server: DaemonReading;
+  // composing, and the version the running server reported, for the page's
+  // last line.
+  server: ServerReading;
 }
 
 // welcomeDocumentHtml composes the whole panel.

@@ -49,9 +49,9 @@ import {
   readCollapsedSteps,
   stepReadings,
 } from './get-started-steps';
-import type { DaemonReading } from './daemon-status';
 import { AppliedWrite, ConfigurationWriter, endingInEffect } from './config-change-watch';
 import {
+  ServerReading,
   VersionStandings,
   dismissHtml,
   initiallyCollapsedStepIds,
@@ -203,11 +203,12 @@ export interface GetStartedDeps extends RendersOnReady {
   // compiler.
   readVersions(): Promise<VersionStandings>;
   // readServerStanding reports what the language server's lifecycle reads as
-  // right now, for the page's last line. It is a dependency because the
-  // lifecycle, and the record of whether the last attempt to start failed, are
-  // held by the surface that starts the server; it answers at once, so the line
-  // is drawn from the position it names rather than from one read earlier.
-  readServerStanding(): DaemonReading;
+  // right now, and the version the running server reported about itself, for
+  // the page's last line. It is a dependency because the lifecycle, the record
+  // of whether the last attempt to start failed, and the server's own answer
+  // are held by the surface that starts the server; it answers at once, so the
+  // line is drawn from the position it names rather than from one read earlier.
+  readServerStanding(): ServerReading;
   output: vscode.OutputChannel;
 }
 
@@ -596,7 +597,7 @@ function welcomeHtml(
   collapsed: readonly StepId[],
   opensWithEditor: boolean,
   versions: VersionStandings,
-  server: DaemonReading,
+  server: ServerReading,
 ): string {
   return welcomeDocumentHtml({
     nonce: makeNonce(),

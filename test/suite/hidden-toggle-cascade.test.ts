@@ -322,7 +322,7 @@ function welcomeHtml(): string {
     collapsed: [],
     opensWithEditor: true,
     versions: { extension: '9.9.9', compiler: '8.8.8' },
-    server: 'running',
+    server: { reading: 'running', version: '8.8.8' },
   });
   const closed = welcomeDocumentHtml({
     nonce: 'test-nonce',
@@ -333,7 +333,7 @@ function welcomeHtml(): string {
     collapsed: STEP_IDS as readonly StepId[],
     opensWithEditor: true,
     versions: { extension: '9.9.9', compiler: null },
-    server: 'failedToStart',
+    server: { reading: 'failedToStart', version: null },
   });
   return open + closed;
 }
