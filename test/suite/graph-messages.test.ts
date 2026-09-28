@@ -2,12 +2,12 @@
 // Copyright 2026 Cognitio S.r.l.
 
 import * as assert from 'node:assert';
-import { makeGraphMessageHandler } from '../../src/graph-messages';
+import { GraphMessage, makeGraphMessageHandler } from '../../src/graph-messages';
 
 interface Recorder {
   opened: Array<{ workspaceRoot: string; sourceFile: string }>;
   noWorkspaceReports: number;
-  asked: Array<{ nodeId: string; labels: Record<string, string>; requestId: number }>;
+  asked: Array<{ nodeId: string; requestId: number }>;
   attached: Array<{ nodeId: string; featureName: string }>;
 }
 
@@ -19,8 +19,8 @@ function handlerOver(getRoot: () => string | null, rec: Recorder) {
   return makeGraphMessageHandler(getRoot, {
     openSource: (workspaceRoot, sourceFile) => { rec.opened.push({ workspaceRoot, sourceFile }); },
     reportNoWorkspace: () => { rec.noWorkspaceReports++; },
-    requestAttachCandidates: (nodeId, labels, requestId) => {
-      rec.asked.push({ nodeId, labels, requestId });
+    requestAttachCandidates: (nodeId, requestId) => {
+      rec.asked.push({ nodeId, requestId });
     },
     attachFeature: (nodeId, featureName) => { rec.attached.push({ nodeId, featureName }); },
   });
@@ -71,20 +71,13 @@ describe('makeGraphMessageHandler', () => {
     assert.deepStrictEqual(rec.asked, []);
   });
 
-  it('forwards a candidacy request with the label set it was given', () => {
+  it('forwards a candidacy request with the node it names', () => {
     const rec = recorder();
     const handle = handlerOver(() => '/a/root', rec);
 
-    handle({
-      type: 'attachCandidates',
-      nodeId: 'api',
-      labels: { 'component.aggrega.ai/type': 'service' },
-      requestId: 7,
-    });
+    handle({ type: 'attachCandidates', nodeId: 'api', requestId: 7 });
 
-    assert.deepStrictEqual(rec.asked, [
-      { nodeId: 'api', labels: { 'component.aggrega.ai/type': 'service' }, requestId: 7 },
-    ]);
+    assert.deepStrictEqual(rec.asked, [{ nodeId: 'api', requestId: 7 }]);
     // A candidacy request is not a source-file click and must not become one.
     assert.deepStrictEqual(rec.opened, []);
   });
@@ -96,12 +89,14 @@ describe('makeGraphMessageHandler', () => {
     // Two questions about the SAME node. A re-render re-asks because the
     // node's labels may have changed, so these are different questions and the
     // ids are the only thing that distinguishes their answers.
-    handle({ type: 'attachCandidates', nodeId: 'api', labels: { v: '1' }, requestId: 1 });
-    handle({ type: 'attachCandidates', nodeId: 'api', labels: { v: '2' }, requestId: 2 });
+    handle({ type: 'attachCandidates', nodeId: 'api', requestId: 1 });
+    handle({ type: 'attachCandidates', nodeId: 'api', requestId: 2 });
 
-    assert.deepStrictEqual(rec.asked.map((a) => a.requestId), [1, 2]);
     // Nothing here interprets the id: it is minted and compared by the asker.
-    assert.deepStrictEqual(rec.asked.map((a) => a.labels), [{ v: '1' }, { v: '2' }]);
+    assert.deepStrictEqual(rec.asked, [
+      { nodeId: 'api', requestId: 1 },
+      { nodeId: 'api', requestId: 2 },
+    ]);
   });
 
   it('still serves a request that minted no id', () => {
@@ -110,56 +105,50 @@ describe('makeGraphMessageHandler', () => {
 
     // The two halves ship in either order, so a sender that does not mint an
     // id is asking a question this side can still answer.
-    handle({ type: 'attachCandidates', nodeId: 'api', labels: {} });
-    handle({
-      type: 'attachCandidates',
-      nodeId: 'api',
-      labels: {},
-      requestId: Number.NaN,
-    });
+    handle({ type: 'attachCandidates', nodeId: 'api' });
+    handle({ type: 'attachCandidates', nodeId: 'api', requestId: Number.NaN });
 
     assert.deepStrictEqual(rec.asked.map((a) => a.requestId), [0, 0]);
   });
 
-  it('forwards an EMPTY label set, which is a subject rather than a missing one', () => {
+  it('serves a view that still sends the node\'s labels by the node alone', () => {
     const rec = recorder();
     const handle = handlerOver(() => '/a/root', rec);
 
-    // A node carrying no labels is admitted by every Feature that declares no
-    // requirement, so dropping this would refuse a legitimate question and let
-    // the panel report the refusal as "no Feature matched".
-    handle({ type: 'attachCandidates', nodeId: 'plain', labels: {}, requestId: 3 });
-
-    assert.deepStrictEqual(rec.asked, [{ nodeId: 'plain', labels: {}, requestId: 3 }]);
-  });
-
-  it('asks nothing when there is no subject to ask about', () => {
-    const rec = recorder();
-    const handle = handlerOver(() => '/a/root', rec);
-
-    // No node, no labels at all, and two shapes that are not a label set.
-    handle({ type: 'attachCandidates', labels: {} });
-    handle({ type: 'attachCandidates', nodeId: '', labels: {} });
-    handle({ type: 'attachCandidates', nodeId: 'api' });
-    handle({ type: 'attachCandidates', nodeId: 'api', labels: null as unknown as undefined });
+    // The labels matched are the ones the Release's compiled graph carries for
+    // the node, so a label set the view read off its drawing is not forwarded.
+    // Serving such a message rather than dropping it is the tolerance that lets
+    // the two halves ship in either order.
     handle({
       type: 'attachCandidates',
-      nodeId: 'api',
-      labels: [] as unknown as Record<string, string>,
-    });
+      nodeId: 'plain',
+      labels: { tier: 'web' },
+      requestId: 3,
+    } as GraphMessage);
+
+    assert.deepStrictEqual(rec.asked, [{ nodeId: 'plain', requestId: 3 }]);
+  });
+
+  it('asks nothing when there is no node to ask about', () => {
+    const rec = recorder();
+    const handle = handlerOver(() => '/a/root', rec);
+
+    handle({ type: 'attachCandidates', requestId: 1 });
+    handle({ type: 'attachCandidates', nodeId: '', requestId: 2 });
 
     assert.deepStrictEqual(rec.asked, []);
   });
 
-  it('serves a candidacy request while nothing is anchored, because it resolves nothing', () => {
+  it('serves a candidacy request while nothing is anchored, because it resolves nothing here', () => {
     const rec = recorder();
     const handle = handlerOver(() => null, rec);
 
-    handle({ type: 'attachCandidates', nodeId: 'api', labels: { tier: 'web' }, requestId: 1 });
+    handle({ type: 'attachCandidates', nodeId: 'api', requestId: 1 });
 
-    // The label set is the whole subject, so no root is consulted and the
-    // reader is not told to anchor something the question never needed.
-    assert.deepStrictEqual(rec.asked, [{ nodeId: 'api', labels: { tier: 'web' }, requestId: 1 }]);
+    // The node is addressed on the graph the panel drew, and the side holding
+    // that graph adds its Release, so no root is consulted here and the reader
+    // is not told to anchor something the question never needed.
+    assert.deepStrictEqual(rec.asked, [{ nodeId: 'api', requestId: 1 }]);
     assert.strictEqual(rec.noWorkspaceReports, 0);
   });
 

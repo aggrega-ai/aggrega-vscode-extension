@@ -110,15 +110,6 @@
   let selectedId = null;
   // The drawn node groups, so selecting one can mark it and unmark the rest.
   const nodeGroups = new Map();
-
-  // Each node's label set, kept from the render so selecting a node can ask
-  // what may attach to it without the graph being fetched or rebuilt.
-  //
-  // These are the labels the compiler put on the drawn nodes, held exactly as
-  // they arrived. Nothing here derives, merges or normalises them: the question
-  // asked is about the labels the reader is looking at, and a set assembled
-  // here would be a different question wearing the same name.
-  let shownLabels = new Map();
   // The body of the palette section for the node the panel is showing, so an
   // answer that arrives later fills it without the whole panel being redrawn
   // underneath the reader.
@@ -232,7 +223,6 @@
     // selection every time would close the panel while they are reading it.
     const wasSelected = selectedId;
     shownAttachments = projectAttachments(graph);
-    shownLabels = nodeLabels(meta);
     clearSelection();
     nodeGroups.clear();
 
@@ -429,15 +419,6 @@
     return projected;
   }
 
-  // nodeLabels keeps each node's label set from the layout model's own reading
-  // of the graph, so the labels a question is asked about and the labels the
-  // hover text shows are one reading rather than two.
-  function nodeLabels(meta) {
-    const kept = new Map();
-    meta.forEach((m, id) => { kept.set(id, (m && m.labels) || {}); });
-    return kept;
-  }
-
   function selectNode(nodeId) {
     selectedId = nodeId;
     nodeGroups.forEach((g, id) => { g.classList.toggle('node-selected', id === nodeId); });
@@ -489,26 +470,19 @@
   }
 
   // askWhatMayAttach asks the host about the node the reader just selected,
-  // passing the labels the drawn graph carries for it.
+  // naming it by the id this drawing keys it under.
   //
-  // A node the render kept no labels for is not asked about: there is no
-  // subject to ask with, and sending an empty set in its place would ask a
-  // question about a node carrying no labels — a different question with a
-  // plausible-looking answer. The report says what this view observed rather
-  // than what the node declares, which is the part it cannot know.
+  // Nothing this view read off the drawing is sent beside the id. The host adds
+  // the Release the graph was drawn from, and the compiler matches the labels
+  // that Release's graph carries for the node against the Features it can see
+  // for that Release — so what this view holds is the question's address and
+  // not its content.
   function askWhatMayAttach(nodeId) {
     candidatesRequestId += 1;
-    const asked = candidatesRequestId;
-    const labels = shownLabels.get(nodeId);
-    if (!labels) {
-      showCandidatesFailure(asked, 'the rendered graph carries no labels for this node.');
-      return;
-    }
     vscode.postMessage({
       type: 'attachCandidates',
       nodeId: nodeId,
-      labels: labels,
-      requestId: asked,
+      requestId: candidatesRequestId,
     });
   }
 

@@ -7,6 +7,7 @@ import * as path from 'node:path';
 import {
   AttachmentSite,
   Insertion,
+  attachCandidatesRequest,
   attachFailureLine,
   attachRefusal,
   attachmentContainerRequest,
@@ -154,6 +155,29 @@ describe('attachmentContainerRequest', () => {
     // Named field by field, because a third key could only be something this
     // side had invented: the document, or a path into it.
     assert.deepStrictEqual(Object.keys(request).sort(), ['graphNode', 'release']);
+  });
+});
+
+describe('attachCandidatesRequest', () => {
+  it('asks by the drawn node and the Release its graph was built from, and carries no label set', () => {
+    const request = attachCandidatesRequest('db', 'release-helm-synth.yaml');
+    assert.deepStrictEqual(request, { graphNode: 'db', release: 'release-helm-synth.yaml' });
+    // Named field by field. The request refuses a Release beside a label set,
+    // and a label set alone is answered from the workspace's own catalog
+    // directories — so a label set appearing here would stop the answer
+    // following the directories the graph's Release builds against.
+    assert.deepStrictEqual(Object.keys(request).sort(), ['graphNode', 'release']);
+  });
+
+  it('asks the same coordinate the attachment container is asked with', () => {
+    // Both questions are about one node of one drawn graph, so the two are
+    // addressed identically: an answer about what may attach and the edit that
+    // commits one cannot come to name different nodes or different Releases.
+    const release = 'releases/dev.yaml';
+    assert.deepStrictEqual(
+      attachCandidatesRequest('finance.ledger', release),
+      attachmentContainerRequest(site({ nodeId: 'finance.ledger' }), release),
+    );
   });
 });
 

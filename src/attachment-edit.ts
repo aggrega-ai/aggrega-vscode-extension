@@ -70,6 +70,18 @@ export type AttachmentContainerRequest = Required<
   Pick<wire.AttachmentContainerParams, 'graphNode' | 'release'>
 >;
 
+// AttachCandidatesRequest is the coordinate the compiler is asked what may attach
+// to one drawn node with: the same two as the container question, the id the
+// drawn graph keys the node under and the Release whose graph that is.
+//
+// It carries no label set. The request refuses a Release beside one, and the
+// Release is what decides which catalog directories the candidates are read
+// from, so a label set sent on its own is answered from the workspace's own
+// directories whichever Release the graph shows.
+export type AttachCandidatesRequest = Required<
+  Pick<wire.AttachCandidatesParams, 'graphNode' | 'release'>
+>;
+
 // LocatedContainer is the compiler's answer about where an attachment for one
 // node belongs: the document it was authored in, and the structural path to the
 // container the attachment goes inside.
@@ -165,6 +177,23 @@ export function attachmentContainerRequest(
   release: string,
 ): AttachmentContainerRequest {
   return { graphNode: site.nodeId, release };
+}
+
+// attachCandidatesRequest is the question asking which Features may attach to
+// one node of the drawn graph.
+//
+// The answer is computed over the node's labels on that Release's compiled graph,
+// and its candidates are the Features declared by documents in the workspace
+// together with those held by the catalog directories that Release builds
+// against — its own, where the workspace configuration gives it some. So a Feature
+// held only by such a directory outside the workspace is offered on that
+// Release's graph and on no other, while one a document inside the workspace
+// declares is offered on every graph, whichever directory the document sits in.
+export function attachCandidatesRequest(
+  nodeId: string,
+  release: string,
+): AttachCandidatesRequest {
+  return { graphNode: nodeId, release };
 }
 
 // readAttachmentContainer reads the answer about where an attachment belongs,

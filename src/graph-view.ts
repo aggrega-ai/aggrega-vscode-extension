@@ -6,8 +6,10 @@ import * as vscode from 'vscode';
 import { GraphRedactor, createGraphRedactor } from './graph-payload';
 import { makeGraphMessageHandler } from './graph-messages';
 import {
+  AttachCandidatesRequest,
   AttachmentContainerRequest,
   AttachmentSite,
+  attachCandidatesRequest,
   attachFailureLine,
   attachRefusal,
   attachmentContainerRequest,
@@ -51,15 +53,17 @@ export interface GraphDeps extends RendersOnReady {
   // none, because there is no indicator to press cancel on.
   requestIrGraph(release: string, signal?: CancellationSignal): Promise<unknown>;
   // requestAttachCandidates reports which Features declare an applicability
-  // that this label set satisfies.
+  // that one drawn node's labels satisfy.
   //
-  // THE SUBJECT IS THE LABEL SET, not a node name and not a graph node, and
-  // that is what makes the question answerable from a canvas. The labels a
-  // drawn graph carries are the finalised ones the build itself evaluates
-  // applicability against, so passing them asks the strongest form of the
-  // question — while naming a node instead would have the graph rebuilt in
-  // order to look labels back up that the canvas is already displaying.
-  requestAttachCandidates(labels: Record<string, string>): Promise<unknown>;
+  // THE SUBJECT IS A GRAPH NODE AND THE RELEASE ITS GRAPH WAS BUILT FROM, the
+  // same coordinate the container question below is asked with. The labels
+  // matched are the node's finalised set on that Release's compiled graph,
+  // which is what the build evaluates applicability against, and the Features
+  // matched include those the catalog directories that Release builds against
+  // hold. A label set sent on its own would be matched against the workspace's
+  // own directories instead, which a Release given directories of its own does
+  // not build against.
+  requestAttachCandidates(request: AttachCandidatesRequest): Promise<unknown>;
   // requestAttachmentContainer reports which document an attachment for one
   // drawn node belongs in, and the structural path to the container inside it.
   //
@@ -191,12 +195,22 @@ export function activateGraphView(context: vscode.ExtensionContext, deps: GraphD
             reportNoWorkspace: () => {
               void vscode.window.showInformationMessage(NO_ANCHORED_WORKSPACE_MESSAGE);
             },
-            requestAttachCandidates: (nodeId, labels, requestId) => {
+            requestAttachCandidates: (nodeId, requestId) => {
               // The panel that asked is the panel answered. There is one, it is
               // reused, and it is cleared when it closes — so a request whose
               // panel is already gone has nowhere to report and is dropped.
               if (!panel) { return; }
-              void postAttachCandidates(panel, deps, nodeId, labels, requestId);
+              // Asked about the Release this panel's graph was drawn from, for
+              // the reason the commit below is: the node id belongs to that
+              // graph, and the selection may since have moved.
+              if (!shownRelease) {
+                void panel.webview.postMessage({
+                  type: 'attachCandidatesError', nodeId, requestId,
+                  message: 'this panel is not showing a Release yet.',
+                });
+                return;
+              }
+              void postAttachCandidates(panel, deps, nodeId, shownRelease, requestId);
             },
             attachFeature: (nodeId, featureName) => {
               if (!panel) { return; }
@@ -337,11 +351,12 @@ async function renderGraph(
 // The extension routes a daemon refusal to a diagnostic on the document the
 // refusal names, which is right for a failure that is ABOUT an authored
 // document — a graph that would not compile is about the Release. This request
-// is not of that kind. It names no document and builds no graph: its subject is
-// a label set, so nothing it can be refused for is attributable to a file, and
-// nothing it returns carries one. Publishing a diagnostic anyway would need a
-// document chosen here rather than named by the refusal, and the reader would
-// be sent to a file that is not at fault.
+// builds that same Release's graph again to read the node's labels, so a
+// document it could be refused over is one the drawing already reported through
+// the render's own path; publishing the refusal a second time from here would
+// report one fault twice, and a refusal naming no document — an id the rebuilt
+// graph no longer carries, a lockfile gone since the drawing — has no document
+// to be put on at all.
 //
 // So the answer and the refusal go to the same place the question was asked —
 // the panel the reader is looking at — with the detail on the output channel
@@ -356,11 +371,11 @@ async function postAttachCandidates(
   panel: vscode.WebviewPanel,
   deps: GraphDeps,
   nodeId: string,
-  labels: Record<string, string>,
+  release: string,
   requestId: number,
 ): Promise<void> {
   try {
-    const result = await deps.requestAttachCandidates(labels);
+    const result = await deps.requestAttachCandidates(attachCandidatesRequest(nodeId, release));
     void panel.webview.postMessage({ type: 'attachCandidates', nodeId, requestId, result });
   } catch (err) {
     // describeError is the extension's one home for rendering a thrown value as

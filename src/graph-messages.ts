@@ -8,7 +8,6 @@ export interface GraphMessage {
   type: string;
   sourceFile?: string;
   nodeId?: string;
-  labels?: Record<string, string>;
   requestId?: number;
   featureName?: string;
 }
@@ -24,12 +23,13 @@ export interface GraphMessageSinks {
   // reportNoWorkspace tells the reader the click could not be served because
   // nothing is anchored.
   reportNoWorkspace(): void;
-  // requestAttachCandidates asks which Features may attach to a node carrying
-  // this label set, and is answered back into the panel that asked.
+  // requestAttachCandidates asks which Features may attach to the drawn node
+  // with this id, and is answered back into the panel that asked.
   //
-  // The node id is carried so the answer can be matched to the node it was
-  // asked about. It addresses nothing: the label set is the whole subject of
-  // the question, and the id is what the reader is looking at.
+  // The node id is the subject: it names the node on the graph the panel drew,
+  // and the side holding that graph adds the Release it was drawn from. Nothing
+  // the view read off the drawing is forwarded beside it, because the labels
+  // matched are the ones that Release's compiled graph carries for the node.
   //
   // The request id is carried through UNREAD and echoed back with the answer.
   // Two questions about the SAME node are not the same question — a re-render
@@ -38,11 +38,7 @@ export interface GraphMessageSinks {
   // flight together may complete in either order. Only the asker knows which
   // answer it is still waiting for, so the id is its to mint and its to
   // compare; nothing here interprets it.
-  requestAttachCandidates(
-    nodeId: string,
-    labels: Record<string, string>,
-    requestId: number,
-  ): void;
+  requestAttachCandidates(nodeId: string, requestId: number): void;
   // attachFeature commits the Feature the reader chose onto the node they have
   // selected, by editing the Aggregate that declares it.
   //
@@ -112,22 +108,17 @@ function dispatchOpenSource(
 // the reader selected.
 //
 // It reads no workspace root, and that is deliberate rather than an omission:
-// the label set IS the subject of this question, so nothing here is resolved
-// against an anchor and a request arriving while nothing is anchored has no
-// anchor-shaped way to be wrong. It fails, if it fails, where the request is
-// served.
+// the node is addressed on the graph the panel drew, whose Release is known to
+// the side that drew it, so nothing here is resolved against an anchor and a
+// request arriving while nothing is anchored has no anchor-shaped way to be
+// wrong. It fails, if it fails, where the request is served.
 //
-// AN EMPTY LABEL SET IS A SUBJECT AND IS FORWARDED. A node carrying no labels
-// is a node every Feature that declares no requirement admits, so reading `{}`
-// as "nothing was asked" would silently refuse a legitimate question and report
-// it as though no Feature matched. An ABSENT or non-object label set is a
-// different case: there is no subject at all, so there is nothing to ask.
+// A message naming no node names no subject, so there is nothing to ask. Any
+// other field it carries is not read: a view sending the node's labels beside
+// its id is served by the id alone, the same tolerance that lets the two halves
+// ship in either order.
 function dispatchAttachCandidates(msg: GraphMessage, sinks: GraphMessageSinks): void {
   if (!msg.nodeId) {
-    return;
-  }
-  const labels = msg.labels;
-  if (typeof labels !== 'object' || labels === null || Array.isArray(labels)) {
     return;
   }
   // A request carrying no id is still served. The id is the asker's own way of
@@ -137,7 +128,7 @@ function dispatchAttachCandidates(msg: GraphMessage, sinks: GraphMessageSinks): 
   const requestId = typeof msg.requestId === 'number' && Number.isFinite(msg.requestId)
     ? msg.requestId
     : 0;
-  sinks.requestAttachCandidates(msg.nodeId, labels, requestId);
+  sinks.requestAttachCandidates(msg.nodeId, requestId);
 }
 
 // dispatchAttachFeature forwards the reader's choice of what to attach.

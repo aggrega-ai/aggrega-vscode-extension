@@ -5,7 +5,7 @@ import { execFile } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import type { AttachmentContainerRequest } from './attachment-edit';
+import type { AttachCandidatesRequest, AttachmentContainerRequest } from './attachment-edit';
 import { buildParams, buildPreviewParams } from './build-dials';
 import { readBuildStamp } from './build-stamp';
 import { CancellationSignal } from './cancellation';
@@ -744,17 +744,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       );
       return result.graph;
     },
-    // The label set is sent as the request's ONLY subject. The request takes
-    // one subject and refuses two, and the labels the drawn graph carries are
-    // the strongest of the ones it accepts — they are the finalised set, and
-    // they came from this same graph, so the answer is computed over exactly
-    // what the reader is looking at. Naming the node instead would have the
-    // Release's graph rebuilt to look those labels back up.
-    requestAttachCandidates: async (labels: Record<string, string>) => {
+    // What may attach to a drawn node, asked by the node's id on the graph and
+    // the Release that graph was built from. The request is composed where its
+    // answer is read and is sent exactly as composed. Naming the Release is what
+    // has the candidates read from the catalog directories that Release builds
+    // against; the request refuses a Release beside a label set, and a label set
+    // alone is answered from the workspace's own directories.
+    requestAttachCandidates: async (request: AttachCandidatesRequest) => {
       if (!daemon || daemon.getState() !== DaemonState.Running) {
         throw new Error('the Aggrega language server is not running');
       }
-      return await daemon.request<unknown>('aggrega/attachCandidates', { labels });
+      return await daemon.request<unknown>('aggrega/attachCandidates', request);
     },
     // Which document an attachment for a drawn node belongs in, and the path to
     // the container inside it. The request is composed where its answer is read
