@@ -19,6 +19,7 @@
 import type * as vscode from 'vscode';
 import { DaemonState } from './daemon';
 import { COMPILER_ANSWERABLE_CONTEXT_KEY } from './readiness';
+import { versionPhrase } from './version-words';
 
 // The commands whose availability this state decides, named once here so the
 // manifest and the code that registers them cannot drift onto different
@@ -77,6 +78,24 @@ export function commandTitle(manifest: unknown, command: string): string | null 
 export function stoppedRespondingMessage(restartTitle: string | null): string {
   const stopped = 'Aggrega language server has stopped responding.';
   return restartTitle === null ? stopped : `${stopped} Run "${restartTitle}" to recover.`;
+}
+
+// ServerInPlaceAct is what a reader asked for that put a language server in
+// place: a start where none was running, or a restart of the one that was.
+export type ServerInPlaceAct = 'started' | 'restarted';
+
+// serverInPlaceMessage is what the notification ending that act says: that the
+// language server started or restarted, and which build it reports itself to be.
+//
+// 🔴 THE VERSION IS THE RUNNING SERVER'S OWN, NEVER THE BINARY'S. The server
+// names its build in its answer when the extension connects to it, and that
+// answer is complete before the act ends, so the version is the one the new
+// process reported. The binary at the path it was started from is a different
+// fact, and the two differ when that file is replaced while the process runs
+// on. Where the answer carries no version the sentence says it was not
+// reported, in the words every other version reading uses for an absence.
+export function serverInPlaceMessage(act: ServerInPlaceAct, version: string | null | undefined): string {
+  return `Aggrega language server ${act}, ${versionPhrase(version)}.`;
 }
 
 // enablementClause is the exact condition string a gated command carries in the

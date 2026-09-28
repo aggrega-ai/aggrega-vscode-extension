@@ -2,7 +2,7 @@
 // Copyright 2026 Cognitio S.r.l.
 
 import * as path from 'path';
-import { ActiveReleaseResponse } from './types';
+import { ActiveReleaseResponse, ReleaseCandidatesResponse } from './types';
 import { SELECTOR_ROW_LABELS } from './selector-levels';
 import { releaseParamFor } from './workspace';
 
@@ -87,8 +87,10 @@ export interface ReleaseSelectionDeps {
   // input won, so consulting one directly would select a Release the compiler
   // would not have chosen. Rejects when the server is not running.
   requestActiveRelease(): Promise<ActiveReleaseResponse>;
-  // listReleases returns the workspace's Release candidates as absolute paths.
-  listReleases(): Promise<string[]>;
+  // listReleases returns the workspace's Release candidates as absolute paths,
+  // together with the lockfile of each as the language server placed it.
+  // Rejects when the server is not running.
+  listReleases(): Promise<ReleaseCandidatesResponse>;
   // pickRelease offers the candidates and returns the chosen absolute path, or
   // undefined when the reader dismissed the prompt.
   pickRelease(candidates: string[], placeHolder: string): Promise<string | undefined>;
@@ -127,6 +129,23 @@ export interface ReleaseSelection {
   // current is the workspace-relative selection, or null when none is in
   // force. This is the value a request parameter takes.
   current(): string | null;
+  // lockfile is the absolute path of the selected Release's lockfile, as the
+  // language server named it in the answer the selection was taken from, or
+  // null where nothing is selected or that answer named none.
+  //
+  // 🔴 THE PATH IS READ, NEVER DERIVED. Where a Release's lockfile sits is the
+  // compiler's rule, and every answer that names a Release to select names its
+  // lockfile beside it: the workspace default's answer, and the enumeration the
+  // chooser and the re-verification of a remembered choice read. Holding the
+  // path from that answer keeps the rule in the compiler alone. Where no answer
+  // named a lockfile, none is held and none is followed, rather than one being
+  // composed here from the Release's name — a rule restated on this side would
+  // agree with the compiler's only until the compiler's rule moved.
+  //
+  // It is held rather than asked for, because the reader of it decides as a file
+  // reaches disk, synchronously, and a request per event would be a round trip to
+  // learn a string the selection's own answer already carried.
+  lockfile(): string | null;
   // adoptDefault asks the server what this workspace points at and takes that
   // as the selection. The answer is the starting point, and an explicit
   // selection afterwards replaces it.
@@ -157,6 +176,15 @@ export interface ReleaseSelection {
   onChange(listener: () => void): void;
 }
 
+// OfferedRelease is one Release an answer named: the workspace-relative form a
+// request carries, the absolute path the answer used, and the lockfile the same
+// answer named for it, or null where it named none.
+interface OfferedRelease {
+  release: string;
+  absolute: string;
+  lockfile: string | null;
+}
+
 // createReleaseSelection builds the selection over the supplied dependencies.
 export function createReleaseSelection(deps: ReleaseSelectionDeps): ReleaseSelection {
   let state: SelectionState = { kind: 'unknown' };
@@ -166,6 +194,9 @@ export function createReleaseSelection(deps: ReleaseSelectionDeps): ReleaseSelec
   // synchronously: a count they had to go and ask for would not have arrived by
   // the time they are drawn.
   let offerable: number | null = null;
+  // lockfile is the selected Release's lockfile as the answer that named the
+  // selection carried it, or null.
+  let lockfile: string | null = null;
   const listeners: Array<() => void> = [];
 
   const announce = (): void => {
@@ -174,8 +205,19 @@ export function createReleaseSelection(deps: ReleaseSelectionDeps): ReleaseSelec
     }
   };
 
-  const setState = (next: SelectionState): void => {
+  // setState moves the selection to a state in which nothing is selected, and
+  // select moves it to a Release. The lockfile moves in the same act as the
+  // state, and only select can give it a value, so it never describes a Release
+  // other than the one selected.
+  const setState = (next: Exclude<SelectionState, { kind: 'selected' }>): void => {
     state = next;
+    lockfile = null;
+    announce();
+  };
+
+  const select = (entry: OfferedRelease): void => {
+    state = { kind: 'selected', release: entry.release, absolute: entry.absolute };
+    lockfile = entry.lockfile;
     announce();
   };
 
@@ -203,11 +245,17 @@ export function createReleaseSelection(deps: ReleaseSelectionDeps): ReleaseSelec
   // editor can derive no parameter for anything, so everything is dropped and
   // the reader is told rather than shown an empty list.
   const gatherOfferable = async (): Promise<{
-    offerable: Array<{ release: string; absolute: string }>;
+    offerable: OfferedRelease[];
     dropped: string[];
     root: string | null;
   }> => {
-    const candidates = await deps.listReleases();
+    const answer = await deps.listReleases();
+    // The published shape admits null for a workspace holding no Release, and it
+    // is read as none. The lockfiles are keyed by each candidate exactly as it is
+    // listed; an answer carrying no map names no lockfile for any of them, and
+    // none is then followed.
+    const candidates = answer.releases ?? [];
+    const lockfiles: Record<string, string> = answer.lockfiles ?? {};
     const root = deps.getDaemonWorkspaceRoot();
     if (root === null) {
       // Nothing can be converted, so this walk established no count. It is
@@ -217,7 +265,7 @@ export function createReleaseSelection(deps: ReleaseSelectionDeps): ReleaseSelec
       setOfferable(null);
       return { offerable: [], dropped: [...candidates], root: null };
     }
-    const named: Array<{ release: string; absolute: string }> = [];
+    const named: OfferedRelease[] = [];
     const dropped: string[] = [];
     for (const absolute of candidates) {
       const release = releaseParamFor(root, absolute);
@@ -225,7 +273,7 @@ export function createReleaseSelection(deps: ReleaseSelectionDeps): ReleaseSelec
         dropped.push(absolute);
         continue;
       }
-      named.push({ release, absolute });
+      named.push({ release, absolute, lockfile: lockfiles[absolute] ?? null });
     }
     // What is recorded is what can be CHOSEN, not what was reported. A
     // candidate this editor cannot name in a request is one the chooser will
@@ -276,7 +324,7 @@ export function createReleaseSelection(deps: ReleaseSelectionDeps): ReleaseSelec
         deps.logLine(`[no Release selected] ${reason}`);
         return;
       }
-      setState({ kind: 'selected', release, absolute: answer.release });
+      select({ release, absolute: answer.release, lockfile: answer.lockfile ?? null });
       return;
     }
       // No Release to default to. The server's own account of why travels on
@@ -305,6 +353,8 @@ export function createReleaseSelection(deps: ReleaseSelectionDeps): ReleaseSelec
     offerableCount: () => offerable,
 
     current: () => (state.kind === 'selected' ? state.release : null),
+
+    lockfile: () => lockfile,
 
     adoptDefault,
 
@@ -348,7 +398,7 @@ export function createReleaseSelection(deps: ReleaseSelectionDeps): ReleaseSelec
       }
       const match = gathered.offerable.find(c => c.release === remembered);
       if (match) {
-        setState({ kind: 'selected', release: match.release, absolute: match.absolute });
+        select(match);
         return;
       }
       // Verified and gone. The value is dropped, the reader is told it was
@@ -401,7 +451,7 @@ export function createReleaseSelection(deps: ReleaseSelectionDeps): ReleaseSelec
       if (!picked) { return null; }
       const chosen = gathered.offerable.find(c => c.absolute === picked);
       if (!chosen) { return null; }
-      setState({ kind: 'selected', release: chosen.release, absolute: chosen.absolute });
+      select(chosen);
       deps.store.write(chosen.release);
       return chosen.release;
     },

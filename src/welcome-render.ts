@@ -16,6 +16,7 @@ import {
 } from './get-started-steps';
 import { DAEMON_READING_WORDS, DaemonReading } from './daemon-status';
 import { escapeHtml } from './html';
+import { VERSION_ABSENT, versionKnown } from './version-words';
 
 // This module composes the welcome panel's document and holds no editor types,
 // so what a reader is shown is assertable without an extension host — the
@@ -262,15 +263,6 @@ export interface VersionStandings {
   compiler: string | null;
 }
 
-// VERSION_ABSENT is what stands where a reading could not be taken.
-//
-// It says the version was not reported rather than naming a cause, and the
-// restraint is deliberate: the page cannot tell "nothing is running to ask" from
-// "something is running and did not answer", and a word that picked one would be
-// wrong in the other case — on a page that already carries a step reporting
-// whether the compiler answers at all.
-export const VERSION_ABSENT = 'version not reported';
-
 // EXTENSION_VERSION_LABEL and COMPILER_VERSION_LABEL name the two readings.
 //
 // Each label is a word the page already uses for the thing it names, so a reader
@@ -287,7 +279,7 @@ export const COMPILER_VERSION_LABEL = 'Compiler';
 // the language server's line say "not reported" in the same words and the same
 // mark.
 function versionValueHtml(value: string | null): string {
-  const known = value !== null && value !== '';
+  const known = versionKnown(value);
   const valueClass = known ? 'version-value' : 'version-value version-value-absent';
   return `<span class="${valueClass}">${escapeHtml(known ? value : VERSION_ABSENT)}</span>`;
 }

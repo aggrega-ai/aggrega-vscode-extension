@@ -41,6 +41,15 @@ import type { TimerLike } from './binary-restart';
 // it decides which lockfile a request is about. The consequence is a stated
 // bound: the lockfile of a Release other than the selected one moves nothing
 // here, and a drift warning on it stays until that Release's graph is asked for.
+//
+// 🔴 WHICH FILE IS THE SELECTED RELEASE'S LOCKFILE IS READ FROM THE LANGUAGE
+// SERVER, NEVER WORKED OUT HERE. Where a Release's lockfile sits is the
+// compiler's rule, and the answer the selection was taken from names the
+// lockfile beside the Release, so the path compared below is the compiler's
+// own. Where no answer has named one, no `.lock` file is the selected Release's
+// and none is followed: a path composed on this side from the Release's name
+// would be a second statement of the compiler's rule, agreeing with it only
+// until that rule moved.
 
 // DOCUMENT_EXTENSION and LOCKFILE_EXTENSION name the two kinds of file the
 // watcher reports, by extension and without the dot.
@@ -59,30 +68,13 @@ export const WATCHED_EXTENSIONS: readonly string[] = [DOCUMENT_EXTENSION, LOCKFI
 // watcher.
 export const ON_DISK_PATTERN = `**/*.{${WATCHED_EXTENSIONS.join(',')}}`;
 
-// lockfileOf is where the lockfile of the Release at releasePath sits: beside
-// the Release and named for it — the Release's name with a `.yaml` or `.yml`
-// extension replaced by `.lock`, and with `.lock` added to any other name.
-//
-// 🔴 THIS IS THE COMPILER'S RULE, WRITTEN HERE A SECOND TIME ON PURPOSE. No
-// answer the language server gives names a Release's lockfile, and asking for one
-// on every change on disk would be a round trip to learn a string. The spec
-// beside this module runs it over the cases the compiler's own rule is tested
-// against, which pins this copy to the rule as it stands; nothing on this side
-// notices that rule moving, so a change to it is a change to this one too.
-export function lockfileOf(releasePath: string): string {
-  const ext = path.extname(releasePath);
-  if (ext === '.yaml' || ext === '.yml') {
-    return releasePath.slice(0, releasePath.length - ext.length) + '.lock';
-  }
-  return releasePath + '.lock';
-}
-
 // DiskChangeKind is what one event on disk is about.
 export type DiskChangeKind = 'document' | 'lockfile';
 
 // diskChangeKind reads one reported file as an authored document, as the
 // selected Release's lockfile, or as neither. selectedLockfile is that lockfile's
-// absolute path, or null where no Release is selected.
+// absolute path as the language server named it, or null where no Release is
+// selected or no answer has named its lockfile.
 export function diskChangeKind(file: string, selectedLockfile: string | null): DiskChangeKind | null {
   const ext = path.extname(file).slice(1);
   if (!WATCHED_EXTENSIONS.includes(ext)) { return null; }
@@ -112,9 +104,10 @@ export interface DiskChangeDeps {
   // selectedRelease is the selected Release as every request carries it —
   // relative to the workspace root — or null where none is selected.
   selectedRelease(): string | null;
-  // workspaceRoot is the root the language server resolves that Release
-  // against, or null before it has reported one.
-  workspaceRoot(): string | null;
+  // selectedLockfile is the absolute path of that Release's lockfile, as the
+  // language server named it in the answer the selection was taken from, or
+  // null where none is selected or that answer named none.
+  selectedLockfile(): string | null;
   // requestGraph sends the graph request for release and discards the answer.
   requestGraph(release: string): void;
   timer: Pick<TimerLike, 'setTimeout' | 'clearTimeout'>;
@@ -124,12 +117,12 @@ export interface DiskChangeDeps {
 }
 
 // selectedLockfileOf is the selected Release together with the absolute path of
-// its lockfile, or null where there is no Release or no root to place it in.
+// its lockfile, or null where there is no Release or no lockfile named for it.
 function selectedLockfileOf(deps: DiskChangeDeps): { release: string; lockfile: string } | null {
   const release = deps.selectedRelease();
-  const root = deps.workspaceRoot();
-  if (release === null || root === null) { return null; }
-  return { release, lockfile: lockfileOf(path.resolve(root, release)) };
+  const lockfile = deps.selectedLockfile();
+  if (release === null || lockfile === null) { return null; }
+  return { release, lockfile };
 }
 
 // createDiskChangeHandler builds what the on-disk watcher calls with the path of

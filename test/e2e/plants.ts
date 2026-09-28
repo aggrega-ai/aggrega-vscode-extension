@@ -118,6 +118,11 @@ export const PLANTS: readonly Plant[] = [
     says: 'the on-disk watcher no longer reports a lockfile, so a pull writing the selected Release\'s lockfile neither redraws an open graph nor asks for one',
   },
   {
+    name: 'named-lockfile-ignored', scenario: 'gateway', checks: ['problems.lockfile-drift-clears-after-pull'], moves: 'red', target: 'extension',
+    file: 'out/src/release-selection.js', find: '        lockfile: () => lockfile,', replace: '        lockfile: () => null,',
+    says: 'the selection answers no lockfile for the selected Release although the language server named one, so a pull writing that lockfile is followed by nothing',
+  },
+  {
     name: 'retired-key-reaches-the-server', scenario: 'gateway', checks: ['language-server.retired-setting-key-is-inert'], moves: 'red', target: 'extension',
     file: DAEMON, find: "    const args = ['serve'];",
     replace: "    const args = ['serve', ...(require('vscode').workspace.getConfiguration('aggrega.server').get('renderDiagnostics') ? ['--render-diagnostics'] : [])];",

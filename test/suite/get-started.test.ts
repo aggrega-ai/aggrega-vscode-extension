@@ -61,7 +61,6 @@ import {
   UNMET_LABEL,
   VALUE_LEAD_IN,
   ServerReading,
-  VERSION_ABSENT,
   VersionStandings,
   dismissHtml,
   initiallyCollapsedStepIds,
@@ -72,6 +71,7 @@ import {
   versionsHtml,
   welcomeDocumentHtml,
 } from '../../src/welcome-render';
+import { VERSION_ABSENT } from '../../src/version-words';
 import {
   ANCHOR_CANDIDATE_GLOB,
   CONFIG_FILENAME,

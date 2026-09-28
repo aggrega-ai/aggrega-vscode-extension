@@ -30,6 +30,7 @@ import {
   daemonStandingAction,
   daemonStandingTooltip,
   enablementClause,
+  serverInPlaceMessage,
   stoppedRespondingMessage,
 } from '../../src/daemon-status';
 import { COMPILER_ANSWERABLE_CONTEXT_KEY } from '../../src/readiness';
@@ -524,6 +525,54 @@ describe('the notification raised when the language server stops responding', ()
       callArguments('src/extension.ts', 'notifyStoppedResponding'),
       [['commandTitle(context.extension.packageJSON, RESTART_COMMAND)']],
     );
+  });
+});
+
+describe('the notification a start or a restart the reader asked for ends in', () => {
+  // The sentences are literals for the reason the stopped-responding one is: they
+  // are the words a reader reads, held where an edit to the composition cannot
+  // reach them.
+  it('names the build the running server reported about itself', () => {
+    assert.strictEqual(
+      serverInPlaceMessage('started', '0.7.4-11-g20ddd35e'),
+      'Aggrega language server started, version 0.7.4-11-g20ddd35e.',
+    );
+    assert.strictEqual(
+      serverInPlaceMessage('restarted', '0.7.4-11-g20ddd35e'),
+      'Aggrega language server restarted, version 0.7.4-11-g20ddd35e.',
+    );
+  });
+
+  it('says the version was not reported where the answer carried none, or an empty one', () => {
+    for (const version of [undefined, null, '']) {
+      assert.strictEqual(
+        serverInPlaceMessage('restarted', version),
+        'Aggrega language server restarted, version not reported.',
+        `a version was drawn for ${JSON.stringify(version)}`,
+      );
+    }
+    assert.strictEqual(
+      serverInPlaceMessage('started', undefined),
+      'Aggrega language server started, version not reported.',
+    );
+  });
+
+  // 🔴 THE WIRING IS READ FROM THE SOURCE, BECAUSE IT CANNOT BE DRIVEN HERE. Both
+  // notifications are raised from the module that holds the editor; what is
+  // asserted is that each is composed here and hands it the version from the
+  // running server's own handshake answer, and from nothing that asks a binary.
+  it('is composed at the restart and the start, each handed the handshake answer\'s version', () => {
+    assert.deepStrictEqual(
+      callArguments('src/extension.ts', 'serverInPlaceMessage'),
+      [
+        ["'restarted'", 'daemon?.getServerInitMetadata()?.version'],
+        ["'started'", 'daemon?.getServerInitMetadata()?.version'],
+      ],
+    );
+    const source = fs.readFileSync(path.resolve(__dirname, '../../../src/extension.ts'), 'utf8');
+    for (const sentence of ["'Aggrega language server started.'", "'Aggrega language server restarted.'"]) {
+      assert.ok(!source.includes(sentence), `the notification is still raised as ${sentence}, with no version`);
+    }
   });
 });
 

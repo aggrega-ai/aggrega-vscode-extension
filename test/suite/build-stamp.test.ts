@@ -16,10 +16,10 @@ import {
 import { EVERYTHING_MET, stepReadings } from '../../src/get-started-steps';
 import {
   EXTENSION_VERSION_LABEL,
-  VERSION_ABSENT,
   VersionStandings,
   welcomeDocumentHtml,
 } from '../../src/welcome-render';
+import { VERSION_ABSENT } from '../../src/version-words';
 import { callArguments, functionBody } from '../helpers/anchoring-census';
 import {
   extensionOwnSources,

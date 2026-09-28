@@ -10,7 +10,7 @@ import {
   createReleaseSelection,
   describeSelection,
 } from '../../src/release-selection';
-import { ActiveReleaseResponse } from '../../src/types';
+import { ActiveReleaseResponse, ReleaseCandidatesResponse } from '../../src/types';
 
 const ROOT = path.join(path.sep, 'workspace');
 // OPENED is a folder INSIDE the anchored root, which is the ordinary shape when
@@ -42,9 +42,12 @@ function harness(options?: {
   // Defaults to ROOT; pass null for the state where it reported none.
   daemonRoot?: string | null;
   candidates?: string[];
+  // lockfiles is the enumeration's map from each candidate, as listed, to the
+  // lockfile the server placed for it. Defaults to naming none.
+  lockfiles?: Record<string, string>;
   remembered?: string | null;
   activeRelease?: () => Promise<ActiveReleaseResponse>;
-  listReleases?: () => Promise<string[]>;
+  listReleases?: () => Promise<ReleaseCandidatesResponse>;
 }): Harness {
   const h: Partial<Harness> = {
     activeReleaseCalls: 0,
@@ -72,7 +75,7 @@ function harness(options?: {
     listReleases: () => {
       h.listReleasesCalls! += 1;
       if (options?.listReleases) { return options.listReleases(); }
-      return Promise.resolve(options?.candidates ?? []);
+      return Promise.resolve({ releases: options?.candidates ?? [], lockfiles: options?.lockfiles ?? {} });
     },
     pickRelease: (candidates, placeHolder) => {
       h.pickCalls!.push({ candidates, placeHolder });
@@ -601,6 +604,123 @@ describe('what the workspace has on offer', () => {
     assert.ok(
       h.changes > before,
       'the count moved and no surface was told, so the rows go on drawing the old one',
+    );
+  });
+});
+
+describe('the selected Release\'s lockfile', () => {
+  // Every path below is one the Release's own name would not lead to, so a
+  // reading that composed the path instead of taking the answer's would fail the
+  // equality rather than pass it by coincidence.
+  const PROD = path.join(ROOT, 'envs', 'prod.yaml');
+  const PROD_LOCK = path.join(ROOT, 'pins', 'prod-pins.lock');
+  const STAGE = path.join(ROOT, 'envs', 'stage.yaml');
+  const STAGE_LOCK = path.join(ROOT, 'pins', 'stage-pins.lock');
+
+  it('holds none before a connection is established', () => {
+    const h = harness();
+    assert.strictEqual(h.selection.lockfile(), null);
+  });
+
+  it('takes the lockfile the workspace default\'s answer named', async () => {
+    const h = harness({ activeRelease: () => Promise.resolve({ release: PROD, lockfile: PROD_LOCK }) });
+
+    await h.selection.adoptDefault();
+
+    assert.strictEqual(h.selection.current(), path.join('envs', 'prod.yaml'));
+    assert.strictEqual(h.selection.lockfile(), PROD_LOCK);
+  });
+
+  it('holds none where the default\'s answer named no lockfile, and still selects the Release', async () => {
+    const h = harness({ activeRelease: () => Promise.resolve({ release: PROD }) });
+
+    await h.selection.adoptDefault();
+
+    assert.strictEqual(h.selection.current(), path.join('envs', 'prod.yaml'));
+    assert.strictEqual(
+      h.selection.lockfile(), null,
+      'a lockfile no answer named would be one composed here, which is the rule restated',
+    );
+  });
+
+  it('takes the lockfile the enumeration named for the Release chosen, keyed as it was listed', async () => {
+    const h = harness({
+      candidates: [PROD, STAGE],
+      lockfiles: { [PROD]: PROD_LOCK, [STAGE]: STAGE_LOCK },
+      activeRelease: () => Promise.resolve({ release: PROD, lockfile: PROD_LOCK }),
+    });
+    await h.selection.adoptDefault();
+
+    h.pickAnswer = STAGE;
+    await h.selection.choose();
+
+    assert.strictEqual(h.selection.current(), path.join('envs', 'stage.yaml'));
+    assert.strictEqual(h.selection.lockfile(), STAGE_LOCK);
+  });
+
+  it('takes the lockfile the enumeration named for a remembered choice it re-verified', async () => {
+    const h = harness({
+      candidates: [PROD, STAGE],
+      lockfiles: { [PROD]: PROD_LOCK, [STAGE]: STAGE_LOCK },
+      remembered: path.join('envs', 'stage.yaml'),
+    });
+
+    await h.selection.restore();
+
+    assert.strictEqual(h.selection.current(), path.join('envs', 'stage.yaml'));
+    assert.strictEqual(h.selection.lockfile(), STAGE_LOCK);
+  });
+
+  it('holds none for a candidate the enumeration named no lockfile for', async () => {
+    const h = harness({ candidates: [PROD, STAGE], lockfiles: { [PROD]: PROD_LOCK } });
+    h.pickAnswer = STAGE;
+
+    await h.selection.choose();
+
+    assert.strictEqual(h.selection.current(), path.join('envs', 'stage.yaml'));
+    assert.strictEqual(h.selection.lockfile(), null);
+  });
+
+  it('holds none, and still offers every candidate, where the enumeration carries no map at all', async () => {
+    // The shape an answer without the map arrives in. It is written past the
+    // type on purpose: the published shape always carries the map, and this is
+    // the answer that shape does not describe.
+    const h = harness({
+      listReleases: () => Promise.resolve({ releases: [PROD] } as unknown as ReleaseCandidatesResponse),
+    });
+    h.pickAnswer = PROD;
+
+    await h.selection.choose();
+
+    assert.strictEqual(h.selection.current(), path.join('envs', 'prod.yaml'));
+    assert.strictEqual(h.selection.lockfile(), null);
+  });
+
+  it('drops the lockfile with the selection, for every state in which nothing is selected', async () => {
+    const selected = harness({ activeRelease: () => Promise.resolve({ release: PROD, lockfile: PROD_LOCK }) });
+    await selected.selection.adoptDefault();
+    assert.strictEqual(selected.selection.lockfile(), PROD_LOCK);
+    selected.selection.forget();
+    assert.strictEqual(selected.selection.lockfile(), null, 'a forgotten selection kept its lockfile');
+
+    const offersNone = harness({
+      activeRelease: () => Promise.resolve({ release: '', reason: 'workspace contains 0 Release file(s)' }),
+    });
+    await offersNone.selection.adoptDefault();
+    assert.strictEqual(offersNone.selection.lockfile(), null);
+
+    const silent = harness({ activeRelease: () => Promise.reject(new Error('not running')) });
+    await silent.selection.adoptDefault();
+    assert.strictEqual(silent.selection.lockfile(), null);
+
+    const unnameable = harness({
+      daemonRoot: null,
+      activeRelease: () => Promise.resolve({ release: PROD, lockfile: PROD_LOCK }),
+    });
+    await unnameable.selection.adoptDefault();
+    assert.strictEqual(
+      unnameable.selection.lockfile(), null,
+      'a default that could not be selected left its lockfile to be followed',
     );
   });
 });

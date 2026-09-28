@@ -87,6 +87,7 @@ import {
   daemonReading,
   daemonStanding,
   daemonStandingAction,
+  serverInPlaceMessage,
 } from './daemon-status';
 import {
   SHOW_OUTPUT_ACTION,
@@ -1918,7 +1919,7 @@ function registerFileWatcher(context: vscode.ExtensionContext): void {
     findingStands: (file) =>
       diagnosticCollections !== null && holdsFindings(diagnosticCollections, vscode.Uri.file(file)),
     selectedRelease,
-    workspaceRoot: anchoredWorkspaceRoot,
+    selectedLockfile: () => releaseSelection?.lockfile() ?? null,
     requestGraph: (release) => { void requestGraphWithoutDrawing(release); },
     timer: {
       setTimeout: (handler, ms) => setTimeout(handler, ms),
@@ -1961,7 +1962,9 @@ function registerRestartCommand(context: vscode.ExtensionContext): void {
       return;
     }
     if (await replaceLanguageServer()) {
-      void vscode.window.showInformationMessage('Aggrega language server restarted.');
+      void vscode.window.showInformationMessage(
+        serverInPlaceMessage('restarted', daemon?.getServerInitMetadata()?.version),
+      );
     }
   }));
 }
@@ -1994,16 +1997,19 @@ async function replaceLanguageServer(): Promise<boolean> {
 // and a second answer here would disagree with it the moment either moved.
 //
 // It ends in something the reader can see, in every branch. Where a server
-// started, it says so. Where the evaluation settled on a state that starts
-// nothing, it says which — and only where nothing else already has: a window
-// with several candidate folders is asked to choose one, and a server that
-// failed to start reports its own failure, both from inside that path.
+// started, it says so, and which build that server reports itself to be. Where
+// the evaluation settled on a state that starts nothing, it says which — and
+// only where nothing else already has: a window with several candidate folders
+// is asked to choose one, and a server that failed to start reports its own
+// failure, both from inside that path.
 async function startLanguageServer(): Promise<void> {
   const context = extensionContext;
   if (!context) { return; }
   await reactivate(context);
   if (daemon) {
-    void vscode.window.showInformationMessage('Aggrega language server started.');
+    void vscode.window.showInformationMessage(
+      serverInPlaceMessage('started', daemon?.getServerInitMetadata()?.version),
+    );
     return;
   }
   if (currentAnchored.length === 0) {
@@ -2399,18 +2405,17 @@ function buildErrorContext(uri: vscode.Uri) {
 }
 
 // requestReleaseCandidates asks the daemon for the workspace's Release set —
-// the content-kind (`kind: Release`) walk. The extension performs no Release
-// detection of its own; this is the single source. Throws when the daemon is
-// not running so callers surface a clear message rather than silently falling
-// back to a filename heuristic (which would reintroduce the very divergence
-// between the editor's candidates and the daemon's resolution this removes).
-async function requestReleaseCandidates(): Promise<string[]> {
+// the content-kind (`kind: Release`) walk — and the lockfile of each. The
+// extension performs no Release detection of its own; this is the single
+// source. Throws when the daemon is not running so callers surface a clear
+// message rather than silently falling back to a filename heuristic (which
+// would reintroduce the very divergence between the editor's candidates and
+// the daemon's resolution this removes).
+async function requestReleaseCandidates(): Promise<ReleaseCandidatesResponse> {
   if (!daemon || daemon.getState() !== DaemonState.Running) {
     throw new Error('the Aggrega daemon is not running');
   }
-  const resp = await daemon.request<ReleaseCandidatesResponse>('aggrega/releaseCandidates', {});
-  // A workspace holding no Release answers with null rather than an empty list.
-  return resp.releases ?? [];
+  return await daemon.request<ReleaseCandidatesResponse>('aggrega/releaseCandidates', {});
 }
 
 // requestActiveRelease asks the language server which Release this workspace
