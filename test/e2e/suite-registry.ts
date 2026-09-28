@@ -8,7 +8,7 @@ import { PUBLISHED_ENTITY, ScratchRegistry, WITHDRAWN_PLUGIN_LINK } from './regi
 import { capture, closeAllEditors, ready, run, SuiteContext } from './suite-context';
 import { pressViewAction } from './suite-storefront';
 import {
-  commandsPanel, pickQuickInputRow, pressOperation, QuickInput, toasts, treeRows, until, waitQuickInput, waitToast,
+  pickQuickInputRow, pressPanelAction, QuickInput, toasts, treeRows, until, waitQuickInput, waitToast,
 } from './workbench';
 
 // The checks run in the storefront folder with a scratch registry configured
@@ -35,16 +35,21 @@ const NO_MATCH_QUERY = 'no-entity-is-called-this';
 // channel's remediation reads so. Both are held as the words a reader is to
 // meet, so a change of wording is a change these checks report.
 const NO_MATCHES_OPENING = 'Aggrega: no catalog matches for ';
-const REFRESH_REMEDIATION = 'Refresh with “Update the searchable index” in the Registries panel.';
+const REFRESH_REMEDIATION = 'Refresh with “Update index” in the Registries panel.';
+
+// The row at the head of the Catalog panel that opens the search, by the words
+// it reads.
+const SEARCH_ROW_LABEL = 'Search catalog';
 
 interface SearchRecord { uri: string; name: string; version: string; kind: string; description?: string; retracted?: string[] }
 
-// searchFor runs one search through the palette: the query facet set, then
-// Search. It returns the drawn answer list, or null where the search answered
-// with a notification instead.
+// searchFor runs one search through the palette, opened from the row at the head
+// of the Catalog panel: the query facet set, then Search. It returns the drawn
+// answer list, or null where the search answered with a notification instead.
 async function searchFor(ctx: SuiteContext, query: string): Promise<QuickInput | null> {
   await closeAllEditors(ctx);
-  await pressOperation(ctx.d, await commandsPanel(ctx.d), 'aggrega.catalog.searchPublished');
+  await run(ctx, 'aggrega.workspaceCatalog.focus');
+  await pressPanelAction(ctx.d, 'Catalog', SEARCH_ROW_LABEL);
   await waitQuickInput(ctx.d, 'the search palette', (q) => q.title === SEARCH_TITLE);
   await pickQuickInputRow(ctx.d, 'Query');
   await waitQuickInput(ctx.d, 'the query being asked for', (q) => q.rows.length === 0 || q.title !== SEARCH_TITLE);
@@ -146,7 +151,7 @@ export async function registryChecks(ctx: SuiteContext, registry: ScratchRegistr
   await c.forPerson('catalog-search.index-sentences-direct-the-reader', {
     expected: 'the remediation sentences send the reader where the control is',
     plant: 'none: this is a judgement of the wording',
-    question: `The channel sends the reader to "Update the searchable index" in the Registries panel. Does that, and the empty answer below, direct the reader well?`,
+    question: `The channel sends the reader to "Update index" in the Registries panel, the second row at its head. Does that, and the empty answer below, direct the reader well?`,
   }, async () => ({ screenshot: await capture(ctx, 'search-answers'), drawnText: `${channelAfterSearch.trim()}\n${emptyAnswer}` }));
 
   c.notRun('plugins.add-names-the-withdrawn-version-it-passed-over', {

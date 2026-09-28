@@ -13,7 +13,8 @@ import { capture, closeAllEditors, open, ready, run, SuiteContext } from './suit
 import { pressViewAction } from './suite-storefront';
 import {
   centre, commandsPanel, dialog, holds, observeWorkbench, operationButtons, pickQuickInputRow, pressDialogButton, pressIn,
-  pressOperation, selectorRows, sleep, toasts, toastsSince, treeRowCentre, treeRows, until, waitQuickInput, waitToast,
+  pressOperation, pressPanelAction, quickInput, selectorRows, sleep, toasts, toastsSince, treeRowCentre, treeRows, until,
+  waitQuickInput, waitToast,
 } from './workbench';
 
 // The checks run in a folder whose Aggrega workspace is the folder above it:
@@ -446,7 +447,7 @@ export async function aboveChecks(ctx: SuiteContext, layout: { root: string; ref
     const outDir = path.join(ctx.s.root.dir, 'generate', 'out');
     fs.mkdirSync(overlays, { recursive: true });
     fs.mkdirSync(outDir, { recursive: true });
-    const generated = await generateEntities(ctx, panel, overlays, outDir).catch((err: unknown) => `stopped: ${err instanceof Error ? err.message : String(err)}`);
+    const generated = await generateEntities(ctx, overlays, outDir).catch((err: unknown) => `stopped: ${err instanceof Error ? err.message : String(err)}`);
     seen.push(`Generate entities: ${generated}`);
     all = all && generated.startsWith('$ ') && dollarShape(generated);
     // The plugin list.
@@ -467,7 +468,8 @@ export async function aboveChecks(ctx: SuiteContext, layout: { root: string; ref
     const seen: string[] = [];
     let all = true;
     // Each operation's ending is the notification it closes on; the two with
-    // none are watched for 5 s.
+    // none are watched for 5 s. Each is pressed where it is drawn: the first
+    // five on the Commands panel, the search at the head of the Catalog panel.
     const ops: [string, string, RegExp | null][] = [
       ['Build', 'aggrega.op.build', /^Aggrega: built |^The build /],
       ['Preview', 'aggrega.op.preview', /^Aggrega: a build of |^The preview /],
@@ -477,12 +479,15 @@ export async function aboveChecks(ctx: SuiteContext, layout: { root: string; ref
       ['Search catalog', 'aggrega.catalog.searchPublished', null],
     ];
     for (const [name, command, ending] of ops) {
-      panel = await commandsPanel(ctx.d);
       const mark = ctx.out.mark();
       const toastMark = (await toasts(ctx.d)).length;
-      await pressOperation(ctx.d, panel, command);
       if (command === 'aggrega.catalog.searchPublished') {
+        await run(ctx, 'aggrega.workspaceCatalog.focus');
+        await pressPanelAction(ctx.d, 'Catalog', name);
         await waitQuickInput(ctx.d, 'the search palette', (q) => q.rows.length > 0).then(() => pickQuickInputRow(ctx.d, 'Search')).catch(() => undefined);
+      } else {
+        panel = await commandsPanel(ctx.d);
+        await pressOperation(ctx.d, panel, command);
       }
       if (ending !== null) { await waitToast(ctx.d, `${name} ending`, toastMark, (t) => ending.test(t.message), 60000).catch(() => undefined); }
       await sleep(ending === null ? 5000 : 500);
@@ -512,31 +517,27 @@ async function dragSash(ctx: SuiteContext, dx: number): Promise<void> {
   await sleep(500);
 }
 
-// generateEntities runs Generate entities for real: every plugin built into the
-// compiler, the given overlay directory, the given output directory, and the
-// confirmation answered Write. It returns the $ line it wrote.
-async function generateEntities(ctx: SuiteContext, panel: WebviewDocument, overlays: string, outDir: string): Promise<string> {
+// The row at the head of the Plugins panel that generates Plugin entities, and
+// the choice of what a run covers, by the words each reads.
+const GENERATE_ROW_LABEL = 'Generate entities';
+const EVERY_EMBEDDED_PLUGIN = 'Every plugin built into the compiler';
+
+// generateEntities runs Generate entities for real, pressed where it is drawn —
+// the head of the Plugins panel: every plugin built into the compiler, chosen
+// from the list the press opens, the given overlay directory, the given output
+// directory, and the confirmation answered Write. It returns the $ line it
+// wrote.
+async function generateEntities(ctx: SuiteContext, overlays: string, outDir: string): Promise<string> {
   const mark = ctx.out.mark();
-  const button = 'button.op[data-command="aggrega.plugins.genCatalog"]';
-  const isOpen = (): Promise<boolean> => panel.evaluate<boolean>(`[...document.querySelectorAll('.op-menu')].some((m) => !m.hidden && m.querySelector('[data-option="embedded"]'))`);
-  const pressed = await pressIn(ctx.d, panel, button);
-  let opened = await until('the choices beside the button', 5000, isOpen, (v) => v).then(() => true, () => false);
-  let under = '';
-  if (!opened) {
-    // What the press landed on, read in the panel's own coordinates, and one
-    // more attempt by the keyboard, as a reader without a pointer opens it.
-    const frame = await ctx.d.box(panel, 'body');
-    under = await panel.evaluate<string>(`((x, y) => { const e = document.elementFromPoint(x, y); return e ? e.outerHTML.slice(0, 200) : 'nothing'; })(${(pressed.x + pressed.width / 2) - (frame?.x ?? 0)}, ${(pressed.y + pressed.height / 2) - (frame?.y ?? 0)})`);
-    await run(ctx, 'aggrega.operations.focus');
-    await panel.evaluate(`document.querySelector(${JSON.stringify(button)}).focus()`);
-    await ctx.d.press('Enter');
-    opened = await until('the choices beside the button, by the keyboard', 5000, isOpen, (v) => v).then(() => true, () => false);
-  }
-  if (!opened) {
-    const state = await panel.evaluate<unknown>(`(() => { const b = document.querySelector(${JSON.stringify(button)}); return b ? { disabled: b.disabled, menu: b.dataset.menu || null, expanded: b.getAttribute('aria-expanded') } : null; })()`);
-    throw new Error(`the choices beside the button did not open, by pointer or keyboard: button ${JSON.stringify(state)}; under the press point: ${under}`);
-  }
-  await pressIn(ctx.d, panel, '.op-menu:not([hidden]) [data-option="embedded"]');
+  await run(ctx, 'aggrega.plugins.focus');
+  await pressPanelAction(ctx.d, 'Plugins', GENERATE_ROW_LABEL);
+  await waitQuickInput(ctx.d, 'the choice of what the generation covers', (q) => q.rows.some((r) => r.label === EVERY_EMBEDDED_PLUGIN), 15000);
+  await pickQuickInputRow(ctx.d, EVERY_EMBEDDED_PLUGIN);
+  // The choice is itself a list titled as the dialogs after it are, so it is
+  // seen to close before the first dialog is looked for — otherwise the wait
+  // below could take the closing list for the dialog and type into it.
+  await until('the choice of what the generation covers closing', 5000, () => quickInput(ctx.d),
+    (q) => q === null || !q.rows.some((r) => r.label === EVERY_EMBEDDED_PLUGIN));
   for (const [what, dir] of [['the overlay directory', overlays], ['the output directory', outDir]] as const) {
     await waitQuickInput(ctx.d, `the dialog for ${what}`, (q) => q.title !== '' && q.title.startsWith('Aggrega:'), 15000);
     await ctx.d.press('Control+a');

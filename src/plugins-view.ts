@@ -23,16 +23,15 @@ import {
   PLUGIN_TYPE_GOVERNANCE,
   PLUGIN_TYPE_PROVIDER,
   PluginListDoc,
-  PluginNode,
   PluginRemovalSubject,
   genCatalogScope,
   pluginGenCatalogArgs,
-  pluginNodes,
   pluginRemovalConfigTarget,
   pluginRemovalSubject,
   pluginRowContext,
 } from './plugins-run';
-import { menuAnswer } from './operation-menus';
+import { panelActionItem } from './panel-action-item';
+import { PluginsPanelNode, pluginsPanelNodes } from './panel-actions';
 import { withCancellableProgress } from './progress';
 import { RendersOnReady } from './readiness';
 
@@ -52,10 +51,12 @@ export type PluginsDeps =
 //
 // This module is the whole editor-coupled boundary of the surface: it maps
 // already-shaped nodes onto tree items and delegates every decision to
-// plugins-run, which depends on no editor type and is therefore directly
-// testable. Each expansion of the root re-runs the command, so a refresh is a
+// pluginsPanelNodes and plugins-run, which depend on no editor type and are
+// therefore directly testable. The root opens with the operations acting on the
+// whole set — adding a plugin and generating Plugin entities — and then lists
+// the plugins. Each expansion of the root re-runs the command, so a refresh is a
 // change event.
-class PluginsTreeProvider implements vscode.TreeDataProvider<PluginNode> {
+class PluginsTreeProvider implements vscode.TreeDataProvider<PluginsPanelNode> {
   private readonly changed = new vscode.EventEmitter<void>();
   readonly onDidChangeTreeData = this.changed.event;
 
@@ -65,7 +66,10 @@ class PluginsTreeProvider implements vscode.TreeDataProvider<PluginNode> {
     this.changed.fire();
   }
 
-  getTreeItem(node: PluginNode): vscode.TreeItem {
+  getTreeItem(node: PluginsPanelNode): vscode.TreeItem {
+    if (node.kind === 'action') {
+      return panelActionItem(node.row);
+    }
     if (node.kind === 'message') {
       const item = new vscode.TreeItem(node.label, vscode.TreeItemCollapsibleState.None);
       if (node.detail) {
@@ -85,15 +89,16 @@ class PluginsTreeProvider implements vscode.TreeDataProvider<PluginNode> {
     item.description = node.row.description;
     item.tooltip = node.row.tooltip;
     item.iconPath = new vscode.ThemeIcon(node.row.icon);
-    // Which value a plugin row carries is decided in one place, and the group
-    // headings and message rows above are already past. So a row that names no
-    // addressable configuration entry carries the value the removal is not bound
-    // to, and the removal does not appear on it at all.
+    // Which value a plugin row carries is decided in one place, and the
+    // operations at the head, the group headings and the message rows above are
+    // already past. So a row that names no addressable configuration entry
+    // carries the value the removal is not bound to, and the removal does not
+    // appear on it at all.
     item.contextValue = pluginRowContext(node) ?? undefined;
     return item;
   }
 
-  async getChildren(node?: PluginNode): Promise<PluginNode[]> {
+  async getChildren(node?: PluginsPanelNode): Promise<PluginsPanelNode[]> {
     if (node) {
       // A group's plugins are shaped with the group they belong to, so expanding
       // one hands the tree the nodes the model built rather than nodes assembled
@@ -106,7 +111,7 @@ class PluginsTreeProvider implements vscode.TreeDataProvider<PluginNode> {
     // request is about a workspace, its documents and the caches that serve them,
     // so the compiler declines to carry it on the request channel and names that
     // reason. There is nothing here waiting on the compiler.
-    return pluginNodes({
+    return pluginsPanelNodes({
       getWorkspaceRoot: this.deps.getWorkspaceRoot,
       runPluginListJson: () =>
         runCliJson<PluginListDoc>(this.deps, ['plugin', 'list', '-o', 'json']),
@@ -125,10 +130,10 @@ class PluginsTreeProvider implements vscode.TreeDataProvider<PluginNode> {
 // this is the second of two guards rather than the only one — and it is the one
 // that holds if a later binding is written more loosely than the ones here.
 async function runOnRow(
-  node: PluginNode | undefined,
+  node: PluginsPanelNode | undefined,
   act: (subject: PluginRemovalSubject) => Promise<void>,
 ): Promise<void> {
-  const subject = node ? pluginRemovalSubject(node) : null;
+  const subject = node && node.kind !== 'action' ? pluginRemovalSubject(node) : null;
   if (!subject) {
     return;
   }
@@ -143,12 +148,12 @@ async function runOnRow(
 // is the answer the registry search consumes. Dismissing any one of them invokes
 // nothing at all.
 //
-// chosenType is the answer a reader already gave on the panel, where the type is
-// offered as a menu beside the control. Where it is given, the first question is
-// not asked again — asking it twice would make the menu a step rather than an
-// answer. Where it is absent the question is asked here, which is the path the
-// command index takes: a command invoked from there carries no answer, and it has
-// to work.
+// chosenType is an answer the invocation already carried — a key binding or a
+// recorded workflow naming the type. Where it is given, the first question is
+// not asked again. Where it is absent the question is asked here, as a list of
+// the same types, which is the path a press on the panel's row takes and the
+// path the command index takes: neither carries an answer, and both have to
+// work.
 async function askForAttachment(chosenType?: string): Promise<
   { type: string; query: string; capability?: string; role?: string } | null
 > {
@@ -198,9 +203,9 @@ async function askForAttachment(chosenType?: string): Promise<
 // first place. What the overlay dialog selects follows the selection: generating
 // for every embedded guest merges a directory of overlays, one per guest, while
 // generating for a single artifact merges one overlay file.
-// chosenScope is the answer a reader already gave on the panel, where the scope
-// is offered as a menu beside the control; absent, the question is asked here,
-// which is the path a command invoked from the command index takes.
+// chosenScope is an answer the invocation already carried; absent, the question
+// is asked here as a list, which is the path a press on the panel's row and a
+// command invoked from the command index both take.
 async function askForGeneration(chosenScope?: GenCatalogSelection['kind']): Promise<
   { selection: GenCatalogSelection; outputDir: string; overlayPath: string } | null
 > {
@@ -262,8 +267,8 @@ async function askForGeneration(chosenScope?: GenCatalogSelection['kind']): Prom
 }
 
 // activatePluginsView registers the plugins tree and the operations that act on
-// it: the panel-scoped ones in its title bar, the row-scoped one on a plugin row.
-// View and command ids mirror package.json.
+// it: the ones acting on the whole set, drawn at the head of its list, and the
+// row-scoped one on a plugin row. View and command ids mirror package.json.
 export function activatePluginsView(
   context: vscode.ExtensionContext,
   deps: PluginsDeps,
@@ -292,14 +297,14 @@ export function activatePluginsView(
     // operations below are the opposite case, each for the reason stated where it
     // is.
     //
-    // The type may arrive already answered, from the menu the panel offers
-    // beside the control. It is checked against the set that control offers
-    // before it is used, and anything else is discarded rather than passed on:
-    // an answer the surface never offered is not an answer, and falling back to
-    // asking is what the reader gets instead of a refusal about a value they
-    // never chose.
+    // The type may arrive already answered, carried by the invocation. It is
+    // checked against the set the question offers before it is used, and
+    // anything else is discarded rather than passed on: an answer the surface
+    // never offered is not an answer, and falling back to asking is what the
+    // reader gets instead of a refusal about a value they never chose.
     vscode.commands.registerCommand('aggrega.plugins.add', async (chosen?: unknown) => {
-      const attachment = await askForAttachment(menuAnswer('pluginAdd', chosen) ?? undefined);
+      const offered = typeof chosen === 'string' && ATTACHABLE_PLUGIN_TYPES.includes(chosen);
+      const attachment = await askForAttachment(offered ? chosen : undefined);
       if (!attachment) { return; }
       const outcome = await withCancellableProgress(
         attachmentProgressTitle(attachment.type),
@@ -332,9 +337,12 @@ export function activatePluginsView(
     // The two paths it READS are a different question and are not what keeps it
     // here: a file the reader selected is not a workspace-scoped path, and the
     // compiler accepts one naming anywhere on the machine.
+    // The scope may arrive already answered too, and it is resolved against the
+    // one set of scopes on the same terms: a value naming none of them is
+    // discarded and the question asked.
     vscode.commands.registerCommand('aggrega.plugins.genCatalog', async (chosen?: unknown) => {
-      const named = menuAnswer('pluginEntities', chosen);
-      const request = await askForGeneration(genCatalogScope(named ?? '')?.value);
+      const named = typeof chosen === 'string' ? chosen : '';
+      const request = await askForGeneration(genCatalogScope(named)?.value);
       if (!request) { return; }
       const consented = await vscode.window.showWarningMessage(
         `Write Plugin entities under ${request.outputDir}?`,
@@ -379,7 +387,7 @@ export function activatePluginsView(
     // ending they cannot miss.
     vscode.commands.registerCommand(
       'aggrega.plugins.remove',
-      (node?: PluginNode) => runOnRow(node, async (subject) => {
+      (node?: PluginsPanelNode) => runOnRow(node, async (subject) => {
         const consented = await vscode.window.showWarningMessage(
           `Remove the ${subject.type} plugin ${subject.reference}?`,
           {

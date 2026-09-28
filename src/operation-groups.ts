@@ -6,7 +6,8 @@ import { CatalogIndexEntity } from './workspace-catalog-run';
 import { NO_ANCHORED_WORKSPACE_CONTROL_REASON } from './workspace';
 
 // This module is the one description of the operation surface: which operations
-// exist, which group each sits in, and the argument list each composes.
+// exist, where each is drawn — in a group on the Commands panel, or at the head
+// of a list panel — and the argument list each composes.
 //
 // It imports no editor type on purpose. The panel is drawn in two interchangeable
 // shapes, and both read this description rather than each carrying a table of
@@ -15,9 +16,19 @@ import { NO_ANCHORED_WORKSPACE_CONTROL_REASON } from './workspace';
 // types is also what makes the membership and every composed argument list
 // assertable without an extension host.
 
+// PanelActionId enumerates the operations drawn at the head of a list panel
+// rather than on the Commands panel. Each acts on what one of those lists is
+// about.
+export type PanelActionId =
+  | 'registryAdd'
+  | 'registryIndex'
+  | 'catalogSearch'
+  | 'pluginAdd'
+  | 'pluginEntities';
+
 // OperationId enumerates the compiler operations the surface exposes. Each value
-// is the stable key its row carries, and, for the operations whose command this
-// surface contributes, the suffix of that command id.
+// is the stable key its control carries, and, for the operations whose command
+// this surface contributes, the suffix of that command id.
 export type OperationId =
   | 'validate'
   | 'lint'
@@ -33,25 +44,19 @@ export type OperationId =
   | 'deprecate'
   | 'configShow'
   | 'cache'
-  | 'registryAdd'
-  | 'registryIndex'
-  | 'catalogSearch'
-  | 'pluginAdd'
-  | 'pluginEntities';
+  | PanelActionId;
 
-// OperationGroupId names the reasons a person opens this panel. The first ones
-// concern the workspace being authored; the rest concern the ecosystem around
-// it — the registries resolved through, the catalog published to, the plugins
-// attached.
+// OperationGroupId names the reasons a person opens the Commands panel.
 export type OperationGroupId =
   | 'build'
   | 'dependencies'
   | 'author'
   | 'publish'
-  | 'config'
-  | 'registries'
-  | 'catalog'
-  | 'plugins';
+  | 'config';
+
+// ListPanelId names the three list panels — Registries, Catalog and Plugins —
+// each of which is headed by the operations acting on what it lists.
+export type ListPanelId = 'registries' | 'catalog' | 'plugins';
 
 export interface OperationDef {
   id: OperationId;
@@ -61,14 +66,20 @@ export interface OperationDef {
   // theme rather than shipping bitmap assets.
   icon: string;
   // command overrides the derived id for an operation whose command is
-  // contributed and registered elsewhere. Two kinds of entry need it. The
-  // topology graph was contributed before this surface grouped anything. The
-  // registry, catalog and plugin entries are each owned by the list panel whose
-  // subject they act on, which is where their handler already lives. In both
-  // cases a command id is what a reader binds a keystroke to, so it is reused
-  // rather than renamed — and the handler stays in one place rather than being
-  // wrapped in a second command that only forwards.
+  // contributed and registered elsewhere: the topology graph and the
+  // configuration surface each contribute their own, and every operation drawn
+  // at the head of a list panel is registered beside the list it concerns, where
+  // its handler lives. A command id is what a reader binds a keystroke to, so it
+  // is reused rather than renamed — and the handler stays in one place rather
+  // than being wrapped in a second command that only forwards.
   command?: string;
+}
+
+// PanelActionDef is one operation drawn at the head of a list panel. It names
+// its command outright, because none of them is registered by this surface.
+export interface PanelActionDef extends OperationDef {
+  id: PanelActionId;
+  command: string;
 }
 
 export interface OperationGroup {
@@ -94,26 +105,25 @@ export interface OperationGroup {
   operations: OperationDef[];
 }
 
-// OPERATION_GROUPS is the operation surface, in display order.
+// OPERATION_GROUPS is the Commands panel's operations, in display order.
 //
-// EVERY OPERATION WHOSE SUBJECT IS THE WORKSPACE OR A PANEL LIVES HERE, and the
-// panel is the one place a reader looks for one. An operation acting on a
-// particular registry, entity or plugin is not here: its subject is the row the
-// reader clicked, so it stays on that row, where clicking has already answered
-// the question a picker here would have to ask again.
+// 🔴 EVERY OPERATION WHOSE SUBJECT IS THE WORKSPACE LIVES HERE, AND ONE ACTING
+// ON WHAT A LIST PANEL LISTS DOES NOT. Adding a registry, updating the
+// registries' index, searching the published catalog, adding a plugin and
+// generating Plugin entities are each drawn at the head of the panel whose list
+// they concern (PANEL_ACTIONS below), where a reader looking at that list is
+// already looking — and where a reader facing an empty list finds, on the list
+// itself, the way to fill it. Each operation is in exactly one of the two
+// descriptions, so each has one place a reader looks for it.
+//
+// An operation acting on a particular registry, entity or plugin is in neither:
+// its subject is the row the reader clicked, so it stays on that row, where
+// clicking has already answered the question a picker would have to ask again.
 //
 // The groups are the reasons a person opens this panel: to compile something, to
-// fetch what compiling needs, to write something new, to publish, to see or
-// change how the tool is configured, and then the three that concern the
-// ecosystem around the workspace rather than the workspace itself — the
-// registries it resolves through, the catalog it publishes to, the plugins it
-// attaches. Ordering by that reason means a reader looking for one thing scans
-// one group.
-//
-// The ecosystem groups come last, and in the order the container draws its own
-// panels: what a reader does most often sits where they already expect it, the
-// groups they had already learnt keep their positions, and the new arrivals
-// introduce no second ordering to remember.
+// fetch what compiling needs, to write something new, to publish, and to see or
+// change how the tool is configured. Ordering by that reason means a reader
+// looking for one thing scans one group.
 //
 // Validate and Lint sit adjacent, and that adjacency is deliberate: they are the
 // two entries that answer "what is wrong with what I wrote", and both report
@@ -251,7 +261,7 @@ export const OPERATION_GROUPS: OperationGroup[] = [
         icon: 'settings-gear',
         // The configuration surface contributes its own command, so the entry
         // points at that rather than at a second one wrapping it — the same
-        // arrangement the topology graph and the registry entries use.
+        // arrangement the topology graph uses.
         command: 'aggrega.config.open',
       },
       {
@@ -262,66 +272,71 @@ export const OPERATION_GROUPS: OperationGroup[] = [
       },
     ],
   },
-  {
-    id: 'registries',
-    heading: 'Registries',
-    operations: [
-      {
-        id: 'registryAdd',
-        label: 'Add registry',
-        detail: 'Register a registry to resolve dependencies from and publish to',
-        icon: 'add',
-        // The literal rather than the registry module's own identifier, and the
-        // direction of the dependency is why: that module reaches this one for
-        // the shared blank guard, so reading its constant here would close a
-        // cycle — and this table is a top-level value, so the entry would
-        // initialise to nothing at all on the load order that resolves this
-        // module first. A command with no id fails where nobody is looking.
-        command: 'aggrega.registries.add',
-      },
-      {
-        id: 'registryIndex',
-        label: 'Update index',
-        detail: 'Refresh the searchable index of every configured registry',
-        icon: 'cloud-download',
-        command: 'aggrega.registries.update',
-      },
-    ],
-  },
-  {
-    id: 'catalog',
-    heading: 'Catalog',
-    operations: [
-      {
-        id: 'catalogSearch',
-        label: 'Search catalog',
-        detail: 'Search the published catalog and copy the reference of a match',
-        icon: 'cloud',
-        command: 'aggrega.catalog.searchPublished',
-      },
-    ],
-  },
-  {
-    id: 'plugins',
-    heading: 'Plugins',
-    operations: [
-      {
-        id: 'pluginAdd',
-        label: 'Add plugin',
-        detail: 'Search a configured registry for a plugin and attach it to this workspace',
-        icon: 'add',
-        command: 'aggrega.plugins.add',
-      },
-      {
-        id: 'pluginEntities',
-        label: 'Generate entities',
-        detail: 'Write a Plugin entity per selected plugin, under a directory you choose',
-        icon: 'export',
-        command: 'aggrega.plugins.genCatalog',
-      },
-    ],
-  },
 ];
+
+// PANEL_ACTIONS is the operations drawn at the head of each list panel, in the
+// order each panel draws them.
+//
+// Each is drawn as the first rows of its panel's own tree, labelled and carrying
+// its icon, so it is visible without hovering anything and collapses with the
+// panel's list — unlike an entry in the panel's title bar, which the editor
+// shows unlabelled and only while the header is hovered. The panels stay trees:
+// what they list keeps its per-row menus, type-ahead and native selection, and
+// a row is the one thing a tree draws at rest that carries both a label and a
+// command.
+//
+// Every label here is the operation's NAME, on the same terms as the Commands
+// panel's, and each is the one spelling a sentence sending a reader to that row
+// reads through panelActionLabel rather than retyping.
+export const PANEL_ACTIONS: Record<ListPanelId, readonly PanelActionDef[]> = {
+  registries: [
+    {
+      id: 'registryAdd',
+      label: 'Add registry',
+      detail: 'Register a registry to resolve dependencies from and publish to',
+      icon: 'add',
+      // The literal rather than the registry module's own identifier, and the
+      // direction of the dependency is why: that module reaches this one for
+      // the shared blank guard, so reading its constant here would close a
+      // cycle — and this table is a top-level value, so the entry would
+      // initialise to nothing at all on the load order that resolves this
+      // module first. A command with no id fails where nobody is looking.
+      command: 'aggrega.registries.add',
+    },
+    {
+      id: 'registryIndex',
+      label: 'Update index',
+      detail: 'Refresh the searchable index of every configured registry',
+      icon: 'cloud-download',
+      command: 'aggrega.registries.update',
+    },
+  ],
+  catalog: [
+    {
+      id: 'catalogSearch',
+      label: 'Search catalog',
+      detail: 'Search the published catalog and copy the reference of a match',
+      icon: 'cloud',
+      command: 'aggrega.catalog.searchPublished',
+    },
+  ],
+  plugins: [
+    {
+      id: 'pluginAdd',
+      label: 'Add plugin',
+      detail: 'Search a configured registry for a plugin and attach it to this workspace',
+      icon: 'add',
+      command: 'aggrega.plugins.add',
+    },
+    {
+      id: 'pluginEntities',
+      label: 'Generate entities',
+      detail: 'Write a Plugin entity per selected plugin, under a directory you choose',
+      icon: 'export',
+      command: 'aggrega.plugins.genCatalog',
+    },
+  ],
+};
 
 // commandIdFor reports the command an entry runs. It is derived from the
 // operation id unless the entry names one, so the id and the command cannot
@@ -330,10 +345,36 @@ export function commandIdFor(op: OperationDef): string {
   return op.command ?? `aggrega.op.${op.id}`;
 }
 
-// allOperations flattens the groups in display order. Callers that need every
-// operation read it from here rather than keeping a list beside the groups.
-export function allOperations(): OperationDef[] {
+// commandsPanelOperations flattens the Commands panel's groups in display
+// order. Callers that need every operation on that panel read it from here
+// rather than keeping a list beside the groups; the operations heading the list
+// panels are not among them, and allPanelActions reads those.
+export function commandsPanelOperations(): OperationDef[] {
   return OPERATION_GROUPS.flatMap((group) => group.operations);
+}
+
+// allPanelActions flattens every list panel's head, in the container's panel
+// order and then each panel's own.
+export function allPanelActions(): PanelActionDef[] {
+  return (Object.keys(PANEL_ACTIONS) as ListPanelId[]).flatMap((panel) => [...PANEL_ACTIONS[panel]]);
+}
+
+// panelActionLabel reports the label an operation is drawn with at the head of
+// its list panel, for a sentence that sends a reader to that row. It refuses an
+// id no panel draws rather than answering with a word no row carries.
+export function panelActionLabel(id: PanelActionId): string {
+  const action = allPanelActions().find((candidate) => candidate.id === id);
+  if (action === undefined) {
+    throw new Error(`${id} is drawn at the head of no list panel`);
+  }
+  return action.label;
+}
+
+// operationHint is the hover an operation's control carries: what it does, and
+// where it cannot run, why. The Commands panel's button and a list panel's row
+// read it from here, so the two surfaces say one thing about one operation.
+export function operationHint(op: OperationDef, reason: string | null): string {
+  return reason === null ? op.detail : `${op.detail} — ${reason}`;
 }
 
 // --- the two shapes ------------------------------------------------------
@@ -375,6 +416,34 @@ export function readLayout(configured: unknown): OperationsLayout {
 // nothing on the panel can evaluate would be a guess presented as a fact.
 export type OperationRequirement = 'none' | 'workspace' | 'release';
 
+// PANEL_ACTION_REQUIREMENTS states what each operation heading a list panel
+// needs, and its type is the bound on what that can be.
+//
+// 🔴 NONE OF THEM MAY NEED A SELECTED RELEASE, AND THE TYPE REFUSES ONE. A list
+// panel observes the anchored folder and not the selection, so a row there
+// gated on a Release could only be drawn from a guess — and an operation that
+// came to need one belongs on the Commands panel, which observes both.
+//
+// The five are each gated on the anchored folder and on nothing else. They do
+// not share one reason for it, so the reason is stated per group rather than for
+// the set. The one invoked as a command refuses without a folder to run in,
+// because the invocation path it takes does. The four asked of the language
+// server are gated because the compiler resolves each one's subject against the
+// workspace the session was opened over: a registry write and a plugin
+// attachment each need a write target resolved against it, and a
+// published-catalog search and an index build each reach the registries that
+// workspace's configuration declares. Three of the five ask their questions
+// before any of those paths is reached; the row is still drawn as unavailable,
+// because a reader who has answered three dialogs and is then told there is no
+// folder has answered them for nothing.
+const PANEL_ACTION_REQUIREMENTS: Record<PanelActionId, Exclude<OperationRequirement, 'release'>> = {
+  registryAdd: 'workspace',
+  registryIndex: 'workspace',
+  catalogSearch: 'workspace',
+  pluginAdd: 'workspace',
+  pluginEntities: 'workspace',
+};
+
 // OPERATION_REQUIREMENTS states, per operation, what its invocation needs.
 //
 // It is a total map over the operation ids rather than a field on the entries,
@@ -383,6 +452,10 @@ export type OperationRequirement = 'none' | 'workspace' | 'release';
 // operation's own handler applies before it composes anything, so the panel
 // draws a control as unavailable exactly when pressing it would report that
 // same condition back.
+//
+// The operations heading the list panels are decided in a record of their own,
+// typed to refuse the one requirement a list panel cannot observe, and spread in
+// here — so the total map stays the one statement of what each operation needs.
 export const OPERATION_REQUIREMENTS: Record<OperationId, OperationRequirement> = {
   // Validated through the language server against the active editor, wherever
   // it sits. Neither the anchored folder nor the selection gates it.
@@ -405,23 +478,7 @@ export const OPERATION_REQUIREMENTS: Record<OperationId, OperationRequirement> =
   deprecate: 'workspace',
   configShow: 'none',
   cache: 'none',
-  // The five that arrive from the list panels are each gated on the anchored
-  // folder and on nothing else. They do not share one reason for it, so the
-  // reason is stated per group rather than for the set. The two invoked as
-  // commands refuse without a folder to run in, because the single invocation
-  // path they share does. The three asked of the language server are gated
-  // because the compiler resolves each one's subject against the workspace the
-  // session was opened over: a registry write and a plugin attachment each need a
-  // write target resolved against it, and a published-catalog search searches the
-  // registries that workspace's configuration declares. Two of the five ask their
-  // questions before either path is reached; the control is still drawn as
-  // unavailable, because a reader who has answered three dialogs and is then
-  // told there is no folder has answered them for nothing.
-  registryAdd: 'workspace',
-  registryIndex: 'workspace',
-  catalogSearch: 'workspace',
-  pluginAdd: 'workspace',
-  pluginEntities: 'workspace',
+  ...PANEL_ACTION_REQUIREMENTS,
 };
 
 // SurfaceFacts is what the panel knows about its own subject at the moment it
@@ -452,6 +509,18 @@ export function unavailableReason(
     return NO_RELEASE_SELECTED_CONTROL_REASON;
   }
   return null;
+}
+
+// panelActionReason reports why an operation heading a list panel cannot run,
+// or null where nothing that panel can observe would stop it.
+//
+// It is the Commands panel's own decision, asked with the one fact a list panel
+// holds — whether a folder is anchored — so a row and a button for one state say
+// the same thing. The selection it is asked with is never read: no operation
+// heading a list panel needs one, which PANEL_ACTION_REQUIREMENTS' type
+// guarantees.
+export function panelActionReason(id: PanelActionId, workspaceAnchored: boolean): string | null {
+  return unavailableReason(id, { workspaceAnchored, releaseSelected: false });
 }
 
 // --- the arguments each entry composes -----------------------------------

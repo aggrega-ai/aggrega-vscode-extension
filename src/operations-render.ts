@@ -9,6 +9,7 @@ import {
   OperationId,
   OperationsLayout,
   commandIdFor,
+  operationHint,
 } from './operation-groups';
 import {
   MenuControlId,
@@ -213,7 +214,7 @@ function operationHtml(
   // planted defect in the real guard passed unnoticed. One home, and an assertion
   // over the composed document rather than a second guard.
   const tabindex = focused ? '0' : '-1';
-  const hint = reason === null ? op.detail : `${op.detail} — ${reason}`;
+  const hint = operationHint(op, reason);
   const note = reason === null
     ? ''
     : `<span class="op-reason" id="${reasonId}">${escapeHtml(reason)}</span>`;

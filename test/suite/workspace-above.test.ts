@@ -23,7 +23,7 @@ import { SELECTOR_ROW_LABELS } from '../../src/selector-levels';
 import { workspaceSitsAboveFolder } from '../../src/workspace';
 import { selectorRows, workspaceRow } from '../../src/selector-rows';
 import { operationsBodyHtml } from '../../src/operations-render';
-import { allOperations, OperationId } from '../../src/operation-groups';
+import { commandsPanelOperations, OperationId } from '../../src/operation-groups';
 import { callArguments, functionBody } from '../helpers/anchoring-census';
 import { callSites, tokenModules } from '../helpers/open-folder-census';
 import { EXTENSION_ROOT } from '../helpers/launch-census';
@@ -745,7 +745,7 @@ describe('the mark on the row', () => {
 
 describe('the mark is drawn as a mark and not as part of the value', () => {
   const unavailable: Partial<Record<OperationId, string | null>> = {};
-  for (const op of allOperations()) { unavailable[op.id] = null; }
+  for (const op of commandsPanelOperations()) { unavailable[op.id] = null; }
   const document = (anchored: string, opened: string): string => operationsBodyHtml({
     layout: 'buttons',
     selectors: selectorRows(anchored, opened, opened, { kind: 'unknown' }, CANDIDATES),

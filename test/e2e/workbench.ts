@@ -419,6 +419,24 @@ export function treeRowCentre(driver: UiDriver, title: string, label: string): P
   })(${JSON.stringify(title)}, ${JSON.stringify(label)})`);
 }
 
+// pressPanelAction presses one of the operations drawn at the head of the
+// side-bar view titled `title`, by the label its row reads, where a person
+// presses it. It refuses a row that is not drawn at the head, and one drawn with
+// a reason beside its label — the sign such a row gives that it cannot run, as
+// the Commands panel greys a button — so a press that could only run nothing is
+// reported as what it is rather than waited on.
+export async function pressPanelAction(driver: UiDriver, title: string, label: string, boundMs = 20000): Promise<void> {
+  const rows = await until(`the "${label}" row at the head of the ${title} view`, boundMs, () => treeRows(driver, title),
+    (v) => v !== null && v.some((r) => r.label === label));
+  const row = (rows ?? []).find((r) => r.label === label);
+  if (!row) { throw new Error(`the ${title} view draws no "${label}" row`); }
+  if (row.level !== 1) { throw new Error(`the ${title} view draws "${label}" at level ${row.level}, not at its head`); }
+  if (row.description !== '') { throw new Error(`the ${title} view's "${label}" row cannot run: ${row.description}`); }
+  const at = await treeRowCentre(driver, title, label);
+  if (at === null) { throw new Error(`the ${title} view's "${label}" row is not drawn where it can be pressed`); }
+  await driver.click(at);
+}
+
 // visibleText is a workbench element's drawn text, for a person to read.
 export function workbenchText(driver: UiDriver, selector: string): Promise<string> {
   return driver.workbench<string>(`((s) => { const e = document.querySelector(s); return e ? (e.innerText || '').trim() : ''; })(${JSON.stringify(selector)})`);

@@ -24,6 +24,7 @@ import {
   searchParams,
   splitValueList,
 } from '../../src/catalog-search-run';
+import { PANEL_ACTIONS } from '../../src/operation-groups';
 import { EMPTY_LABEL } from '../../src/registries-run';
 import { NO_ANCHORED_WORKSPACE_MESSAGE } from '../../src/workspace';
 
@@ -501,7 +502,7 @@ describe('catalog-search-run: outcomes', () => {
     assert.strictEqual(
       NO_REGISTRIES_MESSAGE,
       'Aggrega: No registries configured. Add one with “Add registry” in the Registries '
-      + 'panel, then build its index with “Update the searchable index”.',
+      + 'panel, then build its index with “Update index”.',
     );
     // And the opening clause is the constant the registries view shows for the
     // same fact, so the two surfaces cannot come to word one state differently.
@@ -510,6 +511,27 @@ describe('catalog-search-run: outcomes', () => {
     // comparison and could not see a change to it.
     assert.strictEqual(EMPTY_LABEL, 'No registries configured.');
     assert.ok(NO_REGISTRIES_MESSAGE.startsWith(`Aggrega: ${EMPTY_LABEL} `), NO_REGISTRIES_MESSAGE);
+  });
+
+  it('the remediation sentences send the reader to rows the Registries panel draws, by their words', () => {
+    // 🔴 A SENTENCE NAMING A CONTROL IS ONLY AS GOOD AS THE CONTROL'S OWN WORDS.
+    // Each quoted name is a label the Registries panel's head carries, read from
+    // the one description that draws those rows — so a sentence cannot send a
+    // reader looking for a name the panel does not show. Pinned literally too, so
+    // a change to a label is a diff here rather than a sentence that followed it
+    // unread.
+    assert.strictEqual(
+      REFRESH_REMEDIATION,
+      'Refresh with “Update index” in the Registries panel.',
+    );
+    const drawn = PANEL_ACTIONS.registries.map((action) => action.label);
+    for (const sentence of [NO_REGISTRIES_MESSAGE, REFRESH_REMEDIATION]) {
+      const quoted = Array.from(sentence.matchAll(/“([^”]+)”/g)).map((m) => m[1]);
+      assert.ok(quoted.length > 0, `the census found no quoted name in "${sentence}", so it measures nothing`);
+      for (const name of quoted) {
+        assert.ok(drawn.includes(name), `"${sentence}" names “${name}”, which no Registries panel row reads`);
+      }
+    }
   });
 
   it('an answer that does not mention the registry set is NOT read as "none configured"', async () => {

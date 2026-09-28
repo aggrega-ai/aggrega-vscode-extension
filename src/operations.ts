@@ -11,7 +11,7 @@ import {
   OperationsLayout,
   ReleaseScopedVerb,
   SurfaceFacts,
-  allOperations,
+  commandsPanelOperations,
   cacheConfirmation,
   commandIdFor,
   inspectableSubjects,
@@ -450,7 +450,7 @@ class OperationsViewProvider implements vscode.WebviewViewProvider {
       releaseSelected: this.deps.selectedRelease() !== null,
     };
     const unavailable: Partial<Record<OperationId, string | null>> = {};
-    for (const op of allOperations()) {
+    for (const op of commandsPanelOperations()) {
       unavailable[op.id] = unavailableReason(op.id, facts);
     }
     return {
@@ -538,7 +538,7 @@ class OperationsViewProvider implements vscode.WebviewViewProvider {
   // inside the menu would be a second statement of the same refusal, and
   // replacing the sentence with an empty menu is the shape that must not ship.
   private async fillMenu(command: string): Promise<void> {
-    const entry = allOperations().find((op) => commandIdFor(op) === command);
+    const entry = commandsPanelOperations().find((op) => commandIdFor(op) === command);
     const menu = entry === undefined ? null : menuFor(entry.id);
     const fill = entry === undefined ? undefined : FILLS_ITS_MENU[entry.id];
     if (entry === undefined || menu === null || menu.kind !== 'fetched' || fill === undefined) {
@@ -604,7 +604,7 @@ class OperationsViewProvider implements vscode.WebviewViewProvider {
       this.deps.selectorCandidates(),
     );
     return [
-      ...allOperations().map(commandIdFor),
+      ...commandsPanelOperations().map(commandIdFor),
       ...rows.flatMap(rowCommands),
     ];
   }
@@ -625,9 +625,9 @@ export interface OperationsView {
 
 // activateOperations registers the Commands view and a command for each entry
 // this surface owns. An entry naming a command of its own registers nothing
-// here: the topology graph and the registry, catalog and plugin entries are each
-// contributed and handled where their subject lives. The view id and command ids
-// mirror the package.json contributions.
+// here: the topology graph and the configuration surface are each contributed
+// and handled where their subject lives. The view id and command ids mirror the
+// package.json contributions.
 export function activateOperations(
   context: vscode.ExtensionContext,
   deps: OperationDeps,
@@ -713,9 +713,7 @@ export function activateOperations(
   reg('preview', () => { void runPreview(deps); });
   // The topology graph contributes its own command, so nothing is registered for
   // it here: the group entry points at that command rather than at a second one
-  // wrapping it. The registry, catalog and plugin entries are the same case —
-  // each is registered by the surface whose subject it acts on, and a wrapper
-  // here would be a second command that only forwards.
+  // wrapping it, which would be a second command that only forwards.
   reg('pull', () => { void runReleaseScoped(deps, 'pull'); });
   // Drafting an entity offers the kinds the COMPILER answers for, and holds no
   // list of them: the set belongs to the compiler, so what a reader is offered

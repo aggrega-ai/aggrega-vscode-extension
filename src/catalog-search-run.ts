@@ -3,6 +3,7 @@
 
 import type * as wire from '@aggrega-ai/aggrega-abi/dist/servewire_gen';
 import { describeError } from './error-surfaces';
+import { panelActionLabel } from './operation-groups';
 import { EMPTY_LABEL } from './registries-run';
 import { shortUri } from './uri-display';
 import { NO_ANCHORED_WORKSPACE_MESSAGE } from './workspace';
@@ -270,18 +271,21 @@ export function rowForRecord(record: IndexRecord): CatalogRow {
 // view already shows for the same fact — a DELIBERATE reuse, so the two surfaces
 // cannot come to word one state differently, and it is imported rather than
 // retyped so there is nothing to keep in step. What is added is the consequence
-// for a search and the two affordances this reader actually has, named as the
-// panel names them; the compiler words its own remediation as a command line,
-// which is not where the reader of this message is.
+// for a search and the two affordances this reader actually has — the first two
+// rows of the Registries panel — named in the words those rows carry, which are
+// read from the one place that draws them; the compiler words its own
+// remediation as a command line, which is not where the reader of this message
+// is.
 export const NO_REGISTRIES_MESSAGE =
-  `Aggrega: ${EMPTY_LABEL} Add one with “Add registry” in the Registries panel, `
-  + 'then build its index with “Update the searchable index”.';
+  `Aggrega: ${EMPTY_LABEL} Add one with “${panelActionLabel('registryAdd')}” in the `
+  + `Registries panel, then build its index with “${panelActionLabel('registryIndex')}”.`;
 
 // REFRESH_REMEDIATION names the editor's own way to fix a missing or stale
 // snapshot. The compiler names a command line for the same repair; this reader
-// is in an editor, and the panel entry is the thing they can press.
+// is in an editor, and the Registries panel's row is the thing they can press,
+// named in the words it carries.
 export const REFRESH_REMEDIATION =
-  'Refresh with “Update the searchable index” in the Registries panel.';
+  `Refresh with “${panelActionLabel('registryIndex')}” in the Registries panel.`;
 
 // SearchOutcome is what one search produced. The five cases are distinct types
 // rather than a message plus a flag, because four of them are easy to collapse

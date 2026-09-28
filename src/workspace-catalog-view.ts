@@ -2,11 +2,9 @@
 // Copyright 2026 Cognitio S.r.l.
 
 import * as vscode from 'vscode';
-import {
-  CatalogIndexDoc,
-  WorkspaceCatalogNode,
-  workspaceCatalogNodes,
-} from './workspace-catalog-run';
+import { CatalogIndexDoc } from './workspace-catalog-run';
+import { panelActionItem } from './panel-action-item';
+import { CatalogPanelNode, catalogPanelNodes } from './panel-actions';
 import {
   catalogEntityName,
   catalogEntityPath,
@@ -81,13 +79,14 @@ export interface WorkspaceCatalogDeps extends RendersOnReady, CliOperationDeps {
 //
 // This module is the whole editor-coupled boundary of the surface: it maps an
 // already-shaped row onto a tree item and delegates every decision to
-// workspaceCatalogNodes, which depends on no editor type and is therefore
-// directly testable.
+// catalogPanelNodes, which depends on no editor type and is therefore directly
+// testable. The root opens with the search of the published catalog, and then
+// lists the workspace's entities.
 //
 // Each expansion of the root re-asks the server, so a refresh is a change
 // event. That costs nothing over the network: the index is derived from the
 // workspace the server already reads, and reaches no registry.
-class WorkspaceCatalogTreeProvider implements vscode.TreeDataProvider<WorkspaceCatalogNode> {
+class WorkspaceCatalogTreeProvider implements vscode.TreeDataProvider<CatalogPanelNode> {
   private readonly changed = new vscode.EventEmitter<void>();
   readonly onDidChangeTreeData = this.changed.event;
 
@@ -97,7 +96,10 @@ class WorkspaceCatalogTreeProvider implements vscode.TreeDataProvider<WorkspaceC
     this.changed.fire();
   }
 
-  getTreeItem(node: WorkspaceCatalogNode): vscode.TreeItem {
+  getTreeItem(node: CatalogPanelNode): vscode.TreeItem {
+    if (node.kind === 'action') {
+      return panelActionItem(node.row);
+    }
     if (node.kind === 'message') {
       const item = new vscode.TreeItem(node.label, vscode.TreeItemCollapsibleState.None);
       if (node.detail) {
@@ -119,8 +121,9 @@ class WorkspaceCatalogTreeProvider implements vscode.TreeDataProvider<WorkspaceC
     item.iconPath = new vscode.ThemeIcon(node.row.icon);
     // Only a row naming an entity carries the value the row operations are
     // bound to, and which value it carries decides which of them appear. The
-    // kind headings and the message rows above name no entity — a heading names
-    // a kind and a message says why there is nothing to name — so both return
+    // search at the head, the kind headings and the message rows above name no
+    // entity — the search acts on the published catalog, a heading names a kind
+    // and a message says why there is nothing to name — so all three return
     // before this line and the operations do not appear on them at all.
     const context = catalogRowContext(node);
     if (context !== null) {
@@ -149,13 +152,13 @@ class WorkspaceCatalogTreeProvider implements vscode.TreeDataProvider<WorkspaceC
     return item;
   }
 
-  async getChildren(node?: WorkspaceCatalogNode): Promise<WorkspaceCatalogNode[]> {
+  async getChildren(node?: CatalogPanelNode): Promise<CatalogPanelNode[]> {
     if (node) {
       return node.kind === 'group'
         ? node.rows.map((row) => ({ kind: 'entry' as const, row }))
         : [];
     }
-    return workspaceCatalogNodes({
+    return catalogPanelNodes({
       getWorkspaceRoot: this.deps.getWorkspaceRoot,
       isLanguageServerRunning: this.deps.isLanguageServerRunning,
       requestCatalogIndex: this.deps.requestCatalogIndex,
@@ -180,10 +183,10 @@ class WorkspaceCatalogTreeProvider implements vscode.TreeDataProvider<WorkspaceC
 // row, so folding them into one extractor would have to pick one of those two
 // rules and would apply it to operations the other governs.
 async function onPath(
-  node: WorkspaceCatalogNode | undefined,
+  node: CatalogPanelNode | undefined,
   act: (entityPath: string) => Promise<void>,
 ): Promise<void> {
-  const entityPath = node ? catalogEntityPath(node) : null;
+  const entityPath = node && node.kind !== 'action' ? catalogEntityPath(node) : null;
   if (!entityPath) {
     return;
   }
@@ -191,10 +194,10 @@ async function onPath(
 }
 
 async function onName(
-  node: WorkspaceCatalogNode | undefined,
+  node: CatalogPanelNode | undefined,
   act: (name: string) => Promise<void>,
 ): Promise<void> {
-  const name = node ? catalogEntityName(node) : null;
+  const name = node && node.kind !== 'action' ? catalogEntityName(node) : null;
   if (!name) {
     return;
   }
@@ -228,7 +231,7 @@ export function activateWorkspaceCatalogView(
     // It is the same inspection the Commands panel runs, ending the same way.
     vscode.commands.registerCommand(
       'aggrega.workspaceCatalog.inspect',
-      (node?: WorkspaceCatalogNode) => onName(node, (name) => inspectEntity(deps, name)),
+      (node?: CatalogPanelNode) => onName(node, (name) => inspectEntity(deps, name)),
     ),
 
     // The two checks answer "what is wrong with this entity", and each has a
@@ -248,7 +251,7 @@ export function activateWorkspaceCatalogView(
     // there is nothing here to send the entity to yet.
     vscode.commands.registerCommand(
       'aggrega.workspaceCatalog.validate',
-      (node?: WorkspaceCatalogNode) => onPath(node, (entityPath) =>
+      (node?: CatalogPanelNode) => onPath(node, (entityPath) =>
         runWatchableCli(
           deps,
           `Aggrega: checking ${entityPath}`,
@@ -276,7 +279,7 @@ export function activateWorkspaceCatalogView(
     // two places the same check is asked from.
     vscode.commands.registerCommand(
       'aggrega.workspaceCatalog.lint',
-      (node?: WorkspaceCatalogNode) => onPath(node, (entityPath) =>
+      (node?: CatalogPanelNode) => onPath(node, (entityPath) =>
         deps.lintEntity(entityPath)),
     ),
 
@@ -301,7 +304,7 @@ export function activateWorkspaceCatalogView(
     // fetched them.
     vscode.commands.registerCommand(
       'aggrega.workspaceCatalog.push',
-      (node?: WorkspaceCatalogNode) => onPath(node, async (entityPath) => {
+      (node?: CatalogPanelNode) => onPath(node, async (entityPath) => {
         const consented = await vscode.window.showWarningMessage(
           `Publish ${entityPath} to a registry?`,
           {

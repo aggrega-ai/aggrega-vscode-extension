@@ -15,7 +15,7 @@ import {
 } from './suite-context';
 import { contextRowsCheck } from './suite-gateway';
 import {
-  commandsPanel, documentWith, NOT_RUNNING, pickQuickInputRow, pressIn, pressOperation, pressToastButton, RUNNING,
+  commandsPanel, documentWith, NOT_RUNNING, pickQuickInputRow, pressIn, pressOperation, pressPanelAction, pressToastButton, RUNNING,
   sleep, statusLog, STARTING, toasts, toastsSince, treeRowCentre, treeRows, until, waitQuickInput, waitStatus, waitToast,
 } from './workbench';
 
@@ -58,6 +58,10 @@ const SEARCH_FACETS = ['Query', 'Kind', 'Label selector', 'Capability', 'Plugin 
 const SEARCH_ROW = 'Search';
 const SEARCH_TITLE = 'Aggrega: search published catalog';
 const SEARCH_PLACEHOLDER = 'Narrow the search, then choose Search';
+
+// The rows at the head of the Catalog panel, by the words each reads, in the
+// order the panel draws them; the first opens the search.
+const CATALOG_HEAD = ['Search catalog'];
 
 // The stopped-responding notification, held as written for the same reason.
 export const STOPPED_RESPONDING = 'Aggrega language server has stopped responding. Run "Aggrega: Start or restart the language server" to recover.';
@@ -281,16 +285,19 @@ export async function storefrontChecks(ctx: SuiteContext, referenceFolder: strin
   // ---- the published-catalog palette, with no registry ----
   let noRegistry = '';
   await c.run('catalog-search.palette-shows-its-facets', {
-    expected: `Search catalog on the Commands panel opens a list titled "${SEARCH_TITLE}", placeholder "${SEARCH_PLACEHOLDER}", with one row per facet (${SEARCH_FACETS.join(', ')}) each showing its current value, and a last row "${SEARCH_ROW}"`,
+    expected: `the Catalog panel's first row, "${CATALOG_HEAD[0]}", opens a list titled "${SEARCH_TITLE}", placeholder "${SEARCH_PLACEHOLDER}", with one row per facet (${SEARCH_FACETS.join(', ')}) each showing its current value, and a last row "${SEARCH_ROW}"`,
     plant: 'in the scratch copy, out/src/catalog-search-run.js with the Plugin type row dropped',
   }, async () => {
     await closeAllEditors(ctx);
-    await pressOperation(ctx.d, await commandsPanel(ctx.d), 'aggrega.catalog.searchPublished');
+    await run(ctx, 'aggrega.workspaceCatalog.focus');
+    const drawn = await until('the Catalog view drawing its head', 20000, () => treeRows(ctx.d, 'Catalog'), (v) => v !== null && v.length > 0);
+    const head = (drawn ?? []).slice(0, CATALOG_HEAD.length).map((r) => r.label);
+    await pressPanelAction(ctx.d, 'Catalog', CATALOG_HEAD[0]);
     const q = await waitQuickInput(ctx.d, 'the search palette', (x) => x.title === SEARCH_TITLE);
     const labels = q.rows.map((r) => r.label);
     const valued = q.rows.slice(0, SEARCH_FACETS.length).every((r) => r.description !== '');
-    const passed = q.placeholder === SEARCH_PLACEHOLDER && JSON.stringify(labels) === JSON.stringify([...SEARCH_FACETS, SEARCH_ROW]) && valued;
-    return { passed, seen: `title "${q.title}", placeholder "${q.placeholder}", rows ${JSON.stringify(q.rows.map((r) => `${r.label}: ${r.description}`))}` };
+    const passed = JSON.stringify(head) === JSON.stringify(CATALOG_HEAD) && q.placeholder === SEARCH_PLACEHOLDER && JSON.stringify(labels) === JSON.stringify([...SEARCH_FACETS, SEARCH_ROW]) && valued;
+    return { passed, seen: `the Catalog panel opens with ${JSON.stringify(head)}; title "${q.title}", placeholder "${q.placeholder}", rows ${JSON.stringify(q.rows.map((r) => `${r.label}: ${r.description}`))}` };
   });
   await c.run('catalog-search.no-registry-answer-says-so', {
     expected: `with no registry configured, choosing ${SEARCH_ROW} is answered by a sentence opening "${NO_REGISTRY_OPENING}"`,
@@ -305,7 +312,7 @@ export async function storefrontChecks(ctx: SuiteContext, referenceFolder: strin
   await c.forPerson('catalog-search.no-registry-sentence-directs-the-reader', {
     expected: 'the remediation sentence sends the reader where the control is',
     plant: 'none: this is a judgement of the wording',
-    question: 'The sentence sends the reader to the Registries panel for "Add registry", which is a Commands-panel button. Does that misdirect?',
+    question: 'The sentence sends the reader to "Add registry" and then "Update index", the two rows at the head of the Registries panel. Does that direct the reader well?',
   }, async () => {
     need(noRegistry !== '', 'the search gave no answer, so there is no sentence to judge');
     return { screenshot: await capture(ctx, 'search-no-registry'), drawnText: noRegistry };
@@ -319,7 +326,9 @@ export async function storefrontChecks(ctx: SuiteContext, referenceFolder: strin
   }, async () => {
     await run(ctx, 'aggrega.workspaceCatalog.focus');
     const rows = await until('the Catalog view drawing its rows', 20000, () => treeRows(ctx.d, 'Catalog'), (v) => v !== null && v.some((r) => /^Aggregate \(\d+\)$/.test(r.label)));
-    const headings = (rows ?? []).filter((r) => r.level === 1).map((r) => r.label);
+    // The rows at the panel's head are its operations rather than its list, so
+    // the kind headings are the top-level rows after them.
+    const headings = (rows ?? []).filter((r) => r.level === 1).slice(CATALOG_HEAD.length).map((r) => r.label);
     const counted = headings.every((h) => /^[A-Z][A-Za-z]+ \(\d+\)$/.test(h));
     const at = await treeRowCentre(ctx.d, 'Catalog', 'storefront');
     need(at !== null, 'the storefront row is not drawn');

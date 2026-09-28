@@ -6,10 +6,6 @@ import {
   EntitySubject,
   OperationId,
 } from './operation-groups';
-import {
-  ATTACHABLE_PLUGIN_TYPES,
-  GEN_CATALOG_SCOPES,
-} from './plugins-run';
 import { BUILD_DIALS } from './build-dials';
 import { EntityKind } from './entity-kinds';
 
@@ -123,8 +119,6 @@ const CACHE_MENU_LABEL = 'Cache operation';
 const INSPECT_MENU_LABEL = 'Entity to inspect';
 const PUBLISH_MENU_LABEL = 'Entity to publish';
 const DRAFT_MENU_LABEL = 'Kind of entity to draft';
-const PLUGIN_TYPE_MENU_LABEL = 'Type of plugin to add';
-const GEN_CATALOG_MENU_LABEL = 'Plugins to generate an entity for';
 
 // BUILD_DIALS_MENU_LABEL names what the adjustments beside the Build button
 // are. It says they apply to the next build rather than naming them a mode,
@@ -197,29 +191,6 @@ export const OPERATION_MENUS: Partial<Record<MenuControlId, OperationMenu>> = {
     kind: 'fetched',
     label: PUBLISH_MENU_LABEL,
     pending: READING_THE_INDEX,
-  },
-  // The attachable types, from the one set that decides them. That set omits
-  // the type whose installation confirms a capability grant at a terminal an
-  // editor control has none of, and the omission is a property of the set
-  // rather than of this menu — so reading it here keeps the menu unable to
-  // offer what the surface must not.
-  pluginAdd: {
-    kind: 'fixed',
-    label: PLUGIN_TYPE_MENU_LABEL,
-    options: ATTACHABLE_PLUGIN_TYPES.map((type) => ({
-      value: type,
-      label: type,
-      detail: '',
-    })),
-  },
-  pluginEntities: {
-    kind: 'fixed',
-    label: GEN_CATALOG_MENU_LABEL,
-    options: GEN_CATALOG_SCOPES.map((scope) => ({
-      value: scope.value,
-      label: scope.label,
-      detail: '',
-    })),
   },
   // The adjustments a build offers, read from the one description of them
   // rather than written out again — so a dial withdrawn from the build is

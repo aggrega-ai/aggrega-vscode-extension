@@ -9,7 +9,7 @@ import {
   CATALOG_DOCUMENT_ROW_CONTEXT,
   CATALOG_NO_DOCUMENT_ROW_CONTEXT,
 } from '../../src/catalog-entity-operations';
-import { allOperations, commandIdFor } from '../../src/operation-groups';
+import { PANEL_ACTIONS, commandIdFor, commandsPanelOperations } from '../../src/operation-groups';
 
 // What a reader sees and presses on this panel is not provable here — driving
 // the panel needs an extension host, and the suite that supplies one does not
@@ -91,11 +91,12 @@ function suppressedFromPalette(): Set<string> {
 }
 
 describe('the operations the workspace-catalog panel contributes', () => {
-  it('leaves the refresh alone in the title bar, the operations having moved to the flow', () => {
+  it('leaves the refresh alone in the title bar, the operations being labelled controls elsewhere', () => {
     // A title-bar entry is a hover-revealed unlabelled icon, which reads as a
-    // different surface from a labelled button — so the published-catalog
-    // search and the drafting entry are buttons in the Commands panel instead,
-    // and the title bar carries only what belongs to the view.
+    // different surface from a labelled control — so the published-catalog
+    // search is a row at the head of this panel's list and the drafting entry a
+    // button on the Commands panel, and the title bar carries only what belongs
+    // to the view.
     const entries = titleBarEntries();
     assert.deepStrictEqual(
       entries.map((m) => m.command),
@@ -105,18 +106,21 @@ describe('the operations the workspace-catalog panel contributes', () => {
     assert.strictEqual(entries[0].group, 'navigation');
   });
 
-  it('reaches the search and the drafting entry from the Commands panel instead', () => {
-    // The other half of the move: cleared from the title bar AND present as a
-    // button, so neither operation is merely gone. Drafting is the case that
-    // needed care — it was ALREADY a button here, so its title-bar entry was a
-    // duplicate and was removed rather than moved.
-    const offered = allOperations().map(commandIdFor);
+  it('draws the search at the head of this panel and the drafting entry on the Commands panel', () => {
+    // Each is present in exactly one place, so neither is merely gone and
+    // neither has two places a reader could look.
+    assert.deepStrictEqual(
+      PANEL_ACTIONS.catalog.map(commandIdFor),
+      ['aggrega.catalog.searchPublished'],
+      'the published-catalog search is not what this panel is headed by',
+    );
+    const onCommands = commandsPanelOperations().map(commandIdFor);
     assert.ok(
-      offered.includes('aggrega.catalog.searchPublished'),
-      'the published-catalog search is on no panel',
+      !onCommands.includes('aggrega.catalog.searchPublished'),
+      'the published-catalog search is on the Commands panel as well',
     );
     assert.ok(
-      offered.includes('aggrega.op.scaffold'),
+      onCommands.includes('aggrega.op.scaffold'),
       'a reader can see the entities in this workspace and cannot draft one',
     );
   });
@@ -247,21 +251,21 @@ describe('the operations the workspace-catalog panel contributes', () => {
     }
   });
 
-  it('reaches a registered handler for the search the Commands panel now runs', () => {
-    // The search command is contributed and registered by this area rather than
-    // by the panel that draws the button, so the button is only as good as this
-    // registration. Read from the source, which is the only place it exists —
-    // the manifest cannot see whether a handler was ever registered.
+  it('reaches a registered handler for the search this panel\'s head runs', () => {
+    // The search command is contributed and registered by the published-catalog
+    // search rather than by the tree that draws the row, so the row is only as
+    // good as this registration. Read from the source, which is the only place
+    // it exists — the manifest cannot see whether a handler was ever registered.
     const source = fs.readFileSync(path.join(REPO, 'src', 'catalog-views.ts'), 'utf8');
     assert.match(
       source, /registerCommand\(\s*'aggrega\.catalog\.searchPublished'/,
-      'the search is a button on the Commands panel with no handler registered for it',
+      'the search heads the Catalog panel with no handler registered for it',
     );
   });
 
   it('adds nothing to the Commands panel\'s title bar', () => {
-    // Its operations arrive on that panel as buttons in the drawn document, not
-    // as title-bar entries — so the cog stays the only thing in that title bar.
+    // Its operation is a row at the head of its own list, not a title-bar entry
+    // anywhere — so that title bar carries only what belongs to that view.
     assert.deepStrictEqual(
       commandsPanelTitleBar(manifest.contributes.menus['view/title']),
       [...COMMANDS_TITLE_BAR_ENTRIES],

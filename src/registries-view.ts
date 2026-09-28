@@ -29,10 +29,10 @@ import {
 import {
   REGISTRY_ROW_CONTEXT,
   RegistryListDoc,
-  RegistryNode,
-  registryNodes,
   registrySubject,
 } from './registries-run';
+import { panelActionItem } from './panel-action-item';
+import { RegistriesPanelNode, registriesPanelNodes } from './panel-actions';
 import { RendersOnReady } from './readiness';
 import { withCancellableProgress } from './progress';
 
@@ -79,13 +79,15 @@ async function askWriteDestination(prompt: string): Promise<ConfigWriteDestinati
 //
 // This module is the whole editor-coupled boundary of the surface: it maps an
 // already-shaped row onto a tree item and delegates every decision to
-// registryNodes, which depends on no editor type and is therefore directly
-// testable.
+// registriesPanelNodes, which depends on no editor type and is therefore
+// directly testable. The root opens with the operations acting on the whole set
+// — adding a registry and updating every registry's index — and then lists the
+// registries.
 //
 // Each expansion of the root asks again, so a refresh is a change event. That
 // costs nothing over the network: the enumeration reads the resolved
 // configuration and never contacts a registry.
-class RegistriesTreeProvider implements vscode.TreeDataProvider<RegistryNode> {
+class RegistriesTreeProvider implements vscode.TreeDataProvider<RegistriesPanelNode> {
   private readonly changed = new vscode.EventEmitter<void>();
   readonly onDidChangeTreeData = this.changed.event;
 
@@ -95,7 +97,10 @@ class RegistriesTreeProvider implements vscode.TreeDataProvider<RegistryNode> {
     this.changed.fire();
   }
 
-  getTreeItem(node: RegistryNode): vscode.TreeItem {
+  getTreeItem(node: RegistriesPanelNode): vscode.TreeItem {
+    if (node.kind === 'action') {
+      return panelActionItem(node.row);
+    }
     if (node.kind === 'message') {
       const item = new vscode.TreeItem(node.label, vscode.TreeItemCollapsibleState.None);
       if (node.detail) {
@@ -108,19 +113,20 @@ class RegistriesTreeProvider implements vscode.TreeDataProvider<RegistryNode> {
     item.tooltip = node.row.tooltip;
     item.iconPath = new vscode.ThemeIcon(node.row.icon);
     // Only a row naming a registry carries the value the row operations are
-    // bound to. The message rows above name none, so they are left without it
-    // and the operations do not appear on them at all.
+    // bound to. The operations at the head and the message rows above name
+    // none, so they are left without it and the operations do not appear on
+    // them at all.
     item.contextValue = REGISTRY_ROW_CONTEXT;
     return item;
   }
 
-  async getChildren(node?: RegistryNode): Promise<RegistryNode[]> {
+  async getChildren(node?: RegistriesPanelNode): Promise<RegistriesPanelNode[]> {
     // Every node is a leaf: the listing is flat, in the order the product
     // emitted, so there is nothing to expand.
     if (node) {
       return [];
     }
-    return registryNodes({
+    return registriesPanelNodes({
       getWorkspaceRoot: this.deps.getWorkspaceRoot,
       runRegistryList: () => this.deps.runRegistryList(),
       log: { appendLine: (text) => this.deps.output.appendLine(text) },
@@ -138,10 +144,10 @@ class RegistriesTreeProvider implements vscode.TreeDataProvider<RegistryNode> {
 // guards rather than the only one — and it is the one that holds if a later
 // binding is written more loosely than the ones here.
 async function runOnRow(
-  node: RegistryNode | undefined,
+  node: RegistriesPanelNode | undefined,
   act: (host: string) => Promise<void>,
 ): Promise<void> {
-  const host = node ? registrySubject(node) : null;
+  const host = node && node.kind !== 'action' ? registrySubject(node) : null;
   if (!host) {
     return;
   }
@@ -177,8 +183,9 @@ async function buildIndex(deps: RegistriesDeps, registry?: string): Promise<void
 }
 
 // activateRegistriesView registers the registries tree and the operations that
-// act on it: the panel-scoped ones in its title bar, the row-scoped ones on a
-// registry row. View and command ids mirror package.json.
+// act on it: the ones acting on the whole set, drawn at the head of its list,
+// and the row-scoped ones on a registry row. View and command ids mirror
+// package.json.
 export function activateRegistriesView(
   context: vscode.ExtensionContext,
   deps: RegistriesDeps,
@@ -242,7 +249,7 @@ export function activateRegistriesView(
 
     vscode.commands.registerCommand(
       'aggrega.registries.updateOne',
-      (node?: RegistryNode) => runOnRow(node, (host) => buildIndex(deps, host)),
+      (node?: RegistriesPanelNode) => runOnRow(node, (host) => buildIndex(deps, host)),
     ),
 
     // Removing a registry and removing its credential both confirm first, and
@@ -258,7 +265,7 @@ export function activateRegistriesView(
     // wrote, which is the same fact measured instead of predicted.
     vscode.commands.registerCommand(
       'aggrega.registries.remove',
-      (node?: RegistryNode) => runOnRow(node, async (host) => {
+      (node?: RegistriesPanelNode) => runOnRow(node, async (host) => {
         const destination = await askWriteDestination(REMOVAL_DESTINATION_PROMPT);
         if (!destination) { return; }
         const consented = await vscode.window.showWarningMessage(
@@ -280,7 +287,7 @@ export function activateRegistriesView(
     // instead is how far the store reaches, before they consent.
     vscode.commands.registerCommand(
       'aggrega.registries.logout',
-      (node?: RegistryNode) => runOnRow(node, async (host) => {
+      (node?: RegistriesPanelNode) => runOnRow(node, async (host) => {
         const consented = await vscode.window.showWarningMessage(
           `Remove the stored credential for ${host}?`,
           {

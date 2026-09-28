@@ -11,7 +11,7 @@ import {
   OperationDef,
   OperationId,
   OperationsLayout,
-  allOperations,
+  commandsPanelOperations,
   commandIdFor,
 } from '../../src/operation-groups';
 import {
@@ -19,10 +19,6 @@ import {
   operationsBodyHtml,
   operationsDocumentHtml,
 } from '../../src/operations-render';
-import {
-  ATTACHABLE_PLUGIN_TYPES,
-  GEN_CATALOG_SCOPES,
-} from '../../src/plugins-run';
 import { NO_RELEASE_SELECTED_CONTROL_REASON } from '../../src/release-selection';
 import { SELECTOR_ROW_KEYS, SELECTOR_ROW_LABELS } from '../../src/selector-levels';
 import {
@@ -277,8 +273,7 @@ function operationsCss(): string {
 // write a document of for the third — so the composed document cannot hold them,
 // which is the difference this list has to be able to see.
 // The reader-visible words and the values each choice COMPOSES are separate
-// fields, and both are asserted — they differ for the generation control, which
-// reads two sentences and composes two one-word selections. Taking a label as
+// fields, and both are asserted even where they read alike. Taking a label as
 // the value an operation acts on is exactly the coupling that breaks silently,
 // so the document is required to carry them apart.
 const MENUS_RULED: Array<{
@@ -320,22 +315,6 @@ const MENUS_RULED: Array<{
     waiting: '',
     values: ['status', 'prune', 'evict', 'clear'],
     labels: ['status', 'prune', 'evict', 'clear'],
-  },
-  {
-    id: 'pluginAdd',
-    command: 'aggrega.plugins.add',
-    label: 'Type of plugin to add',
-    waiting: '',
-    values: ['provider', 'governance', 'linter', 'importer'],
-    labels: ['provider', 'governance', 'linter', 'importer'],
-  },
-  {
-    id: 'pluginEntities',
-    command: 'aggrega.plugins.genCatalog',
-    label: 'Plugins to generate an entity for',
-    waiting: '',
-    values: ['embedded', 'artifact'],
-    labels: ['Every plugin built into the compiler', 'One plugin artifact on this machine'],
   },
 ];
 
@@ -403,8 +382,6 @@ const MENU_IDS_IN_ORDER: string[] = [
   'inspect',
   'push',
   'cache',
-  'pluginAdd',
-  'pluginEntities',
 ];
 
 // menusOf slices the document into one chunk per menu, in document order.
@@ -530,7 +507,7 @@ describe('the Commands panel document', () => {
     // above measure the titles rather than an empty document.
     assert.strictEqual(
       occurrences(html, /class="op"/),
-      allOperations().length,
+      commandsPanelOperations().length,
       'the flow draws a number of operations other than all of them',
     );
   });
@@ -546,9 +523,6 @@ describe('the Commands panel document', () => {
       'Draft entity', 'Import', 'Inspect',
       'Push', 'Sign', 'Deprecate',
       'Show config', 'Cache…',
-      'Add registry', 'Update index',
-      'Search catalog',
-      'Add plugin', 'Generate entities',
     ];
     for (const layout of BOTH) {
       const html = operationsBodyHtml(body({ layout }));
@@ -566,7 +540,7 @@ describe('the Commands panel document', () => {
     // marking that would mark most of the panel and distinguish nothing. The
     // cache is not the same act: pressing it names no operation, and what it
     // asks is which one to run.
-    const marked = allOperations().filter((op) => op.label.endsWith('…')).map((op) => op.id);
+    const marked = commandsPanelOperations().filter((op) => op.label.endsWith('…')).map((op) => op.id);
     assert.deepStrictEqual(
       marked, ['cache'],
       'an entry that asks for a subject is marked as though it asked which operation',
@@ -574,7 +548,7 @@ describe('the Commands panel document', () => {
     // A negative control on the census: the mark is a character this search can
     // actually see, established against the one label that carries it.
     assert.ok(
-      allOperations().some((op) => op.label.includes('…')),
+      commandsPanelOperations().some((op) => op.label.includes('…')),
       'the census cannot see the mark on a label that carries it, so its zeros mean nothing',
     );
     // And it reaches the drawn document, not only the table.
@@ -1024,7 +998,7 @@ describe('an operation whose invocation cannot succeed', () => {
       const html = operationsBodyHtml(body({ layout, unavailable: noRelease }));
       assert.deepStrictEqual(
         commandsIn(html).filter((c) => c.startsWith('aggrega.')).length,
-        allOperations().length + ROW_AGGREGA_COMMANDS,
+        commandsPanelOperations().length + ROW_AGGREGA_COMMANDS,
         `the ${layout} shape drew a different number of controls than there are entries and rows`,
       );
       assert.strictEqual(
@@ -1116,7 +1090,7 @@ describe('what the panel owes a reader who is not using a pointer', () => {
       const controls = occurrences(html, /<button /);
       assert.strictEqual(
         controls,
-        allOperations().length
+        commandsPanelOperations().length
         + ROW_CONTROLS
         + MENU_OPTIONS_DRAWN
         + DIALS_RULED.length
@@ -1163,7 +1137,7 @@ describe('what the panel owes a reader who is not using a pointer', () => {
     );
     assert.strictEqual(
       occurrences(html, /data-group="/),
-      allOperations().length,
+      commandsPanelOperations().length,
       'a control in the flow states no group, or one is stated twice',
     );
     assert.strictEqual(
@@ -1195,12 +1169,12 @@ describe('what the panel owes a reader who is not using a pointer', () => {
     // by a menu having gained a choice.
     const opTags = tagsOf(html).filter((tag) => tag.includes('class="op"'));
     assert.strictEqual(
-      opTags.length, allOperations().length,
+      opTags.length, commandsPanelOperations().length,
       'the flow draws a number of operation controls other than all of them',
     );
     assert.strictEqual(
       opTags.filter((tag) => tag.includes('tabindex="-1"')).length,
-      allOperations().length - 1,
+      commandsPanelOperations().length - 1,
       'a control in the flow is outside the roving stop\'s reach',
     );
     // 🔴 AND NOTHING ELSE IN THE DOCUMENT IS OUTSIDE ONE OR THE OTHER. This is
@@ -1214,7 +1188,7 @@ describe('what the panel owes a reader who is not using a pointer', () => {
     // out of the tab order for the same reason a choice is.
     assert.strictEqual(
       occurrences(html, /tabindex="-1"/),
-      allOperations().length - 1 + MENU_OPTIONS_DRAWN + DIALS_RULED.length + DIALS_DRAWN,
+      commandsPanelOperations().length - 1 + MENU_OPTIONS_DRAWN + DIALS_RULED.length + DIALS_DRAWN,
       'something other than the flow\'s controls, the menu choices and the adjustments carries no tab stop',
     );
   });
@@ -1333,7 +1307,7 @@ describe('how one group is separated from the next', () => {
     // what sits BETWEEN them rather than an empty flow.
     assert.strictEqual(
       occurrences(flowOf(html), /class="op"/),
-      allOperations().length,
+      commandsPanelOperations().length,
       'the flow holds a number of buttons other than all of them, so the residue measures the wrong document',
     );
     // And the kind-based divider is not quietly redrawn here instead. The flow
@@ -1417,18 +1391,6 @@ describe('a control that offers its choices beside itself', () => {
         `${ruled.id}'s menu names a command other than the one its control runs`,
       );
     }
-    // 🔴 THE ONE MENU WHOSE WORDS AND VALUES DIFFER, ASSERTED AS DIFFERING. It
-    // is the clause that makes the two comparisons above two comparisons: if a
-    // later change made every label its own value, the pair would still pass
-    // while having stopped distinguishing anything.
-    const differ = MENUS_RULED.filter(
-      (menu) => menu.values.length > 0
-        && JSON.stringify(menu.values) !== JSON.stringify(menu.labels),
-    ).map((menu) => menu.id);
-    assert.deepStrictEqual(
-      differ, ['pluginEntities'],
-      'no menu reads differently from what it composes, so the two comparisons measure one thing',
-    );
   });
 
   it('draws each fixed menu\'s choices as the values that operation\'s own set declares', () => {
@@ -1468,8 +1430,6 @@ describe('a control that offers its choices beside itself', () => {
     // quietly covered by nothing.
     const declared: Array<{ id: OperationId; values: readonly string[] }> = [
       { id: 'cache', values: CACHE_OPERATIONS.map((operation) => operation.value) },
-      { id: 'pluginAdd', values: ATTACHABLE_PLUGIN_TYPES },
-      { id: 'pluginEntities', values: GEN_CATALOG_SCOPES.map((scope) => scope.value) },
     ];
     assert.deepStrictEqual(
       declared.map((pair) => pair.id),
@@ -1539,8 +1499,6 @@ describe('a control that offers its choices beside itself', () => {
     // inventing would put a word in this file that the product does not have,
     // and the question here is whether the menu follows its set at all rather
     // than what the next value happens to be called.
-    const attachable = ATTACHABLE_PLUGIN_TYPES as string[];
-    const scopes = GEN_CATALOG_SCOPES as Array<(typeof GEN_CATALOG_SCOPES)[number]>;
     const probes: Array<{
       id: OperationId;
       declared: () => string[];
@@ -1552,18 +1510,6 @@ describe('a control that offers its choices beside itself', () => {
         declared: () => CACHE_OPERATIONS.map((operation) => operation.value),
         grow: () => { CACHE_OPERATIONS.push({ ...CACHE_OPERATIONS[0] }); },
         putBack: () => { CACHE_OPERATIONS.pop(); },
-      },
-      {
-        id: 'pluginAdd',
-        declared: () => [...attachable],
-        grow: () => { attachable.push(attachable[0]); },
-        putBack: () => { attachable.pop(); },
-      },
-      {
-        id: 'pluginEntities',
-        declared: () => scopes.map((scope) => scope.value),
-        grow: () => { scopes.push({ ...scopes[0] }); },
-        putBack: () => { scopes.pop(); },
       },
     ];
     assert.deepStrictEqual(
@@ -1685,22 +1631,21 @@ describe('a control that offers its choices beside itself', () => {
   it('offers no menu at all on a control that cannot run', () => {
     // A disabled control cannot be pressed, so a menu composed for one would be
     // a choice the reader can never reach — and the document would carry an
-    // offer nothing can accept. The controls disabled here are menu-bearing ones
-    // the panel CAN disable, so this measures the rule rather than an empty
+    // offer nothing can accept. The control disabled here is the menu-bearing
+    // one the panel CAN disable, so this measures the rule rather than an empty
     // case; a menu-bearing control nothing the panel reads can disable could not
     // establish it.
     const html = operationsBodyHtml(body({
       unavailable: {
         push: NO_RELEASE_SELECTED_CONTROL_REASON,
-        pluginAdd: NO_RELEASE_SELECTED_CONTROL_REASON,
       },
     }));
     assert.deepStrictEqual(
       menuIdsIn(html),
-      MENU_IDS_IN_ORDER.filter((id) => id !== 'push' && id !== 'pluginAdd'),
+      MENU_IDS_IN_ORDER.filter((id) => id !== 'push'),
       'a menu is composed for a control that cannot open it, or one is lost from a control that can',
     );
-    // And neither disabled control still claims to open one, which is the half
+    // And the disabled control no longer claims to open one, which is the half
     // that would otherwise leave a reference pointing at nothing.
     for (const tag of tagsOf(html).filter((t) => t.includes(' disabled'))) {
       assert.ok(
@@ -1771,7 +1716,7 @@ describe('a control that offers its choices beside itself', () => {
     // button, so the empty result above measures what sits between them.
     assert.strictEqual(
       occurrences(flowOf(html), /class="op"/),
-      allOperations().length,
+      commandsPanelOperations().length,
       'the flow holds a number of buttons other than all of them',
     );
   });
@@ -1788,21 +1733,19 @@ describe('a control that offers its choices beside itself', () => {
       'import',
       'sign', 'deprecate',
       'configShow',
-      'registryAdd', 'registryIndex',
-      'catalogSearch',
     ];
     // The two lists together are the whole surface, which is what makes the
     // enumeration exhaustive rather than a sample.
     assert.strictEqual(
       unchanged.length + MENUS_RULED.length,
-      allOperations().length,
+      commandsPanelOperations().length,
       'the two lists do not account for every operation, so this proves nothing about the rest',
     );
     for (const layout of BOTH) {
       const html = operationsBodyHtml(body({ layout }));
       for (const id of unchanged) {
         const command = commandIdFor(
-          allOperations().find((op) => op.id === id) as never,
+          commandsPanelOperations().find((op) => op.id === id) as never,
         );
         const tag = tagsOf(html).find((t) => t.includes(`data-command="${command}"`));
         assert.ok(tag !== undefined, `${id} is not drawn at all in the ${layout} shape`);
@@ -1853,7 +1796,7 @@ describe('a button whose next press can be adjusted', () => {
       const html = operationsBodyHtml(body({ layout }));
       for (const ruled of DIALS_RULED) {
         const command = commandIdFor(
-          allOperations().find((op) => op.id === ruled.holder) as never,
+          commandsPanelOperations().find((op) => op.id === ruled.holder) as never,
         );
         const tag = tagsOf(html).find((t) => t.includes(`data-command="${command}"`));
         assert.ok(tag !== undefined, `${ruled.holder} is not drawn at all in the ${layout} shape`);
@@ -1890,7 +1833,7 @@ describe('a button whose next press can be adjusted', () => {
       const html = operationsBodyHtml(body({ layout }));
       for (const ruled of DIALS_RULED) {
         const command = commandIdFor(
-          allOperations().find((op) => op.id === ruled.holder) as never,
+          commandsPanelOperations().find((op) => op.id === ruled.holder) as never,
         );
         const buttonEnd = html.indexOf('</button>', html.indexOf(`data-command="${command}"`));
         assert.notStrictEqual(buttonEnd, -1, `${ruled.holder} is not drawn as a control`);
@@ -1919,7 +1862,7 @@ describe('a button whose next press can be adjusted', () => {
     // each change the comparison.
     const flow = operationsBodyHtml(body({ layout: 'buttons' }));
     assert.deepStrictEqual(
-      flowEntriesOf(flow), entriesExpected(allOperations()),
+      flowEntriesOf(flow), entriesExpected(commandsPanelOperations()),
       'the flow does not hold each adjustable button and its caret as one unit, and every other button alone',
     );
     const sections = operationsBodyHtml(body({ layout: 'sections' }));
@@ -1942,14 +1885,14 @@ describe('a button whose next press can be adjusted', () => {
     }
     // A negative control on the comparison: the expectation holds units AND bare
     // buttons, so the equalities above are not between two lists of one kind.
-    const expected = entriesExpected(allOperations());
+    const expected = entriesExpected(commandsPanelOperations());
     assert.strictEqual(
       expected.filter((entry) => entry.startsWith('pair(')).length, DIALS_RULED.length,
       'the expectation holds no unit, so the comparison cannot see one missing',
     );
     assert.strictEqual(
       expected.filter((entry) => entry.startsWith('op:')).length,
-      allOperations().length - DIALS_RULED.length,
+      commandsPanelOperations().length - DIALS_RULED.length,
       'the expectation holds no bare button, so the comparison cannot see a unit drawn around one',
     );
   });
@@ -1964,7 +1907,7 @@ describe('a button whose next press can be adjusted', () => {
     for (const holder of cannotRun) { unavailable[holder] = NO_RELEASE_SELECTED_CONTROL_REASON; }
     const flow = operationsBodyHtml(body({ layout: 'buttons', unavailable }));
     assert.deepStrictEqual(
-      flowEntriesOf(flow), entriesExpected(allOperations(), cannotRun),
+      flowEntriesOf(flow), entriesExpected(commandsPanelOperations(), cannotRun),
       'the flow draws a unit around a button that cannot run, or no longer holds that button directly',
     );
     const sections = operationsBodyHtml(body({ layout: 'sections', unavailable }));
@@ -2236,7 +2179,7 @@ describe('the whole document', () => {
     // anyone having to remember to move it too.
     assert.strictEqual(
       occurrences(html, /class="codicon codicon-[a-z-]+"/),
-      allOperations().length + ROW_CONTROLS + DIALS_RULED.length + DIALS_DRAWN,
+      commandsPanelOperations().length + ROW_CONTROLS + DIALS_RULED.length + DIALS_DRAWN,
       'a control draws no icon, or one is drawn twice',
     );
   });

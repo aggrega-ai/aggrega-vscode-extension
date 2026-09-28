@@ -5,7 +5,7 @@ import * as assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { COMMANDS_TITLE_BAR_ENTRIES, commandsPanelTitleBar } from '../helpers/title-bar';
-import { allOperations, commandIdFor } from '../../src/operation-groups';
+import { PANEL_ACTIONS, commandIdFor, commandsPanelOperations } from '../../src/operation-groups';
 import {
   PLUGIN_CONFIG_ENTRY_ROW_CONTEXT,
   PLUGIN_ROW_CONTEXT,
@@ -102,10 +102,10 @@ describe('the operations the plugins panel contributes', () => {
     assert.strictEqual(refresh.group, 'navigation');
   });
 
-  it('leaves the refresh alone in the title bar, the operations having moved to the flow', () => {
+  it('leaves the refresh alone in the title bar, the operations being rows at the head of the list', () => {
     // A title-bar entry is a hover-revealed unlabelled icon, which reads as a
-    // different surface from a labelled button — so every operation acting on
-    // the whole panel is now a button in the Commands panel instead, and the
+    // different surface from a labelled control — so every operation acting on
+    // the whole panel is a labelled row at the head of its list instead, and the
     // title bar carries only what belongs to the view.
     assert.deepStrictEqual(
       titleBarEntries().map((m) => m.command),
@@ -114,18 +114,20 @@ describe('the operations the plugins panel contributes', () => {
     );
   });
 
-  it('reaches both panel-scoped operations from the Commands panel instead', () => {
-    // The other half of the move: cleared from the title bar AND present as a
-    // button, so neither operation is merely gone.
-    const offered = allOperations().map(commandIdFor);
-    assert.ok(
-      offered.includes('aggrega.plugins.add'),
-      'a reader can see their plugins and cannot add one',
+  it('draws both whole-set operations at the head of this panel, and on no other surface', () => {
+    // Present at the head of this panel and absent from the Commands panel, so
+    // neither operation is merely gone and neither has two places a reader
+    // could look.
+    const headed = PANEL_ACTIONS.plugins.map(commandIdFor);
+    assert.deepStrictEqual(
+      headed,
+      ['aggrega.plugins.add', 'aggrega.plugins.genCatalog'],
+      'a reader can see their plugins and cannot add one, or cannot generate their entities',
     );
-    assert.ok(
-      offered.includes('aggrega.plugins.genCatalog'),
-      'generating the catalog entities for these plugins is on no panel',
-    );
+    const onCommands = commandsPanelOperations().map(commandIdFor);
+    for (const command of headed) {
+      assert.ok(!onCommands.includes(command), `${command} is on the Commands panel as well`);
+    }
   });
 
   it('gives every title-bar entry an icon, because the toolbar is drawn without labels', () => {
@@ -257,9 +259,9 @@ describe('the operations the plugins panel contributes', () => {
   });
 
   it('adds nothing to the Commands panel\'s title bar', () => {
-    // Its operations arrive on that panel as buttons in the drawn document, not
-    // as title-bar entries — so that title bar carries only what belongs to the
-    // view, which is named in one place rather than restated here.
+    // Its operations are rows at the head of its own list, not title-bar entries
+    // anywhere — so that title bar carries only what belongs to that view, which
+    // is named in one place rather than restated here.
     assert.deepStrictEqual(
       commandsPanelTitleBar(manifest.contributes.menus['view/title']),
       [...COMMANDS_TITLE_BAR_ENTRIES],
