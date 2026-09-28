@@ -177,6 +177,11 @@ export const PLANTS: readonly Plant[] = [
     says: 'refreshing the Catalog view redraws nothing, so it keeps the rows it first read',
   },
   {
+    name: 'deleted-file-not-followed', scenario: 'storefront', checks: ['catalog-view.deleted-entity-row-leaves-at-once'], moves: 'red', target: 'extension',
+    file: 'out/src/disk-change.js', find: '    watcher.onDidDelete(reported);\n', replace: '',
+    says: 'the on-disk watcher no longer reports a deleted file, so the Catalog view keeps a row for a document that is gone until its refresh is pressed',
+  },
+  {
     name: 'validation-says-nothing', scenario: 'storefront', checks: ['operations.validate-ends-in-a-sentence'], moves: 'red', target: 'extension',
     file: EXTENSION,
     find: '        outputChannel?.appendLine(report);\n        void vscode.window.showInformationMessage(report);',

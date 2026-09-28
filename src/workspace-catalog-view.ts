@@ -204,20 +204,28 @@ async function onName(
   await act(name);
 }
 
+// WorkspaceCatalogView is what the rest of the extension holds of the Catalog
+// panel: the one way to have it read its list again, which is the panel's own
+// refresh.
+export interface WorkspaceCatalogView {
+  refresh(): void;
+}
+
 // activateWorkspaceCatalogView registers the workspace-catalog tree, its refresh
 // command, and the operations that act on one entity it lists. View and command
 // ids mirror package.json.
 export function activateWorkspaceCatalogView(
   context: vscode.ExtensionContext,
   deps: WorkspaceCatalogDeps,
-): void {
+): WorkspaceCatalogView {
   const catalog = new WorkspaceCatalogTreeProvider(deps);
   // The tree is registered before the workspace root is resolved and before the
   // server can answer, so its first render honestly reports one of those two
   // states. Re-asking when the compiler becomes answerable is what supersedes
-  // that row without the reader doing anything; the refresh command stays an
-  // override a reader may press, rather than the way to obtain correct data the
-  // first time.
+  // that row without the reader doing anything, and a document created, changed
+  // or deleted on disk has it re-asked through the view returned below; the
+  // refresh command stays an override a reader may press, rather than the way to
+  // obtain correct data the first time.
   deps.onReady(() => catalog.refresh());
   context.subscriptions.push(
     vscode.window.registerTreeDataProvider('aggrega.workspaceCatalog', catalog),
@@ -332,4 +340,5 @@ export function activateWorkspaceCatalogView(
       }),
     ),
   );
+  return { refresh: () => catalog.refresh() };
 }

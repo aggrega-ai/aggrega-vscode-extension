@@ -54,7 +54,7 @@ import {
   publishDiagnostics,
   publishShapes,
 } from './diagnostics';
-import { ON_DISK_PATTERN, createDiskChangeHandler } from './disk-change';
+import { ON_DISK_PATTERN, createDiskChangeHandler, subscribeToWatcher } from './disk-change';
 import { DIAGNOSTIC_SOURCE_FALLBACK } from './diagnostics-shape';
 import {
   describeError,
@@ -165,7 +165,7 @@ import { CHOOSE_WORKSPACE_COMMAND } from './get-started-steps';
 import { activatePluginsView } from './plugins-view';
 import { activateRegistriesView } from './registries-view';
 import { activateConfigPanel } from './config-view';
-import { activateWorkspaceCatalogView } from './workspace-catalog-view';
+import { WorkspaceCatalogView, activateWorkspaceCatalogView } from './workspace-catalog-view';
 import { CatalogIndexDoc } from './workspace-catalog-run';
 import {
   SELECTED_RELEASE_STATE_KEY,
@@ -296,6 +296,9 @@ let extensionContext: vscode.ExtensionContext | null = null;
 let lateInitDone = false;
 let releaseStatus: ReleaseStatus | null = null;
 let graphView: GraphView | null = null;
+// workspaceCatalogView is the Catalog panel, held so the on-disk watcher can have
+// it read its list again when a document is created, changed or deleted there.
+let workspaceCatalogView: WorkspaceCatalogView | null = null;
 let lintRunner: LintRunner | null = null;
 // releaseSelection is the editor's one answer to "which Release are we talking
 // about". Every surface that acts on a Release reads it, and it travels on
@@ -855,7 +858,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // the workspace the compiler reads rather than a set the extension walked for
   // itself; the getters read live state so the tree tracks the root the server
   // later attaches to.
-  activateWorkspaceCatalogView(context, {
+  workspaceCatalogView = activateWorkspaceCatalogView(context, {
     getWorkspaceRoot: () => workspaceRootForCommands,
     getBinaryPath: () => getSettings().binaryPath,
     isLanguageServerRunning,
@@ -1890,10 +1893,12 @@ function registerLanguageFeatures(context: vscode.ExtensionContext): void {
 // to the surfaces that hold something derived from it: the compiler's per-file
 // caches, which are told to drop their entry, and an open topology graph, which
 // is redrawn. The files are the authored documents and the selected Release's
-// lockfile; a lockfile additionally has the open documents validated again and,
-// where no graph panel shows the selected Release, a drift warning standing on it
-// settled by a graph request whose answer is discarded. What each event asks for
-// is decided in disk-change.ts; what is here is the editor's side of each.
+// lockfile; a document additionally has the Catalog panel read its list again
+// once the language server has answered, and a lockfile has the open documents
+// validated again and, where no graph panel shows the selected Release, a drift
+// warning standing on it settled by a graph request whose answer is discarded.
+// What each event asks for is decided in disk-change.ts; what is here is the
+// editor's side of each.
 //
 // 🔴 THE GRAPH IS REDRAWN FROM HERE AND FROM NOWHERE ELSE, and disk is the right
 // coordinate rather than the buffer. A graph request names a Release and carries
@@ -1914,12 +1919,17 @@ function registerFileWatcher(context: vscode.ExtensionContext): void {
     refreshGraphView();
   };
   const changedOnDisk = createDiskChangeHandler({
+    // Settled either way: what waits on the answer waits on a refusal too, and
+    // the refusal is kept in the output channel.
     invalidate: (file) => {
-      daemon?.request('aggrega/invalidate', { file }).catch(err => {
+      const client = daemon;
+      if (!client) { return Promise.resolve(); }
+      return client.request<unknown>('aggrega/invalidate', { file }).then(() => undefined, err => {
         outputChannel?.appendLine(`invalidate failed: ${describeError(err)}`);
       });
     },
     redraw,
+    refreshCatalog: () => { workspaceCatalogView?.refresh(); },
     revalidate: revalidateOpenDocuments,
     shownRelease: () => graphView?.shownRelease() ?? null,
     findingStands: (file) =>
@@ -1933,13 +1943,10 @@ function registerFileWatcher(context: vscode.ExtensionContext): void {
     },
     settleMs: () => getSettings().debounceMs,
   });
-  const fileChangedOnDisk = (uri: vscode.Uri) => {
+  subscribeToWatcher(watcher, (file) => {
     if (!daemon) { return; }
-    changedOnDisk(uri.fsPath);
-  };
-  watcher.onDidChange(fileChangedOnDisk);
-  watcher.onDidCreate(fileChangedOnDisk);
-  watcher.onDidDelete(fileChangedOnDisk);
+    changedOnDisk(file);
+  });
   context.subscriptions.push(watcher);
 }
 

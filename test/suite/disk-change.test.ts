@@ -4,18 +4,21 @@
 import * as assert from 'node:assert';
 import {
   DiskChangeDeps,
+  DiskWatcher,
   ON_DISK_PATTERN,
   WATCHED_EXTENSIONS,
   createDiskChangeHandler,
   diskChangeKind,
+  subscribeToWatcher,
 } from '../../src/disk-change';
 
 // What the on-disk watcher does with each file it reports, driven with no editor
 // and no server: a Problems panel held as a set of files, a graph panel that is
 // closed or showing one Release, a selection holding a Release and the lockfile
-// the language server named for it, and a clock that moves only when the test
-// moves it. Every call the handler makes is recorded in order and read back by
-// equality.
+// the language server named for it, a language server that answers each
+// invalidation only when the test says so, and a clock that moves only when the
+// test moves it. Every call the handler makes, and every answer the test gives,
+// is recorded in order and read back by equality.
 
 const SETTLE_MS = 300;
 const RELEASE = 'release-compose.yaml';
@@ -23,6 +26,39 @@ const OTHER_RELEASE = 'release-prod.yaml';
 const LOCKFILE = '/work/gateway/release-compose.lock';
 const OTHER_LOCKFILE = '/work/gateway/release-prod.lock';
 const RECIPE = '/work/gateway/catalog/recipe/compose/nginx-probed/1.0.0/recipe.yaml';
+const COMPONENT = '/work/gateway/catalog/component/web/nginx/1.0.0/component.yaml';
+const AGGREGATE = '/work/gateway/aggregate.yaml';
+
+// drained lets every promise callback already queued run, which is where what
+// follows an answer runs.
+function drained(): Promise<void> {
+  return new Promise((resolve) => setImmediate(resolve));
+}
+
+type WatcherEvent = 'create' | 'change' | 'delete';
+
+// FakeWatcher is the editor's file-system watcher: the three events, each fired
+// when the test fires it.
+class FakeWatcher implements DiskWatcher {
+  private readonly listeners: Record<WatcherEvent, Array<(uri: { fsPath: string }) => unknown>> = {
+    create: [], change: [], delete: [],
+  };
+
+  onDidCreate(listener: (uri: { fsPath: string }) => unknown): void { this.listeners.create.push(listener); }
+  onDidChange(listener: (uri: { fsPath: string }) => unknown): void { this.listeners.change.push(listener); }
+  onDidDelete(listener: (uri: { fsPath: string }) => unknown): void { this.listeners.delete.push(listener); }
+
+  fire(event: WatcherEvent, file: string): void {
+    for (const listener of this.listeners[event]) { listener({ fsPath: file }); }
+  }
+}
+
+// Unanswered is one invalidation the language server has not answered yet.
+interface Unanswered {
+  file: string;
+  answer(): void;
+  refuse(): void;
+}
 
 class FakeTimer {
   private now = 0;
@@ -65,11 +101,19 @@ class Harness {
   release: string | null = RELEASE;
   lockfile: string | null = LOCKFILE;
   readonly onDisk: (file: string) => void;
+  // unanswered holds every invalidation sent and not yet answered, oldest first.
+  private readonly unanswered: Unanswered[] = [];
 
   constructor() {
     const deps: DiskChangeDeps = {
-      invalidate: (file) => { this.calls.push(`invalidate ${file}`); },
+      invalidate: (file) => {
+        this.calls.push(`invalidate ${file}`);
+        return new Promise<void>((resolve, reject) => {
+          this.unanswered.push({ file, answer: () => resolve(), refuse: () => reject(new Error('refused')) });
+        });
+      },
       redraw: () => { this.calls.push('redraw'); },
+      refreshCatalog: () => { this.calls.push('catalog re-read'); },
       revalidate: () => { this.calls.push('revalidate'); },
       shownRelease: () => this.shown,
       findingStands: (file) => this.findings.has(file),
@@ -80,6 +124,35 @@ class Harness {
       settleMs: () => SETTLE_MS,
     };
     this.onDisk = createDiskChangeHandler(deps);
+  }
+
+  // answer answers the oldest invalidation of file still waiting, and returns
+  // once what the answer releases has run. An invalidation that was never sent
+  // cannot be answered, so asking for one fails the test.
+  async answer(file: string): Promise<void> {
+    await this.settle(file, 'answered');
+  }
+
+  // refuse fails that invalidation instead, as a request the server could not
+  // take does.
+  async refuse(file: string): Promise<void> {
+    await this.settle(file, 'refused');
+  }
+
+  // answerAll answers every invalidation waiting, oldest first.
+  async answerAll(): Promise<void> {
+    while (this.unanswered.length > 0) {
+      await this.answer(this.unanswered[0].file);
+    }
+  }
+
+  private async settle(file: string, how: 'answered' | 'refused'): Promise<void> {
+    const at = this.unanswered.findIndex((u) => u.file === file);
+    assert.ok(at >= 0, `no invalidation of ${file} is waiting for an answer`);
+    const [waiting] = this.unanswered.splice(at, 1);
+    this.calls.push(`${how} ${file}`);
+    if (how === 'answered') { waiting.answer(); } else { waiting.refuse(); }
+    await drained();
   }
 }
 
@@ -106,12 +179,13 @@ describe('which files the on-disk watcher reports, and how each is read', () => 
 });
 
 describe('what the on-disk watcher does with each file it reports', () => {
-  it('drops the document\'s entry and redraws, and asks nothing else', () => {
+  it('drops the document\'s entry, redraws and reads the Catalog panel\'s list again, and asks nothing else', async () => {
     const h = new Harness();
     h.findings.add(LOCKFILE);
     h.onDisk(RECIPE);
+    await h.answer(RECIPE);
     h.timer.advance(SETTLE_MS * 4);
-    assert.deepStrictEqual(h.calls, [`invalidate ${RECIPE}`, 'redraw']);
+    assert.deepStrictEqual(h.calls, [`invalidate ${RECIPE}`, 'redraw', `answered ${RECIPE}`, 'catalog re-read']);
   });
 
   it('with a graph open on the selected Release, redraws for the lockfile and validates the open documents again', () => {
@@ -221,6 +295,119 @@ describe('what the on-disk watcher does with each file it reports', () => {
     h.onDisk(LOCKFILE);
     h.timer.advance(SETTLE_MS * 4);
     assert.deepStrictEqual(h.calls, []);
+  });
+});
+
+describe('when the Catalog panel reads its list again', () => {
+  // The list is the compiler's entity index, whose first pass is the documents
+  // the language server holds, so a read the server handles before it has
+  // dropped a deleted file's entry still reports that file. Each case therefore
+  // gives the invalidation's answer by hand and reads where the re-read landed
+  // relative to it.
+
+  it('reads it again for a document created, changed or deleted on disk', async () => {
+    const seen: string[][] = [];
+    for (const event of ['create', 'change', 'delete'] as const) {
+      const h = new Harness();
+      const watcher = new FakeWatcher();
+      subscribeToWatcher(watcher, h.onDisk);
+      watcher.fire(event, RECIPE);
+      await h.answerAll();
+      h.timer.advance(SETTLE_MS);
+      seen.push([event, ...h.calls]);
+    }
+    assert.deepStrictEqual(seen, [
+      ['create', `invalidate ${RECIPE}`, 'redraw', `answered ${RECIPE}`, 'catalog re-read'],
+      ['change', `invalidate ${RECIPE}`, 'redraw', `answered ${RECIPE}`, 'catalog re-read'],
+      ['delete', `invalidate ${RECIPE}`, 'redraw', `answered ${RECIPE}`, 'catalog re-read'],
+    ]);
+  });
+
+  it('reads it only after the invalidation is answered, however long the answer takes', async () => {
+    const h = new Harness();
+    h.onDisk(RECIPE);
+    h.timer.advance(SETTLE_MS * 4);
+    assert.deepStrictEqual(h.calls, [`invalidate ${RECIPE}`, 'redraw']);
+    await h.answer(RECIPE);
+    // The window is counted from the answer, not from the event.
+    h.timer.advance(SETTLE_MS - 1);
+    assert.deepStrictEqual(h.calls, [`invalidate ${RECIPE}`, 'redraw', `answered ${RECIPE}`]);
+    h.timer.advance(1);
+    assert.deepStrictEqual(h.calls, [`invalidate ${RECIPE}`, 'redraw', `answered ${RECIPE}`, 'catalog re-read']);
+  });
+
+  it('reads it once for a burst, after the last invalidation of the burst is answered', async () => {
+    const h = new Harness();
+    h.onDisk(RECIPE);
+    h.timer.advance(SETTLE_MS - 1);
+    h.onDisk(COMPONENT);
+    h.timer.advance(SETTLE_MS - 1);
+    h.onDisk(AGGREGATE);
+    // Answered out of order, and one left waiting: nothing is read while it
+    // waits, however long that is.
+    await h.answer(COMPONENT);
+    await h.answer(RECIPE);
+    h.timer.advance(SETTLE_MS * 4);
+    await h.answer(AGGREGATE);
+    h.timer.advance(SETTLE_MS * 4);
+    assert.deepStrictEqual(h.calls, [
+      `invalidate ${RECIPE}`, 'redraw',
+      `invalidate ${COMPONENT}`, 'redraw',
+      `invalidate ${AGGREGATE}`, 'redraw',
+      `answered ${COMPONENT}`, `answered ${RECIPE}`, `answered ${AGGREGATE}`,
+      'catalog re-read',
+    ]);
+  });
+
+  it('holds the read back when a document is reported while it waits out the window', async () => {
+    const h = new Harness();
+    h.onDisk(RECIPE);
+    await h.answer(RECIPE);
+    h.timer.advance(SETTLE_MS - 1);
+    h.onDisk(COMPONENT);
+    h.timer.advance(SETTLE_MS * 4);
+    await h.answer(COMPONENT);
+    h.timer.advance(SETTLE_MS);
+    assert.deepStrictEqual(h.calls, [
+      `invalidate ${RECIPE}`, 'redraw', `answered ${RECIPE}`,
+      `invalidate ${COMPONENT}`, 'redraw', `answered ${COMPONENT}`,
+      'catalog re-read',
+    ]);
+  });
+
+  it('reads it after a refused invalidation as after an answered one', async () => {
+    const h = new Harness();
+    h.onDisk(RECIPE);
+    await h.refuse(RECIPE);
+    h.timer.advance(SETTLE_MS);
+    // And the next document is followed as usual.
+    h.onDisk(COMPONENT);
+    await h.answer(COMPONENT);
+    h.timer.advance(SETTLE_MS);
+    assert.deepStrictEqual(h.calls, [
+      `invalidate ${RECIPE}`, 'redraw', `refused ${RECIPE}`, 'catalog re-read',
+      `invalidate ${COMPONENT}`, 'redraw', `answered ${COMPONENT}`, 'catalog re-read',
+    ]);
+  });
+
+  it('does not read it for the selected Release\'s lockfile, and a lockfile neither reads it nor holds it back', async () => {
+    const h = new Harness();
+    h.findings.add(LOCKFILE);
+    h.onDisk(LOCKFILE);
+    await h.answer(LOCKFILE);
+    h.timer.advance(SETTLE_MS * 4);
+    const lockfileAlone = [...h.calls];
+    h.calls.length = 0;
+    h.onDisk(RECIPE);
+    await h.answer(RECIPE);
+    h.timer.advance(SETTLE_MS - 1);
+    h.onDisk(LOCKFILE);
+    await h.answer(LOCKFILE);
+    h.timer.advance(1);
+    assert.deepStrictEqual([lockfileAlone, h.calls], [
+      [`invalidate ${LOCKFILE}`, 'redraw', `answered ${LOCKFILE}`, 'revalidate', `graph request ${RELEASE}`],
+      [`invalidate ${RECIPE}`, 'redraw', `answered ${RECIPE}`, `invalidate ${LOCKFILE}`, 'redraw', `answered ${LOCKFILE}`, 'catalog re-read'],
+    ]);
   });
 });
 

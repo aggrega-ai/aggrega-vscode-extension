@@ -414,7 +414,7 @@ export async function storefrontChecks(ctx: SuiteContext, referenceFolder: strin
   });
   await c.run('catalog-view.deleted-entity-row-leaves-at-once', {
     expected: `with the copy open, deleting it from outside the editor and closing its tab takes the "${copyName}" row out of the Catalog view within 5 s with no press on refresh, and it stays out (watched for 5 s after the tab closed)`,
-    plant: 'in the scratch copy, out/src/workspace-catalog-view.js made to ignore a deleted file',
+    plant: 'in the scratch copy, out/src/disk-change.js made to ignore a deleted file',
   }, async () => {
     need((await treeRows(ctx.d, 'Catalog'))?.some((r) => r.label === copyName), `the "${copyName}" row is not drawn, so its leaving cannot be observed`);
     await open(ctx, copyPath);

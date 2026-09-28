@@ -17,7 +17,20 @@ import type { TimerLike } from './binary-restart';
 // covers every writer rather than each writer having to announce itself.
 //
 // Either kind drops what the compiler holds for the file and redraws an open
-// topology graph. A lockfile also asks for what it alone feeds:
+// topology graph. An authored document also has the Catalog panel read its list
+// again, and a lockfile, which declares no entity, does not.
+//
+// 🔴 THE LIST IS READ AGAIN ONLY ONCE THE LANGUAGE SERVER HAS ANSWERED THE
+// INVALIDATION. The list is the compiler's entity index, and the index reads the
+// documents the language server holds before it reads the disk: a document the
+// editor sent is reported as it was sent, whether or not the file is still
+// there. The server answers the invalidation after it has dropped that entry, and
+// it may handle two requests at once, so a list asked for any sooner can still
+// report a deleted file. A change is followed as a creation and a deletion are,
+// since it can rename an entity or change its kind, and a burst of them — a
+// checkout, a copy of several files — is one read of the list.
+//
+// A lockfile also asks for what it alone feeds:
 //
 // - the open documents are validated again, because validation reads its pins
 //   and the withdrawal markers it reports from that lockfile;
@@ -89,10 +102,13 @@ export function diskChangeKind(file: string, selectedLockfile: string | null): D
 // server.
 export interface DiskChangeDeps {
   // invalidate tells the language server that a file it may hold something for
-  // has changed on disk.
-  invalidate(file: string): void;
+  // has changed on disk. It settles once the server has answered, by when the
+  // file's entry is dropped, or once the request has failed.
+  invalidate(file: string): Promise<void>;
   // redraw redraws an open topology graph, and does nothing where none is open.
   redraw(): void;
+  // refreshCatalog has the Catalog panel read its list again.
+  refreshCatalog(): void;
   // revalidate validates every open document again.
   revalidate(): void;
   // shownRelease is the Release an open topology graph panel is showing, spelled
@@ -111,9 +127,29 @@ export interface DiskChangeDeps {
   // requestGraph sends the graph request for release and discards the answer.
   requestGraph(release: string): void;
   timer: Pick<TimerLike, 'setTimeout' | 'clearTimeout'>;
-  // settleMs is how long the lockfile must go unwritten before what follows it
-  // runs, which collapses the several writes of one pull into one.
+  // settleMs is how long a burst must go quiet before what follows it runs: the
+  // lockfile unwritten, which collapses the several writes of one pull into one,
+  // and the documents unreported with every invalidation answered, which
+  // collapses a checkout into one read of the list.
   settleMs(): number;
+}
+
+// DiskWatcher is what the handler needs of the editor's file-system watcher: the
+// three events it reports, each naming a file.
+export interface DiskWatcher {
+  onDidCreate(listener: (uri: { fsPath: string }) => unknown): unknown;
+  onDidChange(listener: (uri: { fsPath: string }) => unknown): unknown;
+  onDidDelete(listener: (uri: { fsPath: string }) => unknown): unknown;
+}
+
+// subscribeToWatcher hands every file the watcher reports — created, changed or
+// deleted — to report. The three are one call because each is the same fact to
+// everything that follows: a file the compiler reads is not what it was.
+export function subscribeToWatcher(watcher: DiskWatcher, report: (file: string) => void): void {
+  const reported = (uri: { fsPath: string }): void => { report(uri.fsPath); };
+  watcher.onDidCreate(reported);
+  watcher.onDidChange(reported);
+  watcher.onDidDelete(reported);
 }
 
 // selectedLockfileOf is the selected Release together with the absolute path of
@@ -135,8 +171,25 @@ function selectedLockfileOf(deps: DiskChangeDeps): { release: string; lockfile: 
 // reads the state again when it runs rather than when the first write arrived:
 // the selection may have moved, and a panel may have opened, closed or been
 // shown another Release.
+//
+// The Catalog panel's list is read again once every invalidation sent for a
+// document has settled and the window has passed with no document reported
+// since, so a burst is one read and that read follows the last drop of it.
+//
+// 🔴 A FAILED INVALIDATION SETTLES AS AN ANSWERED ONE DOES. The list read after
+// it is no worse than no read at all: at most it reports that one file as the
+// server still holds it, and where the request failed because no server could
+// take it, the panel says the compiler cannot be asked, or a server started since
+// answers from what it has read itself. Waiting on a failed request instead would
+// leave the count above zero, and the panel would follow the disk no more. The
+// same holds for a request left in flight: the editor's client settles every
+// request still waiting when its server stops, restarts or exits.
 export function createDiskChangeHandler(deps: DiskChangeDeps): (file: string) => void {
   let pending: unknown;
+  // unsettled counts the invalidations sent for documents that have not yet
+  // settled, and catalogPending is the read of the list waiting out the window.
+  let unsettled = 0;
+  let catalogPending: unknown;
   const followLockfile = (file: string): void => {
     const selected = selectedLockfileOf(deps);
     if (selected === null || selected.lockfile !== path.resolve(file)) { return; }
@@ -144,12 +197,32 @@ export function createDiskChangeHandler(deps: DiskChangeDeps): (file: string) =>
     if (deps.shownRelease() === selected.release || !deps.findingStands(file)) { return; }
     deps.requestGraph(selected.release);
   };
+  const holdCatalog = (): void => {
+    if (catalogPending !== undefined) { deps.timer.clearTimeout(catalogPending); }
+    catalogPending = undefined;
+  };
+  const documentSettled = (): void => {
+    unsettled--;
+    if (unsettled > 0) { return; }
+    holdCatalog();
+    catalogPending = deps.timer.setTimeout(() => {
+      catalogPending = undefined;
+      deps.refreshCatalog();
+    }, deps.settleMs());
+  };
   return (file: string): void => {
     const kind = diskChangeKind(file, selectedLockfileOf(deps)?.lockfile ?? null);
     if (kind === null) { return; }
-    deps.invalidate(file);
+    // Both outcomes are taken, so a refused request is never left unhandled,
+    // whichever kind of file it was sent for.
+    const settled = deps.invalidate(file).then(() => undefined, () => undefined);
     deps.redraw();
-    if (kind !== 'lockfile') { return; }
+    if (kind === 'document') {
+      unsettled++;
+      holdCatalog();
+      void settled.then(documentSettled);
+      return;
+    }
     if (pending !== undefined) { deps.timer.clearTimeout(pending); }
     pending = deps.timer.setTimeout(() => {
       pending = undefined;
