@@ -271,15 +271,13 @@ function menuId(id: MenuControlId): string {
 // It takes a place in the roving walk, so a reader who cannot use a pointer
 // reaches the adjustments with the same arrow keys they reach every other
 // control with, rather than by a gesture of its own.
-function dialsCaretHtml(op: OperationDef, focused: boolean, open: number): string {
+function dialsCaretHtml(op: OperationDef, focused: boolean): string {
   const control = dialsControlId(op.id);
-  // The name says which button's adjustments these are, because the caret draws
-  // no word of its own and a reader meeting it by keyboard is told only what it
-  // is called. It also says how many are on, since a reader who has left one on
-  // and pressed something else has no other way to be reminded of it.
-  const label = open === 0
-    ? `${op.label} adjustments`
-    : `${op.label} adjustments, ${open} on`;
+  // The name says which button's options these are, because the caret draws no
+  // word of its own and a reader meeting it by keyboard is told only what it is
+  // called. It is the same whatever is ticked: nothing on the caret counts what
+  // is on, and each option's own box is where its state is read.
+  const label = `${op.label} options`;
   return `<button class="op-caret" type="button" tabindex="${focused ? '0' : '-1'}" data-dials="${escapeHtml(op.id)}" data-focus-key="${escapeHtml(control)}" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}" aria-haspopup="menu" aria-expanded="false" aria-controls="${menuId(control)}">
       <span class="codicon codicon-chevron-down" aria-hidden="true"></span>
     </button>`;
@@ -308,8 +306,7 @@ function dialsDrawnFor(
   const dials = dialsFor(op.id);
   if (dials === null) { return ''; }
   const control = dialsControlId(op.id);
-  const on = dials.filter((dial) => body.dials.includes(dial.value)).length;
-  return dialsCaretHtml(op, control === rovingKey, on);
+  return dialsCaretHtml(op, control === rovingKey);
 }
 
 // operationEntryHtml draws one operation as a reader meets it: its button and,

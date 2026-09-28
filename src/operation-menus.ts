@@ -120,11 +120,11 @@ const INSPECT_MENU_LABEL = 'Entity to inspect';
 const PUBLISH_MENU_LABEL = 'Entity to publish';
 const DRAFT_MENU_LABEL = 'Kind of entity to draft';
 
-// BUILD_DIALS_MENU_LABEL names what the adjustments beside the Build button
-// are. It says they apply to the next build rather than naming them a mode,
-// because they are not alternatives to a build — pressing Build runs a build
-// either way, and these decide what that one build also does.
-const BUILD_DIALS_MENU_LABEL = 'Adjustments for the next build';
+// BUILD_DIALS_MENU_LABEL names what the options beside the Build button are. It
+// says they apply to the next build rather than naming them a mode, because
+// they are not alternatives to a build — pressing Build runs a build either
+// way, and these decide what that one build also does.
+const BUILD_DIALS_MENU_LABEL = 'Options for the next build';
 
 // READING_THE_INDEX is what the two menus offering the workspace's own entities
 // say while the language server is answering. It is one sentence for both

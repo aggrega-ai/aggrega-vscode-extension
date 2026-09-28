@@ -353,8 +353,8 @@ const DIALS_RULED: Array<{
   {
     holder: 'build',
     control: 'dials-build',
-    label: 'Adjustments for the next build',
-    caretName: 'Build adjustments',
+    label: 'Options for the next build',
+    caretName: 'Build options',
     values: ['autoPull'],
     labels: ['Auto pull'],
     details: [
@@ -430,6 +430,13 @@ function dialsIn(html: string): string[] {
 // caretTagOf reports the caret drawn beside one button, or undefined.
 function caretTagOf(html: string, holder: OperationId): string | undefined {
   return tagsOf(html).find((tag) => tag.includes(`data-dials="${holder}"`));
+}
+
+// attributeOf reports the value one attribute carries on an opening tag, or
+// undefined where the tag carries none — so a name is compared whole, where
+// looking for the name inside the tag would pass a longer name beginning with it.
+function attributeOf(tag: string, name: string): string | undefined {
+  return tag.match(new RegExp(`\\s${name}="([^"]*)"`))?.[1];
 }
 
 // optionsIn reports the choices a chunk draws, by the value each composes.
@@ -2011,23 +2018,26 @@ describe('a button whose next press can be adjusted', () => {
     }
   });
 
-  it('says how many adjustments are on, so one left on is not silently carried', () => {
-    // The caret draws no word, so a reader who turned something on and pressed
-    // elsewhere has nothing in front of them saying so. The count is put on the
-    // name and the hover, which is where a reader can ask for it — a drawn count
-    // would spend the flow's width on a fact that is usually zero.
+  it('names the caret the same whatever is ticked, and counts nothing on it', () => {
+    // The caret draws no word, so its name and its hover are all a reader is
+    // told about it, and both read the same with nothing ticked and with an
+    // option ticked: each option's own box is where its state is read, and
+    // nothing on the caret counts what is on. Asserted by EQUALITY on both
+    // attributes, because a count appended to the name still begins with the
+    // name, and looking for the name inside the tag would pass it.
     const ruled = DIALS_RULED[0];
-    const off = operationsBodyHtml(body({ layout: 'buttons' }));
-    const on = operationsBodyHtml(body({ layout: 'buttons', dials: ruled.values }));
-    assert.ok(
-      (caretTagOf(off, ruled.holder) ?? '').includes(`aria-label="${ruled.caretName}"`),
-      'the caret names a count when nothing is on',
-    );
-    assert.ok(
-      (caretTagOf(on, ruled.holder) ?? '')
-        .includes(`aria-label="${ruled.caretName}, ${ruled.values.length} on"`),
-      'the caret does not say how many adjustments are on',
-    );
+    for (const dials of [[], [ruled.values[0]]]) {
+      const caret = caretTagOf(operationsBodyHtml(body({ layout: 'buttons', dials })), ruled.holder);
+      assert.ok(caret !== undefined, `no caret is drawn beside ${ruled.holder} with ${dials.length} ticked`);
+      assert.strictEqual(
+        attributeOf(caret, 'aria-label'), ruled.caretName,
+        `with ${dials.length} ticked, the caret is not named exactly ${JSON.stringify(ruled.caretName)}`,
+      );
+      assert.strictEqual(
+        attributeOf(caret, 'title'), ruled.caretName,
+        `with ${dials.length} ticked, the caret's hover does not read exactly ${JSON.stringify(ruled.caretName)}`,
+      );
+    }
   });
 
   it('draws each adjustment as a setting with a state, never as a choice', () => {
