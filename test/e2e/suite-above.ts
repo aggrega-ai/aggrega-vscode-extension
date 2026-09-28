@@ -51,9 +51,18 @@ const MENU_NAME = 'Options for the next build';
 const ROW_LABEL = 'Auto pull';
 const ROW_HOVER = "Auto pull — Resolve the Release's dependencies into the lockfile before rendering, then build against them";
 
-// The remedy notification opens with these words and carries this button.
-const LOCKFILE_REMEDY_OPENING = 'Aggrega: lockfile missing.';
-const LOCKFILE_REMEDY_BUTTON = 'Generate Lockfile';
+// The one notice a refusal for a missing lockfile is answered with opens with these
+// words, naming the Release, and carries this button.
+const lockfileNoticeOpening = (release: string): string => `Aggrega: ${release} has no lockfile.`;
+const LOCKFILE_PULL_BUTTON = 'Pull';
+
+// How long after the notice is drawn the checks go on watching for a second
+// notification about the same refusal.
+const SECOND_NOTIFICATION_WATCH_MS = 3000;
+
+// The words that describe which notices were held back. They are the extension's
+// own bookkeeping, and no line a reader reads carries them.
+const BOOKKEEPING = /toast|suppress|throttl|next surface allowed/i;
 
 const BUILD = 'button.op[data-command="aggrega.op.build"]';
 const CARET = '.op-pair button.op-caret';
@@ -325,25 +334,46 @@ export async function aboveChecks(ctx: SuiteContext, layout: { root: string; ref
   });
 
   // ---- auto pull reaches the build, and never the preview ----
-  let refusal = '';
+  const opening = lockfileNoticeOpening(releaseRel);
+  let notice = '';
   await c.run('build.missing-lockfile-refusal-offers-the-remedy', {
-    expected: `with the lockfile moved aside and the box empty, Build is refused in the compiler's own words for the same request ("The build did not complete: code=<code> <message>") with "Show output", and beside it a notification opening "${LOCKFILE_REMEDY_OPENING}" with a "${LOCKFILE_REMEDY_BUTTON}" button`,
-    plant: 'in the scratch copy, out/src/error-surfaces.js made to drop the remedy notification',
+    expected: `with the lockfile moved aside and the box empty, each of two presses of Build is answered by one notification — an error opening "${opening}" followed by the compiler's own words for the same request, with a "${LOCKFILE_PULL_BUTTON}" button — and by no other notification about the refusal (each press watched for ${SECOND_NOTIFICATION_WATCH_MS} ms after its notice is drawn); the output channel ends each press "The build did not complete: code=<code> <message>" and says nothing about a notice being held back`,
+    plant: 'in the scratch copy, out/src/error-surfaces.js made to hold back a notice the reader asked for as it holds back one nobody asked for; or out/src/operations.js made to raise the build\'s own failure notification beside the notice',
   }, async () => {
     need(fs.existsSync(lock), 'the Release has no lockfile to move aside');
     fs.renameSync(lock, aside);
     const params = buildParams(path.relative(layout.referenceRoot, path.join(layout.referenceRoot, releaseRel)), [], outputParentFor(layout.referenceRoot, path.join(layout.referenceRoot, path.relative(layout.root, ctx.folder))));
     const ref = await referenceAnswer({ binary: bin, root: layout.referenceRoot, method: 'aggrega/build', params, home: ctx.home, table: ctx.s.table, log: ctx.cliLog });
     need(!ref.ok, 'the compiler built the reference copy although it has no lockfile');
-    const words = `code=${ref.error.code} ${ref.error.message}`.split(layout.referenceRoot).join(layout.root);
-    const toastMark = (await toasts(ctx.d)).length;
-    await pressOperation(ctx.d, panel, 'aggrega.op.build');
-    const failed = await waitToast(ctx.d, 'the build\'s refusal', toastMark, (t) => t.message.startsWith('The build did not complete'), 60000);
-    refusal = failed.message;
-    const remedy = await waitToast(ctx.d, 'the remedy notification', toastMark, (t) => t.message.startsWith(LOCKFILE_REMEDY_OPENING), 5000).catch(() => undefined);
-    const channel = ctx.out.text().split('\n').filter((l) => l.includes('[lockfile absent]')).slice(-1)[0] ?? '';
-    const passed = failed.message === `The build did not complete: ${words}` && failed.buttons.includes('Show output') && remedy !== undefined && remedy.buttons.includes(LOCKFILE_REMEDY_BUTTON);
-    return { passed, seen: `refusal "${failed.message}" with ${JSON.stringify(failed.buttons)}; the compiler's words "${words}"; remedy ${remedy ? `"${remedy.message}" with ${JSON.stringify(remedy.buttons)}` : `not raised${channel ? `; the channel: "${channel}"` : ''}`}` };
+    const sentence = ref.error.message.split(layout.referenceRoot).join(layout.root);
+    const words = `code=${ref.error.code} ${sentence}`;
+    const expected = `${opening} ${sentence}`;
+    // Twice in a row, because the second press is the one a notice held back for
+    // a while after it was last shown would leave unanswered.
+    const seen: string[] = [];
+    let passed = true;
+    for (const press of [1, 2]) {
+      const mark = ctx.out.mark();
+      const toastMark = (await toasts(ctx.d)).length;
+      await pressOperation(ctx.d, panel, 'aggrega.op.build');
+      const text = await ctx.out.waitFor('the build closing its report', mark, (t) => /^The build did not complete/m.test(t), 60000).catch(() => ctx.out.since(mark));
+      const drawn = await waitToast(ctx.d, `the notice answering press ${press}`, toastMark, (t) => t.message.startsWith(opening), 10000).catch(() => undefined);
+      await sleep(SECOND_NOTIFICATION_WATCH_MS);
+      // The build's progress notification is drawn too, and is not about the
+      // refusal; anything else naming the build's ending or the lockfile is.
+      const others = (await toastsSince(ctx.d, toastMark))
+        .filter((t) => !t.message.startsWith(opening) && (/^The build/.test(t.message) || /lockfile/i.test(t.message)))
+        .map((t) => `"${t.message}" (${t.severity})`);
+      const closing = text.split('\n').find((l) => l.startsWith('The build did not complete')) ?? '';
+      const kept = BOOKKEEPING.test(text);
+      const ok = drawn !== undefined && drawn.message === expected && drawn.severity === 'error'
+        && drawn.buttons.includes(LOCKFILE_PULL_BUTTON) && others.length === 0
+        && closing === `The build did not complete: ${words}` && !kept;
+      passed = passed && ok;
+      if (drawn !== undefined) { notice = drawn.message; }
+      seen.push(`press ${press}: ${drawn ? `"${drawn.message}" (${drawn.severity}) with ${JSON.stringify(drawn.buttons)}` : `no notice opening "${opening}" drawn`}; other notifications about the refusal ${others.length === 0 ? 'none' : others.join(', ')}; the channel "${closing}"${kept ? `, and a line about a notice held back: ${JSON.stringify(text.split('\n').filter((l) => BOOKKEEPING.test(l)))}` : ''}`);
+    }
+    return { passed, seen: `${seen.join('; ')}; the compiler's words "${words}"` };
   });
   await c.run('build.auto-pull-fills-the-lockfile-then-builds', {
     expected: 'with the box ticked, Build resolves the dependencies first — the channel lists what the resolution did before the files — completes, and the lockfile is back beside the Release',
@@ -366,18 +396,18 @@ export async function aboveChecks(ctx: SuiteContext, layout: { root: string; ref
     return { passed: end !== -1 && fs.existsSync(lock) && resolution.length > 0, seen: `${end !== -1 ? lines[end] : lines.find((l) => l.startsWith('The build')) ?? 'no ending'}; the lockfile ${fs.existsSync(lock) ? 'is back' : 'is not back'}; before the files: ${JSON.stringify(resolution.slice(0, 4))}` };
   });
   await c.run('preview.never-carries-auto-pull', {
-    expected: 'with the box still ticked and the lockfile moved aside again, Preview is refused with the same lockfile refusal an unticked build gets, and nothing refuses the combination of a preview and a pull',
+    expected: 'with the box still ticked and the lockfile moved aside again, Preview is refused with the same missing-lockfile notice an unticked build gets, and nothing refuses the combination of a preview and a pull',
     plant: 'in the scratch copy, out/src/build-dials.js made to send Auto pull with the preview',
   }, async () => {
-    need(refusal !== '', 'the unticked build gave no refusal to compare with');
+    need(notice !== '', 'the unticked build gave no notice to compare with');
     need(fs.existsSync(lock), 'the lockfile is not back after the ticked build');
     fs.renameSync(lock, aside);
     const toastMark = (await toasts(ctx.d)).length;
     await pressOperation(ctx.d, panel, 'aggrega.op.preview');
-    const failed = await waitToast(ctx.d, 'the preview\'s refusal', toastMark, (t) => t.message.startsWith('The preview'), 60000);
-    const same = failed.message.replace(/^The preview/, 'The build') === refusal;
+    const failed = await waitToast(ctx.d, 'the preview\'s notice', toastMark, (t) => t.message.startsWith(opening), 60000);
+    const same = failed.message === notice;
     const combination = (await toastsSince(ctx.d, toastMark)).some((t) => /dry.?run|combin|auto.?pull/i.test(t.message));
-    return { passed: same && !combination, seen: `"${failed.message}"; ${same ? 'the same words as the build\'s refusal' : `the build's was "${refusal}"`}; a refusal about the combination ${combination}` };
+    return { passed: same && !combination, seen: `"${failed.message}"; ${same ? 'the same words as the build\'s notice' : `the build's was "${notice}"`}; a refusal about the combination ${combination}` };
   });
   // The lockfile back, as a person puts it back.
   if (!fs.existsSync(lock) && fs.existsSync(aside)) { fs.renameSync(aside, lock); }

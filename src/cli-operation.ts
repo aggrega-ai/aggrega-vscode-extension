@@ -60,15 +60,25 @@ export interface OutcomeChannel {
 //
 // A failure carries the compiler's own message and an action beside it. The
 // button reaches the compiler's full output; it replaces none of its words.
+//
+// notified says a notification carrying this failure is already in front of the
+// reader — raised by the surface that routed the refusal, with the act that
+// resolves it — so the ending writes its line and raises nothing more. One fault
+// is one notification: two leave the reader to work out which of them carries
+// the way past it, and the editor draws only so many at once.
 export async function reportOutcome(
   deps: OutcomeChannel,
   what: string,
   outcome: OperationOutcome,
   announce: boolean,
+  options: { notified?: boolean } = {},
 ): Promise<void> {
   const line = terminalLine(what, outcome);
   deps.output.appendLine(line);
   if (outcome.kind === 'failed') {
+    if (options.notified) {
+      return;
+    }
     const choice = await vscode.window.showErrorMessage(line, SHOW_OUTPUT_ACTION);
     if (choice === SHOW_OUTPUT_ACTION) {
       deps.output.show(true);

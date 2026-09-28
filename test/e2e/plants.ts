@@ -265,6 +265,18 @@ export const PLANTS: readonly Plant[] = [
     says: 'every window starts with Auto pull ticked, as a tick kept across a reload would leave it',
   },
   {
+    name: 'requested-refusal-held-back', scenario: 'workspace-above', checks: ['build.missing-lockfile-refusal-offers-the-remedy'], moves: 'red', target: 'extension',
+    file: 'out/src/error-surfaces.js', find: "    if (ctx.whoAsked === 'reader') {", replace: '    if (false) {',
+    says: 'a build the reader pressed that is refused for a missing lockfile is answered as a redraw nobody asked for: an informational notice, held back on the second press',
+  },
+  {
+    name: 'refusal-raised-twice', scenario: 'workspace-above', checks: ['build.missing-lockfile-refusal-offers-the-remedy'], moves: 'red', target: 'extension',
+    file: OPERATIONS,
+    find: "await (0, cli_operation_1.reportOutcome)(deps, 'The build', outcome, true, { notified: routed === 'notified' });",
+    replace: "await (0, cli_operation_1.reportOutcome)(deps, 'The build', outcome, true, { notified: false });",
+    says: 'a build refused for a missing lockfile raises its own failure notification beside the notice, two notifications for one fault',
+  },
+  {
     name: 'preview-carries-auto-pull', scenario: 'workspace-above', checks: ['preview.never-carries-auto-pull'], moves: 'red', target: 'extension',
     file: 'out/src/build-dials.js',
     find: 'function buildPreviewParams(release) {\n    return { release };',

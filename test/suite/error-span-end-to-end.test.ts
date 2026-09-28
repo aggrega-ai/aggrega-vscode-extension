@@ -80,18 +80,18 @@ describe('Error-envelope span, daemon to editor range', function () {
     const published: Array<{ shapes: ConvertedShape[] }> = [];
     const handled = handleDaemonError(thrown, {
       uri: { toString: () => 'file:///release.yaml' } as never,
-      workspaceRoot,
+      whoAsked: 'reader',
       publishShape: (_uri, shapes: ConvertedShape[]) => { published.push({ shapes }); },
       logLine: () => { /* not the subject */ },
-      toastInfo: () => Promise.resolve(undefined),
-      createTerminal: (() => ({})) as never,
+      notify: () => Promise.resolve(undefined),
+      pull: () => { /* not the subject */ },
       selectedRelease: () => null,
       toastDebounce: new Map(),
       toastDebounceMode: 'session',
       toastThrottleSeconds: 300,
       now: () => 0,
     });
-    assert.strictEqual(handled, true, 'the envelope was not recognised');
+    assert.strictEqual(handled, 'surfaced', 'the envelope was not routed to a diagnostic');
     assert.strictEqual(published.length, 1, 'expected exactly one published shape');
     const shape = published[0].shapes[0];
     // eslint-disable-next-line no-console

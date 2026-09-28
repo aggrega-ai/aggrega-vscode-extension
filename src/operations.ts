@@ -36,6 +36,7 @@ import {
 import { dialsTurnedOn } from './build-dials';
 import { CancellationSignal } from './cancellation';
 import { reportOutcome, runWatchableCli } from './cli-operation';
+import { DaemonErrorRouting, WhoAsked } from './error-surfaces';
 import {
   IMPORT_SOURCE_PROMPT,
   IMPORT_SOURCE_TITLE,
@@ -250,16 +251,18 @@ export interface OperationDeps extends RendersOnReady {
   ): Promise<DeprecateArtifactResult>;
   // reportDaemonError routes a failed request's error envelope to the per-code
   // surfaces the extension already has for it — a diagnostic on the document
-  // the envelope names, or the toast that offers the remediating command — and
-  // reports whether it recognised the envelope.
+  // the envelope names, or the notice that offers the act resolving it — and
+  // reports what it did, so the ending knows whether the reader has already been
+  // given a notification for the fault.
   //
   // A preview refusal is about an authored document, and the envelope carries
   // which one plus, where the fault is attributable to a single key, that key's
   // span. Without this the payload would reach the reader as one line of log
   // text and the position it carries would be discarded. fallbackPath is the
   // document to attach a diagnostic to when the envelope names no artifact of
-  // its own.
-  reportDaemonError(err: unknown, fallbackPath: string): boolean;
+  // its own. whoAsked is 'reader' from every operation here: each runs because
+  // the reader pressed it.
+  reportDaemonError(err: unknown, fallbackPath: string, whoAsked: WhoAsked): DaemonErrorRouting;
   // requestCatalogIndex asks the language server for the workspace's entity
   // index. It is the source the entity pickers offer from: the server reports
   // the index it derives from the workspace it reads, so a picker and the
@@ -621,6 +624,11 @@ class OperationsViewProvider implements vscode.WebviewViewProvider {
 // announces: the anchored folder changing while the server stays as it was.
 export interface OperationsView {
   refresh(): void;
+  // pull runs this panel's Pull for the named Release, or for the selected one
+  // where it is given none. It is the same operation the panel's button runs, so
+  // a surface offering Pull elsewhere — the missing-lockfile notice — reaches
+  // this one rather than a second way of pulling.
+  pull(release: string | null): Promise<void>;
 }
 
 // activateOperations registers the Commands view and a command for each entry
@@ -714,7 +722,7 @@ export function activateOperations(
   // The topology graph contributes its own command, so nothing is registered for
   // it here: the group entry points at that command rather than at a second one
   // wrapping it, which would be a second command that only forwards.
-  reg('pull', () => { void runReleaseScoped(deps, 'pull'); });
+  reg('pull', () => { void runReleaseScoped(deps, 'pull', null); });
   // Drafting an entity offers the kinds the COMPILER answers for, and holds no
   // list of them: the set belongs to the compiler, so what a reader is offered
   // is asked for and follows the running binary. A list held here would be a
@@ -735,19 +743,26 @@ export function activateOperations(
   reg('deprecate', () => { void runDeprecate(deps); });
   reg('cache', (chosen) => { void runCache(deps, chosen); });
 
-  return { refresh: () => provider.refresh() };
+  return {
+    refresh: () => provider.refresh(),
+    pull: (release) => runReleaseScoped(deps, 'pull', release),
+  };
 }
 
 // runReleaseScoped runs a command-line-backed operation that requires a --release
-// argument: it invokes `aggrega <verb> --release <path>` on the selected Release.
-// Running the bare verb would fail — the command marks --release required.
+// argument: it invokes `aggrega <verb> --release <path>`. Running the bare verb
+// would fail — the command marks --release required.
 //
 // The path is workspace-relative and the subprocess runs in the workspace root,
 // so it resolves there.
 //
-// It reads the one selected Release rather than prompting for its own, so what
-// runs is the Release the panel names and a reader is not asked twice about the
-// same choice.
+// named is the Release to act on where the caller already knows it — the
+// missing-lockfile notice passes the Release the compiler's refusal named, spelled
+// as the refused request spelled it, which is the form this path takes. Given
+// none, it reads the one selected Release rather than prompting for its own, so
+// what runs is the Release the panel names and a reader is not asked twice about
+// the same choice. Truthiness rather than ?? on purpose: an empty Release names
+// nothing, so it falls through to the selection.
 //
 // 🔴 IT STAYS A COMMAND FOR THE STOP, AND THE REASON IS A MEASUREMENT RATHER THAN
 // AN ASSUMPTION ABOUT WHAT THE COMPILER CANNOT DO. The shared resolution DOES take
@@ -765,12 +780,16 @@ export function activateOperations(
 // the compiler carries on fetching, and reporting that as a stop would tell them
 // the compiler stopped when it did not. This is the one operation on this panel
 // still reached as a command, and it is why the surface carries a binary path.
-async function runReleaseScoped(deps: OperationDeps, verb: ReleaseScopedVerb): Promise<void> {
+async function runReleaseScoped(
+  deps: OperationDeps,
+  verb: ReleaseScopedVerb,
+  named: string | null,
+): Promise<void> {
   if (!deps.getWorkspaceRoot()) {
     void vscode.window.showInformationMessage(NO_ANCHORED_WORKSPACE_MESSAGE);
     return;
   }
-  const release = deps.selectedRelease();
+  const release = named || deps.selectedRelease();
   if (!release) {
     deps.requireSelectedRelease();
     return;
@@ -828,19 +847,22 @@ async function runBuild(deps: OperationDeps, dials: readonly string[]): Promise<
     );
   } catch (err) {
     const outcome = outcomeOf(err);
-    if (outcome.kind === 'failed') {
-      // The envelope is routed BEFORE the log line rather than instead of it. A
-      // refusal is about an authored document and carries which one, so routing it
-      // puts the fault on that document where the reader can act on it. The log
-      // line still fires either way: a reader watching this channel has to be told
-      // the build did not complete, and a value that is not an envelope at all has
-      // nowhere else to surface.
-      deps.reportDaemonError(err, release);
-    }
+    // The envelope is routed BEFORE the log line rather than instead of it. A
+    // refusal is about an authored document and carries which one, so routing it
+    // puts the fault on that document where the reader can act on it. The log
+    // line still fires either way: a reader watching this channel has to be told
+    // the build did not complete, and a value that is not an envelope at all has
+    // nowhere else to surface.
+    const routed = outcome.kind === 'failed'
+      ? deps.reportDaemonError(err, release, 'reader')
+      : 'unrecognised';
     // The message is the compiler's own text, unchanged. Where it named a
     // remediation, that remediation is what the reader needs — so the action
-    // button is added beside it rather than in place of it.
-    await reportOutcome(deps, 'The build', outcome, true);
+    // button is added beside it rather than in place of it. Where the routing
+    // already raised the notification for this fault, carrying the act that
+    // resolves it — a missing lockfile is answered by its own notice offering
+    // Pull — the ending raises no second one.
+    await reportOutcome(deps, 'The build', outcome, true, { notified: routed === 'notified' });
     return;
   }
 
@@ -905,19 +927,20 @@ async function runPreview(deps: OperationDeps): Promise<void> {
     );
   } catch (err) {
     const outcome = outcomeOf(err);
-    if (outcome.kind === 'failed') {
-      // The envelope is routed BEFORE the log line rather than instead of it. A
-      // refusal is about an authored document and carries which one, so routing it
-      // puts the fault on that document where the reader can act on it. The log
-      // line still fires either way: a reader watching this channel has to be told
-      // the preview did not complete, and a value that is not an envelope at all
-      // has nowhere else to surface.
-      deps.reportDaemonError(err, release);
-    }
+    // The envelope is routed BEFORE the log line rather than instead of it. A
+    // refusal is about an authored document and carries which one, so routing it
+    // puts the fault on that document where the reader can act on it. The log
+    // line still fires either way: a reader watching this channel has to be told
+    // the preview did not complete, and a value that is not an envelope at all
+    // has nowhere else to surface.
+    const routed = outcome.kind === 'failed'
+      ? deps.reportDaemonError(err, release, 'reader')
+      : 'unrecognised';
     // The message is the compiler's own text, unchanged. Where it named a
     // remediation, that remediation is what the reader needs — so the action
-    // button is added beside it rather than in place of it.
-    await reportOutcome(deps, 'The preview', outcome, true);
+    // button is added beside it rather than in place of it, and where the routing
+    // already raised the notification carrying that act, no second one follows.
+    await reportOutcome(deps, 'The preview', outcome, true, { notified: routed === 'notified' });
     return;
   }
 

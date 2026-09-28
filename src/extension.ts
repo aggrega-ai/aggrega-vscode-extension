@@ -57,6 +57,9 @@ import {
 import { DiskChangeHandler, ON_DISK_PATTERN, createDiskChangeHandler, subscribeToWatcher } from './disk-change';
 import { DIAGNOSTIC_SOURCE_FALLBACK } from './diagnostics-shape';
 import {
+  DaemonErrorContext,
+  DaemonErrorRouting,
+  WhoAsked,
   describeError,
   handleDaemonError,
   isJsonRpcError,
@@ -1771,8 +1774,10 @@ function validateDocument(doc: vscode.TextDocument): void {
       }
     },
     err => {
-      const ctx = buildErrorContext(doc.uri);
-      if (ctx && isJsonRpcError(err) && handleDaemonError(err, ctx)) {
+      // A validation runs as the reader edits, not because they pressed
+      // anything, so a refusal of one is work nobody asked for.
+      const ctx = buildErrorContext(doc.uri, 'nobody');
+      if (ctx && isJsonRpcError(err) && handleDaemonError(err, ctx) !== 'unrecognised') {
         return;
       }
       outputChannel?.appendLine(`validate failed: ${describeError(err)}`);
@@ -2358,8 +2363,11 @@ async function tryRequest<T>(method: RequestMethod, params: unknown, doc: vscode
       if (err.code === ERR_FILE_NOT_VALIDATED) {
         return await handleCacheMiss<T>(method, params, doc);
       }
-      const ctx = buildErrorContext(doc.uri);
-      if (ctx && handleDaemonError(err, ctx)) {
+      // A completion or a hover is asked for, but not the build or the graph a
+      // refusal of it is about, so the refusal is treated as work nobody asked
+      // for.
+      const ctx = buildErrorContext(doc.uri, 'nobody');
+      if (ctx && handleDaemonError(err, ctx) !== 'unrecognised') {
         return null;
       }
     }
@@ -2384,23 +2392,26 @@ async function tryRequest<T>(method: RequestMethod, params: unknown, doc: vscode
 //
 // A relative value resolves against the anchored root, matching the form the
 // daemon accepts and returns.
-function reportDaemonError(err: unknown, fallbackPath: string): boolean {
+//
+// whoAsked is the caller's: every caller of this one is an operation the reader
+// pressed or a drawing that says for itself whether it was asked for.
+function reportDaemonError(err: unknown, fallbackPath: string, whoAsked: WhoAsked): DaemonErrorRouting {
   if (!isJsonRpcError(err) || !workspaceRootForCommands) {
-    return false;
+    return 'unrecognised';
   }
   // Truthiness rather than ?? on purpose: an empty path names no document, so
   // it must fall through to the next candidate instead of resolving to the
   // workspace root itself.
   const named = err.data?.file || err.data?.lockfile || fallbackPath;
   if (!named) {
-    return false;
+    return 'unrecognised';
   }
   const absolute = fromWorkspaceRelative(workspaceRootForCommands, named);
-  const ctx = buildErrorContext(vscode.Uri.file(absolute));
-  return ctx !== null && handleDaemonError(err, ctx);
+  const ctx = buildErrorContext(vscode.Uri.file(absolute), whoAsked);
+  return ctx === null ? 'unrecognised' : handleDaemonError(err, ctx);
 }
 
-function buildErrorContext(uri: vscode.Uri) {
+function buildErrorContext(uri: vscode.Uri, whoAsked: WhoAsked): DaemonErrorContext | null {
   if (!diagnosticCollections || !outputChannel || !workspaceRootForCommands) {
     return null;
   }
@@ -2410,17 +2421,19 @@ function buildErrorContext(uri: vscode.Uri) {
   const collection = diagnosticCollections.for(DIAGNOSTIC_SOURCE_FALLBACK);
   const channel = outputChannel;
   const settings = getSettings();
-  const root = workspaceRootForCommands;
   return {
     uri,
-    workspaceRoot: root,
+    whoAsked,
     publishShape: (u: vscode.Uri, shapes: Parameters<typeof publishShapes>[2]) =>
       publishShapes(collection, u, shapes),
     logLine: (line: string) => channel.appendLine(line),
-    toastInfo: (message: string, ...items: string[]) =>
-      vscode.window.showInformationMessage(message, ...items),
-    createTerminal: (options: vscode.TerminalOptions) =>
-      vscode.window.createTerminal(options),
+    notify: (kind: 'error' | 'info', message: string, ...items: string[]) => (kind === 'error'
+      ? vscode.window.showErrorMessage(message, ...items)
+      : vscode.window.showInformationMessage(message, ...items)),
+    // The notice's Pull is the Commands panel's Pull, reached through the handle
+    // that panel returns, so there is one way of pulling and it ends the same way
+    // wherever it was pressed. Before that panel exists there is nothing to run.
+    pull: (release: string | null) => { void operationsView?.pull(release); },
     selectedRelease,
     toastDebounce,
     toastDebounceMode: settings.toastDebounceMode,

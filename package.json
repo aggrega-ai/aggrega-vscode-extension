@@ -549,14 +549,14 @@
             "session"
           ],
           "default": "time",
-          "description": "How repeated toast notifications for the same error code are debounced. `time` re-surfaces after `toastThrottleSeconds` elapses since the last toast went away (action click, X click, or auto-dismiss). `session` suppresses repeats until the daemon restarts.",
+          "description": "How often the notice that a Release has no lockfile is shown again for work you did not ask for, such as an open graph redrawn after a save. `time` shows it again once `aggrega.notifications.toastThrottleSeconds` have passed since the last one closed, however it closed. `session` shows it once until the language server restarts. A Build, a Preview or a graph you open that is refused for a missing lockfile always shows the notice.",
           "scope": "machine"
         },
         "aggrega.notifications.toastThrottleSeconds": {
           "type": "number",
           "default": 300,
           "minimum": 0,
-          "description": "Throttle window in seconds between toast re-surfacings of the same error code. Consulted only when `toastDebounceMode` is `time`.",
+          "description": "Seconds after the missing-lockfile notice closes before it is shown again for work you did not ask for. Read only when `aggrega.notifications.toastDebounceMode` is `time`.",
           "scope": "machine"
         }
       }

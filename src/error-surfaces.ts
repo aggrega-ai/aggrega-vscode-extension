@@ -9,35 +9,48 @@ import {
   JsonRpcError,
 } from './types';
 import { ConvertedShape, DIAGNOSTIC_SOURCE_FALLBACK } from './diagnostics-shape';
+import { operationLabel } from './operation-groups';
 
-// LOCKFILE_GENERATE_COMMAND is the shell command the 1003 toast's
-// button runs in the integrated terminal, with the required --release
-// argument appended by generateLockfile. The user sees the command
-// execute so any output / errors are visible inline.
+// LOCKFILE_PULL_ACTION is the action the missing-lockfile notice offers, and it
+// is the Commands panel's own Pull, named as that panel names it. Pressing it runs
+// that operation rather than a command of its own: the configured binary, behind
+// the progress indicator a reader can stop, ending in its own sentence. A command
+// typed into a terminal instead would run whatever `aggrega` that terminal's path
+// finds, which need not be the compiler the extension is working with.
+export const LOCKFILE_PULL_ACTION = operationLabel('pull');
+
+// WhoAsked says whether the reader asked for the work a refusal answers.
 //
-// aggrega pull is the canonical lockfile-generation entry point —
-// its short description reads "Resolve catalog and source
-// dependencies into the cache and write the per-Release lockfile."
-const LOCKFILE_GENERATE_COMMAND = 'aggrega pull';
+// 'reader' is a request they made — a build, a preview, a graph they opened — and
+// the refusal of one is always put in front of them: it is the answer to what they
+// pressed, and holding it back would leave them refused with no way past it.
+// 'nobody' is work the extension did on its own — a graph redrawn after a save, a
+// document validated as it is edited — and a notice about it that the reader has
+// just been shown is held back for as long as the notification settings say.
+//
+// 🔴 THE CALLER STATES IT, BECAUSE THE CALLER IS THE ONE PLACE THAT KNOWS. A
+// refusal carries the same code and the same payload whoever started the work, so
+// nothing in it says whether a press started the work, and reading that off the
+// refusal's words would be a guess that changes meaning when the compiler rewords a
+// sentence.
+export type WhoAsked = 'reader' | 'nobody';
 
-// LOCKFILE_GENERATE_TOOLTIP is the operator-facing clarification
-// of what the "Generate Lockfile" button actually invokes. VS Code's
-// showInformationMessage API does not support per-button tooltips,
-// so this text is incorporated into the toast's main message body
-// rather than attached to the button.
-const LOCKFILE_GENERATE_TOOLTIP =
-  'The Generate Lockfile button runs `aggrega pull --release <release>` — pulls catalog dependencies into the cache and writes the per-Release lockfile.';
+// DaemonErrorRouting is what routing a refusal did, for the caller deciding what is
+// left for it to say.
+//
+//   'unrecognised' — the code is not one routed here, so the caller surfaces it.
+//   'surfaced'     — it was put on a surface other than a notification: a
+//                    diagnostic, or a line on the output channel. The caller still
+//                    owes the reader its own ending.
+//   'notified'     — a notification carrying the refusal is in front of the reader,
+//                    so the caller raises no second one for the same fault.
+export type DaemonErrorRouting = 'unrecognised' | 'surfaced' | 'notified';
 
-// LOCKFILE_TOAST_BUTTON is the label of the actionable button on
-// the 1003 toast. The handler matches against this literal.
-const LOCKFILE_TOAST_BUTTON = 'Generate Lockfile';
-
-// ToastDebounceMode picks how repeated toasts for the same error
-// code are throttled. `session` is the previous default — one toast
-// per code per daemon session; cleared on daemon restart. `time` is
-// the current default — the throttle resets when the toast's
-// showInformationMessage Promise resolves (action click, X click, or
-// VS Code auto-dismiss) and re-fires after toastThrottleSeconds.
+// ToastDebounceMode picks how a notice the reader has just been shown is held
+// back when it comes round again for work nobody asked for. `session` shows it
+// once until the language server restarts. `time` shows it again once
+// toastThrottleSeconds have passed since the previous one closed — pressed,
+// dismissed, or put away by the editor.
 export type ToastDebounceMode = 'time' | 'session';
 
 // DaemonErrorContext carries the surfaces the per-code dispatcher
@@ -46,32 +59,37 @@ export type ToastDebounceMode = 'time' | 'session';
 // testable: tests pass fakes for every field.
 export interface DaemonErrorContext {
   uri: vscode.Uri;
-  workspaceRoot: string;
+  // whoAsked is whether the reader asked for the work this refusal answers. It
+  // decides whether a notice may be held back, whether it is raised as an error
+  // or as information, and whether the channel line is written here or by the
+  // operation that ends — see surfaceLockfileNotice.
+  whoAsked: WhoAsked;
   publishShape: (uri: vscode.Uri, shapes: ConvertedShape[]) => void;
   logLine: (line: string) => void;
-  toastInfo: (message: string, ...items: string[]) => Thenable<string | undefined>;
-  createTerminal: (options: vscode.TerminalOptions) => vscode.Terminal;
-  // selectedRelease is the FALLBACK for "which Release should the
-  // lockfile-generation command target". The lockfile-absent envelope normally
-  // names the Release itself, and that answer wins — see generateLockfile. This
-  // is consulted only when the envelope carries no Release. It returns the
-  // editor's one selected Release, workspace-relative, or null when none is
-  // selected, in which case there is nothing to act on and the command does not
-  // run. It prompts for nothing: the editor already holds the reader's answer,
-  // and asking again here would be a second way to choose a Release.
+  // notify raises a notification of the given kind carrying the given actions,
+  // and settles with the action pressed, or undefined when it closed without one.
+  notify: (kind: 'error' | 'info', message: string, ...items: string[]) => Thenable<string | undefined>;
+  // pull runs the Commands panel's Pull for the named Release. Given null it acts
+  // on the selected Release, exactly as that panel's own button does.
+  pull: (release: string | null) => void;
+  // selectedRelease is the FALLBACK for "which Release is the missing lockfile
+  // about". The lockfile-absent envelope normally names the Release itself, and
+  // that answer wins — see surfaceLockfileNotice. This is consulted only when the
+  // envelope carries no Release. It returns the editor's one selected Release,
+  // workspace-relative, or null when none is selected. It prompts for nothing: the
+  // editor already holds the reader's answer, and asking again here would be a
+  // second way to choose a Release.
   selectedRelease: () => string | null;
-  // toastDebounce tracks per-code throttle state. In `session` mode
-  // the boolean records whether a toast already surfaced this
-  // daemon session (and stays true until resetSessionDedup runs
-  // on daemon restart). In `time` mode the number records the
-  // wall-clock timestamp the previous toast's Promise resolved at;
-  // a fresh toast fires when (now() - prev) > throttleSeconds*1000.
+  // toastDebounce records, per code, when a notice was last shown. In `session`
+  // mode the value is true once one has been shown, until resetSessionDedup runs
+  // on a restart of the language server. In `time` mode it is the wall-clock time
+  // the previous notice closed at; one is shown again once
+  // (now() - previous) > toastThrottleSeconds*1000.
   toastDebounce: Map<number, true | number>;
-  // toastDebounceMode picks between the session- and time-based
-  // throttle semantics described above.
+  // toastDebounceMode picks between the two readings described above.
   toastDebounceMode: ToastDebounceMode;
-  // toastThrottleSeconds is the window for the time-based throttle.
-  // Consulted only when toastDebounceMode === 'time'.
+  // toastThrottleSeconds is the window for the time-based reading. Consulted only
+  // when toastDebounceMode === 'time'.
   toastThrottleSeconds: number;
   // now returns the current wall-clock millisecond timestamp. A
   // test seam: production passes () => Date.now(); tests pass a
@@ -82,26 +100,24 @@ export interface DaemonErrorContext {
 // handleDaemonError routes a daemon-emitted error envelope to the
 // surface appropriate for its code:
 //
-//   1003 (lockfile-absent)        → toast with Generate Lockfile button
+//   1003 (lockfile-absent)        → the missing-lockfile notice, offering Pull
 //   1004 (entity-not-resolvable)  → Error diagnostic at uri:1:1
 //   1005 (daemon-shutting-down)   → output channel log; no UI
 //
-// Returns true when the code was recognized and handled, false
-// otherwise (so the caller can fall through to its existing generic
-// logging path).
-export function handleDaemonError(err: JsonRpcError, ctx: DaemonErrorContext): boolean {
+// It is the one place a refusal's code decides its surface, and it reports what it
+// did so the caller knows what is left to say — see DaemonErrorRouting.
+export function handleDaemonError(err: JsonRpcError, ctx: DaemonErrorContext): DaemonErrorRouting {
   switch (err.code) {
     case ERR_LOCKFILE_ABSENT:
-      surfaceLockfileToast(ctx, err.message, err.data?.release);
-      return true;
+      return surfaceLockfileNotice(ctx, err.message, err.data?.release);
     case ERR_ENTITY_NOT_RESOLVABLE:
       surfaceDiagnostic(ctx, err, `Entity not resolvable: ${err.message}`);
-      return true;
+      return 'surfaced';
     case ERR_SHUTTING_DOWN:
       ctx.logLine(`[shutting down] ${err.message}`);
-      return true;
+      return 'surfaced';
     default:
-      return false;
+      return 'unrecognised';
   }
 }
 
@@ -135,119 +151,127 @@ function surfaceDiagnostic(ctx: DaemonErrorContext, err: JsonRpcError, message: 
   ctx.publishShape(ctx.uri, [shape]);
 }
 
-// surfaceLockfileToast fires the lockfile-absent toast. release is the Release
-// the envelope named, carried through to the action handler so the button acts on
-// the Release the diagnostic is about rather than on a separately-resolved one.
-// Undefined when the envelope omitted it.
-function surfaceLockfileToast(
+// lockfileNotice composes the one notice a missing lockfile is answered with:
+// which Release has none, then the compiler's sentence exactly as it wrote it.
+//
+// That sentence already says what to run, and the notice's Pull runs it, so
+// nothing is added beside it — no command of the extension's own, no transport
+// code in front of it, and no account of whether a notice was held back before.
+// Where no Release can be named, the notice says "the Release" rather than
+// inventing one.
+export function lockfileNotice(release: string | null, message: string): string {
+  return `Aggrega: ${release || 'the Release'} has no lockfile. ${message}`;
+}
+
+// surfaceLockfileNotice answers a lockfile-absent refusal. named is the Release the
+// envelope named, or undefined when it omitted one.
+//
+// Which Release has exactly one authoritative answer: the one the daemon named in
+// the envelope, which is the Release the refused request asked about. That value is
+// used verbatim, never rewritten, and it is settled here, once, so the Release the
+// notice names is the one its Pull pulls. The editor's selected Release is
+// consulted only when the envelope carries no Release; it is a fallback for a
+// missing answer, not a second way of computing the same one. Preferring the
+// envelope removes a way to be silently wrong: a workspace may hold several
+// Releases, and pulling another one would succeed while the refusal stood.
+//
+// 🔴 A REFUSAL THE READER ASKED FOR IS NEVER HELD BACK, AND IT IS RAISED AS AN
+// ERROR. It is the answer to what they pressed, so it is the one notification for
+// the fault — the caller raises none of its own beside it — and the editor keeps an
+// error that carries an action on screen until the reader acts on it or puts it
+// away, where an informational notice leaves on its own after a few seconds. The
+// channel line for it is the caller's, written as that operation ends.
+//
+// A refusal nobody asked for raises the same notice, informational, and it is held
+// back while the reader has just been shown it (shouldShowNotice). Either way the
+// channel carries the compiler's sentence and nothing about whether a notice was
+// shown: which notices were held back is this module's own bookkeeping, and it
+// tells a reader nothing about their workspace.
+function surfaceLockfileNotice(
   ctx: DaemonErrorContext,
   message: string,
-  release: string | undefined,
-): void {
-  if (!shouldFireToast(ctx, ERR_LOCKFILE_ABSENT)) {
-    const reason = ctx.toastDebounceMode === 'session'
-      ? 'already shown this session'
-      : `throttled; next surface allowed after ${ctx.toastThrottleSeconds}s`;
-    ctx.logLine(`[lockfile absent] ${message} (toast suppressed; ${reason})`);
-    return;
+  named: string | undefined,
+): DaemonErrorRouting {
+  // Truthiness rather than ?? on purpose: an empty Release names nothing, so it
+  // falls through to the selection rather than being carried as the Release.
+  const release = named || ctx.selectedRelease();
+  const notice = lockfileNotice(release, message);
+  if (ctx.whoAsked === 'reader') {
+    noticeShown(ctx);
+    offerPull(ctx, ctx.notify('error', notice, LOCKFILE_PULL_ACTION), release);
+    return 'notified';
   }
-  // Seed debounce immediately so a second emission arriving before
-  // the toast Promise resolves is correctly suppressed. Without this
-  // seed there is an overlap window between emission and dismissal
-  // where the debounce map is unset and shouldFireToast would let a
-  // second toast fire on top of the first. The time-mode value is
-  // updated to the actual dismissal timestamp when the Promise
-  // resolves below; the seed just establishes "a toast is in flight
-  // since now()" so the throttle check during the in-flight window
-  // returns false (now() - seed < throttleSeconds * 1000).
+  ctx.logLine(message);
+  if (!shouldShowNotice(ctx, ERR_LOCKFILE_ABSENT)) {
+    return 'surfaced';
+  }
+  noticeShown(ctx);
+  offerPull(ctx, ctx.notify('info', notice, LOCKFILE_PULL_ACTION), release);
+  return 'notified';
+}
+
+// noticeShown records that the missing-lockfile notice is on screen, before it has
+// closed, so a refusal nobody asked for arriving while it is still up is held back
+// rather than drawn on top of it. In `time` mode the record moves to the moment the
+// notice closes (offerPull), which is where the window starts.
+//
+// A notice the reader asked for is recorded too. It is shown whatever the record
+// says, but once the reader has been told, repeating it for a redraw nobody asked
+// for tells them nothing new.
+function noticeShown(ctx: DaemonErrorContext): void {
   if (ctx.toastDebounceMode === 'session') {
     ctx.toastDebounce.set(ERR_LOCKFILE_ABSENT, true);
   } else {
     ctx.toastDebounce.set(ERR_LOCKFILE_ABSENT, ctx.now());
   }
-  ctx.logLine(`[lockfile absent] ${message}`);
-  void ctx.toastInfo(
-    `Aggrega: lockfile missing. ${message}. ${LOCKFILE_GENERATE_TOOLTIP}`,
-    LOCKFILE_TOAST_BUTTON,
-  ).then(choice => {
-    // The throttle window starts when the toast's Promise resolves —
-    // whether the user clicked an action, clicked the X, or VS Code
-    // auto-dismissed on timeout. Same surface either way; no need to
-    // distinguish termination cause.
+}
+
+// offerPull waits for the notice to close and runs the Pull where it was pressed,
+// for the Release the notice named — null where it could name none, which the Pull
+// answers as the Commands panel's own button does.
+function offerPull(
+  ctx: DaemonErrorContext,
+  shown: Thenable<string | undefined>,
+  release: string | null,
+): void {
+  void shown.then((choice) => {
+    // The window starts when the notice closes, however it closed: an action
+    // pressed, the close button, or the editor putting it away.
     if (ctx.toastDebounceMode === 'time') {
       ctx.toastDebounce.set(ERR_LOCKFILE_ABSENT, ctx.now());
     }
-    if (choice !== LOCKFILE_TOAST_BUTTON) {
-      return;
+    if (choice === LOCKFILE_PULL_ACTION) {
+      ctx.pull(release);
     }
-    generateLockfile(ctx, release);
   });
 }
 
-// generateLockfile runs `aggrega pull --release <path>` in a terminal. The bare
-// command cannot succeed — the CLI marks --release required — so the Release must
-// be supplied.
-//
-// Which Release has exactly one authoritative answer: the one the daemon named in
-// the error envelope, which is the Release the failing request asked about. That
-// value is used verbatim, never rewritten. The editor's selected Release is
-// consulted only when the envelope carries no Release; it is a fallback for a
-// missing answer, not a second way of computing the same one, so do not collapse
-// the two.
-//
-// Preferring the envelope also removes a way to be silently wrong: a workspace may
-// hold several Releases, and falling back could act on a different one than the
-// diagnostic came from — pulling successfully while the diagnostic that raised the
-// toast persists.
-//
-// The path is double-quoted so a value with spaces survives the shell. The
-// terminal runs in the workspace root, so a workspace-relative value resolves
-// there and an absolute one is already complete.
-function generateLockfile(
-  ctx: DaemonErrorContext,
-  release: string | undefined,
-): void {
-  // Truthiness rather than ?? on purpose: an empty Release is never a usable
-  // target, so it falls through to the selection instead of emitting
-  // --release "".
-  const target = release || ctx.selectedRelease();
-  if (!target) {
-    return;
-  }
-  const terminal = ctx.createTerminal({
-    name: 'Aggrega Lockfile',
-    cwd: ctx.workspaceRoot,
-  });
-  terminal.show();
-  terminal.sendText(`${LOCKFILE_GENERATE_COMMAND} --release "${target}"`, true);
-}
-
-// shouldFireToast applies the debounce policy for the supplied
-// error code. Returns true when the caller should fire a fresh
-// toast; false when the throttle is active.
-function shouldFireToast(ctx: DaemonErrorContext, code: number): boolean {
+// shouldShowNotice applies the notification settings to a notice for work nobody
+// asked for. Returns true when it should be shown; false while the reader has just
+// been shown it.
+function shouldShowNotice(ctx: DaemonErrorContext, code: number): boolean {
   const previous = ctx.toastDebounce.get(code);
   if (previous === undefined) {
     return true;
   }
   if (ctx.toastDebounceMode === 'session') {
-    // previous === true → suppress; no other value is meaningful in
-    // session mode (the helper only writes `true` there).
+    // previous === true → hold it back; no other value is meaningful in
+    // session mode (noticeShown only writes `true` there).
     return false;
   }
-  // time mode: previous is the wall-clock timestamp of the prior
-  // toast's resolution. previous === true would only appear if the
-  // operator flipped modes mid-session; treat as expired so the
-  // next toast fires and re-establishes the timestamp.
+  // time mode: previous is the wall-clock time the prior notice closed at.
+  // previous === true would only appear if the reader switched modes while the
+  // server ran; it is read as expired, so the next notice is shown and records
+  // the time afresh.
   if (previous === true) {
     return true;
   }
   return ctx.now() - previous > ctx.toastThrottleSeconds * 1000;
 }
 
-// resetSessionDedup clears the per-code debounce state. Called by
-// extension.ts whenever the daemon starts or restarts so the
-// operator gets a fresh chance to see each toast after a fix.
+// resetSessionDedup clears the per-code notice records. Called by extension.ts
+// whenever the daemon starts or restarts so the reader is shown each notice again
+// after a fix.
 export function resetSessionDedup(dedup: Map<number, true | number>): void {
   dedup.clear();
 }

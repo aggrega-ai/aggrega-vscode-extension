@@ -7,7 +7,14 @@ import {
   editorCodeForShape,
   shapeForDaemonDiagnostic,
 } from '../../src/diagnostics-shape';
-import { handleDaemonError, resetSessionDedup } from '../../src/error-surfaces';
+import {
+  LOCKFILE_PULL_ACTION,
+  WhoAsked,
+  handleDaemonError,
+  lockfileNotice,
+  resetSessionDedup,
+} from '../../src/error-surfaces';
+import { operationLabel } from '../../src/operation-groups';
 import {
   DaemonDiagnostic,
   ERR_ENTITY_NOT_RESOLVABLE,
@@ -21,24 +28,28 @@ import {
 // nothing in src/ carries a constant for a condition nothing emits.
 const RETIRED_RELEASE_NOT_RESOLVED = 1002;
 
+// The compiler's sentence for a missing lockfile, as the pinned language server
+// words it, with the Release the fixtures below name.
+const COMPILER_SENTENCE =
+  'lockfile /workspace/envs/prod.lock not found; run `aggrega pull --release envs/prod.yaml` to generate';
+
+// The words that describe which notices were held back, which belong to this
+// extension's own bookkeeping and never to a surface a reader reads.
+const BOOKKEEPING = /toast|suppress|throttl|next surface allowed|debounce/i;
+
 interface FakeUri {
   toString(): string;
 }
 
-interface FakeTerminal {
-  shown: boolean;
-  sentText: string[];
-  show: () => void;
-  sendText: (text: string, addNewline?: boolean) => void;
-}
-
 interface ContextFixture {
   uri: FakeUri;
+  whoAsked: WhoAsked;
   publishCalls: Array<{ uri: FakeUri; shapes: ConvertedShape[] }>;
   logLines: string[];
-  toastCalls: Array<{ message: string; items: string[] }>;
-  toastResponse: string | undefined;
-  terminalsCreated: Array<{ options: { name: string; cwd: string }; terminal: FakeTerminal }>;
+  notices: Array<{ kind: 'error' | 'info'; message: string; items: string[] }>;
+  noticeResponse: string | undefined;
+  // pulls records every Release the Pull was run for, in order.
+  pulls: Array<string | null>;
   // selectedRelease is the editor's one selected Release, which the
   // lockfile-absent handler falls back to when the envelope names none.
   selectedRelease: string | null;
@@ -58,11 +69,12 @@ function makeContext(initial?: Partial<ContextFixture>): ContextFixture & {
 } {
   const fixture: ContextFixture = {
     uri: { toString: () => 'file:///workspace/a.yaml' },
+    whoAsked: 'nobody',
     publishCalls: [],
     logLines: [],
-    toastCalls: [],
-    toastResponse: undefined,
-    terminalsCreated: [],
+    notices: [],
+    noticeResponse: undefined,
+    pulls: [],
     selectedRelease: 'release.yaml',
     selectedReleaseReads: 0,
     toastDebounce: new Map(),
@@ -73,25 +85,16 @@ function makeContext(initial?: Partial<ContextFixture>): ContextFixture & {
   };
   const ctx = {
     uri: fixture.uri as any,
-    workspaceRoot: '/workspace',
+    whoAsked: fixture.whoAsked,
     publishShape: (uri: any, shapes: ConvertedShape[]) => {
       fixture.publishCalls.push({ uri, shapes });
     },
     logLine: (line: string) => { fixture.logLines.push(line); },
-    toastInfo: (message: string, ...items: string[]) => {
-      fixture.toastCalls.push({ message, items });
-      return Promise.resolve(fixture.toastResponse);
+    notify: (kind: 'error' | 'info', message: string, ...items: string[]) => {
+      fixture.notices.push({ kind, message, items });
+      return Promise.resolve(fixture.noticeResponse);
     },
-    createTerminal: (options: any) => {
-      const terminal: FakeTerminal = {
-        shown: false,
-        sentText: [],
-        show: () => { terminal.shown = true; },
-        sendText: (text: string) => { terminal.sentText.push(text); },
-      };
-      fixture.terminalsCreated.push({ options, terminal });
-      return terminal as any;
-    },
+    pull: (release: string | null) => { fixture.pulls.push(release); },
     selectedRelease: () => {
       fixture.selectedReleaseReads += 1;
       return fixture.selectedRelease;
@@ -104,19 +107,32 @@ function makeContext(initial?: Partial<ContextFixture>): ContextFixture & {
   return Object.assign(fixture, { ctx });
 }
 
+// settle lets a notice's promise and the handler it continues into run.
+async function settle(): Promise<void> {
+  for (let i = 0; i < 3; i++) {
+    await new Promise(resolve => setImmediate(resolve));
+  }
+}
+
+const REFUSAL = {
+  code: ERR_LOCKFILE_ABSENT,
+  message: COMPILER_SENTENCE,
+  data: { lockfile: '/workspace/envs/prod.lock', release: 'envs/prod.yaml' },
+};
+
 describe('handleDaemonError', () => {
-  it('returns false for unknown codes', () => {
+  it('reports an unknown code as unrecognised', () => {
     const f = makeContext();
     const handled = handleDaemonError({ code: 9999, message: 'unknown' }, f.ctx);
-    assert.strictEqual(handled, false);
+    assert.strictEqual(handled, 'unrecognised');
     assert.strictEqual(f.publishCalls.length, 0);
-    assert.strictEqual(f.toastCalls.length, 0);
+    assert.strictEqual(f.notices.length, 0);
   });
 
-  it('returns false for 1001 (cache-miss path is owned by extension.ts)', () => {
+  it('reports 1001 as unrecognised (cache-miss path is owned by extension.ts)', () => {
     const f = makeContext();
     const handled = handleDaemonError({ code: ERR_FILE_NOT_VALIDATED, message: 'cold' }, f.ctx);
-    assert.strictEqual(handled, false);
+    assert.strictEqual(handled, 'unrecognised');
   });
 
   it('1004 publishes an Error diagnostic with the unresolvable-entity message', () => {
@@ -125,11 +141,11 @@ describe('handleDaemonError', () => {
       { code: ERR_ENTITY_NOT_RESOLVABLE, message: 'oci://hub/foo not found' },
       f.ctx,
     );
-    assert.strictEqual(handled, true);
+    assert.strictEqual(handled, 'surfaced');
     assert.strictEqual(f.publishCalls.length, 1);
     const shape = f.publishCalls[0].shapes[0];
     assert.ok(shape.message.includes('oci://hub/foo not found'));
-    assert.strictEqual(f.toastCalls.length, 0);
+    assert.strictEqual(f.notices.length, 0);
   });
 
   it('1004 with full data positions the diagnostic at the daemon-reported line/column (1-based → 0-based)', () => {
@@ -142,7 +158,7 @@ describe('handleDaemonError', () => {
       },
       f.ctx,
     );
-    assert.strictEqual(handled, true);
+    assert.strictEqual(handled, 'surfaced');
     assert.strictEqual(f.publishCalls.length, 1);
     const shape = f.publishCalls[0].shapes[0];
     // 1-based daemon → 0-based VS Code.
@@ -162,7 +178,7 @@ describe('handleDaemonError', () => {
       },
       f.ctx,
     );
-    assert.strictEqual(handled, true);
+    assert.strictEqual(handled, 'surfaced');
     const shape = f.publishCalls[0].shapes[0];
     assert.strictEqual(shape.startLine, 6);
     assert.strictEqual(shape.startChar, 15);
@@ -180,7 +196,7 @@ describe('handleDaemonError', () => {
       },
       f.ctx,
     );
-    assert.strictEqual(handled, true);
+    assert.strictEqual(handled, 'surfaced');
     const shape = f.publishCalls[0].shapes[0];
     assert.strictEqual(shape.startLine, 0);
     assert.strictEqual(shape.startChar, 0);
@@ -194,112 +210,150 @@ describe('handleDaemonError', () => {
       { code: ERR_ENTITY_NOT_RESOLVABLE, message: 'release.yaml load failed' },
       f.ctx,
     );
-    assert.strictEqual(handled, true);
+    assert.strictEqual(handled, 'surfaced');
     const shape = f.publishCalls[0].shapes[0];
     assert.strictEqual(shape.startLine, 0);
     assert.strictEqual(shape.startChar, 0);
   });
 
-  it('1003 shows a toast with Generate Lockfile button on first call', () => {
-    const f = makeContext();
-    const handled = handleDaemonError(
-      { code: ERR_LOCKFILE_ABSENT, message: 'no lockfile' },
-      f.ctx,
-    );
-    assert.strictEqual(handled, true);
-    assert.strictEqual(f.toastCalls.length, 1);
-    assert.deepStrictEqual(f.toastCalls[0].items, ['Generate Lockfile']);
-    assert.ok(f.toastCalls[0].message.includes('lockfile missing'));
+  it('a refusal the reader asked for is one error notice in plain words, offering Pull', () => {
+    const f = makeContext({ whoAsked: 'reader', selectedRelease: 'envs/staging.yaml' });
+    const handled = handleDaemonError(REFUSAL, f.ctx);
+    // 'notified' is what tells the ending not to raise a second notification.
+    assert.strictEqual(handled, 'notified');
+    assert.deepStrictEqual(f.notices, [{
+      kind: 'error',
+      message: `Aggrega: envs/prod.yaml has no lockfile. ${COMPILER_SENTENCE}`,
+      items: ['Pull'],
+    }]);
+    // The channel line for a requested refusal is the ending's, written by the
+    // operation the reader pressed; the routing adds none of its own.
+    assert.deepStrictEqual(f.logLines, []);
     assert.strictEqual(f.publishCalls.length, 0);
-    assert.strictEqual(f.toastDebounce.has(ERR_LOCKFILE_ABSENT), true);
-  });
-
-  it('1003 second call is suppressed by session dedup, still logs', () => {
-    const f = makeContext();
-    handleDaemonError({ code: ERR_LOCKFILE_ABSENT, message: 'no lockfile' }, f.ctx);
-    handleDaemonError({ code: ERR_LOCKFILE_ABSENT, message: 'still no lockfile' }, f.ctx);
-    assert.strictEqual(f.toastCalls.length, 1);
-    const suppressedLog = f.logLines.find(l => l.includes('toast suppressed'));
-    assert.ok(suppressedLog, 'expected a log entry naming the suppression');
-  });
-
-  it('1003 toast click targets the Release the envelope names, without consulting the selection', async () => {
-    // The resolver is deliberately primed with a DIFFERENT Release: a workspace
-    // may hold several, and acting on any but the one the diagnostic came from
-    // pulls successfully while the diagnostic persists.
-    const f = makeContext({ toastResponse: 'Generate Lockfile', selectedRelease: 'envs/staging.yaml' });
-    handleDaemonError(
-      {
-        code: ERR_LOCKFILE_ABSENT,
-        message: 'no lockfile',
-        // The lockfile travels in its own key. It is not `file`, which names
-        // the source document a diagnostic anchors at — a lockfile-absent
-        // envelope anchors at nothing, so `file` is absent here.
-        data: { lockfile: '/workspace/envs/prod.lock', release: 'envs/prod.yaml' },
-      },
-      f.ctx,
-    );
-    // Promise.resolve (toast) then the action handler schedule microtasks; drain.
-    await new Promise(resolve => setImmediate(resolve));
-    await new Promise(resolve => setImmediate(resolve));
-    await new Promise(resolve => setImmediate(resolve));
-    assert.strictEqual(f.terminalsCreated.length, 1);
-    const created = f.terminalsCreated[0];
-    assert.strictEqual(created.options.name, 'Aggrega Lockfile');
-    assert.strictEqual(created.options.cwd, '/workspace');
-    assert.strictEqual(created.terminal.shown, true);
-    // aggrega pull requires --release; the bare command would exit 1.
-    assert.deepStrictEqual(created.terminal.sentText, ['aggrega pull --release "envs/prod.yaml"']);
     assert.strictEqual(f.selectedReleaseReads, 0, 'the envelope named the Release; nothing to resolve');
   });
 
-  it('1003 toast click falls back to the selected Release when the envelope names no Release', async () => {
-    const f = makeContext({ toastResponse: 'Generate Lockfile', selectedRelease: 'envs/prod.yaml' });
-    handleDaemonError({ code: ERR_LOCKFILE_ABSENT, message: 'no lockfile' }, f.ctx);
-    await new Promise(resolve => setImmediate(resolve));
-    await new Promise(resolve => setImmediate(resolve));
-    await new Promise(resolve => setImmediate(resolve));
-    assert.strictEqual(f.terminalsCreated.length, 1);
-    const created = f.terminalsCreated[0];
-    assert.strictEqual(created.options.cwd, '/workspace');
-    assert.deepStrictEqual(created.terminal.sentText, ['aggrega pull --release "envs/prod.yaml"']);
+  it('a refusal the reader asked for is never held back, however recently the notice was shown', () => {
+    // Session mode with the notice already recorded is the strongest hold there
+    // is: a refusal nobody asked for would stay silent here until a restart.
+    const f = makeContext({ whoAsked: 'reader', toastDebounceMode: 'session' });
+    f.toastDebounce.set(ERR_LOCKFILE_ABSENT, true);
+    assert.strictEqual(handleDaemonError(REFUSAL, f.ctx), 'notified');
+    assert.strictEqual(handleDaemonError(REFUSAL, f.ctx), 'notified');
+    assert.deepStrictEqual(f.notices.map((n) => n.kind), ['error', 'error']);
+  });
+
+  it('a refusal the reader asked for is never held back inside the time window either', async () => {
+    const f = makeContext({
+      whoAsked: 'reader', toastDebounceMode: 'time', toastThrottleSeconds: 300, currentTime: 1_000_000,
+    });
+    handleDaemonError(REFUSAL, f.ctx);
+    await settle();
+    f.currentTime = 1_000_000 + 1000;
+    handleDaemonError(REFUSAL, f.ctx);
+    await settle();
+    assert.strictEqual(f.notices.length, 2, 'the second press, a second after the first, is answered too');
+  });
+
+  it('Pull runs the Pull operation for the Release the compiler named, not the selected one', async () => {
+    // The selection is deliberately a DIFFERENT Release: a workspace may hold
+    // several, and pulling any but the one the refusal is about would succeed
+    // while the refusal stood.
+    const f = makeContext({ whoAsked: 'reader', noticeResponse: 'Pull', selectedRelease: 'envs/staging.yaml' });
+    handleDaemonError(REFUSAL, f.ctx);
+    await settle();
+    assert.deepStrictEqual(f.pulls, ['envs/prod.yaml']);
+    assert.strictEqual(f.selectedReleaseReads, 0);
+  });
+
+  it('Pull falls back to the selected Release where the refusal names none', async () => {
+    const f = makeContext({ whoAsked: 'reader', noticeResponse: 'Pull', selectedRelease: 'envs/prod.yaml' });
+    handleDaemonError({ code: ERR_LOCKFILE_ABSENT, message: COMPILER_SENTENCE }, f.ctx);
+    await settle();
+    assert.deepStrictEqual(f.notices[0].message, `Aggrega: envs/prod.yaml has no lockfile. ${COMPILER_SENTENCE}`);
+    assert.deepStrictEqual(f.pulls, ['envs/prod.yaml']);
     assert.strictEqual(f.selectedReleaseReads, 1);
   });
 
-  it('1003 toast click falls back to the selected Release when the envelope carries an empty Release', async () => {
-    // An empty path is never a usable target — emitting --release "" would send a
-    // command that cannot succeed.
-    const f = makeContext({ toastResponse: 'Generate Lockfile', selectedRelease: 'envs/prod.yaml' });
-    handleDaemonError(
-      { code: ERR_LOCKFILE_ABSENT, message: 'no lockfile', data: { release: '' } },
-      f.ctx,
-    );
-    await new Promise(resolve => setImmediate(resolve));
-    await new Promise(resolve => setImmediate(resolve));
-    await new Promise(resolve => setImmediate(resolve));
-    assert.strictEqual(f.terminalsCreated.length, 1);
-    assert.deepStrictEqual(
-      f.terminalsCreated[0].terminal.sentText,
-      ['aggrega pull --release "envs/prod.yaml"'],
-    );
+  it('Pull falls back to the selected Release where the refusal names an empty one', async () => {
+    // An empty path names nothing, so it is never carried as the Release.
+    const f = makeContext({ whoAsked: 'reader', noticeResponse: 'Pull', selectedRelease: 'envs/prod.yaml' });
+    handleDaemonError({ code: ERR_LOCKFILE_ABSENT, message: COMPILER_SENTENCE, data: { release: '' } }, f.ctx);
+    await settle();
+    assert.deepStrictEqual(f.pulls, ['envs/prod.yaml']);
     assert.strictEqual(f.selectedReleaseReads, 1);
   });
 
-  it('1003 toast click with no Release selected opens no terminal', async () => {
-    const f = makeContext({ toastResponse: 'Generate Lockfile', selectedRelease: null });
-    handleDaemonError({ code: ERR_LOCKFILE_ABSENT, message: 'no lockfile' }, f.ctx);
-    await new Promise(resolve => setImmediate(resolve));
-    await new Promise(resolve => setImmediate(resolve));
-    await new Promise(resolve => setImmediate(resolve));
-    assert.strictEqual(f.terminalsCreated.length, 0);
+  it('with no Release named or selected, the notice says "the Release" and Pull is left to ask', async () => {
+    const f = makeContext({ whoAsked: 'reader', noticeResponse: 'Pull', selectedRelease: null });
+    handleDaemonError({ code: ERR_LOCKFILE_ABSENT, message: COMPILER_SENTENCE }, f.ctx);
+    await settle();
+    assert.strictEqual(f.notices[0].message, `Aggrega: the Release has no lockfile. ${COMPILER_SENTENCE}`);
+    // null is the Pull operation's own "the selected Release", which reports that
+    // none is selected and offers to select one, as the panel's button does.
+    assert.deepStrictEqual(f.pulls, [null]);
   });
 
-  it('1003 toast dismissal does not open a terminal', async () => {
-    const f = makeContext({ toastResponse: undefined });
-    handleDaemonError({ code: ERR_LOCKFILE_ABSENT, message: 'no lockfile' }, f.ctx);
-    await new Promise(resolve => setImmediate(resolve));
-    await new Promise(resolve => setImmediate(resolve));
-    assert.strictEqual(f.terminalsCreated.length, 0);
+  it('a notice closed without pressing Pull runs nothing', async () => {
+    const f = makeContext({ whoAsked: 'reader', noticeResponse: undefined });
+    handleDaemonError(REFUSAL, f.ctx);
+    await settle();
+    assert.deepStrictEqual(f.pulls, []);
+  });
+
+  it('the notice\'s action is the Commands panel\'s Pull, named as the panel names it', () => {
+    assert.strictEqual(LOCKFILE_PULL_ACTION, operationLabel('pull'));
+    assert.strictEqual(LOCKFILE_PULL_ACTION, 'Pull');
+  });
+
+  it('a refusal nobody asked for is the same notice, informational, and its channel line is the compiler\'s sentence', () => {
+    const f = makeContext({ whoAsked: 'nobody' });
+    const handled = handleDaemonError(REFUSAL, f.ctx);
+    assert.strictEqual(handled, 'notified');
+    assert.deepStrictEqual(f.notices, [{
+      kind: 'info',
+      message: lockfileNotice('envs/prod.yaml', COMPILER_SENTENCE),
+      items: ['Pull'],
+    }]);
+    assert.deepStrictEqual(f.logLines, [COMPILER_SENTENCE]);
+  });
+
+  it('a refusal nobody asked for is held back in session mode, leaving only the compiler\'s sentence', () => {
+    const f = makeContext({ whoAsked: 'nobody', toastDebounceMode: 'session' });
+    assert.strictEqual(handleDaemonError(REFUSAL, f.ctx), 'notified');
+    assert.strictEqual(handleDaemonError(REFUSAL, f.ctx), 'surfaced');
+    assert.strictEqual(f.notices.length, 1);
+    // The held-back one leaves exactly what the shown one left: nothing on the
+    // channel says whether a notice was shown.
+    assert.deepStrictEqual(f.logLines, [COMPILER_SENTENCE, COMPILER_SENTENCE]);
+  });
+
+  it('a notice the reader asked for holds back the same notice for a redraw nobody asked for', () => {
+    const asked = makeContext({ whoAsked: 'reader', toastDebounceMode: 'session' });
+    handleDaemonError(REFUSAL, asked.ctx);
+    const quiet = makeContext({ whoAsked: 'nobody', toastDebounceMode: 'session', toastDebounce: asked.toastDebounce });
+    assert.strictEqual(handleDaemonError(REFUSAL, quiet.ctx), 'surfaced');
+    assert.strictEqual(quiet.notices.length, 0);
+  });
+
+  it('no composed line carries the extension\'s own bookkeeping', async () => {
+    // Every path that composes a line a reader sees, for both callers and both
+    // readings of the settings, held back and shown.
+    const lines: string[] = [];
+    for (const whoAsked of ['reader', 'nobody'] as const) {
+      for (const toastDebounceMode of ['session', 'time'] as const) {
+        const f = makeContext({ whoAsked, toastDebounceMode, currentTime: 1_000_000 });
+        handleDaemonError(REFUSAL, f.ctx);
+        await settle();
+        f.currentTime = 1_000_000 + 1000;
+        handleDaemonError(REFUSAL, f.ctx);
+        handleDaemonError({ code: ERR_LOCKFILE_ABSENT, message: COMPILER_SENTENCE }, f.ctx);
+        lines.push(...f.logLines, ...f.notices.map((n) => n.message), ...f.notices.flatMap((n) => n.items));
+      }
+    }
+    assert.ok(lines.length > 0, 'nothing was composed, so the absence below would prove nothing');
+    assert.deepStrictEqual(lines.filter((l) => BOOKKEEPING.test(l)), []);
+    assert.deepStrictEqual(lines.filter((l) => l.includes('<release>')), []);
   });
 
   it('1005 logs to the output channel and produces no UI', () => {
@@ -308,9 +362,9 @@ describe('handleDaemonError', () => {
       { code: ERR_SHUTTING_DOWN, message: 'daemon shutting down' },
       f.ctx,
     );
-    assert.strictEqual(handled, true);
+    assert.strictEqual(handled, 'surfaced');
     assert.strictEqual(f.publishCalls.length, 0);
-    assert.strictEqual(f.toastCalls.length, 0);
+    assert.strictEqual(f.notices.length, 0);
     assert.ok(f.logLines.some(l => l.includes('[shutting down]')));
   });
 
@@ -322,70 +376,60 @@ describe('handleDaemonError', () => {
     assert.strictEqual(dedup.size, 0);
   });
 
-  it('time mode: fires first toast, suppresses within throttle, re-fires after expiry', async () => {
+  it('time mode: a refusal nobody asked for is shown, held back inside the window, and shown again after it', async () => {
     const f = makeContext({
+      whoAsked: 'nobody',
       toastDebounceMode: 'time',
       toastThrottleSeconds: 60,
       currentTime: 1_000_000,
     });
-    // First emission fires the toast.
-    handleDaemonError({ code: ERR_LOCKFILE_ABSENT, message: 'no lockfile' }, f.ctx);
-    await new Promise(resolve => setImmediate(resolve));
-    await new Promise(resolve => setImmediate(resolve));
-    assert.strictEqual(f.toastCalls.length, 1, 'first emission should fire toast');
+    handleDaemonError(REFUSAL, f.ctx);
+    await settle();
+    assert.strictEqual(f.notices.length, 1, 'the first is shown');
 
-    // Second emission immediately after Promise resolution — within
-    // the 60s window — is suppressed.
+    // Thirty seconds after the first closed, inside the 60 s window.
     f.currentTime = 1_000_000 + 30 * 1000;
-    handleDaemonError({ code: ERR_LOCKFILE_ABSENT, message: 'still no lockfile' }, f.ctx);
-    await new Promise(resolve => setImmediate(resolve));
-    assert.strictEqual(f.toastCalls.length, 1, 'within throttle should suppress');
+    assert.strictEqual(handleDaemonError(REFUSAL, f.ctx), 'surfaced');
+    await settle();
+    assert.strictEqual(f.notices.length, 1, 'inside the window it is held back');
 
-    // After the throttle expires, the toast re-fires.
+    // Past the window it is shown again.
     f.currentTime = 1_000_000 + 90 * 1000;
-    handleDaemonError({ code: ERR_LOCKFILE_ABSENT, message: 'still no lockfile' }, f.ctx);
-    await new Promise(resolve => setImmediate(resolve));
-    assert.strictEqual(f.toastCalls.length, 2, 'past throttle expiry should re-fire');
+    assert.strictEqual(handleDaemonError(REFUSAL, f.ctx), 'notified');
+    await settle();
+    assert.strictEqual(f.notices.length, 2, 'past the window it is shown again');
+    assert.deepStrictEqual(f.logLines, [COMPILER_SENTENCE, COMPILER_SENTENCE, COMPILER_SENTENCE]);
   });
 
-  it('time mode: each error code throttled independently', async () => {
+  it('time mode: the record is kept per code', async () => {
     const f = makeContext({
+      whoAsked: 'nobody',
       toastDebounceMode: 'time',
       toastThrottleSeconds: 60,
       currentTime: 1_000_000,
     });
-    // Fire 1003, then fire 1004 immediately — different codes, both
-    // surface. (1004 routes via the diagnostic path, not the toast
-    // path, so this assertion checks the model rather than the
-    // specific 1004 wire — by populating the debounce map for 1003
-    // and confirming a separate code isn't affected.)
-    handleDaemonError({ code: ERR_LOCKFILE_ABSENT, message: 'no lockfile' }, f.ctx);
-    await new Promise(resolve => setImmediate(resolve));
-    assert.strictEqual(f.toastCalls.length, 1);
-    // The 1003 entry is now in the debounce map; another 1003 within
-    // 60s would suppress. A different code's emission is unaffected
+    handleDaemonError(REFUSAL, f.ctx);
+    await settle();
+    assert.strictEqual(f.notices.length, 1);
+    // The 1003 entry is now in the map; a different code's record is untouched
     // because the map keys by code.
     assert.strictEqual(f.toastDebounce.has(ERR_LOCKFILE_ABSENT), true);
     assert.strictEqual(f.toastDebounce.has(RETIRED_RELEASE_NOT_RESOLVED), false);
   });
 
-  it('time mode: throttle window starts on Promise resolution, not on toast emission', async () => {
+  it('time mode: the window starts when the notice closes, not when it is raised', async () => {
     const f = makeContext({
+      whoAsked: 'nobody',
       toastDebounceMode: 'time',
       toastThrottleSeconds: 60,
       currentTime: 1_000_000,
     });
-    handleDaemonError({ code: ERR_LOCKFILE_ABSENT, message: 'no lockfile' }, f.ctx);
-    // The Promise has not yet resolved at this microtask boundary.
-    // Advance the clock and resolve.
+    handleDaemonError(REFUSAL, f.ctx);
+    // The notice has not closed at this microtask boundary. Advance the clock,
+    // then let it close.
     f.currentTime = 1_000_000 + 10 * 1000;
-    await new Promise(resolve => setImmediate(resolve));
-    await new Promise(resolve => setImmediate(resolve));
-    // The recorded timestamp should reflect the time AT resolution,
-    // not the time at emission. Within the throttle window from
-    // resolution time, a second emission suppresses.
-    const recorded = f.toastDebounce.get(ERR_LOCKFILE_ABSENT);
-    assert.strictEqual(recorded, 1_000_000 + 10 * 1000);
+    await settle();
+    assert.strictEqual(f.toastDebounce.get(ERR_LOCKFILE_ABSENT), 1_000_000 + 10 * 1000);
   });
 });
 

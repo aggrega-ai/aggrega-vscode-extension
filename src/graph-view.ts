@@ -21,7 +21,7 @@ import {
   readInsertion,
   refusesEntryShape,
 } from './attachment-edit';
-import { describeError } from './error-surfaces';
+import { DaemonErrorRouting, WhoAsked, describeError } from './error-surfaces';
 import { reportGraphFailure } from './graph-failure';
 import { RendersOnReady } from './readiness';
 import { CancellationSignal } from './cancellation';
@@ -87,16 +87,17 @@ export interface GraphDeps extends RendersOnReady {
   showsSensitiveValues(): boolean;
   // reportDaemonError routes a failed request's error envelope to the per-code
   // surfaces the extension already has for it — a diagnostic on the document
-  // the envelope names, or the toast that offers the remediating command — and
-  // reports whether it recognised the envelope.
+  // the envelope names, or the notice that offers the act resolving it — and
+  // reports what it did.
   //
   // A refusal reaching this view is about an authored document, and the
   // envelope carries which one plus, where the fault is attributable to a
   // single key, that key's span. Without this the payload would reach the
   // reader as one line of log text and the position it carries would be
   // discarded. fallbackPath is the document to attach a diagnostic to when the
-  // envelope names no artifact of its own.
-  reportDaemonError(err: unknown, fallbackPath: string): boolean;
+  // envelope names no artifact of its own; whoAsked is whether the reader asked
+  // for the drawing the refusal answers.
+  reportDaemonError(err: unknown, fallbackPath: string, whoAsked: WhoAsked): DaemonErrorRouting;
   output: vscode.OutputChannel;
 }
 
@@ -314,12 +315,13 @@ async function renderGraph(
     // per node, none of which the redaction touches, and a render that posts
     // nothing must leave no sites behind for an edit to act on.
     keepSites(attachmentSites(answer));
-    // Whether the reader asked for this drawing is one fact read at two moments
-    // rather than two answers. Here it decides whether a notice was shown; in
+    // Whether the reader asked for this drawing is one fact read at three moments
+    // rather than three answers. Here it decides whether a notice was shown; in
     // the panel it decides whether the drawing is framed afresh or left where
     // the reader put it, because a redraw nobody asked for must not move what
     // they are reading and one they pressed for is how they get the whole
-    // topology back.
+    // topology back; and on a refusal it decides whether the notice offering the
+    // way past it may be held back.
     void panel.webview.postMessage({ type: 'render', release, graph, asked: !opts.quiet });
   } catch (err) {
     // A redaction that cannot be performed lands here with the request
@@ -331,8 +333,9 @@ async function renderGraph(
     // words is decided in reportGraphFailure — over sinks, so those decisions
     // are assertable without an editor. This binds each sink to the panel and
     // the channel this render belongs to.
-    reportGraphFailure(err, release, {
-      reportDaemonError: (thrown, fallbackPath) => deps.reportDaemonError(thrown, fallbackPath),
+    const whoAsked: WhoAsked = opts.quiet ? 'nobody' : 'reader';
+    reportGraphFailure(err, release, whoAsked, {
+      reportDaemonError: (thrown, fallbackPath, asker) => deps.reportDaemonError(thrown, fallbackPath, asker),
       logLine: (line) => { deps.output.appendLine(line); },
       notifyPanel: (message) => {
         void panel.webview.postMessage({ type: 'error', release, message });

@@ -353,6 +353,17 @@ export function commandsPanelOperations(): OperationDef[] {
   return OPERATION_GROUPS.flatMap((group) => group.operations);
 }
 
+// operationLabel reports the label a Commands panel operation is drawn with, so a
+// surface that offers the same operation somewhere else — a notification's action,
+// say — names it in the panel's words and follows the panel when they change.
+export function operationLabel(id: OperationId): string {
+  const op = commandsPanelOperations().find((o) => o.id === id);
+  if (op === undefined) {
+    throw new Error(`the Commands panel draws no operation ${id}`);
+  }
+  return op.label;
+}
+
 // allPanelActions flattens every list panel's head, in the container's panel
 // order and then each panel's own.
 export function allPanelActions(): PanelActionDef[] {

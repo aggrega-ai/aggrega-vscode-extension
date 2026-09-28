@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cognitio S.r.l.
 
-import { describeError } from './error-surfaces';
+import { DaemonErrorRouting, WhoAsked, describeError } from './error-surfaces';
 
 // GraphFailureSinks are the surfaces a failed graph render reports on.
 // Injecting them is what keeps the decisions — which surfaces are written, in
@@ -10,10 +10,11 @@ import { describeError } from './error-surfaces';
 export interface GraphFailureSinks {
   // reportDaemonError routes the error envelope to the per-code surfaces the
   // extension already has for it — a diagnostic on the document the envelope
-  // names, or the toast that offers the remediating command — and reports
-  // whether it recognised the envelope. fallbackPath is the document to attach
-  // a diagnostic to when the envelope names no artifact of its own.
-  reportDaemonError(err: unknown, fallbackPath: string): boolean;
+  // names, or the notice that offers the act resolving it — and reports what it
+  // did. fallbackPath is the document to attach a diagnostic to when the
+  // envelope names no artifact of its own; whoAsked is whether the reader asked
+  // for this drawing.
+  reportDaemonError(err: unknown, fallbackPath: string, whoAsked: WhoAsked): DaemonErrorRouting;
   // logLine appends one line to the channel that keeps this view's failures
   // after the panel is closed.
   logLine(line: string): void;
@@ -39,12 +40,18 @@ export interface GraphFailureSinks {
 // knows about Error renders it as an object with no text at all — destroying the
 // reason the compiler wrote, which is usually the sentence naming what the
 // reader has to change.
+//
+// whoAsked is 'reader' for a drawing the reader asked for and 'nobody' for the
+// quiet redraw that follows a save, and it is passed through to the routing
+// unread: whether a notice about the refusal may be held back is decided there,
+// and only there.
 export function reportGraphFailure(
   err: unknown,
   release: string,
+  whoAsked: WhoAsked,
   sinks: GraphFailureSinks,
 ): void {
-  sinks.reportDaemonError(err, release);
+  sinks.reportDaemonError(err, release, whoAsked);
   const message = describeError(err);
   sinks.logLine(`irGraph failed for ${release}: ${message}`);
   sinks.notifyPanel(message);
