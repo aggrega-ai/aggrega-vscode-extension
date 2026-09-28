@@ -30,6 +30,15 @@ import type { TimerLike } from './binary-restart';
 // since it can rename an entity or change its kind, and a burst of them — a
 // checkout, a copy of several files — is one read of the list.
 //
+// A document the editor closes asks for that read too, and for nothing else. The
+// editor tells the language server to drop the text it sent for the document,
+// after which the compiler reads that file as it stands on disk; until then the
+// list reports the text — an unsaved rename, or a file deleted on disk whose
+// text was sent again after its deletion was followed. The read waits for that
+// drop exactly as it waits for a watcher's, and it is the same read: one count
+// holds both, so a close inside a burst on disk is still one read, after the
+// last drop of either. A close changes nothing on disk, so it redraws no graph.
+//
 // A lockfile also asks for what it alone feeds:
 //
 // - the open documents are validated again, because validation reads its pins
@@ -105,6 +114,11 @@ export interface DiskChangeDeps {
   // has changed on disk. It settles once the server has answered, by when the
   // file's entry is dropped, or once the request has failed.
   invalidate(file: string): Promise<void>;
+  // invalidateClosed tells the language server that the editor has closed a
+  // document, so it drops what it holds for that one file — the text the editor
+  // sent and the findings computed from it — and keeps what it holds for the
+  // rest of the workspace. It settles as invalidate does.
+  invalidateClosed(file: string): Promise<void>;
   // redraw redraws an open topology graph, and does nothing where none is open.
   redraw(): void;
   // refreshCatalog has the Catalog panel read its list again.
@@ -161,20 +175,35 @@ function selectedLockfileOf(deps: DiskChangeDeps): { release: string; lockfile: 
   return { release, lockfile };
 }
 
-// createDiskChangeHandler builds what the on-disk watcher calls with the path of
-// every file it reports.
+// DiskChangeHandler is what the editor's side calls with each file whose content,
+// as the compiler reads it, is no longer what it was.
+export interface DiskChangeHandler {
+  // changedOnDisk takes the path of every file the on-disk watcher reports.
+  changedOnDisk(file: string): void;
+  // documentClosed takes the path of every YAML document the editor closes.
+  documentClosed(file: string): void;
+}
+
+// settledEither settles when invalidation does, answered or refused alike.
+function settledEither(invalidation: Promise<void>): Promise<void> {
+  return invalidation.then(() => undefined, () => undefined);
+}
+
+// createDiskChangeHandler builds what the on-disk watcher and the close of a
+// document call.
 //
-// The invalidation and the redraw run on every event, for a lockfile exactly as
-// for a document, and the redraw collapses a burst of its own. What follows a
-// lockfile waits for the burst to end, for the same reason the redraw does — one
-// pull can reach the disk as more than one write, and it is one change — and it
-// reads the state again when it runs rather than when the first write arrived:
-// the selection may have moved, and a panel may have opened, closed or been
-// shown another Release.
+// The invalidation and the redraw run on every event on disk, for a lockfile
+// exactly as for a document, and the redraw collapses a burst of its own. What
+// follows a lockfile waits for the burst to end, for the same reason the redraw
+// does — one pull can reach the disk as more than one write, and it is one
+// change — and it reads the state again when it runs rather than when the first
+// write arrived: the selection may have moved, and a panel may have opened,
+// closed or been shown another Release.
 //
 // The Catalog panel's list is read again once every invalidation sent for a
-// document has settled and the window has passed with no document reported
-// since, so a burst is one read and that read follows the last drop of it.
+// document — reported on disk or closed in the editor — has settled and the
+// window has passed with no document reported or closed since, so a burst is one
+// read and that read follows the last drop of it.
 //
 // 🔴 A FAILED INVALIDATION SETTLES AS AN ANSWERED ONE DOES. The list read after
 // it is no worse than no read at all: at most it reports that one file as the
@@ -184,7 +213,7 @@ function selectedLockfileOf(deps: DiskChangeDeps): { release: string; lockfile: 
 // leave the count above zero, and the panel would follow the disk no more. The
 // same holds for a request left in flight: the editor's client settles every
 // request still waiting when its server stops, restarts or exits.
-export function createDiskChangeHandler(deps: DiskChangeDeps): (file: string) => void {
+export function createDiskChangeHandler(deps: DiskChangeDeps): DiskChangeHandler {
   let pending: unknown;
   // unsettled counts the invalidations sent for documents that have not yet
   // settled, and catalogPending is the read of the list waiting out the window.
@@ -210,23 +239,34 @@ export function createDiskChangeHandler(deps: DiskChangeDeps): (file: string) =>
       deps.refreshCatalog();
     }, deps.settleMs());
   };
-  return (file: string): void => {
-    const kind = diskChangeKind(file, selectedLockfileOf(deps)?.lockfile ?? null);
-    if (kind === null) { return; }
-    // Both outcomes are taken, so a refused request is never left unhandled,
-    // whichever kind of file it was sent for.
-    const settled = deps.invalidate(file).then(() => undefined, () => undefined);
-    deps.redraw();
-    if (kind === 'document') {
-      unsettled++;
-      holdCatalog();
-      void settled.then(documentSettled);
-      return;
-    }
-    if (pending !== undefined) { deps.timer.clearTimeout(pending); }
-    pending = deps.timer.setTimeout(() => {
-      pending = undefined;
-      followLockfile(file);
-    }, deps.settleMs());
+  // readListAfter counts one document's invalidation until it settles, and holds
+  // back a read already waiting out the window. Both kinds of trigger come through
+  // here, which is what makes them one read.
+  const readListAfter = (settled: Promise<void>): void => {
+    unsettled++;
+    holdCatalog();
+    void settled.then(documentSettled);
+  };
+  return {
+    changedOnDisk: (file: string): void => {
+      const kind = diskChangeKind(file, selectedLockfileOf(deps)?.lockfile ?? null);
+      if (kind === null) { return; }
+      // Both outcomes are taken, so a refused request is never left unhandled,
+      // whichever kind of file it was sent for.
+      const settled = settledEither(deps.invalidate(file));
+      deps.redraw();
+      if (kind === 'document') {
+        readListAfter(settled);
+        return;
+      }
+      if (pending !== undefined) { deps.timer.clearTimeout(pending); }
+      pending = deps.timer.setTimeout(() => {
+        pending = undefined;
+        followLockfile(file);
+      }, deps.settleMs());
+    },
+    documentClosed: (file: string): void => {
+      readListAfter(settledEither(deps.invalidateClosed(file)));
+    },
   };
 }

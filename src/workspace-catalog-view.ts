@@ -223,9 +223,9 @@ export function activateWorkspaceCatalogView(
   // server can answer, so its first render honestly reports one of those two
   // states. Re-asking when the compiler becomes answerable is what supersedes
   // that row without the reader doing anything, and a document created, changed
-  // or deleted on disk has it re-asked through the view returned below; the
-  // refresh command stays an override a reader may press, rather than the way to
-  // obtain correct data the first time.
+  // or deleted on disk, or closed in the editor, has it re-asked through the view
+  // returned below; the refresh command stays an override a reader may press,
+  // rather than the way to obtain correct data the first time.
   deps.onReady(() => catalog.refresh());
   context.subscriptions.push(
     vscode.window.registerTreeDataProvider('aggrega.workspaceCatalog', catalog),

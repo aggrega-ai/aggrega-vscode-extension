@@ -178,8 +178,8 @@ export const PLANTS: readonly Plant[] = [
   },
   {
     name: 'deleted-file-not-followed', scenario: 'storefront', checks: ['catalog-view.deleted-entity-row-leaves-at-once'], moves: 'red', target: 'extension',
-    file: 'out/src/disk-change.js', find: '    watcher.onDidDelete(reported);\n', replace: '',
-    says: 'the on-disk watcher no longer reports a deleted file, so the Catalog view keeps a row for a document that is gone until its refresh is pressed',
+    file: 'out/src/disk-change.js', find: '            deps.refreshCatalog();\n', replace: '',
+    says: 'the Catalog view no longer reads its list again once the language server has dropped a document, whether the file was deleted on disk or closed in the editor, so it keeps a row for a document that is gone until its refresh is pressed',
   },
   {
     name: 'validation-says-nothing', scenario: 'storefront', checks: ['operations.validate-ends-in-a-sentence'], moves: 'red', target: 'extension',

@@ -54,7 +54,7 @@ import {
   publishDiagnostics,
   publishShapes,
 } from './diagnostics';
-import { ON_DISK_PATTERN, createDiskChangeHandler, subscribeToWatcher } from './disk-change';
+import { DiskChangeHandler, ON_DISK_PATTERN, createDiskChangeHandler, subscribeToWatcher } from './disk-change';
 import { DIAGNOSTIC_SOURCE_FALLBACK } from './diagnostics-shape';
 import {
   describeError,
@@ -296,8 +296,9 @@ let extensionContext: vscode.ExtensionContext | null = null;
 let lateInitDone = false;
 let releaseStatus: ReleaseStatus | null = null;
 let graphView: GraphView | null = null;
-// workspaceCatalogView is the Catalog panel, held so the on-disk watcher can have
-// it read its list again when a document is created, changed or deleted there.
+// workspaceCatalogView is the Catalog panel, held so it can be told to read its
+// list again when a document is created, changed or deleted on disk, or closed in
+// the editor.
 let workspaceCatalogView: WorkspaceCatalogView | null = null;
 let lintRunner: LintRunner | null = null;
 // releaseSelection is the editor's one answer to "which Release are we talking
@@ -1341,8 +1342,7 @@ async function ensureDaemonAt(
     );
     registerDocumentLifecycle(context);
     registerLanguageFeatures(context);
-    registerFileWatcher(context);
-    registerCloseHandler(context);
+    registerCloseHandler(context, registerFileWatcher(context));
     lateInitDone = true;
   }
 
@@ -1798,16 +1798,18 @@ function registerDocumentLifecycle(context: vscode.ExtensionContext): void {
   }
 }
 
-function registerCloseHandler(context: vscode.ExtensionContext): void {
-  // On document close: clear the per-URI diagnostic-collection entry
-  // synchronously so squiggles disappear immediately; then
-  // fire-and-forget aggrega/invalidate with granularity: "file" to
-  // drop the daemon's per-file parse + diagnostic caches. The two
-  // operations are independent — the local clear precedes the daemon
-  // call so UX latency is bounded by VS Code's own dispatch. A
-  // missed invalidate is harmless: the daemon's cache stays slightly
-  // populated; the next aggrega/validate refreshes the entry via
-  // mtime-on-access eviction.
+// registerCloseHandler wires the editor closing a YAML document. The document's
+// findings are cleared first, and synchronously, so they leave with it whatever
+// the language server does next. The document then goes to disk-change.ts, which
+// has the language server drop what it holds for that one file and the Catalog
+// panel read its list again once that drop is answered — the same read the
+// on-disk watcher asks for, so a close and a change on disk that overlap are one
+// read, after both drops.
+//
+// The editor closes a document when it disposes of it or gives it another
+// language, and it does not promise to do so at the moment the document's tab
+// closes; the list is read after the close the editor reports.
+function registerCloseHandler(context: vscode.ExtensionContext, disk: DiskChangeHandler): void {
   context.subscriptions.push(
     vscode.workspace.onDidCloseTextDocument(doc => {
       if (doc.languageId !== 'yaml') { return; }
@@ -1815,12 +1817,7 @@ function registerCloseHandler(context: vscode.ExtensionContext): void {
         clearUriInEverySource(diagnosticCollections, doc.uri);
       }
       if (!daemon) { return; }
-      daemon.request('aggrega/invalidate', {
-        file: doc.uri.fsPath,
-        granularity: 'file',
-      }).catch(err => {
-        outputChannel?.appendLine(`invalidate (didClose) failed: ${describeError(err)}`);
-      });
+      disk.documentClosed(doc.uri.fsPath);
     }),
   );
 }
@@ -1900,6 +1897,12 @@ function registerLanguageFeatures(context: vscode.ExtensionContext): void {
 // What each event asks for is decided in disk-change.ts; what is here is the
 // editor's side of each.
 //
+// It returns the handler it built, and the close of a document is handed the same
+// one: the Catalog panel's read after a close waits on the close's drop in the
+// count the watcher's reads wait in, so there is one read of the list and one
+// place deciding when it happens. A close redraws nothing, since it changes
+// nothing on disk.
+//
 // 🔴 THE GRAPH IS REDRAWN FROM HERE AND FROM NOWHERE ELSE, and disk is the right
 // coordinate rather than the buffer. A graph request names a Release and carries
 // no text, so the compiler builds it from the documents as they stand on disk and
@@ -1913,12 +1916,12 @@ function registerLanguageFeatures(context: vscode.ExtensionContext): void {
 // The calls share one handler because they answer to one fact. Splitting them
 // would let a later change tell the compiler its cache is stale while leaving the
 // panel showing a topology built from the entry that was just dropped.
-function registerFileWatcher(context: vscode.ExtensionContext): void {
+function registerFileWatcher(context: vscode.ExtensionContext): DiskChangeHandler {
   const watcher = vscode.workspace.createFileSystemWatcher(ON_DISK_PATTERN);
   const redraw = (): void => {
     refreshGraphView();
   };
-  const changedOnDisk = createDiskChangeHandler({
+  const disk = createDiskChangeHandler({
     // Settled either way: what waits on the answer waits on a refusal too, and
     // the refusal is kept in the output channel.
     invalidate: (file) => {
@@ -1926,6 +1929,16 @@ function registerFileWatcher(context: vscode.ExtensionContext): void {
       if (!client) { return Promise.resolve(); }
       return client.request<unknown>('aggrega/invalidate', { file }).then(() => undefined, err => {
         outputChannel?.appendLine(`invalidate failed: ${describeError(err)}`);
+      });
+    },
+    // The file granularity drops that one file's entries and keeps the
+    // compiler's catalog for the workspace, which a closed document leaves as it
+    // was on disk.
+    invalidateClosed: (file) => {
+      const client = daemon;
+      if (!client) { return Promise.resolve(); }
+      return client.request<unknown>('aggrega/invalidate', { file, granularity: 'file' }).then(() => undefined, err => {
+        outputChannel?.appendLine(`invalidate (didClose) failed: ${describeError(err)}`);
       });
     },
     redraw,
@@ -1945,9 +1958,10 @@ function registerFileWatcher(context: vscode.ExtensionContext): void {
   });
   subscribeToWatcher(watcher, (file) => {
     if (!daemon) { return; }
-    changedOnDisk(file);
+    disk.changedOnDisk(file);
   });
   context.subscriptions.push(watcher);
+  return disk;
 }
 
 // registerBuildOnInspectToggle exposes the toggle in the command palette. The
