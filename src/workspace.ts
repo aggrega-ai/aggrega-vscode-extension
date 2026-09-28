@@ -307,6 +307,17 @@ export function toWorkspaceRelative(workspaceRoot: string, releasePath: string):
   return path.relative(workspaceRoot, releasePath);
 }
 
+// fromWorkspaceRelative is the other direction: a path the daemon reported,
+// resolved to the absolute path the editor opens.
+//
+// The daemon names a document inside the workspace relative to the root, and
+// one outside it by its absolute path, so a value read off an answer is either.
+// A relative one resolves against the anchored root; an absolute one is already
+// complete and is returned unchanged.
+export function fromWorkspaceRelative(workspaceRoot: string, reported: string): string {
+  return path.isAbsolute(reported) ? reported : path.join(workspaceRoot, reported);
+}
+
 // relativeIfInside is the containment judgement the workspace-relative request
 // parameters on this surface share: it answers with the workspace-relative form
 // of target when target names somewhere inside the root, and null when it does

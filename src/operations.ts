@@ -63,6 +63,7 @@ import {
   withdrawalOpeningLine,
 } from './publication-request';
 import { makeNonce } from './html';
+import { inspectEntity } from './inspection';
 import { outcomeOf } from './operation-outcome';
 import { openDocument } from './open-document';
 import {
@@ -1642,7 +1643,8 @@ export async function runScaffold(
 //
 // chosen is the entity a reader already named in the menu beside the control.
 // Where it is absent the chooser is opened here, which is the path a command
-// invoked from the editor's own index takes.
+// invoked from the editor's own index takes. The inspection itself, and the way
+// it ends, is the one every surface offering an inspection reaches.
 async function runInspect(
   deps: OperationDeps,
   chosen: EntitySubject | null,
@@ -1653,18 +1655,7 @@ async function runInspect(
     'Aggrega: choose the entity to inspect',
   );
   if (!subject) { return; }
-
-  // The resolution runs over the catalog, so it is watched and can be stopped
-  // on the same terms as every other operation that walks one.
-  try {
-    const result = await withCancellableProgress(
-      `Aggrega: inspecting ${subject.name}`,
-      (signal) => deps.entityDefinition(subject.name, signal),
-    );
-    await openDocument(JSON.stringify(result, null, 2), 'json');
-  } catch (err) {
-    await reportDaemonFailure(deps, err, 'The inspection');
-  }
+  await inspectEntity(deps, subject.name);
 }
 
 // The configuration is reported by the surface generated from its schema, which

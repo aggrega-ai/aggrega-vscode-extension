@@ -148,6 +148,7 @@ import {
   AnchoredFolder,
   NO_ANCHORED_WORKSPACE_MESSAGE,
   findAllAnchoredFolders,
+  fromWorkspaceRelative,
   outputParentFor,
   windowAnchoring,
   workspacesReachedFromAll,
@@ -2373,9 +2374,7 @@ function reportDaemonError(err: unknown, fallbackPath: string): boolean {
   if (!named) {
     return false;
   }
-  const absolute = path.isAbsolute(named)
-    ? named
-    : path.join(workspaceRootForCommands, named);
+  const absolute = fromWorkspaceRelative(workspaceRootForCommands, named);
   const ctx = buildErrorContext(vscode.Uri.file(absolute));
   return ctx !== null && handleDaemonError(err, ctx);
 }

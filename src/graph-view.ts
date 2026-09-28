@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cognitio S.r.l.
 
-import * as path from 'path';
 import * as vscode from 'vscode';
 import { GraphRedactor, createGraphRedactor } from './graph-payload';
 import { makeGraphMessageHandler } from './graph-messages';
@@ -27,7 +26,7 @@ import { reportGraphFailure } from './graph-failure';
 import { RendersOnReady } from './readiness';
 import { CancellationSignal } from './cancellation';
 import { withCancellableProgress } from './progress';
-import { NO_ANCHORED_WORKSPACE_MESSAGE } from './workspace';
+import { NO_ANCHORED_WORKSPACE_MESSAGE, fromWorkspaceRelative } from './workspace';
 
 // GraphDeps supplies the live state the graph view needs without importing
 // extension.ts (which would form an import cycle): the anchored workspace root
@@ -476,10 +475,7 @@ async function attachFeature(
     }
     // The answer names the document workspace-relative, as every other
     // per-document answer does.
-    const target = path.isAbsolute(insertion.file)
-      ? insertion.file
-      : path.join(root, insertion.file);
-    const uri = vscode.Uri.file(target);
+    const uri = vscode.Uri.file(fromWorkspaceRelative(root, insertion.file));
     const doc = await vscode.workspace.openTextDocument(uri);
 
     // The units the reported offset is measured in are read off the answer,
@@ -549,9 +545,10 @@ function postAttachOutcome(
 // openSource opens the node's authoring file. The IR carries workspace-relative
 // paths, so the click resolves against the anchored root.
 async function openSource(workspaceRoot: string, sourceFile: string): Promise<void> {
-  const abs = path.isAbsolute(sourceFile) ? sourceFile : path.join(workspaceRoot, sourceFile);
   try {
-    const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(abs));
+    const doc = await vscode.workspace.openTextDocument(
+      vscode.Uri.file(fromWorkspaceRelative(workspaceRoot, sourceFile)),
+    );
     await vscode.window.showTextDocument(doc, { preview: true });
   } catch {
     void vscode.window.showWarningMessage(`Aggrega: cannot open ${sourceFile}.`);

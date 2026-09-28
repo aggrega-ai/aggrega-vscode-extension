@@ -22,8 +22,7 @@ import {
   publicationOpeningLine,
   runPublishEntity,
 } from './publication-request';
-import { outcomeOf } from './operation-outcome';
-import { openDocument } from './open-document';
+import { inspectEntity } from './inspection';
 import { withCancellableProgress } from './progress';
 import { RendersOnReady } from './readiness';
 
@@ -226,19 +225,10 @@ export function activateWorkspaceCatalogView(
     // name whether or not this workspace holds the document that declares it.
     // It reads and changes nothing, which is why it is also the entry given the
     // inline slot — the row affordance a reader reaches without opening a menu.
+    // It is the same inspection the Commands panel runs, ending the same way.
     vscode.commands.registerCommand(
       'aggrega.workspaceCatalog.inspect',
-      (node?: WorkspaceCatalogNode) => onName(node, async (name) => {
-        try {
-          const result = await withCancellableProgress(
-            `Aggrega: inspecting ${name}`,
-            (signal) => deps.entityDefinition(name, signal),
-          );
-          await openDocument(JSON.stringify(result, null, 2), 'json');
-        } catch (err) {
-          await reportOutcome(deps, 'The inspection', outcomeOf(err), true);
-        }
-      }),
+      (node?: WorkspaceCatalogNode) => onName(node, (name) => inspectEntity(deps, name)),
     ),
 
     // The two checks answer "what is wrong with this entity", and each has a
