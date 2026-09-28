@@ -128,8 +128,45 @@ export const ShutdownNarration = {
   forcedTermination: 'the daemon did not stop; forcing termination',
 } as const;
 
-// RespawnTracker counts unexpected exits within a sliding window
-// and reports whether a fresh respawn attempt is permitted.
+// RespawnNarration is what the client writes to the output channel while it
+// supervises a language server that ended without being asked to: that it
+// ended and how, each restart and where it stands against the bound, a restart
+// that did not come up and why, and that the server is left stopped once the
+// bound is spent. A reader looking at the channel after a crash reads what
+// happened in these words, and the notification raised at the end is the only
+// other thing they are shown.
+//
+// It is the single home for those lines, exported for the reason
+// ShutdownNarration is: a test reads the sequence back against these words
+// rather than against a copy of them.
+export const RespawnNarration = {
+  // The server ended while nothing had asked it to.
+  ended: (code: number | null, signal: NodeJS.Signals | null): string =>
+    `the language server stopped unexpectedly: ${exitWords(code, signal)}`,
+  // It is started again; `made` counts this restart among those made within
+  // the window.
+  restarting: (made: number, limit: number, windowSeconds: number): string =>
+    `starting the language server again: restart ${made} of ${limit} allowed within ${windowSeconds} seconds`,
+  // A server started again ended, or failed, before it answered.
+  restartFailed: (reason: string): string =>
+    `the language server started again did not come up: ${reason}`,
+  // The bound is spent, so nothing starts the server again by itself.
+  boundSpent: (limit: number, windowSeconds: number): string =>
+    `not starting the language server again: it has been started again ${limit} ${limit === 1 ? 'time' : 'times'} within ${windowSeconds} seconds, as many as aggrega.server.respawnAttempts allows`,
+} as const;
+
+// exitWords says how a subprocess ended, in the terms the operating system
+// reported it.
+function exitWords(code: number | null, signal: NodeJS.Signals | null): string {
+  if (signal !== null) { return `it was ended by ${signal}`; }
+  if (code !== null) { return `it exited with code ${code}`; }
+  return 'it exited';
+}
+
+// RespawnTracker counts the respawns made within a sliding window and reports
+// whether one more is permitted. A respawn is recorded when it is made, and the
+// limit is tested before making it, so a limit of N permits N respawns within
+// the window — which is what the respawn setting states.
 export class RespawnTracker {
   private attempts: number[] = [];
 
@@ -191,7 +228,12 @@ interface QueuedRequest {
 // DaemonEvents documents the events emitted by Daemon.
 export interface DaemonEvents {
   stateChange: (next: DaemonState, prev: DaemonState) => void;
+  // Raised once the respawn bound is spent: the server has ended unasked after
+  // as many respawns within the window as the bound allows, so nothing starts
+  // it again by itself.
   stoppedResponding: () => void;
+  // Raised for every end nobody asked for, whether the server was running or
+  // still in its handshake.
   unexpectedExit: (code: number | null, signal: NodeJS.Signals | null) => void;
 }
 
@@ -220,6 +262,12 @@ export class Daemon extends EventEmitter {
   // Whether the most recent attempt to start a subprocess ended in failure.
   // lastStartFailed says what it covers and when it moves.
   private startFailed = false;
+  // generation advances with every stop and restart asked of this client. An
+  // attempt to start, and a run of automatic restarts, each remember the
+  // generation they began in, and one that ends after it has moved was
+  // superseded by the act that moved it: that act owns the teardown and the
+  // position that follows, so the superseded work counts and reports nothing.
+  private generation = 0;
 
   constructor(
     private settings: Settings,
@@ -263,14 +311,16 @@ export class Daemon extends EventEmitter {
   // CALLER CATCHES ONE. A start is attempted from three places — the first
   // start, a restart, and the respawn after an unexpected exit — and all three
   // run the one spawn-and-handshake below. The respawn's failure is caught inside
-  // this class and only logged, so a record kept by the callers that catch would
-  // miss exactly the attempt no caller hears about.
+  // this class, where it leads to another respawn or to the stopped-responding
+  // event, so a record kept by the callers that catch would miss exactly the
+  // attempt no caller hears about.
   //
   // It is cleared when an attempt begins rather than when one succeeds, so it
-  // answers for the MOST RECENT attempt: an attempt abandoned by a deliberate
-  // stop did not fail, and a server that reached Running cleared it on the way
-  // there. It is set before the state leaves Starting, so a listener told of
-  // the next position already reads it.
+  // answers for the MOST RECENT attempt, and a server that reached Running
+  // cleared it on the way there. An attempt abandoned by a deliberate stop or
+  // restart did not fail and is not recorded as having failed. It is set before
+  // the state leaves Starting, so a listener told of the next position already
+  // reads it.
   lastStartFailed(): boolean {
     return this.startFailed;
   }
@@ -327,6 +377,7 @@ export class Daemon extends EventEmitter {
   }
 
   async stop(): Promise<void> {
+    this.generation++;
     if (this.state === DaemonState.Stopped) {
       return;
     }
@@ -336,7 +387,11 @@ export class Daemon extends EventEmitter {
     this.setState(DaemonState.Stopped);
   }
 
+  // restart replaces the subprocess with a fresh one. It is asked for, so the
+  // end of the subprocess it replaces is not counted against the respawn bound,
+  // and the count starts again from nothing.
   async restart(): Promise<void> {
+    this.generation++;
     this.setState(DaemonState.Restarting);
     this.rejectPending(new Error('daemon restarted'));
     await this.terminateSubprocess();
@@ -460,7 +515,15 @@ export class Daemon extends EventEmitter {
     );
   }
 
+  // spawnAndInitialize is the one attempt to start a subprocess, and the one
+  // place its outcome is decided: it resolves with the server Running, or it
+  // rejects, having recorded the failure and settled the position — except
+  // where a stop or restart asked for meanwhile ended it, which owns both.
+  // What follows a failure is the caller's: the automatic restart counts it and
+  // tries again while the bound allows, and a start or restart someone awaits
+  // reports it to them.
   private async spawnAndInitialize(): Promise<void> {
+    const generation = this.generation;
     this.startFailed = false;
     this.setState(DaemonState.Starting);
     const launching = this.settings.binaryPath;
@@ -485,20 +548,28 @@ export class Daemon extends EventEmitter {
     try {
       await this.initializeHandshake();
     } catch (err) {
+      // A stop or restart asked for while the handshake was open is what ended
+      // it. The attempt did not fail, and the act that ended it owns the
+      // teardown and the position after it.
+      if (generation !== this.generation) {
+        throw err;
+      }
       this.startFailed = true;
       this.log(`initialize failed: ${(err as Error).message}; falling back to UTF-16`);
       this.serverEncoding = 'utf-16';
       // Move to Stopping before killing the child so its 'exit' event is
-      // absorbed by handleExit's deliberate-teardown guard rather than
-      // treated as an unexpected exit. Without this the SIGTERM/SIGKILL
-      // below would fire handleExit while state was still Starting/Stopped,
-      // which respawns immediately — each respawn re-pays startup and can
-      // storm. The attempt is recorded once here so the caller-driven retry
-      // still honors the RespawnTracker backoff.
+      // absorbed by handleExit's deliberate-teardown guard as the teardown it
+      // is, rather than reported as a server that ended unasked. Nothing is
+      // counted against the respawn bound here: the automatic restart that
+      // awaits this attempt counts it, once, where it decides what follows.
       this.setState(DaemonState.Stopping);
       await this.terminateSubprocess();
-      this.respawnTracker.recordAttempt();
-      this.setState(DaemonState.Stopped);
+      // A stop or restart asked for during the teardown owns the position after
+      // it, and a restart may already have started the next attempt, whose
+      // position this must not overwrite.
+      if (generation === this.generation) {
+        this.setState(DaemonState.Stopped);
+      }
       throw err;
     }
     this.setState(DaemonState.Running);
@@ -697,32 +768,74 @@ export class Daemon extends EventEmitter {
   // re-thrown as an uncaught exception that crashes the host process. This
   // handler is the listener: it rejects every in-flight and queued request
   // with the concrete spawn error so an awaiting initialize handshake fails
-  // fast with a clear cause rather than hanging to its timeout, and it does
-  // not respawn (a missing or unexecutable binary would respawn-loop). State
-  // settles through the awaiting spawnAndInitialize's failure path; a stray
-  // error after the daemon is already stopping is a no-op beyond clearing
-  // pending work.
+  // fast with a clear cause rather than hanging to its timeout, and it starts
+  // nothing itself. State settles through the awaiting spawnAndInitialize's
+  // failure path, and whatever follows is that attempt's caller's: an automatic
+  // restart that cannot spawn is counted like any other that did not come up,
+  // so a missing or unexecutable binary ends at the respawn bound rather than
+  // looping. A stray error after the daemon is already stopping is a no-op
+  // beyond clearing pending work.
   private handleSpawnError(err: Error): void {
     this.log(`subprocess error: ${err.message}`);
     this.rejectPending(err);
   }
 
+  // handleExit handles the subprocess 'exit' event.
+  //
+  // 🔴 AN EXIT HAS ONE OWNER. An exit during a teardown this client made is
+  // that teardown's. An exit while an attempt is still in its handshake is that
+  // attempt's: the rejection below fails the handshake, and the attempt's caller
+  // decides what follows — so nothing is started from here, since a second
+  // attempt started beside the failing one would be torn down by that attempt's
+  // own failure path and left waiting on a handshake nobody answers. Only an exit
+  // of a server that was running is supervised from here.
   private handleExit(code: number | null, signal: NodeJS.Signals | null): void {
     this.proc = null;
     if (this.state === DaemonState.Stopping || this.state === DaemonState.Restarting) {
       return;
     }
+    this.log(RespawnNarration.ended(code, signal));
     this.rejectPending(new Error(`daemon exited (code=${code}, signal=${signal})`));
     this.emit('unexpectedExit', code, signal);
-    this.respawnTracker.recordAttempt();
+    if (this.state === DaemonState.Starting) {
+      return;
+    }
+    this.respawn();
+  }
+
+  // respawn starts a fresh subprocess after one ended without being asked to,
+  // while the respawn bound allows, and once it is spent leaves the client
+  // stopped and raises stoppedResponding.
+  //
+  // 🔴 EVERY END IS COUNTED THE SAME WAY, WHENEVER IT COMES. A server started
+  // again that ends before it answers — as it starts, or during its handshake —
+  // fails the attempt that started it, and that failure comes back here as one
+  // more end rather than stopping the run of restarts: a restart that ended in
+  // silence would leave a reader with nothing running and nothing saying so.
+  // The bound is what ends the run under a server that dies every time it
+  // starts, so it is tested before each restart and each restart is recorded as
+  // it is made.
+  //
+  // A stop or restart asked for while a restart is under way supersedes it, and
+  // the run ends there, counting and reporting nothing.
+  private respawn(): void {
+    const { respawnAttempts: limit, respawnWindowSeconds: windowSeconds } = this.settings;
     if (!this.respawnTracker.shouldRespawn()) {
+      this.log(RespawnNarration.boundSpent(limit, windowSeconds));
       this.setState(DaemonState.Stopped);
       this.emit('stoppedResponding');
       return;
     }
+    this.respawnTracker.recordAttempt();
+    this.log(RespawnNarration.restarting(this.respawnTracker.attemptCount(), limit, windowSeconds));
     this.setState(DaemonState.Stopped);
-    this.spawnAndInitialize().catch(err => {
-      this.log(`respawn failed: ${(err as Error).message}`);
+    const generation = this.generation;
+    this.spawnAndInitialize().then(undefined, (err: Error) => {
+      if (generation !== this.generation) {
+        return;
+      }
+      this.log(RespawnNarration.restartFailed(err.message));
+      this.respawn();
     });
   }
 

@@ -299,9 +299,16 @@ export const PLANTS: readonly Plant[] = [
   },
   // ---- the language server killed from outside ----
   {
-    name: 'respawn-bound-counts-the-bound', scenario: 'storefront-killed-server', checks: ['language-server.stopped-responding-after-the-respawn-bound'], moves: 'green', target: 'extension',
-    file: DAEMON, find: '        return this.attempts.length < this.attemptLimit;', replace: '        return this.attempts.length <= this.attemptLimit;',
-    says: 'a respawn is allowed while the attempts recorded in the window are at most the bound, so a bound of N allows N restarts',
+    name: 'restart-ending-in-its-handshake-taken-as-deliberate', scenario: 'storefront-killed-server', checks: ['language-server.restarts-after-dying-during-its-handshake'], moves: 'red', target: 'extension',
+    file: DAEMON,
+    find: '        this.spawnAndInitialize().then(undefined, (err) => {\n            if (generation !== this.generation) {',
+    replace: '        this.spawnAndInitialize().then(undefined, (err) => {\n            if (true) {',
+    says: 'a server started again that ends before it answers is taken for one stopped on purpose, so nothing starts another, nothing is raised and the channel says nothing more',
+  },
+  {
+    name: 'respawn-bound-one-short', scenario: 'storefront-killed-server', checks: ['language-server.stopped-responding-after-the-respawn-bound'], moves: 'red', target: 'extension',
+    file: DAEMON, find: '        return this.attempts.length < this.attemptLimit;', replace: '        return this.attempts.length + 1 < this.attemptLimit;',
+    says: 'a respawn is allowed only while one more would still be under the bound, so a bound of N allows N − 1 restarts, as counting the end being handled against the bound does',
   },
   {
     name: 'error-at-activation', scenario: 'storefront-killed-server', checks: ['language-server.starts-without-an-error-notification'], moves: 'red', target: 'extension',

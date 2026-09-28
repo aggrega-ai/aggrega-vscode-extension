@@ -115,11 +115,11 @@ describe('Daemon deliberate-termination respawn guard', function () {
 
   // A daemon whose subprocess is torn down deliberately (as the
   // initialize-failure path does after killing the child) must NOT treat
-  // the resulting 'exit' event as an unexpected crash and respawn. The
-  // failure path moves the daemon to Stopping before it kills the child so
-  // handleExit's deliberate-teardown guard absorbs the exit; without that,
-  // the SIGTERM-driven exit falls through to an immediate respawn, and each
-  // respawn re-pays startup and can storm.
+  // the resulting 'exit' event as an unexpected crash. The failure path
+  // moves the daemon to Stopping before it kills the child so handleExit's
+  // deliberate-teardown guard absorbs the exit; without that guard the
+  // exit is reported as a server that ended unasked, and one that ends
+  // unasked while running is respawned.
   it('does not respawn when the subprocess exits during a deliberate (Stopping) teardown', async () => {
     const { Daemon, DaemonState } = await import('../../src/daemon');
     const { settingsFromObject } = await import('../../src/settings');
@@ -140,10 +140,10 @@ describe('Daemon deliberate-termination respawn guard', function () {
       stub,
     );
 
-    // handleExit emits unexpectedExit and respawns ONLY on its
-    // respawn-eligible branch; a deliberate (Stopping) teardown must skip
-    // that branch entirely, so the absence of this event is the proof that
-    // no respawn was attempted.
+    // handleExit emits unexpectedExit for every end nobody asked for, and a
+    // deliberate (Stopping) teardown skips it together with everything that
+    // follows it, the respawn included, so the absence of this event is the
+    // proof that the exit was absorbed and no respawn was attempted.
     let unexpectedExitFired = false;
     daemon.on('unexpectedExit', () => { unexpectedExitFired = true; });
 
