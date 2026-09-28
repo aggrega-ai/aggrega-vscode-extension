@@ -126,7 +126,8 @@ export interface CatalogFilter {
   limit?: number;
 }
 
-// emptyFilter is the starting state: nothing narrowed.
+// emptyFilter is the state a filter starts in and the one the reset returns it
+// to: nothing narrowed.
 export function emptyFilter(): CatalogFilter {
   return { kinds: [], capabilities: [] };
 }
@@ -418,37 +419,42 @@ export async function searchCatalog(
 
 // --- the filter list -----------------------------------------------------
 
+// FacetAction is what a row editing one facet does. Each is named by the request
+// field that facet fills, so the facet a row edits and the field the request
+// sends for it cannot come to be called two things.
+export type FacetAction = keyof RegistrySearchParams;
+
 // FilterAction is what selecting a row in the filter list does: edit one facet,
-// or run the search as it now stands.
-export type FilterAction =
-  | 'query'
-  | 'kinds'
-  | 'capabilities'
-  | 'selector'
-  | 'pluginType'
-  | 'limit'
-  | 'run';
+// clear every facet, or run the search as it now stands.
+export type FilterAction = FacetAction | 'reset' | 'run';
 
 // FilterRow is one row of the filter list, with its strings already decided so
 // the affordance a reader sees is assertable without an extension host.
 export interface FilterRow {
   action: FilterAction;
   label: string;
-  // description shows the facet's CURRENT value, so the whole filter is
-  // readable at a glance before it is run and a reader never has to remember
-  // what they set two steps ago.
+  // description shows what the row reads NOW — a facet's current value, what
+  // the reset would clear, the search the last row would run — so the whole
+  // filter is readable at a glance before it is run and a reader never has to
+  // remember what they set two steps ago.
   description: string;
   detail: string;
 }
 
+// RESET_ROW_LABEL is the row that clears every facet.
+export const RESET_ROW_LABEL = 'Reset search filter';
+
+// NOTHING_SET_LABEL is what the reset row reads when no facet narrows anything.
+export const NOTHING_SET_LABEL = 'nothing is set';
+
 // RUN_ROW_LABEL is the row that runs the search.
 export const RUN_ROW_LABEL = 'Search';
 
-// filterRows renders the filter as a list of editable facets plus the row that
-// runs it.
+// filterRows renders the filter as a list of editable facets, then the row that
+// clears them, then the row that runs the search.
 //
-// Each row's label is the name the product's own flag carries — Query, Kind,
-// Label selector, Capability, Plugin type, Limit — rather than a friendlier
+// Each facet row's label is the name the product's own flag carries — Query,
+// Kind, Label selector, Capability, Plugin type, Limit — rather than a friendlier
 // synonym. A second name for one facet would leave a reader who set it here
 // unable to find it on the command line, which is the whole cost of naming one
 // concept twice.
@@ -460,7 +466,46 @@ export const RUN_ROW_LABEL = 'Search';
 // care about, in any order, revisit one, and read the complete filter before
 // running it — and it makes "narrows nothing" a visible value rather than an
 // absence a reader has to infer.
+//
+// The reset row is drawn whether or not anything is set, and says so when
+// nothing is. Were it to disappear, Search would move up a row between one
+// opening of the list and the next, and a reader reaching for it by position
+// would land on something else.
 export function filterRows(filter: CatalogFilter): FilterRow[] {
+  const facets = facetRows(filter);
+  return [
+    ...facets,
+    {
+      action: 'reset',
+      label: RESET_ROW_LABEL,
+      description: resetDescription(filter, facets),
+      detail: 'Clear every facet above without searching',
+    },
+    {
+      action: 'run',
+      label: RUN_ROW_LABEL,
+      description: describeFilter(filter),
+      detail: 'Search the configured registries with the filter above',
+    },
+  ];
+}
+
+// resetDescription says what the reset row clears: the facets that narrow the
+// search as it stands, by the labels their rows carry.
+//
+// A facet counts as set when the request would carry a field for it, which is
+// read from the request itself rather than from how the row reads. A row cannot
+// tell a typed value that happens to read "any" from an unset facet, and the
+// request can: what the reset clears is exactly what the next search would
+// otherwise send.
+function resetDescription(filter: CatalogFilter, facets: FilterRow[]): string {
+  const sent = searchParams(filter);
+  const set = facets.filter((row) => row.action in sent).map((row) => row.label);
+  return set.length === 0 ? NOTHING_SET_LABEL : `clears ${set.join(', ')}`;
+}
+
+// facetRows renders one row per facet, in the order the list draws them.
+function facetRows(filter: CatalogFilter): FilterRow[] {
   const query = filter.query?.trim();
   const selector = filter.selector?.trim();
   const pluginType = filter.pluginType?.trim();
@@ -503,11 +548,62 @@ export function filterRows(filter: CatalogFilter): FilterRow[] {
       description: filter.limit === undefined ? 'no cap' : String(filter.limit),
       detail: 'Cap how many results come back',
     },
-    {
-      action: 'run',
-      label: RUN_ROW_LABEL,
-      description: describeFilter(filter),
-      detail: 'Search the configured registries with the filter above',
-    },
   ];
+}
+
+// --- the kept filter -----------------------------------------------------
+
+// KeptFilter holds the filter the reader built, from one search to the next.
+//
+// The next search opens with it whether the last one ran, matched nothing, or
+// was dismissed after an edit, so narrowing again after reading a result is one
+// edit rather than the whole filter entered anew. Nothing but the reader's own
+// edits changes it, and the reset row clears it whole. Where it lives, and so
+// how long it lasts, is the choice of whoever owns the search command; nothing
+// here stores it.
+export interface KeptFilter {
+  filter: CatalogFilter;
+}
+
+// FilterListDeps are the editor surfaces the filter list is drawn through.
+//
+// Declared this narrowly so the whole list — what it opens with, what each row
+// does, when it ends — is driven by a test with scripted answers and no
+// extension host.
+export interface FilterListDeps {
+  // pick shows the rows and resolves the action of the one chosen, or undefined
+  // when the list was dismissed.
+  pick(rows: FilterRow[]): Promise<FilterAction | undefined>;
+  // editFacet asks for one facet and writes the answer into the filter it is
+  // given. A dismissed editor leaves the facet as it was.
+  editFacet(filter: CatalogFilter, action: FacetAction): Promise<void>;
+}
+
+// chooseFilter runs the filter list over the kept filter until the reader
+// chooses Search, and resolves the filter to search for — or undefined when the
+// list is dismissed, which leaves the kept filter as it stands.
+//
+// The reset puts an untouched filter in the kept one's place and returns to the
+// list rather than searching, so the reader sees every facet read "narrows
+// nothing" before anything runs.
+//
+// What is resolved is a copy. The kept filter goes on being edited by the next
+// opening of the list, and a search whose answer is still on its way must go on
+// describing the filter it was asked for.
+export async function chooseFilter(
+  kept: KeptFilter,
+  deps: FilterListDeps,
+): Promise<CatalogFilter | undefined> {
+  for (;;) {
+    const action = await deps.pick(filterRows(kept.filter));
+    if (action === undefined) { return undefined; }
+    if (action === 'run') {
+      return { ...kept.filter, kinds: [...kept.filter.kinds], capabilities: [...kept.filter.capabilities] };
+    }
+    if (action === 'reset') {
+      kept.filter = emptyFilter();
+      continue;
+    }
+    await deps.editFacet(kept.filter, action);
+  }
 }

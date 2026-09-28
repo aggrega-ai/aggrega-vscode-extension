@@ -53,6 +53,10 @@ async function searchFor(ctx: SuiteContext, query: string): Promise<QuickInput |
   await waitQuickInput(ctx.d, 'the search palette', (q) => q.title === SEARCH_TITLE);
   await pickQuickInputRow(ctx.d, 'Query');
   await waitQuickInput(ctx.d, 'the query being asked for', (q) => q.rows.length === 0 || q.title !== SEARCH_TITLE);
+  // The filter is kept from one search to the next, so the box opens holding the
+  // last search's query; it is selected and typed over, so the query searched for
+  // is the one this call was given.
+  await ctx.d.press('Control+a');
   await ctx.d.type(query);
   await ctx.d.press('Enter');
   await waitQuickInput(ctx.d, 'the palette showing the query', (q) => q.title === SEARCH_TITLE && q.rows.some((r) => r.label === 'Query' && r.description.includes(query)));

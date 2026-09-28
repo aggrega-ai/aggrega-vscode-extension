@@ -15,15 +15,16 @@ import {
 } from './suite-context';
 import { contextRowsCheck } from './suite-gateway';
 import {
-  commandsPanel, documentWith, NOT_RUNNING, pickQuickInputRow, pressIn, pressOperation, pressPanelAction, pressToastButton, RUNNING,
+  commandsPanel, documentWith, holds, NOT_RUNNING, pickQuickInputRow, pressIn, pressOperation, pressPanelAction, pressToastButton, QuickInput, quickInput, RUNNING,
   sleep, statusLog, STARTING, toasts, toastsSince, treeRowCentre, treeRows, until, waitQuickInput, waitStatus, waitToast,
 } from './workbench';
 
 // The checks run in the storefront folder: the capabilities walked end to end —
 // the language server recovering from a kill, diagnostics on a real mistake and
 // across a cascade, completion and hover, the published-catalog search with no
-// registry, the workspace catalog panel, the operations that end in words, and
-// what the extension says about settings that are wrong.
+// registry and the filter it keeps from one search to the next, the workspace
+// catalog panel, the operations that end in words, and what the extension says
+// about settings that are wrong.
 
 export const STOREFRONT_CHECKS = [
   'commands-panel.context-rows-name-the-opened-folder',
@@ -36,6 +37,7 @@ export const STOREFRONT_CHECKS = [
   'catalog-search.palette-shows-its-facets',
   'catalog-search.no-registry-answer-says-so',
   'catalog-search.no-registry-sentence-directs-the-reader',
+  'catalog-search.filter-is-kept-until-reset',
   'catalog-view.lists-the-workspace-entities-by-kind',
   'catalog-view.new-entity-appears-after-refresh',
   'catalog-view.deleted-entity-row-leaves-at-once',
@@ -52,9 +54,13 @@ const RELEASE = 'release-compose.yaml';
 // The words a reader is to meet are held here as written, so a change of wording
 // in the extension is a change these checks report rather than follow: the
 // opening of the answer when no registry is configured, and the search
-// palette's title, placeholder, facet rows in order and last row.
+// palette's title, placeholder, facet rows in order, the row that clears them,
+// what each facet reads when it narrows nothing, and the last row.
 const NO_REGISTRY_OPENING = 'Aggrega: No registries configured.';
 const SEARCH_FACETS = ['Query', 'Kind', 'Label selector', 'Capability', 'Plugin type', 'Limit'];
+const RESET_ROW = 'Reset search filter';
+const UNSET_READINGS = ['any', 'any', 'any', 'any', 'any', 'no cap'];
+const NOTHING_SET = 'nothing is set';
 const SEARCH_ROW = 'Search';
 const SEARCH_TITLE = 'Aggrega: search published catalog';
 const SEARCH_PLACEHOLDER = 'Narrow the search, then choose Search';
@@ -285,7 +291,7 @@ export async function storefrontChecks(ctx: SuiteContext, referenceFolder: strin
   // ---- the published-catalog palette, with no registry ----
   let noRegistry = '';
   await c.run('catalog-search.palette-shows-its-facets', {
-    expected: `the Catalog panel's first row, "${CATALOG_HEAD[0]}", opens a list titled "${SEARCH_TITLE}", placeholder "${SEARCH_PLACEHOLDER}", with one row per facet (${SEARCH_FACETS.join(', ')}) each showing its current value, and a last row "${SEARCH_ROW}"`,
+    expected: `the Catalog panel's first row, "${CATALOG_HEAD[0]}", opens a list titled "${SEARCH_TITLE}", placeholder "${SEARCH_PLACEHOLDER}", with one row per facet (${SEARCH_FACETS.join(', ')}) each showing its current value, then "${RESET_ROW}", and a last row "${SEARCH_ROW}"`,
     plant: 'in the scratch copy, out/src/catalog-search-run.js with the Plugin type row dropped',
   }, async () => {
     await closeAllEditors(ctx);
@@ -296,7 +302,7 @@ export async function storefrontChecks(ctx: SuiteContext, referenceFolder: strin
     const q = await waitQuickInput(ctx.d, 'the search palette', (x) => x.title === SEARCH_TITLE);
     const labels = q.rows.map((r) => r.label);
     const valued = q.rows.slice(0, SEARCH_FACETS.length).every((r) => r.description !== '');
-    const passed = JSON.stringify(head) === JSON.stringify(CATALOG_HEAD) && q.placeholder === SEARCH_PLACEHOLDER && JSON.stringify(labels) === JSON.stringify([...SEARCH_FACETS, SEARCH_ROW]) && valued;
+    const passed = JSON.stringify(head) === JSON.stringify(CATALOG_HEAD) && q.placeholder === SEARCH_PLACEHOLDER && JSON.stringify(labels) === JSON.stringify([...SEARCH_FACETS, RESET_ROW, SEARCH_ROW]) && valued;
     return { passed, seen: `the Catalog panel opens with ${JSON.stringify(head)}; title "${q.title}", placeholder "${q.placeholder}", rows ${JSON.stringify(q.rows.map((r) => `${r.label}: ${r.description}`))}` };
   });
   await c.run('catalog-search.no-registry-answer-says-so', {
@@ -316,6 +322,64 @@ export async function storefrontChecks(ctx: SuiteContext, referenceFolder: strin
   }, async () => {
     need(noRegistry !== '', 'the search gave no answer, so there is no sentence to judge');
     return { screenshot: await capture(ctx, 'search-no-registry'), drawnText: noRegistry };
+  });
+
+  // ---- the filter kept from one search to the next, until it is reset ----
+  const KEPT_KIND = 'component';
+  const KEPT_QUERY = 'postgres';
+  const KEPT_RESET = 'clears Query, Kind';
+  await c.run('catalog-search.filter-is-kept-until-reset', {
+    expected: `with Kind set to ${KEPT_KIND} and Query to "${KEPT_QUERY}", choosing ${SEARCH_ROW} and then opening the search again from "${CATALOG_HEAD[0]}" shows both facets as they were set and "${RESET_ROW}" reading "${KEPT_RESET}"; choosing "${RESET_ROW}" leaves a list titled "${SEARCH_TITLE}" drawn, runs no search, and every facet reads as narrowing nothing (${SEARCH_FACETS.map((f, i) => `${f}: ${UNSET_READINGS[i]}`).join(', ')}) with "${RESET_ROW}" reading "${NOTHING_SET}"`,
+    plant: 'in the scratch copy, out/src/catalog-views.js made to open every search on an empty filter',
+  }, async () => {
+    const rowsOf = (q: QuickInput | null): string[] => (q?.rows ?? []).map((r) => `${r.label}: ${r.description}`);
+    const reading = (q: QuickInput, label: string): string | undefined => q.rows.find((r) => r.label === label)?.description;
+    const isPalette = (q: QuickInput): boolean => q.title === SEARCH_TITLE && q.rows.length === SEARCH_FACETS.length + 2;
+    const openSearch = async (): Promise<QuickInput> => {
+      await closeAllEditors(ctx);
+      await run(ctx, 'aggrega.workspaceCatalog.focus');
+      await pressPanelAction(ctx.d, 'Catalog', CATALOG_HEAD[0]);
+      return waitQuickInput(ctx.d, 'the search palette', isPalette);
+    };
+
+    // Setting the two facets is this check's precondition, so a facet that
+    // cannot be set here stops it as not run rather than failing it.
+    await openSearch();
+    await pickQuickInputRow(ctx.d, 'Kind');
+    await waitQuickInput(ctx.d, 'the choice of kinds', (q) => q.title !== SEARCH_TITLE && q.rows.some((r) => r.label === KEPT_KIND));
+    await pickQuickInputRow(ctx.d, KEPT_KIND);
+    await sleep(300);
+    await ctx.d.press('Enter');
+    const withKind = await waitQuickInput(ctx.d, 'the palette reading the kind chosen', (q) => isPalette(q) && reading(q, 'Kind') === KEPT_KIND).catch(() => null);
+    need(withKind !== null, `the Kind facet could not be set to ${KEPT_KIND} from its choice, so its keeping cannot be observed: ${JSON.stringify(rowsOf(await quickInput(ctx.d)))}`);
+    await pickQuickInputRow(ctx.d, 'Query');
+    await waitQuickInput(ctx.d, 'the query being asked for', (q) => q.rows.length === 0 || q.title !== SEARCH_TITLE);
+    await ctx.d.press('Control+a');
+    await ctx.d.type(KEPT_QUERY);
+    await ctx.d.press('Enter');
+    const withBoth = await waitQuickInput(ctx.d, 'the palette reading both facets', (q) => isPalette(q) && reading(q, 'Query') === KEPT_QUERY && reading(q, 'Kind') === KEPT_KIND).catch(() => null);
+    need(withBoth !== null, `the Query facet could not be set to "${KEPT_QUERY}", so its keeping cannot be observed: ${JSON.stringify(rowsOf(await quickInput(ctx.d)))}`);
+    const searchMark = (await toasts(ctx.d)).length;
+    await pickQuickInputRow(ctx.d, SEARCH_ROW);
+    const answered = await waitToast(ctx.d, 'the search answering', searchMark, (t) => t.message.startsWith(NO_REGISTRY_OPENING), 30000).then(() => true, () => false);
+    need(answered, 'the search with both facets set gave no answer, so there is no next search to open');
+
+    // The verdict: what the next search opens with, and what the reset leaves.
+    const before = await openSearch();
+    const kept = reading(before, 'Kind') === KEPT_KIND && reading(before, 'Query') === KEPT_QUERY && reading(before, RESET_ROW) === KEPT_RESET;
+    const resetMark = (await toasts(ctx.d)).length;
+    await pickQuickInputRow(ctx.d, RESET_ROW);
+    const after = await waitQuickInput(ctx.d, 'the palette drawn again after the reset', (q) => isPalette(q) && JSON.stringify(rowsOf(q)) !== JSON.stringify(rowsOf(before))).catch(() => null);
+    const quiet = await holds(2000, async () => toastsSince(ctx.d, resetMark), (ts) => !ts.some((t) => t.message.startsWith(NO_REGISTRY_OPENING)));
+    const cleared = after !== null
+      && JSON.stringify(after.rows.map((r) => r.label)) === JSON.stringify([...SEARCH_FACETS, RESET_ROW, SEARCH_ROW])
+      && JSON.stringify(after.rows.slice(0, SEARCH_FACETS.length).map((r) => r.description)) === JSON.stringify(UNSET_READINGS)
+      && reading(after, RESET_ROW) === NOTHING_SET;
+    await ctx.d.press('Escape');
+    return {
+      passed: kept && cleared && quiet.held,
+      seen: `opened again after the search, the list reads ${JSON.stringify(rowsOf(before))}; after "${RESET_ROW}" ${after === null ? `no list titled "${SEARCH_TITLE}" with other rows was drawn` : `it reads ${JSON.stringify(rowsOf(after))}`}; ${quiet.held ? 'no search answered in the 2 s after the reset' : 'a search answered after the reset'}`,
+    };
   });
 
   // ---- the workspace catalog panel ----

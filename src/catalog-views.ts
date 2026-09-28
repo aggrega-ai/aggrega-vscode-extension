@@ -6,11 +6,12 @@ import {
   CatalogFilter,
   CatalogRow,
   ENTITY_KINDS,
-  FilterAction,
+  FacetAction,
+  KeptFilter,
   RegistrySearchParams,
   SearchDoc,
+  chooseFilter,
   emptyFilter,
-  filterRows,
   normalizeKinds,
   parseLimit,
   searchCatalog,
@@ -35,14 +36,15 @@ export interface CatalogDeps {
 
 // --- published-catalog search ------------------------------------------
 
-// searchPublished opens the filter list, runs the search the reader assembled,
-// and offers the matches for selection; choosing one copies its reference to
-// the clipboard so it can be pasted into an Aggregate.
+// searchPublished opens the filter list on the kept filter, runs the search the
+// reader assembled, and offers the matches for selection; choosing one copies
+// its reference to the clipboard so it can be pasted into an Aggregate.
 //
 // The filter is built in a list the reader returns to after each edit, rather
-// than a fixed chain of prompts — see filterRows for why. Dismissing the list
-// abandons the search; every facet editor returns to it.
-async function searchPublished(deps: CatalogDeps): Promise<void> {
+// than a fixed chain of prompts — see filterRows for why — and chooseFilter
+// decides what each row does. Dismissing the list abandons the search and keeps
+// the filter as it stands; every facet editor returns to it.
+async function searchPublished(deps: CatalogDeps, kept: KeptFilter): Promise<void> {
   if (!deps.getWorkspaceRoot()) {
     // Told before the filter is built, not after: asking a reader to assemble a
     // search and only then refusing to run it wastes the work. searchCatalog
@@ -51,27 +53,26 @@ async function searchPublished(deps: CatalogDeps): Promise<void> {
     void vscode.window.showInformationMessage(NO_ANCHORED_WORKSPACE_MESSAGE);
     return;
   }
-  const filter = emptyFilter();
-
-  for (;;) {
-    const rows = filterRows(filter);
-    const picked = await vscode.window.showQuickPick(
-      rows.map((row) => ({
-        label: row.label,
-        description: row.description,
-        detail: row.detail,
-        action: row.action,
-      })),
-      {
-        title: 'Aggrega: search published catalog',
-        placeHolder: 'Narrow the search, then choose Search',
-        ignoreFocusOut: true,
-      },
-    );
-    if (!picked) { return; }
-    if (picked.action === 'run') { break; }
-    await editFacet(filter, picked.action);
-  }
+  const filter = await chooseFilter(kept, {
+    pick: async (rows) => {
+      const picked = await vscode.window.showQuickPick(
+        rows.map((row) => ({
+          label: row.label,
+          description: row.description,
+          detail: row.detail,
+          action: row.action,
+        })),
+        {
+          title: 'Aggrega: search published catalog',
+          placeHolder: 'Narrow the search, then choose Search',
+          ignoreFocusOut: true,
+        },
+      );
+      return picked?.action;
+    },
+    editFacet,
+  });
+  if (!filter) { return; }
 
   const outcome = await searchCatalog(
     {
@@ -114,7 +115,7 @@ async function searchPublished(deps: CatalogDeps): Promise<void> {
 // whatever a publisher declared and this surface contacts no registry to
 // enumerate them — and the label selector's grammar belongs to the compiler, so
 // it is passed through untouched for the product to accept or reject.
-async function editFacet(filter: CatalogFilter, action: FilterAction): Promise<void> {
+async function editFacet(filter: CatalogFilter, action: FacetAction): Promise<void> {
   switch (action) {
     case 'query': {
       const value = await vscode.window.showInputBox({
@@ -196,8 +197,6 @@ async function editFacet(filter: CatalogFilter, action: FilterAction): Promise<v
       filter.limit = parsed.limit;
       return;
     }
-    case 'run':
-      return;
   }
 }
 
@@ -224,10 +223,16 @@ async function offerMatches(rows: CatalogRow[]): Promise<void> {
 
 // activateCatalogViews registers the published-catalog search command. Command
 // ids mirror package.json.
+//
+// The filter each search opens with is held here, for as long as the extension
+// runs in this window, and nowhere else: it is in no setting and no stored
+// state, so it never changes what another surface or another window searches
+// for, and a window that is reloaded opens its first search on an empty filter.
 export function activateCatalogViews(context: vscode.ExtensionContext, deps: CatalogDeps): void {
+  const kept: KeptFilter = { filter: emptyFilter() };
   context.subscriptions.push(
     vscode.commands.registerCommand('aggrega.catalog.searchPublished', () => {
-      void searchPublished(deps).then(undefined, (err) => {
+      void searchPublished(deps, kept).then(undefined, (err) => {
         // Forensic catch: a rejection from the filter list or the clipboard
         // would otherwise vanish with no trace of why the search stopped.
         deps.output.appendLine(`search failed: ${describeError(err)}`);

@@ -6,13 +6,20 @@ import {
   ANY_VALUE_LABEL,
   CatalogFilter,
   ENTITY_KINDS,
+  FilterAction,
+  FilterListDeps,
+  FilterRow,
   IndexRecord,
+  KeptFilter,
+  NOTHING_SET_LABEL,
   NO_REGISTRIES_MESSAGE,
   REFRESH_REMEDIATION,
+  RESET_ROW_LABEL,
   RUN_ROW_LABEL,
   RegistrySearchParams,
   SearchDoc,
   SearchOutcome,
+  chooseFilter,
   describeFilter,
   emptyFilter,
   filterRows,
@@ -235,9 +242,36 @@ describe('catalog-search-run: reader input', () => {
 // --- the filter list ----------------------------------------------------
 
 describe('catalog-search-run: the filter list', () => {
+  it('🔴 THE ROWS READ IN ONE ORDER, THE RESET JUST ABOVE SEARCH', () => {
+    // The whole list, by equality, so a row added, dropped or moved is a diff
+    // here. The reset sits penultimate and Search stays last, so the row a
+    // reader reaches for to run the filter is where it always is.
+    assert.deepStrictEqual(filterRows(emptyFilter()).map((r) => [r.action, r.label]), [
+      ['query', 'Query'],
+      ['kinds', 'Kind'],
+      ['selector', 'Label selector'],
+      ['capabilities', 'Capability'],
+      ['pluginType', 'Plugin type'],
+      ['limit', 'Limit'],
+      ['reset', 'Reset search filter'],
+      ['run', 'Search'],
+    ]);
+    assert.strictEqual(RESET_ROW_LABEL, 'Reset search filter');
+  });
+
+  it('the reset row keeps its place whatever is set', () => {
+    // Were it drawn only when something is set, Search would move up a row
+    // between one opening of the list and the next.
+    const set = filterRows({ ...emptyFilter(), query: 'db', kinds: ['component'], limit: 5 });
+    assert.deepStrictEqual(
+      set.map((r) => r.label),
+      filterRows(emptyFilter()).map((r) => r.label),
+    );
+  });
+
   it('an untouched filter shows every facet as narrowing nothing', () => {
     const rows = filterRows(emptyFilter());
-    const facets = rows.filter((r) => r.action !== 'run' && r.action !== 'limit');
+    const facets = rows.filter((r) => r.action !== 'run' && r.action !== 'reset' && r.action !== 'limit');
     assert.ok(facets.length > 0);
     for (const row of facets) {
       assert.strictEqual(row.description, ANY_VALUE_LABEL, row.label);
@@ -279,7 +313,7 @@ describe('catalog-search-run: the filter list', () => {
     // Each label reduces to the flag it sets: --kind, --selector, --capability,
     // --plugin-type, --limit, and the positional query.
     const labels = filterRows(emptyFilter())
-      .filter((r) => r.action !== 'run')
+      .filter((r) => r.action !== 'run' && r.action !== 'reset')
       .map((r) => r.label.toLowerCase());
     for (const label of labels) {
       const flagWord = label.split(' ').pop()!;
@@ -300,6 +334,198 @@ describe('catalog-search-run: the filter list', () => {
     const run = rows.find((r) => r.action === 'run');
     assert.ok(run?.description.includes('"db"'), run?.description);
     assert.ok(run?.description.includes('component'), run?.description);
+  });
+
+  it('with nothing set, the reset row stays and says so', () => {
+    const reset = filterRows(emptyFilter()).find((r) => r.action === 'reset');
+    assert.deepStrictEqual(reset, {
+      action: 'reset',
+      label: 'Reset search filter',
+      description: 'nothing is set',
+      detail: 'Clear every facet above without searching',
+    });
+    assert.strictEqual(NOTHING_SET_LABEL, 'nothing is set');
+  });
+
+  it('the reset row names what it clears, by the labels of the rows it clears', () => {
+    const reset = (filter: CatalogFilter): string | undefined =>
+      filterRows(filter).find((r) => r.action === 'reset')?.description;
+    assert.strictEqual(reset({ ...emptyFilter(), query: 'db', kinds: ['component'] }), 'clears Query, Kind');
+    assert.strictEqual(
+      reset({
+        query: 'db',
+        kinds: ['component'],
+        capabilities: ['helm'],
+        selector: 'a=b',
+        pluginType: 'provider',
+        limit: 25,
+      }),
+      'clears Query, Kind, Label selector, Capability, Plugin type, Limit',
+    );
+  });
+
+  it('a cap of zero is something the reset clears, because the request carries it', () => {
+    // Zero reads as a value on the Limit row and is sent, so it is set.
+    assert.strictEqual(
+      filterRows({ ...emptyFilter(), limit: 0 }).find((r) => r.action === 'reset')?.description,
+      'clears Limit',
+    );
+  });
+
+  it('a typed value reading "any" is still named as set, because the request carries it', () => {
+    // The row cannot tell this from an unset facet; the request can, and what
+    // the reset clears is what the next search would otherwise send.
+    assert.strictEqual(
+      filterRows({ ...emptyFilter(), pluginType: 'any' }).find((r) => r.action === 'reset')?.description,
+      'clears Plugin type',
+    );
+  });
+});
+
+// --- the kept filter -----------------------------------------------------
+
+// scriptedList drives the filter list with the reader's choices written out in
+// advance: each opening of the list takes the next action, and running out of
+// actions dismisses it. A facet editor writes the answer given for that facet.
+// It records every list it was shown, so what a search OPENS with is read from
+// the first list that search drew.
+function scriptedList(
+  actions: (FilterAction | undefined)[],
+  answers: Partial<CatalogFilter> = {},
+): { deps: FilterListDeps; shown: FilterRow[][]; edited: string[] } {
+  const shown: FilterRow[][] = [];
+  const edited: string[] = [];
+  const queue = [...actions];
+  return {
+    shown,
+    edited,
+    deps: {
+      pick: async (rows) => {
+        shown.push(rows);
+        return queue.shift();
+      },
+      editFacet: async (filter, action) => {
+        edited.push(action);
+        Object.assign(filter, { [action]: answers[action] });
+      },
+    },
+  };
+}
+
+// readings is a list as a reader reads it: each row's label and what it shows.
+function readings(rows: FilterRow[]): string[] {
+  return rows.map((r) => `${r.label}: ${r.description}`);
+}
+
+// UNTOUCHED is the list an untouched filter draws, written out rather than
+// produced by filterRows, so a defect in the rows cannot sit on both sides.
+const UNTOUCHED = [
+  'Query: any',
+  'Kind: any',
+  'Label selector: any',
+  'Capability: any',
+  'Plugin type: any',
+  'Limit: no cap',
+  'Reset search filter: nothing is set',
+  'Search: the whole published catalog',
+];
+
+describe('catalog-search-run: the kept filter', () => {
+  it('🔴 THE NEXT SEARCH OPENS WITH THE FILTER THE LAST ONE RAN', async () => {
+    const kept: KeptFilter = { filter: emptyFilter() };
+    const first = scriptedList(['kinds', 'query', 'run'], { kinds: ['component'], query: 'db' });
+    const searched = await chooseFilter(kept, first.deps);
+    assert.deepStrictEqual(searched, { kinds: ['component'], capabilities: [], query: 'db' });
+
+    const next = scriptedList([]);
+    await chooseFilter(kept, next.deps);
+    assert.deepStrictEqual(readings(next.shown[0]), [
+      'Query: db',
+      'Kind: component',
+      'Label selector: any',
+      'Capability: any',
+      'Plugin type: any',
+      'Limit: no cap',
+      'Reset search filter: clears Query, Kind',
+      'Search: "db", kind component',
+    ]);
+  });
+
+  it('a search that matched nothing leaves the filter kept', async () => {
+    // The outcome of the search is no reason to forget the filter: a reader who
+    // matched nothing is exactly the one who wants to adjust one facet.
+    const kept: KeptFilter = { filter: emptyFilter() };
+    const filter = await chooseFilter(kept, scriptedList(['query', 'run'], { query: 'postgres' }).deps);
+    assert.ok(filter);
+    const h = harness('/w', () => Promise.resolve({ ...CONFIGURED, records: [] }));
+    assert.strictEqual((await h.search(filter)).kind, 'no-matches');
+
+    const next = scriptedList([]);
+    await chooseFilter(kept, next.deps);
+    assert.strictEqual(next.shown[0][0].description, 'postgres');
+  });
+
+  it('a list dismissed after an edit leaves the edit kept', async () => {
+    const kept: KeptFilter = { filter: emptyFilter() };
+    const dismissed = await chooseFilter(kept, scriptedList(['limit'], { limit: 5 }).deps);
+    assert.strictEqual(dismissed, undefined, 'a dismissed list runs no search');
+
+    const next = scriptedList([]);
+    await chooseFilter(kept, next.deps);
+    assert.strictEqual(next.shown[0].find((r) => r.action === 'limit')?.description, '5');
+  });
+
+  it('a fresh holder opens on an untouched filter', async () => {
+    const next = scriptedList([]);
+    await chooseFilter({ filter: emptyFilter() }, next.deps);
+    assert.deepStrictEqual(readings(next.shown[0]), UNTOUCHED);
+  });
+
+  it('🔴 THE RESET RETURNS EVERY FACET TO AN UNTOUCHED FILTER AND RETURNS TO THE LIST', async () => {
+    const kept: KeptFilter = {
+      filter: {
+        query: 'db',
+        kinds: ['component'],
+        capabilities: ['helm'],
+        selector: 'a=b',
+        pluginType: 'provider',
+        limit: 25,
+      },
+    };
+    const list = scriptedList(['reset']);
+    const result = await chooseFilter(kept, list.deps);
+    // The value an untouched filter holds, by equality and written out as well,
+    // so a reset leaving one facet behind is a diff on either line.
+    assert.deepStrictEqual(kept.filter, emptyFilter());
+    assert.deepStrictEqual(kept.filter, { kinds: [], capabilities: [] });
+    // Back to the list, reading every facet as narrowing nothing, with no search
+    // run and no facet editor opened.
+    assert.strictEqual(list.shown.length, 2, 'the reset returns to the list');
+    assert.deepStrictEqual(readings(list.shown[1]), UNTOUCHED);
+    assert.strictEqual(result, undefined, 'the reset runs no search');
+    assert.deepStrictEqual(list.edited, []);
+  });
+
+  it('the reset is kept too: the next search opens on the cleared filter', async () => {
+    const kept: KeptFilter = { filter: { ...emptyFilter(), query: 'db' } };
+    await chooseFilter(kept, scriptedList(['reset']).deps);
+    const next = scriptedList([]);
+    await chooseFilter(kept, next.deps);
+    assert.deepStrictEqual(readings(next.shown[0]), UNTOUCHED);
+  });
+
+  it('what a search runs on is a copy, so a later edit cannot change a search already asked for', async () => {
+    const kept: KeptFilter = { filter: { ...emptyFilter(), kinds: ['component'] } };
+    const searched = await chooseFilter(kept, scriptedList(['run']).deps);
+    kept.filter.kinds.push('feature');
+    kept.filter.query = 'later';
+    assert.deepStrictEqual(searched, { kinds: ['component'], capabilities: [] });
+  });
+
+  it('a facet editor is opened for the facet its row names, and for nothing else', async () => {
+    const list = scriptedList(['selector', 'pluginType', 'run'], { selector: 'a=b', pluginType: 'provider' });
+    await chooseFilter({ filter: emptyFilter() }, list.deps);
+    assert.deepStrictEqual(list.edited, ['selector', 'pluginType']);
   });
 });
 

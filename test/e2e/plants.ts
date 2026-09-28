@@ -160,6 +160,13 @@ export const PLANTS: readonly Plant[] = [
     says: 'a search with no registry configured is answered as a search that matched nothing',
   },
   {
+    name: 'filter-not-kept', scenario: 'storefront', checks: ['catalog-search.filter-is-kept-until-reset'], moves: 'red', target: 'extension',
+    file: 'out/src/catalog-views.js',
+    find: '        void searchPublished(deps, kept).then(undefined, (err) => {',
+    replace: '        void searchPublished(deps, { filter: (0, catalog_search_run_1.emptyFilter)() }).then(undefined, (err) => {',
+    says: 'every search opens on an empty filter, whatever the last one was run with',
+  },
+  {
     name: 'headings-without-count', scenario: 'storefront', checks: ['catalog-view.lists-the-workspace-entities-by-kind'], moves: 'red', target: 'extension',
     file: 'out/src/workspace-catalog-view.js', find: 'new vscode.TreeItem(`${node.label} (${node.rows.length})`,', replace: 'new vscode.TreeItem(node.label,',
     says: 'the Catalog view\'s kind headings are drawn without their count',
