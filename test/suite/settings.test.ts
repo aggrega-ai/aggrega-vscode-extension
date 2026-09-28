@@ -16,7 +16,6 @@ import { buildServeArgs } from '../../src/daemon';
 describe('settings', () => {
   it('exposes the documented defaults', () => {
     assert.strictEqual(DEFAULT_SETTINGS.binaryPath, 'aggrega');
-    assert.strictEqual(DEFAULT_SETTINGS.autoRevalidate, false);
     assert.strictEqual(DEFAULT_SETTINGS.buildOnInspect, false);
     assert.strictEqual(DEFAULT_SETTINGS.debounceMs, 300);
     assert.strictEqual(DEFAULT_SETTINGS.respawnAttempts, 5);
@@ -39,9 +38,9 @@ describe('settings', () => {
   });
 
   it('settingsFromObject overlays values onto defaults', () => {
-    const s = settingsFromObject({ debounceMs: 750, autoRevalidate: true });
+    const s = settingsFromObject({ debounceMs: 750, buildOnInspect: true });
     assert.strictEqual(s.debounceMs, 750);
-    assert.strictEqual(s.autoRevalidate, true);
+    assert.strictEqual(s.buildOnInspect, true);
     assert.strictEqual(s.binaryPath, DEFAULT_SETTINGS.binaryPath);
     assert.strictEqual(s.respawnAttempts, DEFAULT_SETTINGS.respawnAttempts);
   });

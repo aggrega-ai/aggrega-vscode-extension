@@ -62,10 +62,10 @@ import {
   isJsonRpcError,
   resetSessionDedup,
 } from './error-surfaces';
+import { recoverFromCacheMiss } from './cache-miss';
 import {
   notifyDaemonStartupFailed,
   notifyStoppedResponding,
-  promptCacheMiss,
 } from './notifications';
 import {
   COMPILER_ANSWERABLE_CONTEXT_KEY,
@@ -3064,21 +3064,19 @@ async function requestRegistryUpdate(
   return await daemon.request<RegistryUpdateResult>('aggrega/registryUpdate', params, signal);
 }
 
+// handleCacheMiss answers a language request the language server refused as
+// "file not validated". What it does is decided in cache-miss.ts; what is here is
+// the two requests it may send, composed as every other validation and as the
+// refused request were.
 async function handleCacheMiss<T>(method: RequestMethod, params: unknown, doc: vscode.TextDocument): Promise<T | null> {
-  if (!daemon) { return null; }
-  const settings = getSettings();
-  if (!settings.autoRevalidate) {
-    const decision = await promptCacheMiss(path.basename(doc.uri.fsPath));
-    if (decision !== 'revalidate') { return null; }
-  }
-  try {
+  const client = daemon;
+  if (!client) { return null; }
+  return recoverFromCacheMiss<T>({
     // The re-seed carries the selected Release for the same reason every other
     // validate does: it repopulates the caches the retried request reads, and a
     // document-only seed would repopulate them from the narrower answer.
-    await daemon.request<void>('aggrega/validate', validateParamsFor(doc));
-    return await daemon.request<T>(method, params);
-  } catch (err) {
-    outputChannel?.appendLine(`cache-miss retry failed: ${describeError(err)}`);
-    return null;
-  }
+    validate: () => client.request<void>('aggrega/validate', validateParamsFor(doc)),
+    retry: () => client.request<T>(method, params),
+    failed: (err) => outputChannel?.appendLine(`cache-miss retry failed: ${describeError(err)}`),
+  });
 }

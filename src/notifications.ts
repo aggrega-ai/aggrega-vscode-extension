@@ -4,22 +4,6 @@
 import * as vscode from 'vscode';
 import { DAEMON_READING_WORDS, stoppedRespondingMessage } from './daemon-status';
 
-// CacheMissDecision is the user's response to the cache-miss
-// notification: Revalidate triggers a fresh validate+retry, Dismiss
-// abandons the original request.
-export type CacheMissDecision = 'revalidate' | 'dismiss';
-
-// promptCacheMiss surfaces the Mode A cache-miss notification and
-// returns the user's decision. Used when aggrega.server.autoRevalidate
-// is false (the default).
-export async function promptCacheMiss(file: string): Promise<CacheMissDecision> {
-  const choice = await vscode.window.showInformationMessage(
-    `Aggrega has no cached state for ${file}. Revalidate?`,
-    'Revalidate',
-  );
-  return choice === 'Revalidate' ? 'revalidate' : 'dismiss';
-}
-
 // notifyStoppedResponding surfaces the bounded-crash-recovery
 // stop-state notification. The user recovers through the command that starts
 // the language server again, named by the title the caller read from the

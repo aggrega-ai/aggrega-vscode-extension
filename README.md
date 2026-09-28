@@ -301,7 +301,6 @@ they write `.aggrega/active-release` or `.aggrega-config.yaml` rather than an ed
 |---------|---------|---------|
 | `aggrega.getStarted.show` | `true` | Whether the [welcome page](#the-welcome-page) opens on startup. Three surfaces move this one setting and stay in step: the checkbox at the page's own foot, **Aggrega: Stop opening the welcome page on startup**, and **Aggrega: Get started**. Turning it off stops the page opening rather than removing it; turning it back on also opens it. |
 | `aggrega.server.binaryPath` | `aggrega` | Path to the `aggrega` binary. |
-| `aggrega.server.autoRevalidate` | `false` | Silent revalidate on cache-miss instead of a notification. |
 | `aggrega.server.debounceMs` | `300` | Debounce window for proactive validate-on-change. |
 | `aggrega.server.respawnAttempts` | `5` | Max daemon respawn attempts before the stopped-responding notification. |
 | `aggrega.server.respawnWindowSeconds` | `180` | Sliding window for counting respawn attempts. |

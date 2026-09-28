@@ -26,7 +26,6 @@ export function getSettings(): Settings {
   const operationsCfg = vscode.workspace.getConfiguration(OPERATIONS_CONFIG_SECTION);
   return {
     binaryPath: serverCfg.get<string>('binaryPath', DEFAULT_SETTINGS.binaryPath),
-    autoRevalidate: serverCfg.get<boolean>('autoRevalidate', DEFAULT_SETTINGS.autoRevalidate),
     buildOnInspect: serverCfg.get<boolean>(BUILD_ON_INSPECT_KEY, DEFAULT_SETTINGS.buildOnInspect),
     debounceMs: serverCfg.get<number>('debounceMs', DEFAULT_SETTINGS.debounceMs),
     respawnAttempts: serverCfg.get<number>('respawnAttempts', DEFAULT_SETTINGS.respawnAttempts),

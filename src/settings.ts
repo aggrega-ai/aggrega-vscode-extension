@@ -5,7 +5,6 @@ import { DEFAULT_OPERATIONS_LAYOUT, OperationsLayout } from './operation-groups'
 
 export interface Settings {
   binaryPath: string;
-  autoRevalidate: boolean;
   buildOnInspect: boolean;
   debounceMs: number;
   respawnAttempts: number;
@@ -19,7 +18,6 @@ export interface Settings {
 
 export const DEFAULT_SETTINGS: Settings = {
   binaryPath: 'aggrega',
-  autoRevalidate: false,
   buildOnInspect: false,
   debounceMs: 300,
   respawnAttempts: 5,

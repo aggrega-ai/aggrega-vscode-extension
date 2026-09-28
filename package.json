@@ -491,12 +491,6 @@
           "description": "Path to the aggrega binary. Plain name resolves via PATH; absolute or relative paths are honored as written. This is an editor preference rather than Aggrega's own configuration. That is two files, and most projects need nothing else: `.aggrega-config.yaml` at your project root, whose `workspace:` block marks the directory as that root, and `~/.config/aggrega/config.yaml`, the global file on your machine, for settings that belong to the machine rather than to any one project. Between the two, your project's file wins.",
           "scope": "machine"
         },
-        "aggrega.server.autoRevalidate": {
-          "type": "boolean",
-          "default": false,
-          "description": "When true, silently revalidates a file on cache-miss and retries the request. When false, surfaces a notification with a Revalidate action.",
-          "scope": "machine"
-        },
         "aggrega.server.buildOnInspect": {
           "type": "boolean",
           "default": false,

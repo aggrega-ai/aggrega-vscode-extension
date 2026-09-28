@@ -238,31 +238,20 @@ export async function storefrontChecks(ctx: SuiteContext, referenceFolder: strin
   const localFeatures = entityNames(path.join(ctx.folder, 'catalog'), 'Feature');
   const typeLine = await lineOf(ctx, aggregate, 'type: core/secret-value');
   const postgresLine = await lineOf(ctx, aggregate, 'type: core/datastore/postgres');
-  // askAnswering runs one of the editor's language requests. The extension's
-  // provider may stop to ask the reader whether to revalidate a file it holds no
-  // state for, and the request finishes only once that is answered, so the
-  // question is answered as a reader answers it who wants the request to go on —
-  // Revalidate — and what the channel said about it is recorded.
-  const askAnswering = async <T>(command: string, args: unknown[]): Promise<{ result: T | null; note: string }> => {
+  // languageAnswer runs one of the editor's language requests and records, beside
+  // its answer, whether it answered and what the editor showed and the output
+  // channel said while it ran. Where the language server holds no parse of the
+  // document, the extension validates it and sends the request again without
+  // asking the reader anything, so a notification raised here is news rather than
+  // a step to answer.
+  const languageAnswer = async <T>(command: string, args: unknown[]): Promise<{ result: T | null; note: string }> => {
     const mark = ctx.out.mark();
     const toastMark = (await toasts(ctx.d)).length;
-    let settled = false;
-    const pending = run<T>(ctx, command, args, 25000).then((r) => { settled = true; return r; }, () => { settled = true; return null; });
-    const first = await Promise.race([
-      pending.then(() => 'answered'),
-      waitToast(ctx.d, 'a question about the cache', toastMark, (t) => t.message.includes('no cached state'), 15000).then(() => 'asked', () => 'none'),
-    ]);
-    let asked = '';
-    if (first === 'asked') {
-      asked = (await toastsSince(ctx.d, toastMark)).find((t) => t.message.includes('no cached state'))?.message ?? '';
-      await pressToastButton(ctx.d, asked.slice(0, 30), 'Revalidate');
-    }
-    const result = await pending;
-    const answeredInTime = settled && result !== null;
+    const result = await run<T>(ctx, command, args, 25000).then((r) => r, () => null);
     await sleep(1000);
-    const questions = (await toastsSince(ctx.d, toastMark)).filter((t) => t.message.includes('no cached state')).length;
+    const shown = (await toastsSince(ctx.d, toastMark)).map((t) => t.message);
     const channel = ctx.out.since(mark).split('\n').filter((l) => l.trim() !== '').slice(0, 3);
-    return { result, note: `asked ${asked === '' ? 'nothing' : `"${asked}" (${questions} time(s)) and was answered Revalidate`}; the request ${answeredInTime ? 'answered' : 'gave no answer within 25000 ms'}; channel: ${JSON.stringify(channel)}` };
+    return { result, note: `the request ${result !== null ? 'answered' : 'gave no answer within 25000 ms'}; notifications while it ran: ${shown.length === 0 ? 'none' : JSON.stringify(shown)}; channel: ${JSON.stringify(channel)}` };
   };
   await c.run('language-features.completion-offers-the-workspace-and-catalog-entities', {
     expected: `completion just after "type: " on the password attachment (line ${typeLine.index + 1}) offers Feature references drawn from the folder's own catalog (${localFeatures.join(', ')}) and from the standard library, and nothing that is not one`,
@@ -270,7 +259,7 @@ export async function storefrontChecks(ctx: SuiteContext, referenceFolder: strin
   }, async () => {
     await open(ctx, aggregate);
     const character = typeLine.text.indexOf('type: ') + 'type: '.length;
-    const { result: list, note } = await askAnswering<{ items?: { label: string | { label: string } }[] } | null>('vscode.executeCompletionItemProvider', [{ $file: aggregate }, { $position: { line: typeLine.index, character } }]);
+    const { result: list, note } = await languageAnswer<{ items?: { label: string | { label: string } }[] } | null>('vscode.executeCompletionItemProvider', [{ $file: aggregate }, { $position: { line: typeLine.index, character } }]);
     const labels = (list?.items ?? []).map((i) => (typeof i.label === 'string' ? i.label : i.label.label));
     const fromWorkspace = labels.filter((l) => localFeatures.includes(l));
     const fromCatalog = labels.filter((l) => features.includes(l) && !localFeatures.includes(l));
@@ -284,7 +273,7 @@ export async function storefrontChecks(ctx: SuiteContext, referenceFolder: strin
   }, async () => {
     await open(ctx, aggregate);
     const character = postgresLine.text.indexOf('core/datastore/postgres') + 5;
-    const { result: hovers, note } = await askAnswering<{ contents?: ({ value?: string } | string)[] }[] | null>('vscode.executeHoverProvider', [{ $file: aggregate }, { $position: { line: postgresLine.index, character } }]);
+    const { result: hovers, note } = await languageAnswer<{ contents?: ({ value?: string } | string)[] }[] | null>('vscode.executeHoverProvider', [{ $file: aggregate }, { $position: { line: postgresLine.index, character } }]);
     const text = (hovers ?? []).flatMap((h) => (h.contents ?? []).map((x) => (typeof x === 'string' ? x : x.value ?? ''))).join('\n');
     return { passed: text.includes('core/datastore/postgres') && postgresVersions.some((v) => text.includes(v)), seen: `hover: ${JSON.stringify(text.slice(0, 300))}; ${note}` };
   });
