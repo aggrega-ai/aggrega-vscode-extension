@@ -61,6 +61,10 @@ const CONTEXT_ROW_LABEL = {
 
 const REFRESH_GRAPH = '        refreshGraphView();\n';
 
+// The compiled lines composing a build request from the Release selected.
+const BUILD_DIALS = 'out/src/build-dials.js';
+const BUILD_RELEASE_PARAM = '    const params = {\n        release,\n        [exports.AUTO_PULL_DIAL]: on.includes(exports.AUTO_PULL_DIAL),';
+
 // The compiled line binding a list panel's head row to its command, and the same
 // line binding nothing to the row of one operation — as a row that cannot run
 // binds nothing, but here with no reason drawn beside it.
@@ -545,6 +549,27 @@ export const PLANTS: readonly Plant[] = [
     find: '        return `code=${err.code} ${err.message}`;',
     replace: "        return `code=${err.code} ${err.message.replace(/^E\\d{4}: /, '')}`;",
     says: 'a language-server refusal reaches the reader with the short code it opens with cut off',
+  },
+  // ---- the Releases with catalog directories of their own ----
+  {
+    name: 'build-sent-for-the-compose-release', scenario: 'releases-with-own-catalogs', checks: ['build.each-release-matches-the-command-line-from-its-own-catalog'], moves: 'red', target: 'extension',
+    file: BUILD_DIALS, find: BUILD_RELEASE_PARAM, replace: BUILD_RELEASE_PARAM.replace('release,', "release: 'release-compose.yaml',"),
+    says: 'every build is sent for release-compose.yaml whichever Release is selected, so each writes what that Release reads from its own catalog directory',
+  },
+  {
+    name: 'build-sent-for-the-synthesised-release', scenario: 'releases-with-own-catalogs', checks: ['build.managed-chart-release-matches-the-command-line-from-its-own-catalog'], moves: 'red', target: 'extension',
+    file: BUILD_DIALS, find: BUILD_RELEASE_PARAM, replace: BUILD_RELEASE_PARAM.replace('release,', "release: 'release-helm-synth.yaml',"),
+    says: 'every build is sent for release-helm-synth.yaml whichever Release is selected, so the managed-chart Release writes the self-contained Kubernetes Release\'s files',
+  },
+  {
+    name: 'workspace-list-removed', scenario: 'releases-with-own-catalogs', checks: ['build.unmapped-release-matches-the-command-line-from-the-workspace-list'], moves: 'red', target: 'folder',
+    file: '.aggrega-config.yaml', find: 'workspace:\n  catalog_dirs:\n    - catalog-compose\n  releases:\n', replace: 'workspace:\n  releases:\n',
+    says: 'the folder\'s configuration lists no catalog directory for the whole workspace, so a Release its map does not name has none of its own to read',
+  },
+  {
+    name: 'graph-keeps-the-release-it-shows', scenario: 'releases-with-own-catalogs', checks: ['graph.shown-after-the-selection-moves-draws-the-selected-release'], moves: 'red', target: 'extension',
+    file: 'out/src/graph-view.js', find: '        const release = deps.selectedRelease();', replace: '        const release = shownRelease ?? deps.selectedRelease();',
+    says: 'showing the graph again draws the Release the open panel already shows, whichever Release is selected',
   },
 ];
 

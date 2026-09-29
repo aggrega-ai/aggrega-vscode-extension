@@ -112,6 +112,21 @@ export async function writeLockfile(
   return { fixture: `lockfile of ${path.basename(folder)}/${release}`, built: true, proof: `\`aggrega --offline pull\` exited 0 in ${run.elapsedMs} ms: ${summary}; ${lock} is ${fs.statSync(lock).size} bytes` };
 }
 
+// copyLockfile copies a Release's lockfile, written by writeLockfile in one copy
+// of a folder, into another copy of the same folder, and refuses a lockfile that
+// names the copy it was written in, since it would then pin the first copy's
+// paths in the second.
+export function copyLockfile(from: string, to: string, release: string): FixtureProof {
+  const name = release.replace(/\.ya?ml$/, '.lock');
+  const fixture = `lockfile of ${path.basename(to)}/${release}, copied`;
+  const source = path.join(from, name);
+  if (!fs.existsSync(source)) { throw new FixtureError(fixture, `${source} is not there to copy`); }
+  if (fs.readFileSync(source, 'utf8').includes(from)) { throw new FixtureError(fixture, `${source} names the folder it was written in`); }
+  fs.copyFileSync(source, path.join(to, name));
+  if (!fs.readFileSync(path.join(to, name)).equals(fs.readFileSync(source))) { throw new FixtureError(fixture, `${path.join(to, name)} does not read back as ${source}`); }
+  return { fixture, built: true, proof: `${source}, which names no path of the folder it was written in, copied byte for byte to ${path.join(to, name)}` };
+}
+
 // DOCS_EXAMPLE is the documentation example the workspace-above layout holds,
 // by its path under the documentation checkout; the layout keeps that path
 // beneath its root.
@@ -152,6 +167,91 @@ export function placeWorkspaceAbove(docsCheckoutParent: string, dest: string, ca
       built: true,
       proof: `${root} carries a top-level workspace: naming the catalog; ${DOCS_EXAMPLE} beneath it holds ${files.length} files, ${releases.length} Releases (${releases.join(', ')}) and no configuration of its own`,
       evidence: { files },
+    },
+  };
+}
+
+// OWN_CATALOGS_EXAMPLE is the documentation example whose workspace configuration
+// gives each of its Releases catalog directories of its own, by its path under the
+// documentation checkout.
+export const OWN_CATALOGS_EXAMPLE = path.join('aggrega-docs', 'language-reference', 'examples', 'mariadb-adminer');
+
+// MAPPED_RELEASES are the example's Releases, each named in its configuration's
+// map with a catalog directory of its own.
+export const MAPPED_RELEASES = ['release-compose.yaml', 'release-helm-synth.yaml', 'release-helm-bitnami.yaml', 'release-helm-chart.yaml'] as const;
+
+// UNMAPPED_RELEASE is the Release the copy gains beside the example's own: a byte
+// copy of UNMAPPED_COPY_OF under a name the map does not carry, so it builds
+// against the catalog directories the configuration lists for the whole
+// workspace, which is WORKSPACE_CATALOG_DIR and which no mapped Release reads.
+export const UNMAPPED_RELEASE = 'release-unmapped.yaml';
+export const UNMAPPED_COPY_OF = 'release-compose.yaml';
+export const WORKSPACE_CATALOG_DIR = 'catalog-compose';
+
+// The one standard-library entity the example reads from the hub, by its path in
+// the catalog input. A scratch home holds no credential for the hub, so the copy
+// carries it in the root catalog directory, which ends every Release's list of
+// catalog directories, the mapped ones' included.
+const HUB_COMPONENT = path.join('component', 'core', 'devtool', 'adminer', '1.0.0', 'component.yaml');
+
+// The line the example's configuration opens its map with, which the copy's
+// workspace-level list is written above.
+const MAP_OPENING = 'workspace:\n  releases:\n';
+
+// OwnCatalogsLayout is the generated copy: its folder, and the Releases it holds.
+export interface OwnCatalogsLayout {
+  folder: string;
+  releases: string[];
+  proof: FixtureProof;
+}
+
+// placeOwnCatalogs copies the documentation example from the sibling checkout,
+// which it reads and never writes, as a fresh checkout holds it: its own build
+// output, caches and Release lockfiles are left behind, and the per-entity pin
+// records beside its local charts are kept, as the example's own ignore file
+// keeps them. The copy then gains the unmapped Release, a workspace-level catalog
+// directory for it, and the hub's one entity in its root catalog directory. Each
+// addition is refused where the example already carries something it would
+// change, so the copy never differs from the example by more than it says.
+export function placeOwnCatalogs(docsCheckoutParent: string, dest: string, catalog: string): OwnCatalogsLayout {
+  const fixture = 'own-catalogs layout';
+  const source = path.join(docsCheckoutParent, OWN_CATALOGS_EXAMPLE);
+  if (!fs.existsSync(source)) { throw new FixtureError(fixture, `the documentation example is not at ${source}`); }
+  const hub = path.join(catalog, HUB_COMPONENT);
+  if (!fs.existsSync(hub)) { throw new FixtureError(fixture, `the catalog holds no ${HUB_COMPONENT}`); }
+  const skip = (rel: string): boolean => /^(dist|\.aggrega|\.trace)(\/|$)/.test(rel) || (/\.lock$/.test(rel) && path.basename(rel) !== 'entity.lock');
+  const files = copyTree(source, dest, skip);
+  const config = path.join(dest, FIXTURE_CONFIG);
+  const text = fs.readFileSync(config, 'utf8');
+  const unmapped = path.join(dest, UNMAPPED_RELEASE);
+  const rootCatalog = path.join(dest, 'catalog');
+  const refusals = [
+    occurrences(text, MAP_OPENING) !== 1 ? `${FIXTURE_CONFIG} does not open its map with "${MAP_OPENING.trim()}" once` : '',
+    /^ {2}catalog_dirs:/m.test(text) ? `${FIXTURE_CONFIG} already lists catalog directories for the whole workspace` : '',
+    text.includes(UNMAPPED_RELEASE) ? `${FIXTURE_CONFIG} already names ${UNMAPPED_RELEASE}` : '',
+    ...MAPPED_RELEASES.filter((r) => !text.includes(`\n    ${r}:\n      catalog_dirs:\n`)).map((r) => `${FIXTURE_CONFIG} does not map ${r} to catalog directories of its own`),
+    fs.existsSync(unmapped) ? `the example already holds ${UNMAPPED_RELEASE}` : '',
+    fs.existsSync(rootCatalog) ? 'the example already holds a root catalog directory' : '',
+  ].filter((r) => r !== '');
+  if (refusals.length > 0) { throw new FixtureError(fixture, refusals.join('; ')); }
+  fs.writeFileSync(config, text.replace(MAP_OPENING, `workspace:\n  catalog_dirs:\n    - ${WORKSPACE_CATALOG_DIR}\n  releases:\n`));
+  fs.copyFileSync(path.join(dest, UNMAPPED_COPY_OF), unmapped);
+  fs.mkdirSync(path.dirname(path.join(rootCatalog, HUB_COMPONENT)), { recursive: true });
+  fs.copyFileSync(hub, path.join(rootCatalog, HUB_COMPONENT));
+  const readBack = fs.readFileSync(config, 'utf8');
+  const sameRelease = fs.readFileSync(unmapped).equals(fs.readFileSync(path.join(dest, UNMAPPED_COPY_OF)));
+  const releases = fs.readdirSync(dest).filter((f) => /^release[^/]*\.ya?ml$/.test(f)).sort();
+  if (occurrences(readBack, `\n  catalog_dirs:\n    - ${WORKSPACE_CATALOG_DIR}\n  releases:\n`) !== 1 || !sameRelease || releases.length !== MAPPED_RELEASES.length + 1) {
+    throw new FixtureError(fixture, `the copy did not read back as written: the workspace-level list ${readBack.includes(`  catalog_dirs:\n    - ${WORKSPACE_CATALOG_DIR}\n  releases:`) ? 'present' : 'absent'}, ${UNMAPPED_RELEASE} ${sameRelease ? 'a byte copy' : 'not a byte copy'} of ${UNMAPPED_COPY_OF}, ${releases.length} Releases`);
+  }
+  return {
+    folder: dest,
+    releases,
+    proof: {
+      fixture,
+      built: true,
+      proof: `${files.length} files of ${OWN_CATALOGS_EXAMPLE} copied to ${dest}, with no dist/, .aggrega/, .trace/ or Release lockfile and every entity.lock kept; ${FIXTURE_CONFIG} maps ${MAPPED_RELEASES.join(', ')} each to catalog directories of its own and now lists ${WORKSPACE_CATALOG_DIR} for the whole workspace; ${UNMAPPED_RELEASE} is a byte copy of ${UNMAPPED_COPY_OF} the map does not name; catalog/ holds ${hub}, which the example otherwise reads from the hub`,
+      evidence: { files, releases },
     },
   };
 }

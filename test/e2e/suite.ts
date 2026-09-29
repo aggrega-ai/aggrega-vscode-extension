@@ -7,7 +7,7 @@ import * as path from 'path';
 import { CheckResult, Checks, EnoughReported, tally } from './checks';
 import { ScratchHome } from './cli';
 import { createScenarioRoot, ScenarioRoot } from './editor';
-import { FixtureError, FixtureProof, placeFolder, placeWorkspaceAbove, proveMissing, proveUnreachable, UNREACHABLE_HOST, writeLockfile } from './fixtures';
+import { copyLockfile, FixtureError, FixtureProof, placeFolder, placeOwnCatalogs, placeWorkspaceAbove, proveMissing, proveUnreachable, UNREACHABLE_HOST, writeLockfile } from './fixtures';
 import { Inputs, REPO_ROOT } from './inputs';
 import { applyPlant, Plant } from './plants';
 import { aboveChecks, ABOVE_CHECKS } from './suite-above';
@@ -17,6 +17,7 @@ import { bringUp, DisplayReading, Scenario, ScenarioEnd, tearDown } from './scen
 import { makeContext, SuiteContext } from './suite-context';
 import { gatewayChecks, GATEWAY_CHECKS } from './suite-gateway';
 import { KILLED_CHECKS, KILLED_SETTINGS, killedChecks } from './suite-killed';
+import { OFFLINE_RELEASES, OWN_CATALOGS_CHECKS, ownCatalogsChecks } from './suite-own-catalogs';
 import { registryChecks, REGISTRY_CHECKS } from './suite-registry';
 import { storefrontChecks, STOREFRONT_CHECKS } from './suite-storefront';
 
@@ -34,6 +35,7 @@ export const SCENARIO_CHECKS: Readonly<Record<string, readonly string[]>> = {
   'workspace-above': ABOVE_CHECKS,
   'storefront-killed-server': KILLED_CHECKS,
   'storefront-with-registries': REGISTRY_CHECKS,
+  'releases-with-own-catalogs': OWN_CATALOGS_CHECKS,
 };
 
 // ScenarioResult is one scenario as the report states it.
@@ -163,6 +165,21 @@ function plans(inputs: Inputs): ScenarioPlan[] {
       },
       body: (ctx, p) => registryChecks(ctx, p.extra?.registry as ScratchRegistry, p.extra?.stubs as StubRegistries, p.extra?.reference as string),
       cleanup: async (p) => { if (p?.extra?.table) { await stopTable(p.extra.table as ProcessTable); } },
+    },
+    {
+      name: 'releases-with-own-catalogs',
+      checks: OWN_CATALOGS_CHECKS,
+      prepare: async (root, home, log) => {
+        const docs = path.resolve(REPO_ROOT, '..');
+        const layout = placeOwnCatalogs(docs, path.join(root.dir, 'workspace', 'mariadb-adminer'), inputs.catalog.dir);
+        const reference = placeOwnCatalogs(docs, path.join(root.dir, 'reference', 'mariadb-adminer'), inputs.catalog.dir);
+        const fixtures = [layout.proof, reference.proof];
+        for (const release of OFFLINE_RELEASES) {
+          fixtures.push(await writeLockfile(bin, layout.folder, release, home, log), copyLockfile(layout.folder, reference.folder, release));
+        }
+        return { folder: layout.folder, fixtures, extra: { reference: reference.folder } };
+      },
+      body: (ctx, p) => ownCatalogsChecks(ctx, p.extra?.reference as string),
     },
   ];
 }

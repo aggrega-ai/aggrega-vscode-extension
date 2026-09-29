@@ -1,0 +1,311 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Cognitio S.r.l.
+
+import * as fs from 'fs';
+import * as path from 'path';
+
+import { need } from './checks';
+import { runCompiler } from './cli';
+import { MAPPED_RELEASES, UNMAPPED_COPY_OF, UNMAPPED_RELEASE, WORKSPACE_CATALOG_DIR } from './fixtures';
+import { referenceAnswer } from './reference';
+import { capture, ready, SuiteContext } from './suite-context';
+import {
+  commandsPanel, evaluateWithin, pickQuickInputRow, pressIn, pressOperation, selectorRows, sleep, toasts, toastsSince, until, waitQuickInput,
+} from './workbench';
+
+// The checks run in a copy of a documentation example whose workspace
+// configuration gives each of its Releases catalog directories of its own: each
+// Release built from the Build button writes what the command line writes for
+// it, a Release the configuration does not name builds against the directories
+// listed for the whole workspace, and the graph shown after the selection moves
+// is drawn from the Release then selected.
+
+export const OWN_CATALOGS_CHECKS = [
+  'build.each-release-matches-the-command-line-from-its-own-catalog',
+  'build.managed-chart-release-matches-the-command-line-from-its-own-catalog',
+  'build.unmapped-release-matches-the-command-line-from-the-workspace-list',
+  'graph.shown-after-the-selection-moves-draws-the-selected-release',
+] as const;
+
+// MANAGED_CHART_RELEASE is the one mapped Release whose Recipe sources its chart
+// from a registry on the network. Its lockfile is written by its own check, with
+// the network allowed, so no other check rests on the network.
+const MANAGED_CHART_RELEASE = 'release-helm-bitnami.yaml';
+const SELF_CONTAINED_RELEASES = MAPPED_RELEASES.filter((r) => r !== MANAGED_CHART_RELEASE);
+
+// OFFLINE_RELEASES are the Releases whose lockfiles the scenario writes before
+// the editor starts, each with no network.
+export const OFFLINE_RELEASES: readonly string[] = [...SELF_CONTAINED_RELEASES, UNMAPPED_RELEASE];
+
+// The two Releases the graph check moves the selection between, and the node it
+// reads. Their graphs are drawn from different Aggregates, which each node's
+// hover names on its last line; the check takes which Aggregate each is from the
+// language server's own graph of that Release rather than from here.
+const GRAPH_FROM = 'release-compose.yaml';
+const GRAPH_TO = 'release-helm-chart.yaml';
+const GRAPH_NODE = 'db';
+
+// GraphPanel is one graph panel's document as drawn: how much its canvas holds,
+// the line its status reads where one is shown, and the last line of the hover
+// of the node the check reads.
+interface GraphPanel { drawn: number; status: string; hoverEnds: string }
+
+// GraphReading is the graph as the editor shows it: the titles of the tabs
+// holding a graph, and each graph panel's document.
+interface GraphReading { tabs: string[]; panels: GraphPanel[] }
+
+const GRAPH_PANEL = `(() => {
+  const canvas = document.getElementById('canvas');
+  if (!canvas) { return null; }
+  const status = document.getElementById('status');
+  let hover = '';
+  for (const g of canvas.querySelectorAll('g')) {
+    const l = g.querySelector(':scope > text.node-label');
+    if (l && l.textContent === ${JSON.stringify(GRAPH_NODE)}) { const t = g.querySelector(':scope > title'); hover = t ? t.textContent : ''; break; }
+  }
+  return {
+    drawn: canvas.querySelectorAll('g, rect').length,
+    status: status && !status.classList.contains('hidden') ? (status.innerText || '').trim() : '',
+    hoverEnds: hover.split('\\n').pop() || '',
+  };
+})()`;
+
+// graphPanels reads every webview document that is a graph panel. A document
+// that gives no answer within 2 s counts as not being one.
+async function graphPanels(ctx: SuiteContext): Promise<GraphPanel[]> {
+  const found: GraphPanel[] = [];
+  for (const doc of await ctx.d.webviews()) {
+    const p = await evaluateWithin<GraphPanel | null>(doc, GRAPH_PANEL, 2000).catch(() => null);
+    if (p !== null) { found.push(p); }
+  }
+  return found;
+}
+
+function describeGraph(r: GraphReading): string {
+  const panels = r.panels.length === 0 ? 'no graph panel drawn' : r.panels.map((p) => `a panel holding ${p.drawn} drawn element(s)${p.status ? `, its status reading "${p.status}"` : ''}, the ${GRAPH_NODE} hover's last line "${p.hoverEnds}"`).join('; ');
+  return `tabs ${JSON.stringify(r.tabs)}, ${panels}`;
+}
+
+// Tree is a directory's files by their path beneath it, in path order.
+type Tree = Map<string, Buffer>;
+
+function readTree(dir: string): Tree {
+  const files: [string, Buffer][] = [];
+  const walk = (d: string, rel: string): void => {
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const r = rel === '' ? e.name : `${rel}/${e.name}`;
+      if (e.isDirectory()) { walk(path.join(d, e.name), r); } else if (e.isFile()) { files.push([r, fs.readFileSync(path.join(d, e.name))]); }
+    }
+  };
+  if (fs.existsSync(dir)) { walk(dir, ''); }
+  return new Map(files.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
+}
+
+// TreeComparison is what the editor's build wrote held against what the command
+// line wrote for the same Release: the files only one of them holds, the files
+// whose bytes differ once the reference copy's root is read as the editor's, and
+// how many files needed that reading to agree.
+interface TreeComparison { same: boolean; files: number; onlyEditor: string[]; onlyReference: string[]; differ: string[]; normalised: number }
+
+function compareTrees(editor: Tree, reference: Tree, editorRoot: string, referenceRoot: string): TreeComparison {
+  const onlyEditor = [...editor.keys()].filter((f) => !reference.has(f));
+  const onlyReference = [...reference.keys()].filter((f) => !editor.has(f));
+  const differ: string[] = [];
+  let normalised = 0;
+  for (const [f, bytes] of editor) {
+    const ref = reference.get(f);
+    if (ref === undefined || bytes.equals(ref)) { continue; }
+    if (bytes.toString('utf8') === ref.toString('utf8').split(referenceRoot).join(editorRoot)) { normalised++; } else { differ.push(f); }
+  }
+  const same = editor.size > 0 && onlyEditor.length === 0 && onlyReference.length === 0 && differ.length === 0;
+  return { same, files: editor.size, onlyEditor, onlyReference, differ, normalised };
+}
+
+function sameTree(a: Tree, b: Tree): boolean {
+  return a.size === b.size && [...a].every(([f, bytes]) => b.get(f)?.equals(bytes) === true);
+}
+
+function describeComparison(c: TreeComparison): string {
+  if (c.same) { return `${c.files} file(s), each the same bytes${c.normalised > 0 ? ` (${c.normalised} once the reference copy's root is read as the editor's)` : ''}`; }
+  const parts = [
+    c.files === 0 ? 'the editor\'s build wrote nothing' : '',
+    c.onlyEditor.length > 0 ? `only the editor's: ${c.onlyEditor.join(', ')}` : '',
+    c.onlyReference.length > 0 ? `only the command line's: ${c.onlyReference.join(', ')}` : '',
+    c.differ.length > 0 ? `different bytes: ${c.differ.join(', ')}` : '',
+  ].filter((p) => p !== '');
+  return parts.join('; ');
+}
+
+// selectRelease chooses a Release where a person does, on the Commands panel's
+// Release row and the picker it opens, and waits for the row to name it.
+async function selectRelease(ctx: SuiteContext, release: string): Promise<void> {
+  await pressIn(ctx.d, await commandsPanel(ctx.d), 'button.selector[data-command="aggrega.release.select"]');
+  await waitQuickInput(ctx.d, 'the Release picker', (q) => q.rows.some((r) => r.label === release));
+  await pickQuickInputRow(ctx.d, release);
+  const panel = await commandsPanel(ctx.d);
+  await until(`the Release row naming ${release}`, 15000, () => selectorRows(panel), (rows) => rows.some((r) => r.label === 'Release' && r.value === release));
+}
+
+// EditorBuild is what one press of Build said and wrote: the channel's opening
+// and closing lines, the files it listed, and what is on disk in the directory
+// the closing line names.
+interface EditorBuild { opened: boolean; closing: string; count: number | null; directory: string; listed: string[]; tree: Tree }
+
+// pressBuild selects the Release, empties the output directory — a build leaves
+// what an earlier build wrote there in place, so what is read after it is this
+// build's alone — and presses Build.
+async function pressBuild(ctx: SuiteContext, release: string): Promise<EditorBuild> {
+  await selectRelease(ctx, release);
+  const dist = path.join(ctx.folder, 'dist');
+  fs.rmSync(dist, { recursive: true, force: true });
+  const mark = ctx.out.mark();
+  await pressOperation(ctx.d, await commandsPanel(ctx.d), 'aggrega.op.build');
+  const text = await ctx.out.waitFor(`the build of ${release} closing its report`, mark, (t) => /^Build completed: |^The build did not complete/m.test(t), 180000);
+  const lines = text.split('\n');
+  const start = lines.findIndex((l) => l === `Build of ${release}.`);
+  const end = lines.findIndex((l) => l.startsWith('Build completed: '));
+  const closing = end !== -1 ? lines[end] : lines.find((l) => l.startsWith('The build did not complete')) ?? '';
+  const m = /^Build completed: (\d+) files written to (.+)\/$/.exec(closing);
+  const count = m ? Number(m[1]) : null;
+  // The files are the last lines of the report, one per file, before its closing
+  // line.
+  const listed = count !== null && start !== -1 && end - count > start ? lines.slice(end - count, end).map((l) => l.trim()) : [];
+  return { opened: start !== -1, closing, count, directory: m ? m[2] : '', listed, tree: m ? readTree(m[2]) : new Map() };
+}
+
+// CommandLineBuild is what `aggrega build --release` wrote for the same Release
+// over the reference copy, and its own summary line.
+interface CommandLineBuild { status: number | null; summary: string; tree: Tree }
+
+async function buildAtTheCommandLine(ctx: SuiteContext, reference: string, release: string): Promise<CommandLineBuild> {
+  const dist = path.join(reference, 'dist');
+  fs.rmSync(dist, { recursive: true, force: true });
+  const run = await runCompiler(ctx.inputs.compiler.path, ['--offline', 'build', '--release', release, '--quiet'], { cwd: reference, home: ctx.home, boundMs: 180000, log: ctx.cliLog });
+  const summary = `${run.stdout}\n${run.stderr}`.split('\n').find((l) => l.startsWith('Build completed:'))
+    ?? `exit ${run.status ?? run.signal}: ${(run.stderr || run.stdout).trim().split('\n').slice(-2).join(' | ')}`;
+  return { status: run.status, summary, tree: readTree(dist) };
+}
+
+// keep copies both builds of a Release beside the scenario's copies, for whoever
+// reads the report.
+function keep(ctx: SuiteContext, release: string, editor: EditorBuild, reference: string): void {
+  const stem = release.replace(/\.ya?ml$/, '');
+  const builds = path.join(ctx.s.root.dir, 'builds');
+  if (editor.directory !== '' && fs.existsSync(editor.directory)) { fs.cpSync(editor.directory, path.join(builds, 'editor', stem), { recursive: true }); }
+  if (fs.existsSync(path.join(reference, 'dist'))) { fs.cpSync(path.join(reference, 'dist'), path.join(builds, 'command-line', stem), { recursive: true }); }
+}
+
+// ReleaseBuilt is one Release built both ways and held against each other.
+interface ReleaseBuilt { release: string; passed: boolean; seen: string; tree: Tree }
+
+// buildBothWays builds a Release at the command line over the reference copy and
+// from the Build button in the editor, and holds the two against each other: the
+// same files, the same bytes, and a closing line that names the output directory
+// beneath the folder opened, counts what is there and lists it.
+async function buildBothWays(ctx: SuiteContext, reference: string, release: string): Promise<ReleaseBuilt> {
+  const cli = await buildAtTheCommandLine(ctx, reference, release);
+  need(cli.status === 0 && cli.tree.size > 0, `the command line did not build ${release} over the reference copy: ${cli.summary}`);
+  const editor = await pressBuild(ctx, release);
+  keep(ctx, release, editor, reference);
+  const dist = path.join(ctx.folder, 'dist');
+  const c = compareTrees(editor.tree, cli.tree, ctx.folder, reference);
+  const listedAsWritten = JSON.stringify([...editor.listed].sort()) === JSON.stringify([...editor.tree.keys()]);
+  const passed = editor.opened && c.same && editor.directory === dist && editor.count === editor.tree.size && listedAsWritten;
+  const seen = `${release}: the channel ${editor.opened ? `opened on "Build of ${release}."` : `did not open on "Build of ${release}."`} and closed "${editor.closing}"${editor.directory !== '' && editor.directory !== dist ? ` (not ${dist})` : ''}; ${listedAsWritten ? 'the files it listed are the files on disk' : `it listed ${JSON.stringify(editor.listed)} against ${JSON.stringify([...editor.tree.keys()])} on disk`}; against the command line's "${cli.summary}": ${describeComparison(c)}`;
+  return { release, passed, seen, tree: editor.tree };
+}
+
+export async function ownCatalogsChecks(ctx: SuiteContext, reference: string): Promise<void> {
+  const c = ctx.checks;
+  const bin = ctx.inputs.compiler.path;
+  await ready(ctx);
+  const built = new Map<string, Tree>();
+
+  // ---- each Release against its own catalog directories ----
+  await c.run('build.each-release-matches-the-command-line-from-its-own-catalog', {
+    expected: `in one window, each of ${SELF_CONTAINED_RELEASES.join(', ')} selected in turn and built from the Build button writes to ${path.join(ctx.folder, 'dist')} exactly the files, byte for byte, that \`aggrega build --release <file>\` writes for it over a reference copy, reading the catalog directories the workspace configuration maps it to; its report lists those files and closes "Build completed: <n> files written to <directory>/"; and no two of them write the same`,
+    plant: 'in the scratch copy, out/src/build-dials.js made to send every build for release-compose.yaml whichever Release is selected',
+  }, async () => {
+    const results: ReleaseBuilt[] = [];
+    for (const release of SELF_CONTAINED_RELEASES) {
+      const r = await buildBothWays(ctx, reference, release);
+      results.push(r);
+      built.set(release, r.tree);
+    }
+    const alike = results.flatMap((a, i) => results.slice(i + 1).filter((b) => sameTree(a.tree, b.tree)).map((b) => `${a.release} and ${b.release}`));
+    return {
+      passed: results.every((r) => r.passed) && alike.length === 0,
+      seen: `${results.map((r) => r.seen).join(' || ')}; built alike: ${alike.length === 0 ? 'none' : alike.join(', ')}`,
+    };
+  });
+
+  // ---- the Release whose chart comes from a registry on the network ----
+  await c.run('build.managed-chart-release-matches-the-command-line-from-its-own-catalog', {
+    expected: `${MANAGED_CHART_RELEASE}, whose Recipe sources its chart from a registry on the network, pulled with the network allowed into each copy, selected and built from the Build button writes exactly what \`aggrega build --release ${MANAGED_CHART_RELEASE}\` writes over the reference copy, and not what any other Release writes`,
+    plant: 'in the scratch copy, out/src/build-dials.js made to send every build for release-helm-synth.yaml whichever Release is selected',
+  }, async () => {
+    // A pull into each copy: the chart is fetched into the workspace's own
+    // cache, which each copy keeps beneath its root, so one pull does not serve
+    // the other copy.
+    const pulled: string[] = [];
+    for (const [where, dir] of [['the copy the editor opened', ctx.folder], ['the reference copy', reference]] as const) {
+      const pull = await runCompiler(bin, ['--offline=false', 'pull', '--release', MANAGED_CHART_RELEASE, '--quiet'], { cwd: dir, home: ctx.home, boundMs: 180000, log: ctx.cliLog });
+      need(pull.status === 0, `the chart could not be fetched into ${where}, so there is nothing to build it from: \`aggrega --offline=false pull --release ${MANAGED_CHART_RELEASE}\` exited ${pull.status ?? pull.signal}: ${(pull.stderr || pull.stdout).trim().split('\n').slice(-2).join(' | ')}`);
+      pulled.push(`${where}: ${pull.stdout.trim().split('\n').find((l) => l.startsWith('Pull complete:')) ?? 'exit 0'} in ${pull.elapsedMs} ms`);
+    }
+    const r = await buildBothWays(ctx, reference, MANAGED_CHART_RELEASE);
+    const alike = [...built].filter(([, tree]) => sameTree(tree, r.tree)).map(([name]) => name);
+    return { passed: r.passed && alike.length === 0, seen: `the pulls: ${pulled.join('; ')}; ${r.seen}; built alike to it: ${alike.length === 0 ? `none of ${[...built.keys()].join(', ') || 'the Releases built before it'}` : alike.join(', ')}` };
+  });
+
+  // ---- a Release the map does not name ----
+  await c.run('build.unmapped-release-matches-the-command-line-from-the-workspace-list', {
+    expected: `${UNMAPPED_RELEASE}, a copy of ${UNMAPPED_COPY_OF} the workspace configuration's map does not name, selected and built from the Build button writes exactly what \`aggrega build --release ${UNMAPPED_RELEASE}\` writes over the reference copy, reading ${WORKSPACE_CATALOG_DIR}, the catalog directory the configuration lists for the whole workspace`,
+    plant: `in the scratch copy of the folder, .aggrega-config.yaml with the workspace-level list of catalog directories removed`,
+  }, async () => {
+    const r = await buildBothWays(ctx, reference, UNMAPPED_RELEASE);
+    const copied = built.get(UNMAPPED_COPY_OF);
+    const likeItsOriginal = copied === undefined ? `${UNMAPPED_COPY_OF} was not built before it` : sameTree(copied, r.tree) ? `the same files as ${UNMAPPED_COPY_OF}'s build, whose own directory the workspace list names` : `not the same files as ${UNMAPPED_COPY_OF}'s build`;
+    return { passed: r.passed, seen: `${r.seen}; ${likeItsOriginal}` };
+  });
+
+  // ---- the graph shown after the selection moves ----
+  await c.run('graph.shown-after-the-selection-moves-draws-the-selected-release', {
+    expected: `the graph shown for ${GRAPH_FROM} is titled "Aggrega Graph — ${GRAPH_FROM}" and its ${GRAPH_NODE} node's hover ends on the Aggregate the language server's own graph of that Release names; with the selection then moved to ${GRAPH_TO}, showing the graph again redraws the same panel from ${GRAPH_TO}: titled "Aggrega Graph — ${GRAPH_TO}", its ${GRAPH_NODE} node's hover ending on that Release's Aggregate`,
+    plant: 'in the scratch copy, out/src/graph-view.js made to show again the Release a panel already shows, whichever is selected',
+  }, async () => {
+    const aggregateOf = async (release: string): Promise<string> => {
+      const a = await referenceAnswer({ binary: bin, root: reference, method: 'aggrega/irGraph', params: { release }, home: ctx.home, table: ctx.s.table, log: ctx.cliLog });
+      need(a.ok, `the language server gave no graph of ${release} over the reference copy: ${a.ok ? '' : a.error.message}`);
+      const node = (a.result as { graph?: { spec?: { nodes?: Record<string, { source_file?: string }> } } }).graph?.spec?.nodes?.[GRAPH_NODE];
+      need(typeof node?.source_file === 'string' && node.source_file !== '', `the language server's graph of ${release} names no document for ${GRAPH_NODE}`);
+      return node.source_file;
+    };
+    const fromAggregate = await aggregateOf(GRAPH_FROM);
+    const toAggregate = await aggregateOf(GRAPH_TO);
+    need(fromAggregate !== toAggregate, `the two Releases' graphs name the same document for ${GRAPH_NODE} (${fromAggregate}), so the drawing cannot tell them apart`);
+    const tabs = (): Promise<string[]> => ctx.d.workbench<string[]>(`[...document.querySelectorAll('.tabs-container .tab')].map((t) => ((t.querySelector('.label-name') || {}).innerText || t.getAttribute('aria-label') || '').trim()).filter((l) => l.startsWith('Aggrega Graph'))`);
+    const reading = async (): Promise<GraphReading> => ({ tabs: await tabs(), panels: await graphPanels(ctx) });
+    const shows = (r: GraphReading, release: string, aggregate: string): boolean =>
+      r.tabs.length === 1 && r.tabs[0] === `Aggrega Graph — ${release}` && r.panels.length === 1 && r.panels[0].drawn > 0 && r.panels[0].hoverEnds === `↪ ${aggregate}`;
+
+    await selectRelease(ctx, GRAPH_FROM);
+    const toastMark = (await toasts(ctx.d)).length;
+    await pressOperation(ctx.d, await commandsPanel(ctx.d), 'aggrega.graph.show');
+    const first = await until(`the graph drawn from ${GRAPH_FROM}`, 90000, reading, (r) => shows(r, GRAPH_FROM, fromAggregate)).catch(() => reading());
+    await selectRelease(ctx, GRAPH_TO);
+    // What the open panel shows once the selection has moved and before it is
+    // shown again, recorded as it stands: the panel keeps the Release it was
+    // shown with until it is shown again.
+    await sleep(2000);
+    const between = await reading();
+    await pressOperation(ctx.d, await commandsPanel(ctx.d), 'aggrega.graph.show');
+    const second = await until(`the graph redrawn from ${GRAPH_TO}`, 90000, reading, (r) => shows(r, GRAPH_TO, toAggregate)).catch(() => reading());
+    const passed = shows(first, GRAPH_FROM, fromAggregate) && shows(second, GRAPH_TO, toAggregate);
+    const drawnNotices = passed ? '' : `; notifications since the first press ${JSON.stringify((await toastsSince(ctx.d, toastMark)).map((t) => `${t.message.slice(0, 160)} (${t.severity})`))}; capture ${await capture(ctx, 'graph-after-the-selection-moved')}`;
+    return {
+      passed,
+      seen: `shown for ${GRAPH_FROM}: ${describeGraph(first)}; the selection moved to ${GRAPH_TO}, before showing again: ${describeGraph(between)}; shown again: ${describeGraph(second)}; the language server's graphs name ${fromAggregate} and ${toAggregate}${drawnNotices}`,
+    };
+  });
+}

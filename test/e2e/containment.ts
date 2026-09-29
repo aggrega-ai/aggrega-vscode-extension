@@ -78,7 +78,7 @@ function gitDirOf(dir: string): string | null {
 // placesFor names the places a run reads. `top` places are read one level deep:
 // a leak there shows as a new or changed entry at the top, and reading deeper
 // would list the other work on the machine rather than this run's.
-export function placesFor(start: ContainmentStart, inputs: { extension: string; catalog: string; compiler: string; registryServer: string; editor: string; docsExample: string }): { place: string; depth: 'all' | 'top' }[] {
+export function placesFor(start: ContainmentStart, inputs: { extension: string; catalog: string; compiler: string; registryServer: string; editor: string; docsExamples: readonly string[] }): { place: string; depth: 'all' | 'top' }[] {
   const all = (p: string): { place: string; depth: 'all' } => ({ place: p, depth: 'all' });
   const top = (p: string): { place: string; depth: 'top' } => ({ place: p, depth: 'top' });
   const places: { place: string; depth: 'all' | 'top' }[] = [
@@ -88,14 +88,14 @@ export function placesFor(start: ContainmentStart, inputs: { extension: string; 
     top('/dev/shm'),
     all(inputs.extension),
     all(inputs.catalog),
-    all(inputs.docsExample),
+    ...inputs.docsExamples.map(all),
     // The editor build is read on its own only where it sits outside the
     // extension's directory, which is read whole above.
     ...(inputs.editor.startsWith(`${inputs.extension}${path.sep}`) ? [] : [all(inputs.editor)]),
     all(path.dirname(inputs.compiler)),
     all(path.dirname(inputs.registryServer)),
   ];
-  for (const repo of [inputs.extension, inputs.catalog, inputs.docsExample]) {
+  for (const repo of [inputs.extension, inputs.catalog, ...inputs.docsExamples]) {
     const g = gitDirOf(repo);
     if (g !== null) { places.push(top(g)); }
   }
