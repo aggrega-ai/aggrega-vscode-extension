@@ -43,14 +43,46 @@ export interface CliRunDeps {
   appendLine(text: string): void;
 }
 
+// CliExit is how a run nobody stopped ended: the status the child exited with,
+// and everything it wrote to its standard error.
+//
+// The error stream is carried because it is where the command line puts the
+// reason it refused, and it is the only place that reason exists once the run is
+// over: the status says that the compiler declined and nothing about why.
+export interface CliExit {
+  code: number | null;
+  stderr: string;
+}
+
+// exitRefusal is what a reader is told about a run that exited with a status
+// other than zero.
+//
+// The status comes first and the compiler's own words follow it, unchanged, so
+// the sentence a reader meets names what to fix rather than only that something
+// failed. Only the blank lines around the words are dropped, which the compiler
+// writes as line endings rather than as text. A run that wrote nothing to its
+// error stream is reported by its status alone, since there is nothing of the
+// compiler's to carry and inventing a reason would be worse than naming none.
+export function exitRefusal(exit: CliExit): string {
+  const status = `the compiler exited with status ${exit.code ?? 'unknown'}`;
+  const said = exit.stderr.replace(/^(?:[ \t]*\r?\n)+/, '').replace(/(?:\r?\n[ \t]*)+$/, '');
+  return said.trim() === '' ? `${status}.` : `${status}: ${said}`;
+}
+
 // runCliProcess starts the child, streams its output, and settles on how it
 // ended.
 //
-// It resolves with the exit status. It rejects with the stopped-by-the-reader
-// rejection when the signal fires, and with the spawn failure when the child
-// could not be started at all — a value the caller reports verbatim, since a
-// binary that does not resolve is a fact about the reader's own environment and
-// the runtime's message names it precisely.
+// It resolves with the exit status and the text of the child's error stream. It
+// rejects with the stopped-by-the-reader rejection when the signal fires, and
+// with the spawn failure when the child could not be started at all — a value
+// the caller reports verbatim, since a binary that does not resolve is a fact
+// about the reader's own environment and the runtime's message names it
+// precisely.
+//
+// The error stream is kept as bytes and decoded once the child has closed, so a
+// character the operating system split across two reads reaches the reader
+// whole. The streamed copy on the channel is untouched by that: it is written as
+// each read arrives, which is what lets a reader watch a run in progress.
 //
 // Stopping is terminating the child, and the child is held for exactly as long
 // as that is possible: the handle lives across the whole wait rather than in a
@@ -61,8 +93,8 @@ export function runCliProcess(
   what: string,
   signal?: CancellationSignal,
   killGraceMs: number = SIGKILL_GRACE_MS,
-): Promise<number | null> {
-  return new Promise<number | null>((resolve, reject) => {
+): Promise<CliExit> {
+  return new Promise<CliExit>((resolve, reject) => {
     if (signal?.isCancellationRequested) {
       reject(new OperationCancelled(what));
       return;
@@ -92,8 +124,12 @@ export function runCliProcess(
       act();
     };
 
+    const errorStream: Buffer[] = [];
     child.stdout?.on('data', (chunk: Buffer) => deps.append(chunk.toString()));
-    child.stderr?.on('data', (chunk: Buffer) => deps.append(chunk.toString()));
+    child.stderr?.on('data', (chunk: Buffer) => {
+      errorStream.push(chunk);
+      deps.append(chunk.toString());
+    });
     child.on('error', (err: Error) => {
       if (killTimer !== null) { clearTimeout(killTimer); killTimer = null; }
       finish(() => reject(err));
@@ -104,7 +140,7 @@ export function runCliProcess(
       // stop already settled this promise — finish makes the first settlement
       // the only one, so the exit of a terminated child never overwrites the
       // stopped-by-the-reader answer with an exit status.
-      finish(() => resolve(code));
+      finish(() => resolve({ code, stderr: Buffer.concat(errorStream).toString('utf8') }));
     });
 
     if (!signal) { return; }

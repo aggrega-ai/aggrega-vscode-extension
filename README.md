@@ -273,7 +273,10 @@ says nothing looks exactly like one that never ran.
   for, so a publication that landed nothing is never reported as one that did.
 - **A failure shows the compiler's own message, with a button beside it,** never a re-worded summary
   in place of it. The compiler's message usually names what to run or what to fix, and the **Show
-  output** button takes you to the full text in the Aggrega output channel. An inspection refused
+  output** button takes you to the full text in the Aggrega output channel. An operation that runs the
+  `aggrega` binary and is refused names the status the binary exited with and then the words it wrote
+  when it refused, unchanged, and the output channel ends with the same sentence, line for line. An
+  inspection refused
   because of the document that declares the entity offers **Open document** instead, because that
   document is what the message is about and the channel holds nothing more.
 

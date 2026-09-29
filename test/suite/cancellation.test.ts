@@ -334,6 +334,6 @@ describe('stopping a subprocess operation terminates the child', () => {
       'The run',
     );
     setTimeout(() => child.emit('close', 3), 0);
-    assert.strictEqual(await pending, 3);
+    assert.strictEqual((await pending).code, 3);
   });
 });

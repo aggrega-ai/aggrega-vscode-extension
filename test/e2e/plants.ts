@@ -204,6 +204,11 @@ export const PLANTS: readonly Plant[] = [
     says: 'the on-disk watcher\'s report of a deleted file reaches nothing, so a document no editor holds keeps its row once its file is deleted from outside the editor',
   },
   {
+    name: 'refusal-names-only-the-status', scenario: 'storefront', checks: ['catalog-view.refused-validation-ends-in-the-compilers-words'], moves: 'red', target: 'extension',
+    file: 'out/src/cli-run.js', find: "    return said.trim() === '' ? `${status}.` : `${status}: ${said}`;", replace: '    return `${status}.`;',
+    says: 'an operation run as a command that the compiler refuses ends by naming the exit status alone, dropping the words the compiler wrote to its error stream',
+  },
+  {
     name: 'list-panel-heads-reversed', scenario: 'storefront',
     checks: [
       'catalog-panel.head-reads-search-catalog-then-draft-entity-and-folds-with-the-panel',

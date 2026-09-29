@@ -4,7 +4,7 @@
 import { spawn } from 'child_process';
 import * as vscode from 'vscode';
 import { CancellationSignal } from './cancellation';
-import { runCliProcess } from './cli-run';
+import { exitRefusal, runCliProcess } from './cli-run';
 import {
   OperationOutcome,
   SHOW_OUTPUT_ACTION,
@@ -128,7 +128,7 @@ export async function runCli(
   out.appendLine(`\n$ ${bin} ${args.join(' ')}   (cwd: ${root})`);
 
   try {
-    const code = await runCliProcess(
+    const exit = await runCliProcess(
       {
         spawn: () => spawn(bin, args, { cwd: root }),
         append: (text) => out.append(text),
@@ -137,18 +137,16 @@ export async function runCli(
       what,
       options.signal,
     );
-    // A non-zero status is the compiler declining to do the work, and the
-    // reason is already on the channel in its own words. It is reported as a
-    // failure so the remedy button appears beside it; the status itself is
-    // named because it is what a reader comparing this run with a command line
-    // would see.
-    if (code !== 0) {
-      await reportOutcome(
-        deps,
-        what,
-        { kind: 'failed', message: `the compiler exited with status ${code ?? 'unknown'}.` },
-        true,
-      );
+    // A non-zero status is the compiler declining to do the work, and its
+    // reason is what it wrote to its error stream. The ending carries those
+    // words as well as the status, because the notification is where a reader
+    // who is not watching the channel meets the ending, and a status alone
+    // tells them that something failed and nothing about what to fix. It is
+    // reported as a failure so the remedy button appears beside it; the status
+    // is named because it is what a reader comparing this run with a command
+    // line would see.
+    if (exit.code !== 0) {
+      await reportOutcome(deps, what, { kind: 'failed', message: exitRefusal(exit) }, true);
       return;
     }
     await reportOutcome(

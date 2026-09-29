@@ -484,6 +484,38 @@ export async function revealTreeRow(driver: UiDriver, title: string, label: stri
   return at;
 }
 
+// rowMenu opens the context menu of the row labelled `label` in the side-bar view
+// titled `title`, as a person does with a right-click on it, and reports the
+// items the menu offers by their accessible names. It reports none where the row
+// is not drawn or no menu opened within 3 s, and leaves an opened menu open.
+export async function rowMenu(driver: UiDriver, title: string, label: string): Promise<string[]> {
+  const at = await treeRowCentre(driver, title, label);
+  if (at === null) { return []; }
+  await driver.click(at, 'right');
+  return until('the row\'s context menu', 3000, () => driver.workbench<string[]>(`[...document.querySelectorAll('.context-view .action-label[aria-label]')].map((e) => e.getAttribute('aria-label'))`), (v) => v.length > 0).catch(() => [] as string[]);
+}
+
+// pressMenuItem presses the item named `label` on the open context menu, and
+// reports how it was taken: by the pointer, or by Enter where the pointer's press
+// left the menu open. It reports null where the menu draws no such item.
+//
+// The editor's context menu can let a click that lands as it finishes opening go
+// by, and then nothing runs at all. So the pointer rests on the item first, and a
+// menu still open after the click is taken by Enter, as a reader takes it from the
+// keyboard; what a check judges is what the operation does, not whether one click
+// landed.
+export async function pressMenuItem(driver: UiDriver, label: string): Promise<'pointer' | 'Enter' | null> {
+  const itemBox = await driver.box(null, `.context-view .action-label[aria-label="${label}"]`);
+  if (itemBox === null) { return null; }
+  await driver.moveTo(centre(itemBox));
+  await sleep(300);
+  await driver.click(centre(itemBox));
+  const menuGone = (): Promise<boolean> => driver.workbench<boolean>(`!document.querySelector('.context-view .monaco-menu')`);
+  const tookByPointer = await until('the context menu closing on the press', 3000, menuGone, (v) => v).then(() => true, () => false);
+  if (!tookByPointer) { await driver.press('Enter'); }
+  return tookByPointer ? 'pointer' : 'Enter';
+}
+
 // pressTreeRowAction presses the action labelled `action` that the row labelled
 // `label` draws at its end, where a person presses it: the pointer rests on the
 // row first, which is what draws a row's own actions, and the press lands on the

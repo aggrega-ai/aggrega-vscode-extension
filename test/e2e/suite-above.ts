@@ -15,8 +15,8 @@ import { capture, closeAllEditors, open, ready, run, save, send, SuiteContext, t
 import { pressViewAction } from './suite-storefront';
 import {
   centre, commandsPanel, dialog, documentWith, holds, observeWorkbench, operationButtons, pickQuickInputRow, pressDialogButton, pressIn,
-  pressOperation, pressPanelAction, pressToastButton, quickInput, RUNNING, selectorRows, sleep, toasts, toastsSince, treeRowCentre, treeRows,
-  until, waitQuickInput, waitStatus, waitToast,
+  pressMenuItem, pressOperation, pressPanelAction, pressToastButton, quickInput, rowMenu, RUNNING, selectorRows, sleep, toasts, toastsSince,
+  treeRowCentre, treeRows, until, waitQuickInput, waitStatus, waitToast,
 } from './workbench';
 
 // The checks run in a folder whose Aggrega workspace is the folder above it:
@@ -619,14 +619,11 @@ export async function aboveChecks(ctx: SuiteContext, layout: { root: string; ref
     const rows = await until('the Catalog view drawing an entity row', 20000, () => treeRows(ctx.d, 'Catalog'), (v) => v !== null && v.some((r) => r.level === 2));
     // The first entity row whose context menu offers the operation: it is
     // offered on a row whose entity has a document of its own.
-    const item = '.context-view .action-label[aria-label="Validate this entity"]';
     let entity: { label: string } | undefined;
     const tried: string[] = [];
     for (const r of (rows ?? []).filter((x) => x.level === 2).slice(0, 6)) {
-      const at = await treeRowCentre(ctx.d, 'Catalog', r.label);
-      if (at === null) { continue; }
-      await ctx.d.click(at, 'right');
-      const offered = await until('the row\'s context menu', 3000, () => ctx.d.workbench<string[]>(`[...document.querySelectorAll('.context-view .action-label[aria-label]')].map((e) => e.getAttribute('aria-label'))`), (v) => v.length > 0).catch(() => [] as string[]);
+      if (await treeRowCentre(ctx.d, 'Catalog', r.label) === null) { continue; }
+      const offered = await rowMenu(ctx.d, 'Catalog', r.label);
       tried.push(`${r.label}: ${JSON.stringify(offered)}`);
       if (offered.includes('Validate this entity')) { entity = r; break; }
       await ctx.d.press('Escape');
@@ -634,19 +631,9 @@ export async function aboveChecks(ctx: SuiteContext, layout: { root: string; ref
     need(entity !== undefined, `no Catalog row's context menu offers "Validate this entity": ${tried.join('; ')}`);
     const mark2 = ctx.out.mark();
     const toastMark2 = (await toasts(ctx.d)).length;
-    // The editor's context menu can let a click that lands as it finishes
-    // opening go by, and then nothing runs at all. So the pointer rests on the
-    // item first, and a menu still open after the click is taken by Enter, as a
-    // reader takes it from the keyboard; what the check judges is what the
-    // operation writes, not whether one click landed.
-    const itemBox = await ctx.d.box(null, item);
-    need(itemBox !== null, 'the context menu draws no "Validate this entity" item to press');
-    await ctx.d.moveTo(centre(itemBox));
-    await sleep(300);
-    await ctx.d.click(centre(itemBox));
-    const menuGone = (): Promise<boolean> => ctx.d.workbench<boolean>(`!document.querySelector('.context-view .monaco-menu')`);
-    const tookByPointer = await until('the context menu closing on the press', 3000, menuGone, (v) => v).then(() => true, () => false);
-    if (!tookByPointer) { await ctx.d.press('Enter'); }
+    const taken = await pressMenuItem(ctx.d, 'Validate this entity');
+    need(taken !== null, 'the context menu draws no "Validate this entity" item to press');
+    const tookByPointer = taken === 'pointer';
     const validated = await ctx.out.waitFor('the entity validation writing to the channel', mark2, (t) => dollar(t).length > 0, 20000).catch(() => ctx.out.since(mark2));
     const validateLine = dollar(validated)[0];
     const told = (await toastsSince(ctx.d, toastMark2)).map((t) => t.message);

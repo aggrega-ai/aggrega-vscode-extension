@@ -13,14 +13,15 @@ import { referenceAnswer } from './reference';
 import { CACHE_MISS_CHECKS, cacheMissChecks } from './suite-cache-miss';
 import { CONFIG_PANEL_CHECKS, configPanelChecks } from './suite-config-panel';
 import {
-  capture, closeAllEditors, deleteLine, describeDiagnostics, diagnostics, lineOf, open, putBack, ready, run, save, send, SuiteContext, theServer,
+  capture, catalogPanelAtItsHead, closeAllEditors, commandTitle, deleteLine, describeDiagnostics, diagnostics, lineOf, open, putBack, ready, run, save,
+  send, SuiteContext, theServer,
 } from './suite-context';
 import { contextRowsCheck } from './suite-gateway';
 import { INSPECTION_CHECKS, inspectionChecks } from './suite-inspection';
 import {
-  commandsPanel, documentWith, holds, NOT_RUNNING, operationButtons, paneState, pickQuickInputRow, pressIn, pressOperation, pressPaneHeader, pressPanelAction,
-  pressToastButton, QuickInput, quickInput, RUNNING, sleep, statusLog, STARTING, toasts, toastsSince, TreeRow, treeRowCentre, treeRows, until, waitQuickInput,
-  waitStatus, waitToast,
+  commandsPanel, documentWith, holds, NOT_RUNNING, operationButtons, paneState, pickQuickInputRow, pressIn, pressMenuItem, pressOperation, pressPaneHeader,
+  pressPanelAction, pressToastButton, QuickInput, quickInput, revealTreeRow, rowMenu, RUNNING, sleep, statusLog, STARTING, toasts, toastsSince, TreeRow,
+  treeRowCentre, treeRows, until, waitQuickInput, waitStatus, waitToast,
 } from './workbench';
 
 // The checks run in the storefront folder: the capabilities walked end to end —
@@ -53,6 +54,7 @@ export const STOREFRONT_CHECKS = [
   'catalog-view.deleted-closed-file-row-leaves-without-a-press',
   'catalog-view.new-entity-appears-after-refresh',
   'catalog-view.deleted-entity-row-leaves-at-once',
+  'catalog-view.refused-validation-ends-in-the-compilers-words',
   'catalog-panel.head-reads-search-catalog-then-draft-entity-and-folds-with-the-panel',
   'catalog-panel.draft-entity-asks-for-the-kind',
   'registries-panel.head-leads-no-registries-configured-and-folds-with-the-panel',
@@ -113,6 +115,10 @@ const LIST_PANEL_OPERATIONS = [...CATALOG_HEAD, ...REGISTRIES_HEAD, ...PLUGINS_H
 const LIST_PANEL_COMMANDS = [
   'aggrega.catalog.searchPublished', 'aggrega.op.scaffold', 'aggrega.registries.add', 'aggrega.registries.update', 'aggrega.plugins.add', 'aggrega.plugins.genCatalog',
 ];
+
+// The opening of the sentence a correctness check the compiler refused ends in,
+// held as written for the same reason.
+const CHECK_REFUSED_OPENING = 'The check did not complete: ';
 
 // The stopped-responding notification, held as written for the same reason.
 export const STOPPED_RESPONDING = 'Aggrega language server has stopped responding. Run "Aggrega: Start or restart the language server" to recover.';
@@ -520,6 +526,65 @@ export async function storefrontChecks(ctx: SuiteContext, referenceFolder: strin
     const row = rows?.find((r) => r.label === copyName);
     return { passed: gone && stayed, seen: gone ? (stayed ? 'the row left and stayed out' : 'the row left, then came back') : `the row is still drawn 5 s after the tab closed${row ? ` (${row.decorations})` : ''}` };
   });
+  // A correctness check the compiler refuses, pressed on a row, ends in the
+  // compiler's own words. The refusal is one the compiler raises for a kind it
+  // checks, over a document it cannot accept as written, so the check does not
+  // rest on which kinds a row offers the operation for.
+  const validateItem = commandTitle(ctx.manifest, 'aggrega.workspaceCatalog.validate');
+  const featureName = 'local/nightly-backup';
+  const featureWhole = fs.readFileSync(feature, 'utf8');
+  await c.run('catalog-view.refused-validation-ends-in-the-compilers-words', {
+    expected: `with the Feature's version line removed and the file saved, "${validateItem}" pressed in the context menu of the Catalog row "${featureName}" ends in an error notification and a closing line on the output channel that each read "${CHECK_REFUSED_OPENING}the compiler exited with status <n>: " followed by <words>, <n> and <words> being the exit status and the standard error of \`aggrega validate\` given the same path over the same bytes outside the editor — the channel's lines by equality, the notification's with each run of blank space read as one, as the editor draws it`,
+    plant: 'in the scratch copy, out/src/cli-run.js with a refused run reported by its exit status alone',
+  }, async () => {
+    const rel = path.relative(ctx.folder, feature);
+    const referenceFeature = path.join(referenceFolder, rel);
+    const referenceWhole = fs.readFileSync(referenceFeature, 'utf8');
+    const broken = referenceWhole.split('\n').filter((l) => l.trim() !== 'version: 1.0.0').join('\n');
+    need(broken.split('\n').length === referenceWhole.split('\n').length - 1, 'the Feature does not carry its version line exactly once');
+    fs.writeFileSync(referenceFeature, broken);
+    const cli = await runCompiler(bin, ['validate', rel], { cwd: referenceFolder, home: ctx.home, boundMs: 120000, log: ctx.cliLog });
+    fs.writeFileSync(referenceFeature, referenceWhole);
+    const words = cli.stderr.trim();
+    need(cli.status !== 0 && words !== '', `the compiler did not refuse the broken Feature outside the editor: exit ${cli.status ?? cli.signal}, standard error ${JSON.stringify(cli.stderr.slice(0, 200))}`);
+    const want = `${CHECK_REFUSED_OPENING}the compiler exited with status ${cli.status}: ${words}`;
+    const flat = (s: string): string => s.replace(/\s+/g, ' ').trim();
+
+    // The same break, made as an author makes it and saved. It is undone below,
+    // after the check, whatever the check reached.
+    await deleteLine(ctx, feature, 'version: 1.0.0');
+    await save(ctx, feature);
+    await closeAllEditors(ctx);
+    await run(ctx, 'aggrega.workspaceCatalog.focus');
+    await revealTreeRow(ctx.d, 'Catalog', featureName);
+    const offered = await rowMenu(ctx.d, 'Catalog', featureName);
+    need(offered.includes(validateItem), `the "${featureName}" row's context menu offers ${JSON.stringify(offered)}, so "${validateItem}" cannot be pressed`);
+    const mark = ctx.out.mark();
+    const toastMark = (await toasts(ctx.d)).length;
+    const taken = await pressMenuItem(ctx.d, validateItem);
+    need(taken !== null, `the context menu draws no "${validateItem}" item to press`);
+    const text = await ctx.out.waitFor('the check closing on the channel', mark, (t) => t.split('\n').some((l) => l.startsWith(CHECK_REFUSED_OPENING)), 60000).catch(() => ctx.out.since(mark));
+    const lines = text.split('\n');
+    const at = lines.findIndex((l) => l.startsWith(CHECK_REFUSED_OPENING));
+    const closing = at === -1 ? '' : lines.slice(at, at + want.split('\n').length).join('\n');
+    const told = await waitToast(ctx.d, 'the check\'s notification', toastMark, (t) => t.message.startsWith(CHECK_REFUSED_OPENING), 30000).catch(() => null);
+    const passed = closing === want && told !== null && told.severity === 'error' && flat(told.message) === flat(want);
+    return {
+      passed,
+      seen: `pressed by ${taken}; the channel closes ${JSON.stringify(closing.slice(0, 400))}; the notification ${told === null ? 'none opening that way' : `${JSON.stringify(told.message.slice(0, 400))} (${told.severity}, buttons ${JSON.stringify(told.buttons)})`}; the compiler outside the editor: exit ${cli.status}, ${JSON.stringify(words.slice(0, 300))}`,
+      evidence: { want, closing, told },
+    };
+  });
+  // The Feature is left as it was found, and the Catalog panel scrolled back to
+  // its head, where the checks after this one read it: the row pressed above
+  // sits far enough down its list to have scrolled the panel.
+  if (fs.readFileSync(feature, 'utf8') !== featureWhole) {
+    await closeAllEditors(ctx);
+    await run(ctx, 'workbench.action.files.revert').catch(() => undefined);
+    fs.writeFileSync(feature, featureWhole);
+  }
+  await closeAllEditors(ctx);
+  await catalogPanelAtItsHead(ctx, CATALOG_HEAD[0]).catch(() => false);
 
   // ---- the operations heading each list panel, and the Commands panel without them ----
   // headAndFold reads a list panel as drawn once it has settled, leaves a capture
