@@ -183,6 +183,16 @@ export const PLANTS: readonly Plant[] = [
     says: 'the Catalog view no longer reads its list again once the language server has dropped a document, whether the file was deleted on disk or closed in the editor, so it keeps a row for a document that is gone until its refresh is pressed',
   },
   {
+    name: 'created-file-not-followed', scenario: 'storefront', checks: ['catalog-view.created-file-appears-without-a-press'], moves: 'red', target: 'extension',
+    file: 'out/src/disk-change.js', find: '    watcher.onDidCreate(reported);\n', replace: '',
+    says: 'the on-disk watcher\'s report of a created file reaches nothing, so a document written into the folder from outside the editor is listed only once refresh is pressed',
+  },
+  {
+    name: 'deleted-closed-file-not-followed', scenario: 'storefront', checks: ['catalog-view.deleted-closed-file-row-leaves-without-a-press'], moves: 'red', target: 'extension',
+    file: 'out/src/disk-change.js', find: '    watcher.onDidDelete(reported);\n', replace: '',
+    says: 'the on-disk watcher\'s report of a deleted file reaches nothing, so a document no editor holds keeps its row once its file is deleted from outside the editor',
+  },
+  {
     name: 'validation-says-nothing', scenario: 'storefront', checks: ['operations.validate-ends-in-a-sentence'], moves: 'red', target: 'extension',
     file: EXTENSION,
     find: '        outputChannel?.appendLine(report);\n        void vscode.window.showInformationMessage(report);',
@@ -278,6 +288,18 @@ export const PLANTS: readonly Plant[] = [
     says: 'a build refused for a missing lockfile raises its own failure notification beside the notice, two notifications for one fault',
   },
   {
+    name: 'notice-pull-typed-into-a-terminal', scenario: 'workspace-above', checks: ['lockfile-notice.pull-runs-the-panels-pull-and-opens-no-terminal'], moves: 'red', target: 'extension',
+    file: 'out/src/error-surfaces.js',
+    find: '            ctx.pull(release);',
+    replace: "            require('vscode').window.createTerminal({ name: 'Aggrega Lockfile' }).sendText('aggrega pull --release \"' + release + '\"', true);",
+    says: 'the missing-lockfile notice\'s Pull opens a terminal and types the pull there, so what runs is whatever `aggrega` that terminal finds, with no progress and no ending of the Commands panel\'s Pull',
+  },
+  {
+    name: 'unasked-notice-never-held-back', scenario: 'workspace-above', checks: ['lockfile-notice.saves-with-the-graph-open-raise-it-at-most-once'], moves: 'red', target: 'extension',
+    file: 'out/src/error-surfaces.js', find: '    if (!shouldShowNotice(ctx, types_1.ERR_LOCKFILE_ABSENT)) {', replace: '    if (false) {',
+    says: 'a refusal for a missing lockfile that nobody asked for — an open graph redrawn after a save — raises its notice every time, however recently it was shown',
+  },
+  {
     name: 'preview-carries-auto-pull', scenario: 'workspace-above', checks: ['preview.never-carries-auto-pull'], moves: 'red', target: 'extension',
     file: 'out/src/build-dials.js',
     find: 'function buildPreviewParams(release) {\n    return { release };',
@@ -324,6 +346,27 @@ export const PLANTS: readonly Plant[] = [
     find: "serverInPlaceMessage)('started', daemon?.getServerInitMetadata()?.version)",
     replace: "serverInPlaceMessage)('started', undefined)",
     says: 'the notification a start ends in is handed no version, so it says the version was not reported whatever the server started reported',
+  },
+  {
+    name: 'server-line-misses-a-stop', scenario: 'storefront-killed-server', checks: ['welcome-page.server-line-follows-a-restart-and-a-stop'], moves: 'red', target: 'extension',
+    file: 'out/src/get-started.js',
+    find: "        panel.webview.postMessage({ type: 'server', html: (0, welcome_render_1.serverHtml)(deps.readServerStanding()) });",
+    replace: "        const standing = deps.readServerStanding();\n        if (standing.reading !== 'notRunning') {\n            panel.webview.postMessage({ type: 'server', html: (0, welcome_render_1.serverHtml)(standing) });\n        }",
+    says: 'the welcome page\'s last line follows every move of the language server but one that reads not running, so a stopped server goes on reading as it read before it stopped',
+  },
+  {
+    name: 'server-line-version-dropped', scenario: 'storefront-killed-server', checks: ['welcome-page.server-line-names-the-version-when-started-again'], moves: 'red', target: 'extension',
+    file: EXTENSION,
+    find: '        version: daemon?.getServerInitMetadata()?.version ?? null,',
+    replace: '        version: null,',
+    says: 'the welcome page is handed no version for the running language server, so its last line says the version was not reported whatever the server reported',
+  },
+  {
+    name: 'failed-start-read-as-not-running', scenario: 'storefront-killed-server', checks: ['welcome-page.server-line-says-a-start-failed'], moves: 'red', target: 'extension',
+    file: 'out/src/daemon-status.js',
+    find: "    return standing === 'notRunning' && lastStartFailed ? 'failedToStart' : standing;",
+    replace: '    return standing;',
+    says: 'a language server whose last start failed is read as one that is not running, so the welcome page\'s last line never says a start failed',
   },
   {
     name: 'error-at-activation', scenario: 'storefront-killed-server', checks: ['language-server.starts-without-an-error-notification'], moves: 'red', target: 'extension',

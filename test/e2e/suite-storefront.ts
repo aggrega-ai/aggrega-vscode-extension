@@ -39,6 +39,8 @@ export const STOREFRONT_CHECKS = [
   'catalog-search.no-registry-sentence-directs-the-reader',
   'catalog-search.filter-is-kept-until-reset',
   'catalog-view.lists-the-workspace-entities-by-kind',
+  'catalog-view.created-file-appears-without-a-press',
+  'catalog-view.deleted-closed-file-row-leaves-without-a-press',
   'catalog-view.new-entity-appears-after-refresh',
   'catalog-view.deleted-entity-row-leaves-at-once',
   'operations.validate-ends-in-a-sentence',
@@ -403,6 +405,37 @@ export async function storefrontChecks(ctx: SuiteContext, referenceFolder: strin
   const copyPath = path.join(ctx.folder, 'scratch-component.yaml');
   const copySource = path.join(ctx.inputs.extension.dir, 'test', 'e2e', 'fixtures', 'gateway', 'scratch-component.yaml');
   const copyName = entityNames(path.dirname(copySource), 'Component')[0];
+  // The copy, never opened in the editor, first: created and deleted from outside
+  // it with nothing pressed, so what brings the row and takes it away is the panel
+  // following the disk and nothing else. They come before the checks below that
+  // write the same copy again, so neither rests on how those ended.
+  let created = false;
+  await c.run('catalog-view.created-file-appears-without-a-press', {
+    expected: `with no "${copyName}" row drawn, a copy of the gateway folder's scratch Component written to the folder's root from outside the editor appears as "${copyName}" in the Catalog view within 10 s, with no press on refresh and no editor opening it`,
+    plant: 'in the scratch copy, out/src/disk-change.js made to leave a file created on disk unreported',
+  }, async () => {
+    const before = await until('the Catalog view drawing its rows', 10000, () => treeRows(ctx.d, 'Catalog'), (v) => v !== null && v.length > 0);
+    need(!(before ?? []).some((r) => r.label === copyName) && !fs.existsSync(copyPath), `the "${copyName}" row or its file is already there, so its appearing cannot be observed`);
+    fs.copyFileSync(copySource, copyPath);
+    const t0 = Date.now();
+    created = await until(`the "${copyName}" row appearing`, 10000, () => treeRows(ctx.d, 'Catalog'), (v) => v !== null && v.some((r) => r.label === copyName)).then(() => true, () => false);
+    const after = Date.now() - t0;
+    const editor = await ctx.probe.request<{ path: string } | null>('editor.active');
+    return { passed: created && editor?.path !== copyPath, seen: created ? `the row appeared ${after} ms after the file was written; the active editor ${editor?.path ?? 'none'}` : `no "${copyName}" row within 10000 ms; rows ${JSON.stringify(((await treeRows(ctx.d, 'Catalog')) ?? []).map((r) => r.label).slice(0, 10))}` };
+  });
+  await c.run('catalog-view.deleted-closed-file-row-leaves-without-a-press', {
+    expected: `the "${copyName}" copy, never opened in the editor, deleted from outside it, takes its row out of the Catalog view within 10 s with no press on refresh, and it stays out (watched for 5 s); the same reading drew the row before the deletion`,
+    plant: 'in the scratch copy, out/src/disk-change.js made to leave a file deleted on disk unreported',
+  }, async () => {
+    need(created && (await treeRows(ctx.d, 'Catalog'))?.some((r) => r.label === copyName), `the "${copyName}" row is not drawn, so its leaving cannot be observed`);
+    need((await ctx.probe.request<{ path: string } | null>('editor.active'))?.path !== copyPath, 'the copy is open in the editor, so its deletion is not the one this check is about');
+    fs.unlinkSync(copyPath);
+    const t0 = Date.now();
+    const gone = await until(`the "${copyName}" row leaving`, 10000, () => treeRows(ctx.d, 'Catalog'), (v) => v !== null && !v.some((r) => r.label === copyName)).then(() => true, () => false);
+    const left = Date.now() - t0;
+    const out = gone ? await holds(5000, () => treeRows(ctx.d, 'Catalog'), (v) => v !== null && !v.some((r) => r.label === copyName)) : null;
+    return { passed: gone && out !== null && out.held, seen: gone ? `the row left ${left} ms after the file was deleted, and ${out?.held ? 'stayed out' : `came back at ${out?.atMs} ms`}` : `the row is still drawn 10000 ms after the file was deleted` };
+  });
   await c.run('catalog-view.new-entity-appears-after-refresh', {
     expected: `a Component file saved at the folder's root (a copy of the gateway folder's scratch Component) appears as "${copyName}" once "Refresh workspace catalog" is pressed, with no restart`,
     plant: 'in the scratch copy, out/src/workspace-catalog-view.js made to redraw nothing on refresh, so it keeps the rows it first read',

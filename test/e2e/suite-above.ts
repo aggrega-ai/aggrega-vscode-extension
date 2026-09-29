@@ -5,22 +5,24 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { buildParams } from '../../src/build-dials';
+import { RESTART_COMMAND } from '../../src/daemon-status';
 import { outputParentFor } from '../../src/workspace';
 import { need } from './checks';
 import { WebviewDocument } from './drivers';
 import { referenceAnswer } from './reference';
-import { capture, closeAllEditors, open, ready, run, SuiteContext } from './suite-context';
+import { capture, closeAllEditors, open, ready, run, save, send, SuiteContext, theServer } from './suite-context';
 import { pressViewAction } from './suite-storefront';
 import {
-  centre, commandsPanel, dialog, holds, observeWorkbench, operationButtons, pickQuickInputRow, pressDialogButton, pressIn,
-  pressOperation, pressPanelAction, quickInput, selectorRows, sleep, toasts, toastsSince, treeRowCentre, treeRows, until,
-  waitQuickInput, waitToast,
+  centre, commandsPanel, dialog, documentWith, holds, observeWorkbench, operationButtons, pickQuickInputRow, pressDialogButton, pressIn,
+  pressOperation, pressPanelAction, pressToastButton, quickInput, RUNNING, selectorRows, sleep, toasts, toastsSince, treeRowCentre, treeRows,
+  until, waitQuickInput, waitStatus, waitToast,
 } from './workbench';
 
 // The checks run in a folder whose Aggrega workspace is the folder above it:
 // where a build writes and says it writes, the control that holds the build's
-// options, the lockfile a build needs and the option that fills it, and which
-// operations still run the compiler as a command.
+// options, the lockfile a build needs and the option that fills it, what the
+// notice about a missing lockfile runs and how often it is raised for work
+// nobody asked for, and which operations still run the compiler as a command.
 
 export const ABOVE_CHECKS = [
   'build-options.control-is-absent-while-build-cannot-run',
@@ -36,6 +38,8 @@ export const ABOVE_CHECKS = [
   'build.missing-lockfile-refusal-offers-the-remedy',
   'build.auto-pull-fills-the-lockfile-then-builds',
   'preview.never-carries-auto-pull',
+  'lockfile-notice.pull-runs-the-panels-pull-and-opens-no-terminal',
+  'lockfile-notice.saves-with-the-graph-open-raise-it-at-most-once',
   'output-channel.command-run-operations-write-a-dollar-line',
   'output-channel.server-operations-write-no-dollar-line',
   'output-channel.prompted-operations-write-no-dollar-line',
@@ -63,6 +67,18 @@ const SECOND_NOTIFICATION_WATCH_MS = 3000;
 // The words that describe which notices were held back. They are the extension's
 // own bookkeeping, and no line a reader reads carries them.
 const BOOKKEEPING = /toast|suppress|throttl|next surface allowed/i;
+
+// What the Commands panel's Pull reads while it runs and says as it ends, for the
+// Release it pulls, held as written for the reason the notice's words are.
+const pullProgress = (release: string): string => `Aggrega: pulling dependencies for ${release}`;
+const pullEnding = (release: string): string => `The pull resolved the dependencies of ${release} and wrote its lockfile, recording the external inputs it renders with.`;
+
+// GRAPH_DRAWN identifies the graph panel's document once it has drawn a node.
+const GRAPH_DRAWN = `!!document.getElementById('canvas') && document.querySelectorAll('#canvas g, #canvas rect').length > 0`;
+
+// GRAPH_REFUSED is the line the channel carries each time a graph is drawn and
+// the language server refuses it for a missing lockfile.
+const GRAPH_REFUSED = /^irGraph failed for .*code=1003 /m;
 
 const BUILD = 'button.op[data-command="aggrega.op.build"]';
 const CARET = '.op-pair button.op-caret';
@@ -336,6 +352,9 @@ export async function aboveChecks(ctx: SuiteContext, layout: { root: string; ref
   // ---- auto pull reaches the build, and never the preview ----
   const opening = lockfileNoticeOpening(releaseRel);
   let notice = '';
+  // The compiler's own sentence for the missing lockfile, as the reference answer
+  // below gives it, for the checks after it that read the channel.
+  let compilerSentence = '';
   await c.run('build.missing-lockfile-refusal-offers-the-remedy', {
     expected: `with the lockfile moved aside and the box empty, each of two presses of Build is answered by one notification — an error opening "${opening}" followed by the compiler's own words for the same request, with a "${LOCKFILE_PULL_BUTTON}" button — and by no other notification about the refusal (each press watched for ${SECOND_NOTIFICATION_WATCH_MS} ms after its notice is drawn); the output channel ends each press "The build did not complete: code=<code> <message>" and says nothing about a notice being held back`,
     plant: 'in the scratch copy, out/src/error-surfaces.js made to hold back a notice the reader asked for as it holds back one nobody asked for; or out/src/operations.js made to raise the build\'s own failure notification beside the notice',
@@ -346,6 +365,7 @@ export async function aboveChecks(ctx: SuiteContext, layout: { root: string; ref
     const ref = await referenceAnswer({ binary: bin, root: layout.referenceRoot, method: 'aggrega/build', params, home: ctx.home, table: ctx.s.table, log: ctx.cliLog });
     need(!ref.ok, 'the compiler built the reference copy although it has no lockfile');
     const sentence = ref.error.message.split(layout.referenceRoot).join(layout.root);
+    compilerSentence = sentence;
     const words = `code=${ref.error.code} ${sentence}`;
     const expected = `${opening} ${sentence}`;
     // Twice in a row, because the second press is the one a notice held back for
@@ -408,6 +428,128 @@ export async function aboveChecks(ctx: SuiteContext, layout: { root: string; ref
     const same = failed.message === notice;
     const combination = (await toastsSince(ctx.d, toastMark)).some((t) => /dry.?run|combin|auto.?pull/i.test(t.message));
     return { passed: same && !combination, seen: `"${failed.message}"; ${same ? 'the same words as the build\'s notice' : `the build's was "${notice}"`}; a refusal about the combination ${combination}` };
+  });
+
+  // ---- what the notice's Pull runs ----
+  const terminalCount = async (): Promise<number> => (await ctx.probe.request<unknown[]>('terminals.list')).length;
+  await c.run('lockfile-notice.pull-runs-the-panels-pull-and-opens-no-terminal', {
+    expected: `with the lockfile moved aside and the notice drawn, pressing its "${LOCKFILE_PULL_BUTTON}" runs the Commands panel's Pull for ${releaseRel}: the progress notification "${pullProgress(releaseRel)}", the channel's line "$ ${bin} pull --release ${releaseRel}   (cwd: ${layout.root})" and its ending "${pullEnding(releaseRel)}", raised as a notification as well; the lockfile is back beside the Release; and the editor lists no terminal more than before the press (read after the pull ended, and for 3 s after that) — the same reading lists a terminal the editor's own command opens`,
+    plant: 'in the scratch copy, out/src/error-surfaces.js made to type the pull into a terminal when the notice\'s button is pressed',
+  }, async () => {
+    need(!fs.existsSync(lock) && fs.existsSync(aside), 'the lockfile is not aside, so there is no notice for its Pull to answer');
+    const terminalsBefore = await terminalCount();
+    const mark = ctx.out.mark();
+    const toastMark = (await toasts(ctx.d)).length;
+    // The notice is pressed once the notifications have settled: no progress still
+    // drawn — the editor keeps a finished one up a moment, and draws no toast past
+    // a few added together — and the button drawn in the same place on two readings
+    // with nothing over it, since toasts slide as one leaves and a press at a
+    // moving button's last place lands on whatever slid there.
+    const settled = await until('the notice\'s button settled with nothing over it', 15000, async () => {
+      const a = await drawnNotices(ctx);
+      await sleep(300);
+      const b = await drawnNotices(ctx);
+      return { a, b };
+    }, ({ a, b }) => {
+      const button = (ns: DrawnNotice[]): { box: string; underCentre: string } | undefined => ns.find((n) => n.message.startsWith(opening.slice(0, 60)))?.buttons.find((x) => x.label === LOCKFILE_PULL_BUTTON);
+      const x = button(a);
+      const y = button(b);
+      return x !== undefined && y !== undefined && x.box === y.box && y.underCentre === 'the button' && !b.some((n) => n.buttons.some((z) => z.label === 'Cancel'));
+    }).then(() => true, () => false);
+    const drawnBefore = await drawnNotices(ctx);
+    const shotBefore = await capture(ctx, 'lockfile-notice-before-pull');
+    need(await pressToastButton(ctx.d, opening, LOCKFILE_PULL_BUTTON), `no notice opening "${opening}" draws a "${LOCKFILE_PULL_BUTTON}" button to press`);
+    await sleep(1500);
+    const drawnAfter = await drawnNotices(ctx);
+    const shotAfter = await capture(ctx, 'lockfile-notice-after-pull');
+    const text = await ctx.out.waitFor('the pull ending', mark, (t) => /^The pull /m.test(t), 120000).catch(() => ctx.out.since(mark));
+    const noTerminal = await holds(3000, terminalCount, (n) => n === terminalsBefore);
+    const lines = text.split('\n');
+    const dollarLine = lines.find((l) => l.startsWith('$ ')) ?? '';
+    const ending = lines.find((l) => l.startsWith('The pull ')) ?? '';
+    const drawn = await toastsSince(ctx.d, toastMark);
+    const progress = drawn.some((t) => t.message.startsWith(pullProgress(releaseRel)));
+    const announced = drawn.some((t) => t.message === pullEnding(releaseRel));
+    const back = fs.existsSync(lock);
+    const panelsPull = dollarLine.startsWith(`$ ${bin} pull --release ${releaseRel} `) && dollarLine.trimEnd().endsWith(`(cwd: ${layout.root})`);
+    // The control: a terminal the editor's own command opens, read the same way,
+    // and every terminal then closed again.
+    const beforeControl = await terminalCount();
+    await run(ctx, 'workbench.action.terminal.new').catch(() => undefined);
+    const control = await until('a terminal the editor opened being listed', 15000, terminalCount, (n) => n === beforeControl + 1).then(() => true, () => false);
+    await run(ctx, 'workbench.action.terminal.killAll').catch(() => undefined);
+    await until('the terminals closing', 15000, terminalCount, (n) => n === 0).catch(() => undefined);
+    need(control, 'its positive control did not fire: a terminal the editor\'s own command opened was not listed, so the reading is not shown to see one');
+    return {
+      passed: panelsPull && ending === pullEnding(releaseRel) && progress && announced && back && noTerminal.held,
+      seen: `the channel: ${JSON.stringify(dollarLine)} … ${JSON.stringify(ending)}; the progress notification ${progress ? 'drawn' : 'not drawn'}, the ending ${announced ? 'raised as a notification' : 'not raised as a notification'} (drawn since the press: ${JSON.stringify(drawn.map((t) => t.message.slice(0, 120)))}); the lockfile ${back ? 'is back beside the Release' : 'is not back'}; terminals: ${terminalsBefore} before the press, ${noTerminal.held ? 'no more after the pull (watched 3 s)' : `${JSON.stringify(noTerminal.broke)} at ${noTerminal.atMs} ms`}; the control listed the editor's own terminal; the notifications ${settled ? 'settled' : 'had not settled within 15000 ms'} before the press, drawn then ${JSON.stringify(drawnBefore)} (${shotBefore}), and 1.5 s after it ${JSON.stringify(drawnAfter)} (${shotAfter})`,
+      evidence: { drawnBefore, drawnAfter, shotBefore, shotAfter, channel: text.slice(0, 4000) },
+    };
+  });
+
+  // ---- a notice nobody asked for, and how often it is raised ----
+  await c.run('lockfile-notice.saves-with-the-graph-open-raise-it-at-most-once', {
+    expected: `with every notification closed and the language server restarted — which forgets which notices were shown — the graph opened on ${releaseRel} with its lockfile present, then the lockfile moved aside and a document of the folder saved twice, each save followed on the channel by the redraw's refusal, draws exactly one notification opening "${opening}" across the move and the two saves, informational since nobody asked for that work; and the channel carries the compiler's own sentence and none of the words for a notice held back`,
+    plant: 'in the scratch copy, out/src/error-surfaces.js made never to hold back a notice nobody asked for',
+  }, async () => {
+    need(compilerSentence !== '', 'the build refused for a missing lockfile gave no sentence of the compiler\'s to compare the channel with');
+    if (!fs.existsSync(lock) && fs.existsSync(aside)) { fs.renameSync(aside, lock); }
+    need(fs.existsSync(lock), 'the Release has no lockfile to move aside');
+    // A notice still open would close later and count as one just shown, so every
+    // notification is closed before the restart that clears the record.
+    await run(ctx, 'notifications.clearAll').catch(() => undefined);
+    await sleep(1500);
+    const before = await theServer(ctx);
+    await send(ctx, RESTART_COMMAND);
+    await theServer(ctx, 30000, before.pid);
+    await waitStatus(ctx.d, RUNNING, 60000);
+    panel = await commandsPanel(ctx.d);
+    await pressOperation(ctx.d, panel, 'aggrega.graph.show');
+    await documentWith(ctx.d, 'the graph drawing', GRAPH_DRAWN, 60000);
+    const mark = ctx.out.mark();
+    const toastMark = (await toasts(ctx.d)).length;
+    const doc = path.join(ctx.folder, RELEASE_FILE);
+    const saves: string[] = [];
+    let refusedEach = true;
+    const noticesSoFar = async (): Promise<number> => (await toastsSince(ctx.d, toastMark)).filter((t) => t.message.startsWith(opening)).length;
+    try {
+      fs.renameSync(lock, aside);
+      // The move is a change to the Release's lockfile, and it redraws the open
+      // graph too; that redraw is waited for, where it comes, so it is not taken
+      // for a save's.
+      const moved = await ctx.out.waitFor('the graph redrawn after the lockfile moved', mark, (t) => GRAPH_REFUSED.test(t), 15000).then(() => true, () => false);
+      await sleep(1000);
+      saves.push(`the move: ${moved ? 'the redraw refused' : 'no refused redraw within 15000 ms'}, ${await noticesSoFar()} notice(s) so far`);
+      for (const n of [1, 2]) {
+        const saveMark = ctx.out.mark();
+        await open(ctx, doc);
+        if (n === 1) {
+          await ctx.probe.request('document.edit', { path: doc, start: { line: 0, character: 0 }, text: '#\n' });
+        } else {
+          await ctx.probe.request('document.undo', { path: doc });
+        }
+        await save(ctx, doc);
+        const refused = await ctx.out.waitFor(`the redraw after save ${n} refused`, saveMark, (t) => GRAPH_REFUSED.test(t), 30000).then(() => true, () => false);
+        refusedEach = refusedEach && refused;
+        await sleep(1000);
+        saves.push(`save ${n}: ${refused ? 'the redraw refused' : 'no refused redraw within 30000 ms'}, ${await noticesSoFar()} notice(s) so far`);
+      }
+      await sleep(2000);
+    } finally {
+      // The lockfile back, and the graph and the document closed.
+      if (!fs.existsSync(lock) && fs.existsSync(aside)) { fs.renameSync(aside, lock); }
+      await closeAllEditors(ctx);
+    }
+    need(refusedEach, `a save did not reach a refused redraw, so there is nothing for a notice to be raised for: ${saves.join('; ')}`);
+    const notices = (await toastsSince(ctx.d, toastMark)).filter((t) => t.message.startsWith(opening));
+    const channel = ctx.out.since(mark);
+    const said = channel.split('\n').some((l) => l === compilerSentence);
+    const kept = channel.split('\n').filter((l) => BOOKKEEPING.test(l));
+    need(notices.length > 0, `its positive control did not fire: no notice opening "${opening}" was drawn for the move or either save, so the reading is not shown to see one nobody asked for; ${saves.join('; ')}`);
+    return {
+      passed: notices.length === 1 && notices[0].severity === 'info' && said && kept.length === 0,
+      seen: `${saves.join('; ')}; notices opening the lockfile's: ${JSON.stringify(notices.map((t) => `${t.message.slice(0, 100)}… (${t.severity})`))}; the channel ${said ? 'carries the compiler\'s sentence' : 'does not carry the compiler\'s sentence'}${kept.length === 0 ? ' and no bookkeeping word' : `, and bookkeeping: ${JSON.stringify(kept)}`}`,
+    };
   });
   // The lockfile back, as a person puts it back.
   if (!fs.existsSync(lock) && fs.existsSync(aside)) { fs.renameSync(aside, lock); }
@@ -533,6 +675,32 @@ export async function aboveChecks(ctx: SuiteContext, layout: { root: string; ref
     expected: 'Draft entity, Import, Inspect, Push, Sign, Deprecate, the cache operations, Add registry, Update index, Add plugin and the list panels\' row operations other than Validate this entity each write no line beginning "$"',
     plant: 'in the scratch copy, out/src/operations.js with Inspect run as a command instead of a request',
   }, 'each of them asks for an answer — a kind, a source, an entity, a reference, a registry or a confirmation — before it sends anything, and answering each so that it runs is a walk of its own these checks do not make');
+}
+
+// DrawnNotice is one notification as it stands drawn: its opening words, whether
+// it is a toast, and each button with what a press at its centre would land on.
+interface DrawnNotice { message: string; toast: boolean; box: string; buttons: { label: string; box: string; underCentre: string }[] }
+
+// drawnNotices reads every notification drawn with a size, as evidence of what a
+// press on one met.
+function drawnNotices(ctx: SuiteContext): Promise<DrawnNotice[]> {
+  return ctx.d.workbench<DrawnNotice[]>(`(() => {
+    const fmt = (r) => Math.round(r.x) + ',' + Math.round(r.y) + ' ' + Math.round(r.width) + 'x' + Math.round(r.height);
+    const out = [];
+    for (const item of document.querySelectorAll('.notification-list-item')) {
+      const r = item.getBoundingClientRect();
+      if (r.width === 0 || r.height === 0) { continue; }
+      const m = item.querySelector('.notification-list-item-message');
+      const buttons = [...item.querySelectorAll('.monaco-button')].map((b) => {
+        const br = b.getBoundingClientRect();
+        const at = br.width > 0 ? document.elementFromPoint(br.x + br.width / 2, br.y + br.height / 2) : null;
+        const under = at === null ? 'nothing' : at === b || b.contains(at) ? 'the button' : (at.className || at.tagName).toString().slice(0, 80);
+        return { label: (b.innerText || '').trim(), box: fmt(br), underCentre: under };
+      });
+      out.push({ message: ((m && m.innerText) || '').trim().slice(0, 80), toast: !!item.closest('.notification-toast'), box: fmt(r), buttons });
+    }
+    return out;
+  })()`);
 }
 
 // dragSash resizes the side bar by dragging the sash at its edge by `dx`.
