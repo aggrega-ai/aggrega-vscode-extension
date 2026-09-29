@@ -69,7 +69,7 @@ export function settingLabel(title: string, key: string): string {
   return `${title} › ${segments.map(humanise).join(' › ')}: ${humanise(leaf)}`;
 }
 
-interface SettingItem { category: string; label: string; description: string; checked: string | null; html: string }
+export interface SettingItem { category: string; label: string; description: string; checked: string | null; html: string }
 
 const SETTING_ITEMS = `(() => {
   const e = document.querySelector('.settings-editor');
@@ -86,7 +86,9 @@ const SETTING_ITEMS = `(() => {
   });
 })()`;
 
-async function openSettingsOn(ctx: SuiteContext, query: string, drawnLabel: string): Promise<SettingItem> {
+// openSettingsOn opens the settings editor on `query` and returns the setting it
+// draws under `drawnLabel`.
+export async function openSettingsOn(ctx: SuiteContext, query: string, drawnLabel: string): Promise<SettingItem> {
   await send(ctx, 'workbench.action.openSettings2', [{ query }]);
   const items = await until(`the settings editor drawing the setting "${drawnLabel}"`, 20000, () => ctx.d.workbench<SettingItem[] | null>(SETTING_ITEMS),
     (v) => v !== null && v.some((i) => `${i.category}${i.label}`.trim() === drawnLabel));

@@ -58,8 +58,8 @@ const ROW_HOVER = "Auto pull — Resolve the Release's dependencies into the loc
 
 // The one notice a refusal for a missing lockfile is answered with opens with these
 // words, naming the Release, and carries this button.
-const lockfileNoticeOpening = (release: string): string => `Aggrega: ${release} has no lockfile.`;
-const LOCKFILE_PULL_BUTTON = 'Pull';
+export const lockfileNoticeOpening = (release: string): string => `Aggrega: ${release} has no lockfile.`;
+export const LOCKFILE_PULL_BUTTON = 'Pull';
 
 // How long after the notice is drawn the checks go on watching for a second
 // notification about the same refusal.

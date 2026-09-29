@@ -1,0 +1,6 @@
+workspace:
+  # This folder's own catalog and nothing else: the standard library is
+  # deliberately not read, so the only Feature in sight is the one declared
+  # here, and it applies to no component this folder deploys.
+  catalog_dirs:
+    - ./catalog

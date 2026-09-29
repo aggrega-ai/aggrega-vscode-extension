@@ -34,9 +34,11 @@ import { runSuite, SCENARIO_CHECKS } from './suite';
 //   teardown-study  signal the editor alone and watch which process outlives it
 //   suite           build the fixtures and run the checks, scenario by scenario:
 //                   which build is under test, the inspection toggle and the two
-//                   diagnostic layers, and the capabilities walked end to end;
-//                   then read whether anything was written outside the scratch
-//                   directory and whether any process it started is alive
+//                   diagnostic layers, the capabilities walked end to end, and
+//                   the topology graph's attachments panel, what may attach and
+//                   the attach it commits; then read whether anything was
+//                   written outside the scratch directory and whether any
+//                   process it started is alive
 //   plants          list the plants, and check each one's replaced text occurs
 //                   exactly once in the compiled extension; launches nothing
 //   compare <a> <b> compare two suite reports (a run's directory or its

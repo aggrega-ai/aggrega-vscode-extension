@@ -76,6 +76,29 @@ const headRowBoundToNothing = (id: string): { file: string; find: string; replac
   replace: HEAD_ROW_PRESS.replace('reason === null ?', `reason === null && action.id !== '${id}' ?`),
 });
 
+// The topology graph panel: its drawing, the projection of what is attached and
+// of what may attach, the side that serves its requests, and the edit an attach
+// composes.
+const GRAPH_SCRIPT = 'media/graph.js';
+const ATTACHMENTS_MODEL = 'media/attachments-model.js';
+const CANDIDATES_MODEL = 'media/candidates-model.js';
+const GRAPH_VIEW = 'out/src/graph-view.js';
+const ATTACHMENT_EDIT = 'out/src/attachment-edit.js';
+
+// The compiled line that inserts an attach's entry into the document.
+const ENTRY_INSERT = '        edit.insert(uri, new vscode.Position(at.line, at.character), text);';
+
+// The compiled line writing no container key the document lacks, and the line
+// that saves the document after the edit — both reused by the scenarios that
+// attach, each of which holds its own plant.
+const NO_CONTAINER_KEYS = { file: ATTACHMENT_EDIT, find: 'const missing = insertion.missingContainerKeys ?? [];', replace: 'const missing = [];', says: 'an attach writes no container key the document lacks, so an entry for a component with no features key lands directly under the component\'s own block' } as const;
+const SAVED_AFTER_EDIT = {
+  file: GRAPH_VIEW,
+  find: '        await vscode.window.showTextDocument(doc, { preview: false });',
+  replace: '        await doc.save();\n        await vscode.window.showTextDocument(doc, { preview: false });',
+  says: 'an attach saves the document it edited, so the entry reaches the file on disk',
+} as const;
+
 export const PLANTS: readonly Plant[] = [
   // ---- the gateway folder ----
   {
@@ -570,6 +593,134 @@ export const PLANTS: readonly Plant[] = [
     name: 'graph-keeps-the-release-it-shows', scenario: 'releases-with-own-catalogs', checks: ['graph.shown-after-the-selection-moves-draws-the-selected-release'], moves: 'red', target: 'extension',
     file: 'out/src/graph-view.js', find: '        const release = deps.selectedRelease();', replace: '        const release = shownRelease ?? deps.selectedRelease();',
     says: 'showing the graph again draws the Release the open panel already shows, whichever Release is selected',
+  },
+  // ---- the storefront folder with the topology graph open ----
+  { name: 'context-row-renamed-graph-panel', scenario: 'storefront-graph-panel', checks: ['commands-panel.context-rows-name-the-opened-folder'], moves: 'red', target: 'extension', ...CONTEXT_ROW_LABEL },
+  {
+    name: 'sensitive-setting-drawn-with-another-description', scenario: 'storefront-graph-panel', checks: ['settings.show-sensitive-values-label-is-derived-from-its-key'], moves: 'red', target: 'extension',
+    file: 'package.json',
+    find: '        "aggrega.graph.showSensitiveValues": {\n          "type": "boolean",',
+    replace: '        "aggrega.graph.showSensitiveValues": {\n          "markdownDescription": "A description other than the one the manifest declares.",\n          "type": "boolean",',
+    says: 'the setting is given a markdown description, which the settings editor draws in place of the declared one',
+  },
+  {
+    name: 'withheld-drawn-blank', scenario: 'storefront-graph-panel', checks: ['attachments-panel.declared-sensitive-value-is-withheld-by-default'], moves: 'red', target: 'extension',
+    file: GRAPH_SCRIPT, find: "          ? el('dd', 'withheld', attachments.withheldNote(f.withheld))", replace: "          ? el('dd', 'withheld', '')",
+    says: 'a withheld value is drawn as a blank where the sentence saying why should be',
+  },
+  {
+    name: 'whole-attachment-withheld', scenario: 'storefront-graph-panel',
+    checks: ['attachments-panel.withholds-exactly-what-the-command-line-withholds', 'attachments-panel.undeclared-value-reads-as-authored'], moves: 'red', target: 'extension',
+    file: ATTACHMENTS_MODEL,
+    find: '    if (!recognisedLeafList(entry.sensitive_payload_leaves)) { return true; }\n    return false;',
+    replace: '    if (!recognisedLeafList(entry.sensitive_payload_leaves)) { return true; }\n    return true;',
+    says: 'every leaf of an attachment is withheld, the ones no declaration covers included, as a panel that hides the whole attachment would',
+  },
+  {
+    name: 'drawing-side-leaves-withholding-to-the-markers', scenario: 'storefront-graph-panel', checks: ['attachments-panel.setting-on-shows-the-value-as-authored'], moves: 'green', target: 'extension',
+    file: ATTACHMENTS_MODEL, find: '    const declared = declaredLeaves(safe, wholly);', replace: '    const declared = [];',
+    says: 'the drawing side withholds the leaves the sending side replaced with a marker and matches the declarations no further, so a value the sending side left in place because the setting is on is drawn',
+  },
+  {
+    name: 'declared-leaves-matched-nowhere', scenario: 'storefront-graph-panel',
+    checks: ['attachments-panel.setting-off-again-withholds-the-value', 'attachments-panel.setting-that-is-not-a-boolean-withholds-the-value'], moves: 'red', target: 'extension',
+    file: ATTACHMENTS_MODEL, find: '    if (coveredByDeclaration(leaf.path, declared)) { return WITHHELD_DECLARED; }\n', replace: '',
+    says: 'no leaf is withheld for a declaration, on the side that sends the graph and on the side that draws it, so a declared-sensitive value is drawn whatever the setting says',
+  },
+  {
+    name: 'waiting-drawn-blank', scenario: 'storefront-graph-panel', checks: ['may-attach.section-is-headed-captioned-and-waits-in-words'], moves: 'red', target: 'extension',
+    file: CANDIDATES_MODEL, find: "  const PENDING_NOTE = 'Looking for Features that may attach…';", replace: "  const PENDING_NOTE = '';",
+    says: 'the list of what may attach draws nothing while its answer is in flight',
+  },
+  {
+    name: 'catalog-origin-unsaid', scenario: 'storefront-graph-panel', checks: ['may-attach.rows-name-each-feature-its-kind-and-where-it-was-read'], moves: 'red', target: 'extension',
+    file: CANDIDATES_MODEL, find: "      facts.push({ key: 'from', value: 'the configured catalog' });\n", replace: '',
+    says: 'a row for a Feature read from the configured catalog says nothing of where it came from',
+  },
+  {
+    name: 'rows-reversed', scenario: 'storefront-graph-panel', checks: ['may-attach.rows-name-each-feature-its-kind-and-where-it-was-read'], moves: 'red', target: 'extension',
+    file: CANDIDATES_MODEL, find: '    const rows = list.map(candidateRow);', replace: '    const rows = list.map(candidateRow).reverse();',
+    says: 'the rows are drawn in the reverse of the order the answer names them in',
+  },
+  {
+    name: 'stale-answer-drawn', scenario: 'storefront-graph-panel', checks: ['may-attach.list-follows-the-node-selected-last'], moves: 'red', target: 'extension',
+    file: GRAPH_SCRIPT, find: '    return requestId === candidatesRequestId && candidatesBodyEl !== null;', replace: '    return candidatesBodyEl !== null;',
+    says: 'every answer about what may attach is drawn as it arrives, not only the one for the latest press, so an answer about a node pressed earlier that arrives last is the one left drawn',
+  },
+  {
+    name: 'list-asked-about-the-gateway', scenario: 'storefront-graph-panel', checks: ['may-attach.list-follows-the-node-selected-last'], moves: 'red', target: 'extension',
+    file: GRAPH_VIEW, find: '                    void postAttachCandidates(panel, deps, nodeId, shownRelease, requestId);', replace: "                    void postAttachCandidates(panel, deps, 'gateway', shownRelease, requestId);",
+    says: 'the list of what may attach is asked about the gateway whatever node was pressed',
+  },
+  {
+    name: 'connect-button-drawn', scenario: 'storefront-graph-panel', checks: ['graph-panel.offers-no-way-to-draw-a-connection'], moves: 'red', target: 'extension',
+    file: GRAPH_SCRIPT, find: '    panelBodyEl.appendChild(drawCandidatesSection());', replace: "    panelBodyEl.appendChild(drawCandidatesSection());\n    panelBodyEl.appendChild(el('button', 'candidate-attach', 'Connect to…'));",
+    says: 'the attachments panel draws a "Connect to…" button below the list of what may attach',
+  },
+  {
+    name: 'no-container-key-written', scenario: 'storefront-graph-panel', checks: ['attach.press-inside-a-subsystem-writes-the-entry-unsaved'], moves: 'red', target: 'extension', ...NO_CONTAINER_KEYS,
+  },
+  {
+    name: 'entry-applied-in-two-edits', scenario: 'storefront-graph-panel', checks: ['attach.one-undo-removes-the-whole-entry'], moves: 'red', target: 'extension',
+    file: GRAPH_VIEW, find: ENTRY_INSERT,
+    replace: "        { const cut = text.lastIndexOf('\\n'); const tail = new vscode.WorkspaceEdit(); tail.insert(uri, new vscode.Position(at.line, at.character), text.slice(cut)); await vscode.workspace.applyEdit(tail); }\n        edit.insert(uri, new vscode.Position(at.line, at.character), text.slice(0, text.lastIndexOf('\\n')));",
+    says: 'an attach applies its entry as two edits, its last line first and the rest before it, so one undo takes out only part of the entry',
+  },
+  {
+    name: 'entry-placed-by-the-line-on-disk', scenario: 'storefront-graph-panel', checks: ['attach.lands-where-the-unsaved-buffer-puts-it'], moves: 'red', target: 'extension',
+    file: GRAPH_VIEW, find: ENTRY_INSERT,
+    replace: "        edit.insert(uri, new vscode.Position(at.line - (doc.lineCount - require('fs').readFileSync(uri.fsPath, 'utf8').split('\\n').length), at.character), text);",
+    says: 'an attach places its entry by the line the reported place has in the file on disk, so lines typed above it and not saved put the entry that many lines too early',
+  },
+  {
+    name: 'entry-indented-a-step-further', scenario: 'storefront-graph-panel', checks: ['attach.two-subsystems-deep-lands-beside-the-existing-attachment'], moves: 'red', target: 'extension',
+    file: ATTACHMENT_EDIT, find: "        parts.push(' '.repeat(insertion.entryIndent));", replace: "        parts.push(' '.repeat(insertion.entryIndent + insertion.indentStep));",
+    says: 'an attach indents its entry one step further than the answer says, which nests it inside the attachment before it',
+  },
+  {
+    name: 'entry-written-into-the-releases-aggregate', scenario: 'storefront-graph-panel', checks: ['attach.module-component-lands-in-the-modules-document'], moves: 'red', target: 'extension',
+    file: GRAPH_VIEW, find: '        const uri = vscode.Uri.file((0, workspace_1.fromWorkspaceRelative)(root, insertion.file));', replace: "        const uri = vscode.Uri.file((0, workspace_1.fromWorkspaceRelative)(root, 'aggregate.yaml'));",
+    says: 'an attach edits the Aggregate the Release names whatever document the compiler named for the node',
+  },
+  {
+    name: 'graph-failure-written-as-a-string', scenario: 'storefront-graph-panel',
+    checks: ['graph.failed-render-names-its-reason-in-the-panel-and-the-channel', 'graph.failed-render-with-the-server-stopped-names-the-extensions-reason'], moves: 'red', target: 'extension',
+    file: 'out/src/graph-failure.js', find: '    sinks.logLine(`irGraph failed for ${release}: ${message}`);', replace: '    sinks.logLine(`irGraph failed for ${release}: ${String(err)}`);',
+    says: 'a failed drawing is written to the channel as the thrown value rendered as a string, which reads "[object Object]" for a refusal the language server answered',
+  },
+  {
+    name: 'declined-attach-reworded', scenario: 'storefront-graph-panel', checks: ['attach.refusal-carries-the-compilers-words'], moves: 'red', target: 'extension',
+    file: ATTACHMENT_EDIT, find: 'return attachRefusal((0, error_surfaces_1.describeError)(err));', replace: "return attachRefusal('the request was declined.');",
+    says: 'an attach the compiler declines is reported in a sentence of the extension\'s own, dropping the compiler\'s words',
+  },
+  {
+    name: 'line-drawn-whatever-node-it-names', scenario: 'storefront-graph-panel', checks: ['attach.request-for-a-node-the-panel-did-not-draw-is-refused-in-its-words'], moves: 'green', target: 'extension',
+    file: GRAPH_SCRIPT, find: '    if (attachOutcomeEl === null || nodeId !== selectedId) { return; }', replace: '    if (attachOutcomeEl === null) { return; }',
+    says: 'the panel draws the line an attach ends in whatever node the line names, under the list of the node it is showing',
+  },
+  {
+    name: 'refused-list-sends-nothing', scenario: 'storefront-graph-panel', checks: ['may-attach.refusal-says-the-list-is-not-coming-and-why'], moves: 'red', target: 'extension',
+    file: GRAPH_VIEW, find: "        void panel.webview.postMessage({ type: 'attachCandidatesError', nodeId, requestId, message });\n", replace: '',
+    says: 'a refused list of what may attach sends the panel nothing, so it goes on reading as waiting',
+  },
+  {
+    name: 'saved-after-the-edit', scenario: 'storefront-graph-panel',
+    checks: ['attach.press-inside-a-subsystem-writes-the-entry-unsaved', 'attach.nothing-is-saved-and-the-folder-is-as-it-started'], moves: 'red', target: 'extension', ...SAVED_AFTER_EDIT,
+  },
+  // ---- the folder whose one Feature applies to nothing it deploys ----
+  { name: 'context-row-renamed-probes', scenario: 'probes-nothing-may-attach', checks: ['commands-panel.context-rows-name-the-opened-folder'], moves: 'red', target: 'extension', ...CONTEXT_ROW_LABEL },
+  {
+    name: 'node-labels-read-as-the-labels-on-this-node', scenario: 'probes-nothing-may-attach', checks: ['may-attach.nothing-matching-reads-as-an-empty-state'], moves: 'green', target: 'extension',
+    file: CANDIDATES_MODEL, find: '    if (labelSource === LABELS_SUPPLIED) {', replace: '    if (labelSource === LABELS_SUPPLIED || labelSource === LABELS_RESOLVED) {',
+    says: 'an empty answer computed over a node\'s finalised labels reads as the sentence for the labels on this node',
+  },
+  // ---- the gateway folder, a component at the top level ----
+  { name: 'context-row-renamed-top-level-attach', scenario: 'gateway-top-level-attach', checks: ['commands-panel.context-rows-name-the-opened-folder'], moves: 'red', target: 'extension', ...CONTEXT_ROW_LABEL },
+  {
+    name: 'no-container-key-written-top-level', scenario: 'gateway-top-level-attach', checks: ['attach.top-level-component-lands-under-its-components-block'], moves: 'red', target: 'extension', ...NO_CONTAINER_KEYS,
+  },
+  {
+    name: 'saved-after-the-edit-top-level', scenario: 'gateway-top-level-attach', checks: ['attach.nothing-is-saved-and-the-folder-is-as-it-started'], moves: 'red', target: 'extension', ...SAVED_AFTER_EDIT,
   },
 ];
 

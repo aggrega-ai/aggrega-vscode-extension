@@ -1,0 +1,35 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Cognitio S.r.l.
+
+apiVersion: aggrega.ai/v1alpha1
+kind: Component
+metadata:
+  name: local/devtool/probe
+  version: 1.0.0
+  description: >
+    A small web probe that answers every request with a fixed greeting, for
+    checking that what a Release runs can be reached.
+  labels:
+    component.aggrega.ai/type: server
+    component.aggrega.ai/category: devtool
+spec:
+  schema:
+    values:
+      greeting:
+        type: string
+        default: "hello"
+        description: The text every request is answered with.
+    infra:
+      port:
+        type: integer
+        min: 1024
+        max: 65535
+        default: 8080
+        description: Container HTTP port the probe listens on.
+    provides:
+      host:
+        type: string
+        description: Name the probe is reached at on the Compose network.
+      port:
+        type: string
+        description: Port the probe answers on.

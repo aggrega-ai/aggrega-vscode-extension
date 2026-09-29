@@ -7,7 +7,7 @@ import * as path from 'path';
 import { CheckResult, Checks, EnoughReported, tally } from './checks';
 import { ScratchHome } from './cli';
 import { createScenarioRoot, ScenarioRoot } from './editor';
-import { copyLockfile, FixtureError, FixtureProof, placeFolder, placeOwnCatalogs, placeWorkspaceAbove, proveMissing, proveUnreachable, UNREACHABLE_HOST, writeLockfile } from './fixtures';
+import { copyLockfile, FixtureError, FixtureProof, placeFolder, placeOwnCatalogs, placeWorkspaceAbove, proveMissing, proveUnreachable, readTree, Tree, UNREACHABLE_HOST, writeLockfile } from './fixtures';
 import { Inputs, REPO_ROOT } from './inputs';
 import { applyPlant, Plant } from './plants';
 import { aboveChecks, ABOVE_CHECKS } from './suite-above';
@@ -16,10 +16,13 @@ import { populateRegistry, ScratchRegistry, startRegistry, startStubRegistries, 
 import { bringUp, DisplayReading, Scenario, ScenarioEnd, tearDown } from './scenario';
 import { makeContext, SuiteContext } from './suite-context';
 import { gatewayChecks, GATEWAY_CHECKS } from './suite-gateway';
+import { GRAPH_PANEL_CHECKS, graphPanelChecks } from './suite-graph-panel';
 import { KILLED_CHECKS, KILLED_SETTINGS, killedChecks } from './suite-killed';
 import { OFFLINE_RELEASES, OWN_CATALOGS_CHECKS, ownCatalogsChecks } from './suite-own-catalogs';
+import { PROBES_CHECKS, probesChecks } from './suite-probes';
 import { registryChecks, REGISTRY_CHECKS } from './suite-registry';
 import { storefrontChecks, STOREFRONT_CHECKS } from './suite-storefront';
+import { TOP_LEVEL_ATTACH_CHECKS, topLevelAttachChecks } from './suite-top-level-attach';
 
 // The suite: the checks of which build is under test, of the build-analysis
 // setting and the two diagnostic layers it separates, and of the capabilities
@@ -36,6 +39,9 @@ export const SCENARIO_CHECKS: Readonly<Record<string, readonly string[]>> = {
   'storefront-killed-server': KILLED_CHECKS,
   'storefront-with-registries': REGISTRY_CHECKS,
   'releases-with-own-catalogs': OWN_CATALOGS_CHECKS,
+  'storefront-graph-panel': GRAPH_PANEL_CHECKS,
+  'probes-nothing-may-attach': PROBES_CHECKS,
+  'gateway-top-level-attach': TOP_LEVEL_ATTACH_CHECKS,
 };
 
 // ScenarioResult is one scenario as the report states it.
@@ -180,6 +186,58 @@ function plans(inputs: Inputs): ScenarioPlan[] {
         return { folder: layout.folder, fixtures, extra: { reference: reference.folder } };
       },
       body: (ctx, p) => ownCatalogsChecks(ctx, p.extra?.reference as string),
+    },
+    {
+      name: 'storefront-graph-panel',
+      checks: GRAPH_PANEL_CHECKS,
+      prepare: async (root, home, log) => {
+        const folder = path.join(root.dir, 'workspace', 'storefront');
+        const reference = path.join(root.dir, 'reference', 'storefront');
+        const missing = path.join(root.dir, 'no-such-compiler', 'aggrega');
+        const fixtures = [
+          placeFolder(inputs.extension.dir, 'storefront', folder, inputs.catalog.dir),
+          await writeLockfile(bin, folder, 'release-compose.yaml', home, log),
+          placeFolder(inputs.extension.dir, 'storefront', reference, inputs.catalog.dir),
+          await writeLockfile(bin, reference, 'release-compose.yaml', home, log),
+          proveMissing(missing),
+        ];
+        // The folder as the scenario starts it, which its last check compares
+        // the folder with.
+        return { folder, fixtures, extra: { reference, missing, snapshot: readTree(folder) } };
+      },
+      body: (ctx, p) => graphPanelChecks(ctx, p.extra?.reference as string, p.extra?.snapshot as Tree, p.extra?.missing as string),
+    },
+    {
+      name: 'probes-nothing-may-attach',
+      checks: PROBES_CHECKS,
+      prepare: async (root, home, log) => {
+        const folder = path.join(root.dir, 'workspace', 'probes');
+        const reference = path.join(root.dir, 'reference', 'probes');
+        const fixtures = [
+          placeFolder(inputs.extension.dir, 'probes', folder, null),
+          await writeLockfile(bin, folder, 'release-compose.yaml', home, log),
+          placeFolder(inputs.extension.dir, 'probes', reference, null),
+          await writeLockfile(bin, reference, 'release-compose.yaml', home, log),
+        ];
+        return { folder, fixtures, extra: { reference } };
+      },
+      body: (ctx, p) => probesChecks(ctx, p.extra?.reference as string),
+    },
+    {
+      name: 'gateway-top-level-attach',
+      checks: TOP_LEVEL_ATTACH_CHECKS,
+      prepare: async (root, home, log) => {
+        const folder = path.join(root.dir, 'workspace', 'gateway');
+        const reference = path.join(root.dir, 'reference', 'gateway');
+        const fixtures = [
+          placeFolder(inputs.extension.dir, 'gateway', folder, inputs.catalog.dir),
+          await writeLockfile(bin, folder, 'release-compose.yaml', home, log),
+          placeFolder(inputs.extension.dir, 'gateway', reference, inputs.catalog.dir),
+          await writeLockfile(bin, reference, 'release-compose.yaml', home, log),
+        ];
+        return { folder, fixtures, extra: { reference, snapshot: readTree(folder) } };
+      },
+      body: (ctx, p) => topLevelAttachChecks(ctx, p.extra?.reference as string, p.extra?.snapshot as Tree),
     },
   ];
 }

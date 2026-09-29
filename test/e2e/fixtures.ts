@@ -72,12 +72,25 @@ function occurrences(text: string, needle: string): number {
 // occurs exactly once in the configuration file and nowhere else, so a fixture
 // edited into carrying two, or none, stops the run instead of reading a
 // different catalog than the one the report names.
-export function placeFolder(extensionDir: string, name: string, dest: string, catalog: string): FixtureProof {
+//
+// A catalog of null places a fixture that reads no standard library, only the
+// catalog it carries itself. Such a fixture must carry no placeholder anywhere
+// and its configuration must name no absolute path, so it depends neither on the
+// catalog input nor on where a checkout sits.
+export function placeFolder(extensionDir: string, name: string, dest: string, catalog: string | null): FixtureProof {
   const from = path.join(fixturesDir(extensionDir), name);
   if (!fs.existsSync(from)) { throw new FixtureError(`folder ${name}`, `the suite holds no fixture at ${from}`); }
   const files = copyTree(from, dest, () => false);
   const config = path.join(dest, FIXTURE_CONFIG);
   const text = fs.readFileSync(config, 'utf8');
+  if (catalog === null) {
+    const carrying = files.filter((f) => fs.readFileSync(path.join(dest, f), 'utf8').includes(CATALOG_PLACEHOLDER));
+    const absolute = text.split('\n').filter((l) => /^\s*-\s*\//.test(l));
+    if (carrying.length > 0 || absolute.length > 0) {
+      throw new FixtureError(`folder ${name}`, `a fixture that reads no standard library carries the catalog placeholder in ${JSON.stringify(carrying)} and names ${JSON.stringify(absolute)} in ${FIXTURE_CONFIG}`);
+    }
+    return { fixture: `folder ${name}`, built: true, proof: `${files.length} files copied to ${dest}; it reads only the catalog it carries: no placeholder, and no absolute path in ${FIXTURE_CONFIG}`, evidence: { files } };
+  }
   const found = occurrences(text, CATALOG_PLACEHOLDER);
   if (found !== 1) {
     throw new FixtureError(`folder ${name}`, `${FIXTURE_CONFIG} carries the catalog placeholder ${found} times, not once`);
@@ -110,6 +123,40 @@ export async function writeLockfile(
   }
   const summary = run.stdout.trim().split('\n').find((l) => l.startsWith('Pull complete:')) ?? '';
   return { fixture: `lockfile of ${path.basename(folder)}/${release}`, built: true, proof: `\`aggrega --offline pull\` exited 0 in ${run.elapsedMs} ms: ${summary}; ${lock} is ${fs.statSync(lock).size} bytes` };
+}
+
+// Tree is a directory's files by their path beneath it, in path order.
+export type Tree = Map<string, Buffer>;
+
+// readTree reads every file beneath `dir`, which is none where it is absent.
+export function readTree(dir: string): Tree {
+  const files: [string, Buffer][] = [];
+  const walk = (d: string, rel: string): void => {
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const r = rel === '' ? e.name : `${rel}/${e.name}`;
+      if (e.isDirectory()) { walk(path.join(d, e.name), r); } else if (e.isFile()) { files.push([r, fs.readFileSync(path.join(d, e.name))]); }
+    }
+  };
+  if (fs.existsSync(dir)) { walk(dir, ''); }
+  return new Map(files.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
+}
+
+// sameTree reports whether two trees hold the same files with the same bytes.
+export function sameTree(a: Tree, b: Tree): boolean {
+  return a.size === b.size && [...a].every(([f, bytes]) => b.get(f)?.equals(bytes) === true);
+}
+
+// TreeChange is how a directory now differs from a tree read from it earlier:
+// the files whose bytes differ, the files gone, and the files added.
+export interface TreeChange { changed: string[]; missing: string[]; added: string[] }
+
+export function changeSince(before: Tree, dir: string): TreeChange {
+  const now = readTree(dir);
+  return {
+    changed: [...before].filter(([f, bytes]) => now.has(f) && !(now.get(f) as Buffer).equals(bytes)).map(([f]) => f),
+    missing: [...before.keys()].filter((f) => !now.has(f)),
+    added: [...now.keys()].filter((f) => !before.has(f)),
+  };
 }
 
 // copyLockfile copies a Release's lockfile, written by writeLockfile in one copy

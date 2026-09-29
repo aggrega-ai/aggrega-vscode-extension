@@ -1,0 +1,39 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Cognitio S.r.l.
+
+apiVersion: aggrega.ai/v1alpha1
+kind: Recipe
+metadata:
+  name: probe
+  version: 1.0.0
+  description: >
+    The probe on Docker Compose: an NGINX container whose one location returns
+    the configured greeting.
+spec:
+  capability: compose
+  implements: local/devtool/probe:1.0.0
+
+  provides:
+    host: "{{ .context.instance_id }}"
+    port: "{{ .infra.port }}"
+
+  workload: |
+    apiVersion: aggrega.ai/v1alpha1
+    kind: Workload
+    containers:
+      main:
+        image: "nginx:1.27.5-alpine"
+        command:
+          - /bin/sh
+          - -c
+          - "echo 'server { listen {{ .infra.port }}; location / { return 200 \"{{ .values.greeting }}\"; } }' > /etc/nginx/conf.d/default.conf && exec nginx -g 'daemon off;'"
+        ports:
+          http: {{ .infra.port }}
+        health:
+          ready:
+            tcp: {{ .infra.port }}
+    services:
+      default:
+        type: NodePort
+        ports:
+          http: {{ .infra.port }}

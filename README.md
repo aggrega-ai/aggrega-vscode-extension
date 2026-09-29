@@ -420,6 +420,30 @@ and the catalog's commit, and gives each check one of four outcomes:
 - **for a person**, where the question is a judgement: the check stops at the
   state to judge and leaves a capture and the drawn text for someone to look at.
 
+Each scenario opens one folder in an editor of its own. Three of them work in
+the topology graph panel:
+
+- `storefront-graph-panel` opens a storefront whose one attachment authors a
+  value its Feature declares sensitive. It checks what the attachments panel
+  draws for that value with `aggrega.graph.showSensitiveValues` unset, ticked,
+  ticked off again and hand-edited to a value that is not a boolean; the list of
+  what may attach, the node it follows and the sentence it reads when it cannot
+  be listed; that nothing in the panel offers to connect two components;
+  attaching a Feature to a component inside a subsystem — taken out again by
+  one undo, and landing where an unsaved edit above it puts it — two subsystems
+  deep, and through a module the Aggregate imports; and the reasons a failed
+  drawing and a refused attach give. One of its checks posts a request into the
+  graph panel's own message channel naming a node the drawing does not carry,
+  which is a request no press in the panel makes.
+- `probes-nothing-may-attach` opens a folder whose only Feature applies to
+  nothing it deploys, and checks what the list reads when nothing matches.
+- `gateway-top-level-attach` attaches a Feature to a component declared at the
+  top level of its Aggregate.
+
+Nothing these checks attach is saved: each changed document is closed without
+saving, and each scenario that attaches ends by checking that every file of the
+folder it opened reads byte for byte as it did when the scenario started.
+
 The report also gives each scenario's bring-up, wall clock and teardown, each
 check's elapsed time, the peak memory and the CPU time of the editor's processes
 and of the language server, what it found newer than the run's start in the

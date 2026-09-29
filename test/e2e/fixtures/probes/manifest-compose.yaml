@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Cognitio S.r.l.
+
+apiVersion: aggrega.ai/v1alpha1
+kind: Manifest
+metadata:
+  name: probes-compose
+  version: 1.0.0
+  description: >
+    Maps the probe to this folder's own Compose Recipe.
+spec:
+  mappings:
+    components:
+      type:
+        local/devtool/probe:1.0.0: compose/probe:1.0.0

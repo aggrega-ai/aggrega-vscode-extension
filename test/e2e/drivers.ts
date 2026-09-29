@@ -55,6 +55,10 @@ export interface UiDriver {
   // under it as a person scrolls a list too long for its view.
   wheel(deltaX: number, deltaY: number): Promise<void>;
   platformFonts(doc: WebviewDocument, selector: string): Promise<PlatformFonts>;
+  // hostOf is the document of the frame a panel's document is drawn inside:
+  // the editor's own page for the panel, which carries the channel the panel
+  // posts its messages through. It is null where the frame has none.
+  hostOf(doc: WebviewDocument): WebviewDocument | null;
   // detach lets go of the editor without stopping it.
   detach(): Promise<void>;
 }
@@ -187,6 +191,11 @@ class PlaywrightDriver implements UiDriver {
     } finally {
       await session.detach().catch(() => undefined);
     }
+  }
+
+  hostOf(doc: WebviewDocument): WebviewDocument | null {
+    const parent = (doc as PlaywrightDocument).frame.parentFrame();
+    return parent === null || parent.isDetached() ? null : new PlaywrightDocument(parent);
   }
 
   detach(): Promise<void> {

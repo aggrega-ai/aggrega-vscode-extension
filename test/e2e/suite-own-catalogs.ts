@@ -6,7 +6,7 @@ import * as path from 'path';
 
 import { need } from './checks';
 import { runCompiler } from './cli';
-import { MAPPED_RELEASES, UNMAPPED_COPY_OF, UNMAPPED_RELEASE, WORKSPACE_CATALOG_DIR } from './fixtures';
+import { MAPPED_RELEASES, readTree, sameTree, Tree, UNMAPPED_COPY_OF, UNMAPPED_RELEASE, WORKSPACE_CATALOG_DIR } from './fixtures';
 import { referenceAnswer } from './reference';
 import { capture, ready, SuiteContext } from './suite-context';
 import {
@@ -86,21 +86,6 @@ function describeGraph(r: GraphReading): string {
   return `tabs ${JSON.stringify(r.tabs)}, ${panels}`;
 }
 
-// Tree is a directory's files by their path beneath it, in path order.
-type Tree = Map<string, Buffer>;
-
-function readTree(dir: string): Tree {
-  const files: [string, Buffer][] = [];
-  const walk = (d: string, rel: string): void => {
-    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
-      const r = rel === '' ? e.name : `${rel}/${e.name}`;
-      if (e.isDirectory()) { walk(path.join(d, e.name), r); } else if (e.isFile()) { files.push([r, fs.readFileSync(path.join(d, e.name))]); }
-    }
-  };
-  if (fs.existsSync(dir)) { walk(dir, ''); }
-  return new Map(files.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
-}
-
 // TreeComparison is what the editor's build wrote held against what the command
 // line wrote for the same Release: the files only one of them holds, the files
 // whose bytes differ once the reference copy's root is read as the editor's, and
@@ -119,10 +104,6 @@ function compareTrees(editor: Tree, reference: Tree, editorRoot: string, referen
   }
   const same = editor.size > 0 && onlyEditor.length === 0 && onlyReference.length === 0 && differ.length === 0;
   return { same, files: editor.size, onlyEditor, onlyReference, differ, normalised };
-}
-
-function sameTree(a: Tree, b: Tree): boolean {
-  return a.size === b.size && [...a].every(([f, bytes]) => b.get(f)?.equals(bytes) === true);
 }
 
 function describeComparison(c: TreeComparison): string {

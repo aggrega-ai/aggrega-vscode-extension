@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Cognitio S.r.l.
+
+apiVersion: aggrega.ai/v1alpha1
+kind: Aggregate
+metadata:
+  name: probes
+  version: 1.0.0
+  description: >
+    Two instances of one small web probe, compiled to a Docker Compose stack.
+    The components are authored at the top level, so this Aggregate declares
+    no subsystem.
+spec:
+  components:
+    probe-a:
+      type: local/devtool/probe
+    probe-b:
+      type: local/devtool/probe
+      values:
+        greeting: "hello from b"

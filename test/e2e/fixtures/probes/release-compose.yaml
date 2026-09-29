@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Cognitio S.r.l.
+
+apiVersion: aggrega.ai/v1alpha1
+kind: Release
+metadata:
+  name: probes-local
+  environment: development
+  version: 1.0.0
+spec:
+  aggregate: ./aggregate.yaml
+  manifest: ./manifest-compose.yaml
+  # Components listed at the top level rather than under boundaries, so this
+  # Release declares no boundary.
+  components:
+    probe-a:
+      infra:
+        port: 8090
+    probe-b:
+      infra:
+        port: 8091
