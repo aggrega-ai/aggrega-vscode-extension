@@ -93,12 +93,12 @@ const CATALOG_HEAD = ['Search catalog', 'Draft entity'];
 // The rows at the head of the Registries and Plugins panels, the row the
 // Registries panel draws beneath its head with no registry configured, and what
 // pressing a head row asks or writes first, held as written for the same reason.
-const REGISTRIES_HEAD = ['Add registry', 'Update index'];
+export const REGISTRIES_HEAD = ['Add registry', 'Update index'];
 const PLUGINS_HEAD = ['Add plugin', 'Generate entities'];
 const NO_REGISTRIES_ROW = 'No registries configured.';
 const DRAFT_PLACEHOLDER = 'Aggrega: choose the kind of entity to draft';
 const ADD_REGISTRY_TITLE = 'Aggrega: add a registry';
-const INDEX_BUILD_OPENING = 'Index build for every configured registry.';
+export const INDEX_BUILD_OPENING = 'Index build for every configured registry.';
 
 // The Commands panel's buttons in the order it draws them, and the stops its
 // arrow keys walk from Validate — the Build options chevron beside Build among

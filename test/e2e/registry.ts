@@ -10,6 +10,7 @@ import { runCompiler, ScratchHome } from './cli';
 import { freePort } from './editor';
 import { FixtureError, FixtureProof } from './fixtures';
 import { ProcessTable } from './processes';
+import { HOSTS_FILE, LISTED_REPOSITORY, LISTED_VERSION, REPEATING_LISTING, REQUESTS_FILE, StubHosts } from './stub-registries';
 
 // A scratch registry: the zot server the development registry pins, started on a
 // free loopback port with a data directory of its own and no authentication, so
@@ -19,6 +20,10 @@ import { ProcessTable } from './processes';
 //
 // The server is recorded by PID and start time in the scenario's process table,
 // and stopped with it.
+//
+// Beside it, a pair of stub registries answering only what an index build asks:
+// one whose repository listing never ends and one well-behaved, served by one
+// process the runner starts, recorded and stopped the same way.
 
 export interface ScratchRegistry {
   host: string;
@@ -158,6 +163,75 @@ export async function populateRegistry(opts: {
       fixture: 'withdrawn Component version',
       built: true,
       proof: `${PUBLISHED_ENTITY.name} published at ${PUBLISHED_ENTITY.older} and ${PUBLISHED_ENTITY.newer}, the newer withdrawn at severity retracted; \`aggrega registry update\`: "${recorded.trim()}"; \`aggrega search -o json\` reads version ${record.version} with retracted ${JSON.stringify(record.retracted)}`,
+    },
+  };
+}
+
+// StubRegistries is the pair of registries the stub process serves
+// (stub-registries.ts): one whose repository listing never ends, and a
+// well-behaved one beside it.
+export interface StubRegistries extends StubHosts {
+  pid: number;
+  proof: FixtureProof;
+  // requests reads what the stub has been asked so far, in order, one line each
+  // opening with the name of the registry that was asked.
+  requests(): string[];
+}
+
+// startStubRegistries starts the stub process with a directory of its own,
+// records it by PID and start time in the scenario's process table, so it is
+// stopped with it, and returns once both registries answer and read back as
+// what they are for: the repeating one's listing, asked for its next page, hands
+// back the same page and a link to a next one again; the well-behaved one lists
+// one repository and links to no next page.
+export async function startStubRegistries(dir: string, home: ScratchHome, table: ProcessTable): Promise<StubRegistries> {
+  const fixture = 'stub registries';
+  fs.mkdirSync(dir, { recursive: true });
+  const log = fs.openSync(path.join(dir, 'stub-registries.log'), 'a');
+  const child = spawn(process.execPath, [path.join(__dirname, 'stub-registries.js'), dir], {
+    cwd: dir,
+    env: { PATH: '/usr/bin:/bin', HOME: home.home, TMPDIR: home.tmp },
+    detached: true,
+    stdio: ['ignore', log, log],
+  });
+  child.unref();
+  fs.closeSync(log);
+  if (child.pid === undefined) { throw new FixtureError(fixture, 'the stub process could not be started'); }
+  table.addRoot('stub registries', child.pid);
+  const hostsFile = path.join(dir, HOSTS_FILE);
+  const until = Date.now() + 15000;
+  while (!fs.existsSync(hostsFile)) {
+    if (Date.now() > until) { throw new FixtureError(fixture, `the stub process wrote no ${HOSTS_FILE} within 15000 ms; see ${path.join(dir, 'stub-registries.log')}`); }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  const hosts = JSON.parse(fs.readFileSync(hostsFile, 'utf8')) as StubHosts;
+  const page = async (url: string): Promise<{ repositories: string[]; next: string | null }> => {
+    const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
+    if (res.status !== 200) { throw new FixtureError(fixture, `GET ${url} answered ${res.status}`); }
+    const body = await res.json() as { repositories?: string[] };
+    const link = /<([^>]+)>;\s*rel="next"/.exec(res.headers.get('link') ?? '');
+    return { repositories: body.repositories ?? [], next: link ? link[1] : null };
+  };
+  const same = (a: string[], b: readonly string[]): boolean => JSON.stringify(a) === JSON.stringify(b);
+  const first = await page(`http://${hosts.repeating}/v2/_catalog`);
+  const second = first.next === null ? null : await page(`http://${hosts.repeating}${first.next}`);
+  if (!same(first.repositories, REPEATING_LISTING) || second === null || !same(second.repositories, REPEATING_LISTING) || second.next === null) {
+    throw new FixtureError(fixture, `the repeating registry at ${hosts.repeating} does not hand back the same page with a next link twice: ${JSON.stringify({ first, second })}`);
+  }
+  const listed = await page(`http://${hosts.wellBehaved}/v2/_catalog`);
+  const tags = await fetch(`http://${hosts.wellBehaved}/v2/${LISTED_REPOSITORY}/tags/list`, { signal: AbortSignal.timeout(5000) }).then((r) => r.json() as Promise<{ tags?: string[] }>);
+  if (!same(listed.repositories, [LISTED_REPOSITORY]) || listed.next !== null || !same(tags.tags ?? [], [LISTED_VERSION])) {
+    throw new FixtureError(fixture, `the well-behaved registry at ${hosts.wellBehaved} does not list ${LISTED_REPOSITORY} alone at ${LISTED_VERSION} with no next page: ${JSON.stringify({ listed, tags })}`);
+  }
+  const requestsFile = path.join(dir, REQUESTS_FILE);
+  return {
+    ...hosts,
+    pid: child.pid,
+    requests: () => fs.readFileSync(requestsFile, 'utf8').split('\n').filter((l) => l !== ''),
+    proof: {
+      fixture,
+      built: true,
+      proof: `one process (pid ${child.pid}) serving, with no authentication, ${hosts.repeating}, whose listing handed back ${JSON.stringify(REPEATING_LISTING)} with a next link, and the same page and link again when that link was followed; and ${hosts.wellBehaved}, listing ${LISTED_REPOSITORY} alone, with no next page, at ${LISTED_VERSION}`,
     },
   };
 }

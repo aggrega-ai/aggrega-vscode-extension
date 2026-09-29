@@ -13,20 +13,25 @@ import { need } from './checks';
 import { makeScratchHome, runCompiler, ScratchHome } from './cli';
 import { UNREACHABLE_HOST } from './fixtures';
 import { referenceAnswer } from './reference';
-import { PUBLISHED_ENTITY, ScratchRegistry, WITHDRAWN_PLUGIN_LINK } from './registry';
+import { PUBLISHED_ENTITY, ScratchRegistry, StubRegistries, WITHDRAWN_PLUGIN_LINK } from './registry';
 import { capture, closeAllEditors, ready, run, send, SuiteContext, theServer } from './suite-context';
-import { pressViewAction } from './suite-storefront';
+import { INDEX_BUILD_OPENING, pressViewAction, REGISTRIES_HEAD } from './suite-storefront';
 import {
-  pickQuickInputRow, pressPanelAction, QuickInput, RUNNING, Toast, toasts, treeRows, until, waitQuickInput, waitStatus, waitToast,
+  holds, NotificationReading, notificationReadings, pickQuickInputRow, pressPanelAction, QuickInput, RUNNING, stopWatchingNotification, Toast, toasts, treeRows, until,
+  waitQuickInput, waitStatus, waitToast, watchNotification,
 } from './workbench';
 
 // The checks run in the storefront folder with a scratch registry configured
 // beside an unreachable one: the published-catalog search over an index that
 // holds a withdrawn version, what the channel says about each registry's index,
-// and the withdrawal a plugin attachment would name. After them, registrations
-// made through Add registry — online, and then with the offline posture taken —
-// and what each one's closing line says about the trust the entry was given, or
-// how the refusal reads.
+// and the withdrawal a plugin attachment would name. Then a pair of stub
+// registries is registered beside those two — one whose repository listing never
+// ends and a well-behaved one — and Update index is pressed over all four: its
+// progress ends, and the channel and the ending name the registry whose listing
+// repeats in the compiler's words and report the one beside it indexed. After
+// them, registrations made through Add registry — online, and then with the
+// offline posture taken — and what each one's closing line says about the trust
+// the entry was given, or how the refusal reads.
 
 export const REGISTRY_CHECKS = [
   'catalog-search.lists-matches-and-copies-a-reference',
@@ -37,6 +42,9 @@ export const REGISTRY_CHECKS = [
   'catalog-search.index-sentences-direct-the-reader',
   'plugins.add-names-the-withdrawn-version-it-passed-over',
   'side-bar.plugins-and-registries-views-refresh-without-a-network',
+  'registries-panel.update-index-ends-with-a-registry-whose-listing-repeats',
+  'registries-panel.update-index-names-the-registry-whose-listing-repeats-in-the-compilers-words',
+  'registries-panel.update-index-reports-the-registry-beside-it-indexed',
   'registration.says-an-entry-carries-no-trust-where-none-is-advertised',
   'registration.says-the-hub-took-its-built-in-baseline-offline',
   'registration.refusal-carries-the-servers-words',
@@ -198,7 +206,98 @@ async function takeOfflinePosture(ctx: SuiteContext): Promise<{ taken: boolean; 
     : { taken: false, said: `after the restart command ${next === null ? `no language server other than ${before.pid} was running within 30000 ms` : `the server ${next.pid} did not read running within 60000 ms`}` };
 }
 
-export async function registryChecks(ctx: SuiteContext, registry: ScratchRegistry): Promise<void> {
+// ---- an index build over a registry whose listing never ends ------------------
+
+// The words an index build meets a reader with, held as written, so a change of
+// wording is a change these checks report: the progress notification's title
+// while the build runs, the opening every ending shares, and the opening of the
+// ending of a build that left a registry unindexed. The row pressed and the
+// channel's opening line for a build over every registry are the ones the
+// storefront scenario holds. What follows each opening is read off the server's
+// own answer rather than written here.
+const UPDATE_INDEX_ROW = REGISTRIES_HEAD[1];
+const INDEX_PROGRESS_TITLE = 'Aggrega: updating the searchable index';
+const INDEX_BUILD_ENDS = 'The index build ';
+const INDEX_BUILD_INCOMPLETE = 'The index build did not complete: ';
+
+// IndexHost and IndexAnswer are the part of the server's answer to an index
+// build these checks read.
+interface IndexHost { host: string; indexed: number; error?: string }
+interface IndexAnswer { hosts: IndexHost[]; failed: string[] }
+
+// configurePair registers the stub's two registries in the global configuration,
+// beside the two the scenario registered as it was prepared, with the compiler's
+// own registration and no trust policy asked for, and restarts the language
+// server by the restart command so it reads them: the server reads its
+// configuration once, as it starts. It answers whether a new server reads running
+// afterwards with the Registries panel listing both, and what it found where not.
+async function configurePair(ctx: SuiteContext, stubs: StubRegistries): Promise<{ taken: boolean; said: string }> {
+  await waitStatus(ctx.d, RUNNING, 60000).catch(() => undefined);
+  const before = await theServer(ctx).catch(() => null);
+  if (before === null) { return { taken: false, said: 'no one language server was running before the registrations' }; }
+  for (const host of [stubs.repeating, stubs.wellBehaved]) {
+    const r = await runCompiler(ctx.inputs.compiler.path, ['registry', 'add', host, '--fetch-trust=false'], { cwd: ctx.folder, home: ctx.home, boundMs: 60000, log: ctx.cliLog });
+    if (r.status !== 0) { return { taken: false, said: `\`aggrega registry add ${host} --fetch-trust=false\` exited ${r.status ?? r.signal}: ${(r.stderr || r.stdout).trim().slice(0, 300)}` }; }
+  }
+  const file = globalConfiguration(ctx.home);
+  const text = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
+  if (![stubs.repeating, stubs.wellBehaved].every((h) => text.includes(h))) { return { taken: false, said: `the global configuration at ${file} does not name both after the registrations` }; }
+  await send(ctx, RESTART_COMMAND);
+  const next = await theServer(ctx, 30000, before.pid).catch(() => null);
+  const running = await waitStatus(ctx.d, RUNNING, 60000).then(() => true, () => false);
+  if (next === null || !running) {
+    return { taken: false, said: `after the restart command ${next === null ? `no language server other than ${before.pid} was running within 30000 ms` : `the server ${next.pid} did not read running within 60000 ms`}` };
+  }
+  await run(ctx, 'aggrega.registries.focus');
+  const listed = await until('the Registries panel listing both registries', 20000, async () => ((await treeRows(ctx.d, 'Registries')) ?? []).map((r) => `${r.label} ${r.description} ${r.aria}`),
+    (rows) => [stubs.repeating, stubs.wellBehaved].every((h) => rows.some((r) => r.includes(h)))).then(() => true, () => false);
+  return listed
+    ? { taken: true, said: `both registered in ${file}; the server ${before.pid} was replaced by ${next.pid}, which reads running, and the Registries panel lists both` }
+    : { taken: false, said: `the server ${next.pid} reads running, and the Registries panel does not list both within 20000 ms` };
+}
+
+// endingOf is the line a build's run on the channel closes with, read from its
+// opening line on, or null where it has not closed yet.
+function endingOf(channel: string): string | null {
+  const lines = channel.split('\n');
+  const at = lines.indexOf(INDEX_BUILD_OPENING);
+  if (at === -1) { return null; }
+  return lines.slice(at + 1).find((l) => l.startsWith(INDEX_BUILD_ENDS)) ?? null;
+}
+
+// runLines is the channel's lines from a build's opening line to its ending.
+function runLines(channel: string): string[] {
+  const lines = channel.split('\n');
+  const at = lines.indexOf(INDEX_BUILD_OPENING);
+  if (at === -1) { return []; }
+  const rest = lines.slice(at + 1);
+  const end = rest.findIndex((l) => l.startsWith(INDEX_BUILD_ENDS));
+  return end === -1 ? rest : rest.slice(0, end);
+}
+
+// notIndexedIn reads the registries an ending names as not indexed: the hosts
+// listed between its first pair of parentheses.
+function notIndexedIn(ending: string): string[] {
+  const m = /\(([^)]*)\)/.exec(ending);
+  return m ? m[1].split(', ').filter((h) => h !== '') : [];
+}
+
+const sameSet = (a: readonly string[], b: readonly string[]): boolean => JSON.stringify([...a].sort()) === JSON.stringify([...b].sort());
+
+// drawnThenGone says whether an observer's readings show the notification drawn
+// and, after that, gone.
+function drawnThenGone(rs: NotificationReading[]): boolean {
+  const i = rs.findIndex((r) => r.drawn);
+  return i !== -1 && rs.slice(i + 1).some((r) => !r.drawn);
+}
+
+// describeReadings states an observer's readings, each at its time after `from`.
+function describeReadings(rs: NotificationReading[], from: number): string {
+  if (rs.length === 0) { return 'no reading'; }
+  return rs.map((r) => `${r.drawn ? 'drawn' : 'not drawn'} at ${r.at - from} ms`).join(', ');
+}
+
+export async function registryChecks(ctx: SuiteContext, registry: ScratchRegistry, stubs: StubRegistries, referenceFolder: string): Promise<void> {
   const c = ctx.checks;
   await ready(ctx);
   const cli = async (args: string[]): Promise<{ stdout: string; stderr: string; status: number | null }> =>
@@ -304,6 +403,96 @@ export async function registryChecks(ctx: SuiteContext, registry: ScratchRegistr
       ([r, p]) => r.length > 0 && p.length > 0).catch(() => undefined);
     const rows = [...((await treeRows(ctx.d, 'Registries')) ?? []).map((r) => `Registries: ${r.label} ${r.description}`), ...((await treeRows(ctx.d, 'Plugins')) ?? []).slice(0, 8).map((r) => `Plugins: ${r.label} ${r.description}`)];
     return { screenshot: await capture(ctx, 'views-after-refresh'), drawnText: rows.join('\n') };
+  });
+
+  // ---- an index build over a registry whose listing never ends ----
+  // The pair is registered only now, after the checks above have read the
+  // registries the scenario was prepared with, and before any registration below:
+  // those end with the offline posture taken, under which an index build is
+  // refused outright.
+  const pair = await configurePair(ctx, stubs);
+  const beside = `with ${stubs.repeating} (whose repository listing hands back the same page with a link to a next page, every time it is asked) and ${stubs.wellBehaved} (one repository at one version) registered beside the scratch registry and ${UNREACHABLE_HOST}, and the language server restarted to read them`;
+  // The server's own answer to the same request, asked outside the editor over the
+  // same registries — the global configuration copied into a home of its own — in
+  // a copy of the folder, so the index it writes is not the one the editor's
+  // build writes.
+  const indexReference = pair.taken
+    ? await referenceAnswer({ binary: ctx.inputs.compiler.path, root: referenceFolder, method: 'aggrega/registryUpdate', params: {}, home: referenceHome(ctx, 'index-build'), table: ctx.s.table, log: ctx.cliLog, boundMs: 120000 })
+    : null;
+  const answer: IndexAnswer | null = indexReference !== null && indexReference.ok ? { hosts: [], failed: [], ...(indexReference.result as Partial<IndexAnswer>) } as IndexAnswer : null;
+  const answerRaw = indexReference === null ? `no answer was asked for: ${pair.said}` : JSON.stringify(indexReference).slice(0, 800);
+  const hostIn = (a: IndexAnswer | null, host: string): IndexHost | undefined => (a?.hosts ?? []).find((h) => h.host === host);
+  let pressed: { outMark: ReturnType<SuiteContext['out']['mark']>; toastMark: number; requestsBefore: number } | null = null;
+
+  await c.run('registries-panel.update-index-ends-with-a-registry-whose-listing-repeats', {
+    expected: `${beside}, pressing "${UPDATE_INDEX_ROW}" at the head of the Registries panel opens the build on the channel with "${INDEX_BUILD_OPENING}", and its progress notification "${INDEX_PROGRESS_TITLE}" — seen drawn by an observer installed before the press — is gone within 60 s and is not drawn again over the 3 s after`,
+    plant: 'in the scratch copy, out/src/registries-view.js made to run the build behind a progress notification whose work never settles',
+  }, async () => {
+    need(pair.taken, `the two registries were not configured: ${pair.said}`);
+    await closeAllEditors(ctx);
+    await run(ctx, 'aggrega.registries.focus');
+    const key = await watchNotification(ctx.d, INDEX_PROGRESS_TITLE);
+    const outMark = ctx.out.mark();
+    const toastMark = (await toasts(ctx.d)).length;
+    const requestsBefore = stubs.requests().length;
+    const at = Date.now();
+    await pressPanelAction(ctx.d, 'Registries', UPDATE_INDEX_ROW);
+    pressed = { outMark, toastMark, requestsBefore };
+    const opened = await ctx.out.waitFor('the index build opening in the channel', outMark, (t) => t.split('\n').includes(INDEX_BUILD_OPENING), 10000).then(() => true, () => false);
+    const readings = await until('the progress notification drawn and then gone', 60000, () => notificationReadings(ctx.d, key), drawnThenGone)
+      .catch(() => notificationReadings(ctx.d, key));
+    const ended = drawnThenGone(readings);
+    const after = ended ? await holds(3000, () => notificationReadings(ctx.d, key), (rs) => rs.length > 0 && !rs[rs.length - 1].drawn) : null;
+    const final = await notificationReadings(ctx.d, key);
+    await stopWatchingNotification(ctx.d, key);
+    const asked = stubs.requests().slice(requestsBefore);
+    return {
+      passed: opened && ended && after !== null && after.held,
+      seen: `the channel ${opened ? 'opened the build' : `did not open the build within 10 s: ${JSON.stringify(ctx.out.since(outMark).slice(0, 300))}`}; the progress notification, after the press: ${describeReadings(final, at)}${after === null ? '' : after.held ? '; not drawn again over the 3 s after' : '; drawn again after it went'}; the repeating registry was asked for its listing ${asked.filter((l) => l.startsWith('repeating GET /v2/_catalog')).length} time(s), the well-behaved one answered ${asked.filter((l) => l.startsWith('well-behaved ')).length} request(s)`,
+      evidence: { readings: final, requests: asked },
+    };
+  });
+
+  await c.run('registries-panel.update-index-names-the-registry-whose-listing-repeats-in-the-compilers-words', {
+    expected: `in that build, the channel carries "  ${stubs.repeating}: <reason>", <reason> being, unaltered, the error the server's own answer to the same aggrega/registryUpdate request, asked outside the editor over the same registries, gives for ${stubs.repeating}; and the build ends in a line opening "${INDEX_BUILD_INCOMPLETE}" whose parentheses name exactly the registries that answer names as failed, ${stubs.repeating} among them, raised as an error notification carrying the same line`,
+    plant: 'in the scratch copy, out/src/registry-index-request.js made to read a build that left registries unindexed as one that completed',
+  }, async () => {
+    const run0 = pressed;
+    need(run0 !== null, 'Update index was not pressed');
+    const reason = hostIn(answer, stubs.repeating)?.error ?? '';
+    need(answer !== null && answer.failed.includes(stubs.repeating) && reason !== '', `the server's own answer to the same request is not a build naming ${stubs.repeating} as failed with its reason: ${answerRaw}`);
+    const channel = await ctx.out.waitFor('the index build writing its ending', run0.outMark, (t) => endingOf(t) !== null, 30000);
+    const ending = endingOf(channel) ?? '';
+    const lines = runLines(channel);
+    const hostLine = `  ${stubs.repeating}: ${reason}`;
+    const toast = await waitToast(ctx.d, 'the index build raising its ending', run0.toastMark, (t) => t.message === ending, 15000).catch(() => null);
+    const named = notIndexedIn(ending);
+    return {
+      passed: lines.includes(hostLine) && ending.startsWith(INDEX_BUILD_INCOMPLETE) && sameSet(named, answer.failed) && toast !== null && toast.severity === 'error',
+      seen: `the channel's run: ${JSON.stringify(lines)}; its ending "${ending}"; named as not indexed ${JSON.stringify(named)}; the notification: ${toast ? `"${toast.message}" (${toast.severity})` : 'none carrying the ending'}; the server's own answer names ${JSON.stringify(answer.failed)} as failed and gives ${stubs.repeating} the reason "${reason}"`,
+    };
+  });
+
+  await c.run('registries-panel.update-index-reports-the-registry-beside-it-indexed', {
+    expected: `in that build, the channel carries "  ${stubs.wellBehaved}: <n> entity" ("entities" where <n> is not one), <n> being the count the server's own answer to the same request gives for ${stubs.wellBehaved}, at least one; and the ending, whose parentheses name ${stubs.repeating} as not indexed, does not name ${stubs.wellBehaved} there`,
+    plant: 'in the scratch copy, out/src/registry-index-request.js made to name every registry walked as not indexed',
+  }, async () => {
+    const run0 = pressed;
+    need(run0 !== null, 'Update index was not pressed');
+    const good = hostIn(answer, stubs.wellBehaved);
+    need(answer !== null && good !== undefined && !good.error && good.indexed >= 1, `the server's own answer to the same request does not report ${stubs.wellBehaved} indexed: ${answerRaw}`);
+    const channel = await ctx.out.waitFor('the index build writing its ending', run0.outMark, (t) => endingOf(t) !== null, 30000);
+    const ending = endingOf(channel) ?? '';
+    const lines = runLines(channel);
+    const hostLine = `  ${stubs.wellBehaved}: ${good.indexed} ${good.indexed === 1 ? 'entity' : 'entities'}`;
+    const named = notIndexedIn(ending);
+    // The reading of the ending's parentheses is shown to fire on the registry it
+    // must name before its silence on the one beside it is believed.
+    const readsTheList = named.includes(stubs.repeating);
+    return {
+      passed: lines.includes(hostLine) && readsTheList && !named.includes(stubs.wellBehaved),
+      seen: `the channel's run: ${JSON.stringify(lines)}; its ending "${ending}"; named as not indexed ${JSON.stringify(named)}; the server's own answer gives ${stubs.wellBehaved} ${good.indexed} indexed`,
+    };
   });
 
   // ---- what a registration says about the trust it took ----

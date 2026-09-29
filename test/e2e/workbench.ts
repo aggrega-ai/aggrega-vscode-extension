@@ -154,6 +154,54 @@ export function waitToast(driver: UiDriver, what: string, mark: number, match: (
   return until(what, boundMs, async () => (await toastsSince(driver, mark)).find(match) ?? null, (t) => t !== null) as Promise<Toast>;
 }
 
+// NotificationReading is one change of whether a notification is drawn.
+export interface NotificationReading { at: number; drawn: boolean }
+
+// watchNotification installs, before the action it watches, an observer that
+// records every change of whether a notification whose message reads exactly
+// `message` is drawn — one that stays up while its work runs, such as a progress
+// notification, and goes when the work ends. The first reading is taken as it is
+// installed, so a log that opens with it drawn says it was already up. It returns
+// the key its readings are kept under.
+export async function watchNotification(driver: UiDriver, message: string): Promise<string> {
+  const key = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  await driver.workbench(`((message, key) => {
+    const logs = window.__editorSuiteNotificationWatch || (window.__editorSuiteNotificationWatch = {});
+    const log = [];
+    logs[key] = log;
+    let last = null;
+    const read = () => [...document.querySelectorAll('.notification-list-item')].some((item) => {
+      const m = item.querySelector('.notification-list-item-message');
+      return ((m && m.innerText) || '').trim() === message && item.getBoundingClientRect().height > 0;
+    });
+    const sample = () => { const v = read(); if (v !== last) { log.push({ at: Date.now(), drawn: v }); last = v; } };
+    sample();
+    const observer = new MutationObserver(sample);
+    observer.observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['class', 'style'] });
+    log.stop = () => observer.disconnect();
+    return log.length;
+  })(${JSON.stringify(message)}, ${JSON.stringify(key)})`);
+  return key;
+}
+
+// notificationReadings returns what the observer installed under `key` has
+// recorded so far.
+export function notificationReadings(driver: UiDriver, key: string): Promise<NotificationReading[]> {
+  return driver.workbench<NotificationReading[]>(`((key) => {
+    const log = (window.__editorSuiteNotificationWatch || {})[key];
+    return log ? log.map((r) => ({ at: r.at, drawn: r.drawn })) : [];
+  })(${JSON.stringify(key)})`);
+}
+
+// stopWatchingNotification disconnects the observer installed under `key`.
+export async function stopWatchingNotification(driver: UiDriver, key: string): Promise<void> {
+  await driver.workbench(`((key) => {
+    const log = (window.__editorSuiteNotificationWatch || {})[key];
+    if (log && log.stop) { log.stop(); }
+    return true;
+  })(${JSON.stringify(key)})`);
+}
+
 // pressToastButton presses the button labelled `label` on the notification whose
 // message starts with `prefix`, as drawn now, and reports false where no such
 // button is drawn.

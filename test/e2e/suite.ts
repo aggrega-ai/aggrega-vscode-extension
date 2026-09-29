@@ -12,7 +12,7 @@ import { Inputs, REPO_ROOT } from './inputs';
 import { applyPlant, Plant } from './plants';
 import { aboveChecks, ABOVE_CHECKS } from './suite-above';
 import { ProcessTable } from './processes';
-import { populateRegistry, ScratchRegistry, startRegistry } from './registry';
+import { populateRegistry, ScratchRegistry, startRegistry, startStubRegistries, StubRegistries } from './registry';
 import { bringUp, DisplayReading, Scenario, ScenarioEnd, tearDown } from './scenario';
 import { makeContext, SuiteContext } from './suite-context';
 import { gatewayChecks, GATEWAY_CHECKS } from './suite-gateway';
@@ -138,26 +138,30 @@ function plans(inputs: Inputs): ScenarioPlan[] {
       checks: REGISTRY_CHECKS,
       prepare: async (root, home, log) => {
         const folder = path.join(root.dir, 'workspace', 'storefront');
+        const reference = path.join(root.dir, 'reference', 'storefront');
         const table = new ProcessTable(path.join(root.dir, 'registry-processes.json'));
         const fixtures = [
           placeFolder(inputs.extension.dir, 'storefront', folder, inputs.catalog.dir),
           await writeLockfile(bin, folder, 'release-compose.yaml', home, log),
+          placeFolder(inputs.extension.dir, 'storefront', reference, inputs.catalog.dir),
+          await writeLockfile(bin, reference, 'release-compose.yaml', home, log),
           await proveUnreachable(),
         ];
         const registry = await startRegistry(inputs.registryServer.path, path.join(root.dir, 'registry'), home, table)
           .catch(async (err: unknown) => { await stopTable(table); throw err; });
         fixtures.push(registry.proof);
-        const prepared: Prepared = { folder, fixtures, extra: { registry, table } };
         try {
           const population = await populateRegistry({ binary: bin, registry, catalog: inputs.catalog.dir, folder, dir: path.join(root.dir, 'registry'), home, log, alsoRegister: [UNREACHABLE_HOST] });
           fixtures.push(population.proof);
+          const stubs = await startStubRegistries(path.join(root.dir, 'stub-registries'), home, table);
+          fixtures.push(stubs.proof);
+          return { folder, fixtures, extra: { registry, stubs, reference, table } };
         } catch (err) {
           await stopTable(table);
           throw err;
         }
-        return prepared;
       },
-      body: (ctx, p) => registryChecks(ctx, p.extra?.registry as ScratchRegistry),
+      body: (ctx, p) => registryChecks(ctx, p.extra?.registry as ScratchRegistry, p.extra?.stubs as StubRegistries, p.extra?.reference as string),
       cleanup: async (p) => { if (p?.extra?.table) { await stopTable(p.extra.table as ProcessTable); } },
     },
   ];

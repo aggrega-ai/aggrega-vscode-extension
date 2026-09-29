@@ -50,6 +50,7 @@ const OPERATIONS = 'out/src/operations.js';
 const RENDER = 'out/src/operations-render.js';
 const PANEL_SCRIPT = 'media/operations.js';
 const REGISTRATION_OUTCOME = 'out/src/registration-outcome.js';
+const INDEX_REQUEST = 'out/src/registry-index-request.js';
 
 const CONTEXT_ROW_LABEL = {
   file: 'out/src/selector-levels.js',
@@ -508,6 +509,25 @@ export const PLANTS: readonly Plant[] = [
     find: '            message: `Aggrega: no catalog matches for ${describeFilter(filter)}.`,',
     replace: '            message: exports.NO_REGISTRIES_MESSAGE,',
     says: 'a search that matched nothing is answered as a search with no registry configured',
+  },
+  {
+    name: 'index-build-never-settles', scenario: 'storefront-with-registries', checks: ['registries-panel.update-index-ends-with-a-registry-whose-listing-repeats'], moves: 'red', target: 'extension',
+    file: 'out/src/registries-view.js',
+    find: '(title, (signal) => (0, registry_index_request_1.runIndexBuild)(deps, registry, signal));',
+    replace: '(title, (signal) => new Promise(() => { void (0, registry_index_request_1.runIndexBuild)(deps, registry, signal); }));',
+    says: 'Update index sends the build and runs it behind a progress notification whose work never settles, so the notification stays up after the answer',
+  },
+  {
+    name: 'unindexed-registries-read-as-complete', scenario: 'storefront-with-registries', checks: ['registries-panel.update-index-names-the-registry-whose-listing-repeats-in-the-compilers-words'], moves: 'red', target: 'extension',
+    file: INDEX_REQUEST, find: '    if (missed.length > 0) {', replace: '    if (false) {',
+    says: 'an index build whose answer names registries it could not index ends as one that completed',
+  },
+  {
+    name: 'every-registry-named-unindexed', scenario: 'storefront-with-registries', checks: ['registries-panel.update-index-reports-the-registry-beside-it-indexed'], moves: 'red', target: 'extension',
+    file: INDEX_REQUEST,
+    find: '    const missed = hosts.filter((host) => host.error).map((host) => host.host);',
+    replace: '    const missed = hosts.map((host) => host.host);',
+    says: 'an index build\'s ending names every registry it walked as not indexed, the ones it indexed included',
   },
   {
     name: 'trust-reason-dropped', scenario: 'storefront-with-registries', checks: ['registration.says-an-entry-carries-no-trust-where-none-is-advertised'], moves: 'red', target: 'extension',
