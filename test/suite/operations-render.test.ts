@@ -269,9 +269,8 @@ function operationsCss(): string {
 // reviewed.
 //
 // The fetched ones carry NO options: their choices are held by the compiler —
-// the workspace's own entities for two of them, and the kinds an author may
-// write a document of for the third — so the composed document cannot hold them,
-// which is the difference this list has to be able to see.
+// the workspace's own entities, for both of them — so the composed document
+// cannot hold them, which is the difference this list has to be able to see.
 // The reader-visible words and the values each choice COMPOSES are separate
 // fields, and both are asserted even where they read alike. Taking a label as
 // the value an operation acts on is exactly the coupling that breaks silently,
@@ -284,14 +283,6 @@ const MENUS_RULED: Array<{
   values: string[];
   labels: string[];
 }> = [
-  {
-    id: 'scaffold',
-    command: 'aggrega.op.scaffold',
-    label: 'Kind of entity to draft',
-    waiting: 'Reading the entity kinds the compiler declares…',
-    values: [],
-    labels: [],
-  },
   {
     id: 'inspect',
     command: 'aggrega.op.inspect',
@@ -378,7 +369,6 @@ const DIALS_DRAWN = DIALS_RULED.reduce((total, dials) => total + dials.values.le
 // menu that moved a diff in this file.
 const MENU_IDS_IN_ORDER: string[] = [
   'dials-build',
-  'scaffold',
   'inspect',
   'push',
   'cache',
@@ -527,7 +517,7 @@ describe('the Commands panel document', () => {
     const ruled = [
       'Validate', 'Lint', 'Build', 'Preview', 'Graph',
       'Pull',
-      'Draft entity', 'Import', 'Inspect',
+      'Import', 'Inspect',
       'Push', 'Sign', 'Deprecate',
       'Show config', 'Cache…',
     ];
@@ -1428,9 +1418,8 @@ describe('a control that offers its choices beside itself', () => {
     //
     // The pairs below are the FIXED menus and the set each one reads. The
     // fetched menus are deliberately absent and cannot be covered: their choices
-    // are held by the compiler — the workspace's own entities for two of them,
-    // and the kinds an author may write a document of for the third — so this
-    // side declares no set for them to be compared against. That is a bound on
+    // are held by the compiler — the workspace's own entities — so this side
+    // declares no set for them to be compared against. That is a bound on
     // what is provable rather than an omission, and the partition asserted first
     // is what keeps it from widening silently: a menu that stops being fetched
     // arrives here needing a declared set, and one added as fetched cannot be

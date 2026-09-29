@@ -47,10 +47,10 @@ import {
 import { CatalogIndexEntity } from '../../src/workspace-catalog-run';
 import { NO_ANCHORED_WORKSPACE_CONTROL_REASON } from '../../src/workspace';
 
-// THE FIVE OPERATIONS DRAWN AT THE HEAD OF A LIST PANEL, written out literally
-// rather than read back from the description: an expectation read from the table
-// under test agrees with that table whatever it says, so it could not see an
-// operation returned to the Commands panel or dropped from a panel's head.
+// THE OPERATIONS DRAWN AT THE HEAD OF A LIST PANEL, written out literally rather
+// than read back from the description: an expectation read from the table under
+// test agrees with that table whatever it says, so it could not see an operation
+// returned to the Commands panel or dropped from a panel's head.
 const HEADED: Record<string, Array<{ id: PanelActionId; label: string; command: string }>> = {
   registries: [
     { id: 'registryAdd', label: 'Add registry', command: 'aggrega.registries.add' },
@@ -58,6 +58,7 @@ const HEADED: Record<string, Array<{ id: PanelActionId; label: string; command: 
   ],
   catalog: [
     { id: 'catalogSearch', label: 'Search catalog', command: 'aggrega.catalog.searchPublished' },
+    { id: 'scaffold', label: 'Draft entity', command: 'aggrega.op.scaffold' },
   ],
   plugins: [
     { id: 'pluginAdd', label: 'Add plugin', command: 'aggrega.plugins.add' },
@@ -65,6 +66,11 @@ const HEADED: Record<string, Array<{ id: PanelActionId; label: string; command: 
   ],
 };
 const HEADED_ALL = Object.values(HEADED).flat();
+
+// NEEDS_NO_FOLDER is the one operation heading a list panel that runs with no
+// folder anchored, written out for the same reason: drafting asks the language
+// server for a starter document and writes nothing.
+const NEEDS_NO_FOLDER: readonly PanelActionId[] = ['scaffold'];
 
 // everyOperation is both descriptions together, for the properties that hold of
 // every operation wherever it is drawn.
@@ -103,7 +109,7 @@ describe('the operation surface, grouped by what a reader came to do', () => {
     assert.deepStrictEqual(membership, {
       build: ['validate', 'lint', 'build', 'preview', 'graph'],
       dependencies: ['pull'],
-      author: ['scaffold', 'import', 'inspect'],
+      author: ['import', 'inspect'],
       publish: ['push', 'sign', 'deprecate'],
       config: ['configShow', 'cache'],
     });
@@ -119,7 +125,7 @@ describe('the operation surface, grouped by what a reader came to do', () => {
     // A negative control first: the census does see an entry that IS here, so
     // the absences below are measurements rather than claims about the set.
     assert.ok(
-      onThisPanel.some((op) => commandIdFor(op) === 'aggrega.op.scaffold' && op.label === 'Draft entity'),
+      onThisPanel.some((op) => op.id === 'import' && commandIdFor(op) === 'aggrega.op.import' && op.label === 'Import'),
       'the census cannot see an entry that is on the panel, so its absences mean nothing',
     );
     for (const headed of HEADED_ALL) {
@@ -138,14 +144,22 @@ describe('the operation surface, grouped by what a reader came to do', () => {
     }
   });
 
-  it('keeps drafting an entity here, as its one entry', () => {
-    // Drafting is a button here rather than a row at the head of the Catalog
-    // panel: it opens a starter document in a tab and writes nothing. The
-    // failure this guards against is a second Draft entity button, which the
-    // uniqueness assertion below would catch, but only if this one establishes
-    // that the single entry is still present.
-    const offered = commandsPanelOperations().map(commandIdFor);
-    assert.ok(offered.includes('aggrega.op.scaffold'), 'drafting an entity is on no panel');
+  it('draws drafting an entity once, second at the head of the Catalog panel', () => {
+    // Drafting heads the Catalog panel after the search rather than being a
+    // button here: what it adds to is the catalog as a whole. The failure this
+    // guards against is an operation that is in neither place, which the
+    // absence above cannot see, or in both, which the uniqueness assertion below
+    // would catch — but only if this one establishes that the one row is there.
+    assert.deepStrictEqual(
+      PANEL_ACTIONS.catalog.map((action) => action.label),
+      ['Search catalog', 'Draft entity'],
+      'the Catalog panel is not headed by the search and then drafting',
+    );
+    assert.deepStrictEqual(
+      everyOperation().filter((op) => commandIdFor(op) === 'aggrega.op.scaffold').map((op) => op.id),
+      ['scaffold'],
+      'drafting an entity is drawn a number of times other than once',
+    );
   });
 
   it('leaves every row-scoped operation off this panel, so none re-asks what a click answered', () => {
@@ -357,8 +371,10 @@ describe('the operations drawn at the head of each list panel', () => {
     for (const headed of HEADED_ALL) {
       assert.strictEqual(
         panelActionReason(headed.id, false),
-        NO_ANCHORED_WORKSPACE_CONTROL_REASON,
-        `${headed.id} is drawn as pressable in the state its invocation refuses`,
+        NEEDS_NO_FOLDER.includes(headed.id) ? null : NO_ANCHORED_WORKSPACE_CONTROL_REASON,
+        NEEDS_NO_FOLDER.includes(headed.id)
+          ? `${headed.id} needs no folder and is refused where none is anchored`
+          : `${headed.id} is drawn as pressable in the state its invocation refuses`,
       );
       assert.strictEqual(panelActionReason(headed.id, true), null, `${headed.id} is refused with a folder anchored`);
       for (const workspaceAnchored of [false, true]) {
@@ -498,19 +514,23 @@ describe('the surface the manifest actually contributes', () => {
     }
   });
 
-  it('removes the drafting entry from the catalog title bar rather than duplicating it', () => {
-    // Drafting was panel-scoped AND already a button in the flow, so its
-    // title-bar entry was a duplicate. Moving it would have shipped a second
-    // Draft entity button; this asserts one entry, in the flow, and none in a
-    // title bar.
+  it('binds the drafting entry to no title bar, its one place being the Catalog panel\'s head', () => {
+    // A title-bar entry for drafting would be a second, unlabelled place for one
+    // operation; this asserts one entry, at the head of the Catalog panel, and
+    // none in a title bar or in the flow.
     assert.ok(
       !manifest.contributes.menus['view/title'].some((m) => m.command === 'aggrega.op.scaffold'),
-      'the drafting entry is still in a title bar as well as in the flow',
+      'the drafting entry is in a title bar as well as at the head of the Catalog panel',
     );
     assert.deepStrictEqual(
-      commandsPanelOperations().filter((op) => commandIdFor(op) === 'aggrega.op.scaffold').map((op) => op.id),
+      PANEL_ACTIONS.catalog.filter((action) => commandIdFor(action) === 'aggrega.op.scaffold').map((action) => action.id),
       ['scaffold'],
-      'the flow carries a number of drafting entries other than one',
+      'the Catalog panel\'s head carries a number of drafting entries other than one',
+    );
+    assert.deepStrictEqual(
+      commandsPanelOperations().filter((op) => commandIdFor(op) === 'aggrega.op.scaffold'),
+      [],
+      'the flow carries a drafting entry as well as the Catalog panel\'s head',
     );
   });
 
@@ -606,7 +626,7 @@ describe('the surface the manifest actually contributes', () => {
     );
   });
 
-  it('puts every contributed operation command on the panel, so none is stranded', () => {
+  it('puts every contributed operation command on a panel, so none is stranded', () => {
     const contributed = manifest.contributes.commands
       .map((c) => c.command)
       .filter((c) => c.startsWith('aggrega.op.'));
@@ -618,11 +638,13 @@ describe('the surface the manifest actually contributes', () => {
       contributed.includes('aggrega.op.build'),
       'the census sees no contributed operation command it certainly should, so its zeros mean nothing',
     );
-    const onPanel = new Set(commandsPanelOperations().map(commandIdFor));
+    // Both descriptions, because an operation this surface registers may be
+    // drawn at a list panel's head as well as on the Commands panel.
+    const onAPanel = new Set(everyOperation().map(commandIdFor));
     assert.deepStrictEqual(
-      contributed.filter((c) => !onPanel.has(c)),
+      contributed.filter((c) => !onAPanel.has(c)),
       [],
-      'the manifest contributes an operation command no entry on the panel runs, so it draws in the command palette and finds nothing when pressed',
+      'the manifest contributes an operation command no entry on either surface runs, so it draws in the command palette and finds nothing when pressed',
     );
   });
 
@@ -931,11 +953,12 @@ describe('what an entry needs before it can run', () => {
     });
   });
 
-  it('gates every operation heading a list panel on the anchored folder, and never on a Release', () => {
+  it('gates every operation heading a list panel on the anchored folder or on nothing, and never on a Release', () => {
     // A list panel observes the anchored folder and not the selection, so the
-    // requirement of each operation drawn there is the folder or nothing. The
-    // row is drawn unavailable in exactly that state, with the reason, and
-    // never hidden.
+    // requirement of each operation drawn there is the folder or nothing. A row
+    // needing the folder is drawn unavailable in exactly the state without one,
+    // with the reason, and never hidden; drafting needs nothing and runs in
+    // every state.
     const nothing = { workspaceAnchored: false, releaseSelected: false };
     const anchored = { workspaceAnchored: true, releaseSelected: false };
     for (const { id } of HEADED_ALL) {
@@ -944,9 +967,14 @@ describe('what an entry needs before it can run', () => {
         `${id} heads a list panel and needs a selected Release, which that panel cannot observe`,
       );
       assert.strictEqual(
+        OPERATION_REQUIREMENTS[id],
+        NEEDS_NO_FOLDER.includes(id) ? 'none' : 'workspace',
+        `${id} heads a list panel and is gated on something other than what its handler checks`,
+      );
+      assert.strictEqual(
         unavailableReason(id, nothing),
-        NO_ANCHORED_WORKSPACE_CONTROL_REASON,
-        `${id} is drawn as pressable in the state its invocation refuses`,
+        NEEDS_NO_FOLDER.includes(id) ? null : NO_ANCHORED_WORKSPACE_CONTROL_REASON,
+        `${id} is drawn as pressable in a state its invocation refuses, or refused in one it runs in`,
       );
       assert.strictEqual(
         unavailableReason(id, anchored), null,

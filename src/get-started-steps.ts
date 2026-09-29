@@ -49,6 +49,7 @@
 // opens with — is assertable without an extension host. What it reads from
 // elsewhere holds none either, which is what keeps that true.
 
+import { panelActionLabel } from './operation-groups';
 import { SELECT_RELEASE_COMMAND } from './release-selection';
 import { REGISTRY_ADD_COMMAND } from './registry-configure';
 
@@ -659,7 +660,7 @@ export const STEP_CONTENT: readonly StepContent[] = [
       },
       {
         paragraph:
-          '**Draft a Release** opens the same drafting flow the Author group uses, with the kind already settled — you are asked for the name and nothing else. **Choose a Release I already have** opens the picker over what this workspace offers.',
+          `**Draft a Release** opens the same drafting flow as **${panelActionLabel('scaffold')}** at the head of the Catalog panel, with the kind already settled — you are asked for the name and nothing else. **Choose a Release I already have** opens the picker over what this workspace offers.`,
       },
     ],
     actions: [

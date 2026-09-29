@@ -94,9 +94,8 @@ describe('the operations the workspace-catalog panel contributes', () => {
   it('leaves the refresh alone in the title bar, the operations being labelled controls elsewhere', () => {
     // A title-bar entry is a hover-revealed unlabelled icon, which reads as a
     // different surface from a labelled control — so the published-catalog
-    // search is a row at the head of this panel's list and the drafting entry a
-    // button on the Commands panel, and the title bar carries only what belongs
-    // to the view.
+    // search and the drafting entry are rows at the head of this panel's list,
+    // and the title bar carries only what belongs to the view.
     const entries = titleBarEntries();
     assert.deepStrictEqual(
       entries.map((m) => m.command),
@@ -106,22 +105,28 @@ describe('the operations the workspace-catalog panel contributes', () => {
     assert.strictEqual(entries[0].group, 'navigation');
   });
 
-  it('draws the search at the head of this panel and the drafting entry on the Commands panel', () => {
+  it('heads this panel with the search and then the drafting entry, and leaves neither on the Commands panel', () => {
     // Each is present in exactly one place, so neither is merely gone and
     // neither has two places a reader could look.
     assert.deepStrictEqual(
       PANEL_ACTIONS.catalog.map(commandIdFor),
-      ['aggrega.catalog.searchPublished'],
-      'the published-catalog search is not what this panel is headed by',
+      ['aggrega.catalog.searchPublished', 'aggrega.op.scaffold'],
+      'this panel is not headed by the published-catalog search and then drafting an entity',
     );
     const onCommands = commandsPanelOperations().map(commandIdFor);
+    // A negative control on the two absences below: the census does see a
+    // command that IS on the Commands panel.
+    assert.ok(
+      onCommands.includes('aggrega.op.import'),
+      'the census cannot see a command the Commands panel draws, so its absences mean nothing',
+    );
     assert.ok(
       !onCommands.includes('aggrega.catalog.searchPublished'),
       'the published-catalog search is on the Commands panel as well',
     );
     assert.ok(
-      onCommands.includes('aggrega.op.scaffold'),
-      'a reader can see the entities in this workspace and cannot draft one',
+      !onCommands.includes('aggrega.op.scaffold'),
+      'drafting an entity is on the Commands panel as well',
     );
   });
 

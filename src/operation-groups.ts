@@ -23,6 +23,7 @@ export type PanelActionId =
   | 'registryAdd'
   | 'registryIndex'
   | 'catalogSearch'
+  | 'scaffold'
   | 'pluginAdd'
   | 'pluginEntities';
 
@@ -36,7 +37,6 @@ export type OperationId =
   | 'preview'
   | 'graph'
   | 'pull'
-  | 'scaffold'
   | 'import'
   | 'inspect'
   | 'push'
@@ -67,19 +67,19 @@ export interface OperationDef {
   icon: string;
   // command overrides the derived id for an operation whose command is
   // contributed and registered elsewhere: the topology graph and the
-  // configuration surface each contribute their own, and every operation drawn
-  // at the head of a list panel is registered beside the list it concerns, where
-  // its handler lives. A command id is what a reader binds a keystroke to, so it
-  // is reused rather than renamed — and the handler stays in one place rather
-  // than being wrapped in a second command that only forwards.
+  // configuration surface each contribute their own, and most operations drawn
+  // at the head of a list panel are registered beside the list they concern,
+  // where their handlers live. A command id is what a reader binds a keystroke
+  // to, so it is reused rather than renamed — and the handler stays in one place
+  // rather than being wrapped in a second command that only forwards.
   command?: string;
 }
 
-// PanelActionDef is one operation drawn at the head of a list panel. It names
-// its command outright, because none of them is registered by this surface.
+// PanelActionDef is one operation drawn at the head of a list panel. Drafting an
+// entity is registered by this surface, so it takes the derived command id; every
+// other one names the command registered beside the list it concerns.
 export interface PanelActionDef extends OperationDef {
   id: PanelActionId;
-  command: string;
 }
 
 export interface OperationGroup {
@@ -109,12 +109,13 @@ export interface OperationGroup {
 //
 // 🔴 EVERY OPERATION WHOSE SUBJECT IS THE WORKSPACE LIVES HERE, AND ONE ACTING
 // ON WHAT A LIST PANEL LISTS DOES NOT. Adding a registry, updating the
-// registries' index, searching the published catalog, adding a plugin and
-// generating Plugin entities are each drawn at the head of the panel whose list
-// they concern (PANEL_ACTIONS below), where a reader looking at that list is
-// already looking — and where a reader facing an empty list finds, on the list
-// itself, the way to fill it. Each operation is in exactly one of the two
-// descriptions, so each has one place a reader looks for it.
+// registries' index, searching the published catalog, drafting an entity,
+// adding a plugin and generating Plugin entities are each drawn at the head of
+// the panel whose list they concern (PANEL_ACTIONS below), where a reader
+// looking at that list is already looking — and where a reader facing an empty
+// list finds, on the list itself, the way to fill it. Each operation is in
+// exactly one of the two descriptions, so each has one place a reader looks for
+// it.
 //
 // An operation acting on a particular registry, entity or plugin is in neither:
 // its subject is the row the reader clicked, so it stays on that row, where
@@ -205,12 +206,6 @@ export const OPERATION_GROUPS: OperationGroup[] = [
     id: 'author',
     heading: 'Author',
     operations: [
-      {
-        id: 'scaffold',
-        label: 'Draft entity',
-        detail: 'Draft a starter document for an entity kind, opened in a new editor tab',
-        icon: 'new-file',
-      },
       {
         id: 'import',
         label: 'Import',
@@ -311,6 +306,9 @@ export const PANEL_ACTIONS: Record<ListPanelId, readonly PanelActionDef[]> = {
       command: 'aggrega.registries.update',
     },
   ],
+  // Drafting an entity heads this panel as well as the search, and after it: what
+  // it adds to is the catalog as a whole rather than any one entity listed, which
+  // is the test that places an operation at the head of a list panel.
   catalog: [
     {
       id: 'catalogSearch',
@@ -318,6 +316,12 @@ export const PANEL_ACTIONS: Record<ListPanelId, readonly PanelActionDef[]> = {
       detail: 'Search the published catalog and copy the reference of a match',
       icon: 'cloud',
       command: 'aggrega.catalog.searchPublished',
+    },
+    {
+      id: 'scaffold',
+      label: 'Draft entity',
+      detail: 'Draft a starter document for an entity kind, opened in a new editor tab',
+      icon: 'new-file',
     },
   ],
   plugins: [
@@ -435,7 +439,11 @@ export type OperationRequirement = 'none' | 'workspace' | 'release';
 // gated on a Release could only be drawn from a guess — and an operation that
 // came to need one belongs on the Commands panel, which observes both.
 //
-// The five are each gated on the anchored folder and on nothing else. They do
+// Drafting an entity is gated on nothing: it asks the language server for a
+// starter document and writes nothing, so it needs no folder to run in, and its
+// row runs in every state its panel can be in.
+//
+// Every other one is gated on the anchored folder and on nothing else. They do
 // not share one reason for it, so the reason is stated per group rather than for
 // the set. The one invoked as a command refuses without a folder to run in,
 // because the invocation path it takes does. The four asked of the language
@@ -443,14 +451,15 @@ export type OperationRequirement = 'none' | 'workspace' | 'release';
 // workspace the session was opened over: a registry write and a plugin
 // attachment each need a write target resolved against it, and a
 // published-catalog search and an index build each reach the registries that
-// workspace's configuration declares. Three of the five ask their questions
-// before any of those paths is reached; the row is still drawn as unavailable,
-// because a reader who has answered three dialogs and is then told there is no
-// folder has answered them for nothing.
+// workspace's configuration declares. Three of those ask their questions before
+// any of those paths is reached; the row is still drawn as unavailable, because
+// a reader who has answered three dialogs and is then told there is no folder
+// has answered them for nothing.
 const PANEL_ACTION_REQUIREMENTS: Record<PanelActionId, Exclude<OperationRequirement, 'release'>> = {
   registryAdd: 'workspace',
   registryIndex: 'workspace',
   catalogSearch: 'workspace',
+  scaffold: 'none',
   pluginAdd: 'workspace',
   pluginEntities: 'workspace',
 };
@@ -477,9 +486,6 @@ export const OPERATION_REQUIREMENTS: Record<OperationId, OperationRequirement> =
   preview: 'release',
   graph: 'release',
   pull: 'release',
-  // Drafting asks the language server for a starter document and writes
-  // nothing, so it needs no folder to run in.
-  scaffold: 'none',
   import: 'workspace',
   // An inspection is addressed by identity and resolves through the language
   // server's own view of the workspace.

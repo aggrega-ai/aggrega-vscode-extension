@@ -4,7 +4,6 @@
 import * as assert from 'node:assert';
 
 import { readEntityKinds } from '../../src/entity-kinds';
-import { entityKindMenuOptions } from '../../src/operation-menus';
 
 // The reader holds no editor type, so what the drafting control offers is read
 // back here with no extension host. What no test in this repository can reach is
@@ -22,8 +21,8 @@ import { entityKindMenuOptions } from '../../src/operation-menus';
 // The wide half deliberately holds tokens the narrow half does not, because that
 // difference is the whole subject of this file. It also deliberately holds every
 // token the narrow half does, in the same spelling, because that is how the
-// answer is composed — so a reader that took the wide half would compose a menu
-// that looked almost right, which is exactly the defect worth refusing.
+// answer is composed — so a reader that took the wide half would compose an
+// offer that looked almost right, which is exactly the defect worth refusing.
 const ANSWERED = {
   kinds: [
     'aggregate',
@@ -120,33 +119,6 @@ describe('the kinds an author may draft', () => {
     assert.deepStrictEqual(
       differ.map((kind) => kind.kind), ['feature-recipe'],
       'no kind in this answer has two registers that differ, so nothing here would catch one derived from the other',
-    );
-  });
-
-  it('offers the word a reader reads and composes the token the request takes', () => {
-    const options = entityKindMenuOptions(readEntityKinds(ANSWERED));
-    assert.deepStrictEqual(
-      options.map((option) => option.label), NARROW_WORDS,
-      'the drafting menu reads something other than the value each document carries',
-    );
-    assert.deepStrictEqual(
-      options.map((option) => option.value), NARROW_TOKENS,
-      'the drafting menu composes something other than the token the request takes',
-    );
-    // The value is the token rather than the choice's position in the offer,
-    // which is the one difference from a menu offering the workspace's own
-    // entities: two entities may share a name so only a position identifies one,
-    // while a kind's token is the compiler's own identity for it.
-    assert.ok(
-      options.every((option) => !/^[0-9]+$/.test(option.value)),
-      'a choice composes its position in the offer rather than the kind\'s own token',
-    );
-    // No second line is composed. The word a reader reads names the kind
-    // completely, and drawing the token beside it would show two spellings of
-    // one thing with nothing to say why they differ.
-    assert.deepStrictEqual(
-      options.map((option) => option.detail), ['', '', ''],
-      'a choice composes a second line, which is a wording invented on this side',
     );
   });
 

@@ -60,6 +60,17 @@ const CONTEXT_ROW_LABEL = {
 
 const REFRESH_GRAPH = '        refreshGraphView();\n';
 
+// The compiled line binding a list panel's head row to its command, and the same
+// line binding nothing to the row of one operation — as a row that cannot run
+// binds nothing, but here with no reason drawn beside it.
+const PANEL_ACTIONS_JS = 'out/src/panel-actions.js';
+const HEAD_ROW_PRESS = '        press: reason === null ? { command: (0, operation_groups_1.commandIdFor)(action), title: action.label } : null,';
+const headRowBoundToNothing = (id: string): { file: string; find: string; replace: string } => ({
+  file: PANEL_ACTIONS_JS,
+  find: HEAD_ROW_PRESS,
+  replace: HEAD_ROW_PRESS.replace('reason === null ?', `reason === null && action.id !== '${id}' ?`),
+});
+
 export const PLANTS: readonly Plant[] = [
   // ---- the gateway folder ----
   {
@@ -191,6 +202,48 @@ export const PLANTS: readonly Plant[] = [
     name: 'deleted-closed-file-not-followed', scenario: 'storefront', checks: ['catalog-view.deleted-closed-file-row-leaves-without-a-press'], moves: 'red', target: 'extension',
     file: 'out/src/disk-change.js', find: '    watcher.onDidDelete(reported);\n', replace: '',
     says: 'the on-disk watcher\'s report of a deleted file reaches nothing, so a document no editor holds keeps its row once its file is deleted from outside the editor',
+  },
+  {
+    name: 'list-panel-heads-reversed', scenario: 'storefront',
+    checks: [
+      'catalog-panel.head-reads-search-catalog-then-draft-entity-and-folds-with-the-panel',
+      'registries-panel.head-leads-no-registries-configured-and-folds-with-the-panel',
+      'plugins-panel.head-reads-add-plugin-then-generate-entities-and-folds-with-the-panel',
+    ],
+    moves: 'red', target: 'extension',
+    file: PANEL_ACTIONS_JS,
+    find: '    return operation_groups_1.PANEL_ACTIONS[panel].map((action) => ({',
+    replace: '    return [...operation_groups_1.PANEL_ACTIONS[panel]].reverse().map((action) => ({',
+    says: 'every list panel draws the operations at its head in the reverse order',
+  },
+  {
+    name: 'head-dropped-over-a-message', scenario: 'storefront', checks: ['registries-panel.head-leads-no-registries-configured-and-folds-with-the-panel'], moves: 'red', target: 'extension',
+    file: PANEL_ACTIONS_JS,
+    find: '    return [...panelActionNodes(panel, root !== null), ...listed];',
+    replace: "    return [...(listed.some((node) => node.kind === 'message') ? [] : panelActionNodes(panel, root !== null)), ...listed];",
+    says: 'a list panel whose list reads a message, such as "No registries configured.", draws no operation above it',
+  },
+  {
+    name: 'draft-row-bound-to-nothing', scenario: 'storefront', checks: ['catalog-panel.draft-entity-asks-for-the-kind'], moves: 'red', target: 'extension',
+    ...headRowBoundToNothing('scaffold'),
+    says: 'the Draft entity row at the head of the Catalog panel is drawn as able to run and binds no command, so pressing it runs nothing',
+  },
+  {
+    name: 'add-registry-row-bound-to-nothing', scenario: 'storefront', checks: ['registries-panel.add-registry-asks-for-the-host'], moves: 'red', target: 'extension',
+    ...headRowBoundToNothing('registryAdd'),
+    says: 'the Add registry row at the head of the Registries panel is drawn as able to run and binds no command, so pressing it runs nothing',
+  },
+  {
+    name: 'update-index-row-bound-to-nothing', scenario: 'storefront', checks: ['registries-panel.update-index-starts-the-update'], moves: 'red', target: 'extension',
+    ...headRowBoundToNothing('registryIndex'),
+    says: 'the Update index row at the head of the Registries panel is drawn as able to run and binds no command, so pressing it runs nothing',
+  },
+  {
+    name: 'draft-left-on-the-commands-panel', scenario: 'storefront', checks: ['commands-panel.holds-none-of-the-list-panels-operations-and-keeps-its-order-and-walk'], moves: 'red', target: 'extension',
+    file: 'out/src/operation-groups.js',
+    find: "        heading: 'Author',\n        operations: [\n",
+    replace: "        heading: 'Author',\n        operations: [\n            {\n                id: 'scaffold',\n                label: 'Draft entity',\n                detail: 'Draft a starter document for an entity kind, opened in a new editor tab',\n                icon: 'new-file',\n            },\n",
+    says: 'Draft entity is drawn on the Commands panel, first in its Author group, as well as at the head of the Catalog panel',
   },
   {
     name: 'validation-says-nothing', scenario: 'storefront', checks: ['operations.validate-ends-in-a-sentence'], moves: 'red', target: 'extension',

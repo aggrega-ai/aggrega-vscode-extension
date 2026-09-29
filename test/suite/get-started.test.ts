@@ -2805,3 +2805,27 @@ describe('the welcome panel seeds a configuration without starting a process', (
     );
   });
 });
+
+describe('the welcome page sends a reader to a control by the words it draws', () => {
+  it('names the Catalog panel\'s Draft entity row as the drafting flow the Release step opens', () => {
+    // Written out literally rather than composed from the row's own label, so a
+    // row renamed or moved is a sentence this file reports rather than one that
+    // follows it silently.
+    const release = STEP_CONTENT.find((step) => step.id === 'release');
+    assert.ok(release !== undefined, 'the welcome page carries no Release step');
+    const text = release.detail
+      .flatMap((block) => ('paragraph' in block ? [block.paragraph] : [...block.bullets]))
+      .join('\n');
+    assert.ok(
+      text.includes('**Draft a Release** opens the same drafting flow as **Draft entity** at the head of the Catalog panel,'),
+      `the Release step does not send the reader to the Draft entity row at the head of the Catalog panel: ${text}`,
+    );
+    // And no step sends a reader to a group of the Commands panel for it.
+    const everyStep = STEP_CONTENT.flatMap((step) => step.detail)
+      .flatMap((block) => ('paragraph' in block ? [block.paragraph] : [...block.bullets]))
+      .join('\n');
+    assert.ok(!/Author group/.test(everyStep), 'a step sends the reader to the Commands panel\'s Author group');
+    // A negative control on that absence: the text read is the steps' own.
+    assert.ok(everyStep.includes('**Draft a Release**'), 'the census read no step text at all');
+  });
+});

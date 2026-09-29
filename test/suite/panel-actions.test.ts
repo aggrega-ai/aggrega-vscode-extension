@@ -32,25 +32,27 @@ import {
 // The rows each panel is headed by, written out literally rather than read from
 // the description the composition reads: an expectation read from that table
 // agrees with it whatever it says, so it could not see a row dropped or
-// reordered.
-const REGISTRIES_HEAD = [
-  { label: 'Add registry', command: 'aggrega.registries.add', icon: 'add' },
-  { label: 'Update index', command: 'aggrega.registries.update', icon: 'cloud-download' },
+// reordered. folder says whether the row's operation needs an anchored folder,
+// which is what decides whether it can run in a state that has none.
+type Head = Array<{ label: string; command: string; icon: string; folder: boolean }>;
+
+const REGISTRIES_HEAD: Head = [
+  { label: 'Add registry', command: 'aggrega.registries.add', icon: 'add', folder: true },
+  { label: 'Update index', command: 'aggrega.registries.update', icon: 'cloud-download', folder: true },
 ];
-const CATALOG_HEAD = [
-  { label: 'Search catalog', command: 'aggrega.catalog.searchPublished', icon: 'cloud' },
+const CATALOG_HEAD: Head = [
+  { label: 'Search catalog', command: 'aggrega.catalog.searchPublished', icon: 'cloud', folder: true },
+  { label: 'Draft entity', command: 'aggrega.op.scaffold', icon: 'new-file', folder: false },
 ];
-const PLUGINS_HEAD = [
-  { label: 'Add plugin', command: 'aggrega.plugins.add', icon: 'add' },
-  { label: 'Generate entities', command: 'aggrega.plugins.genCatalog', icon: 'export' },
+const PLUGINS_HEAD: Head = [
+  { label: 'Add plugin', command: 'aggrega.plugins.add', icon: 'add', folder: true },
+  { label: 'Generate entities', command: 'aggrega.plugins.genCatalog', icon: 'export', folder: true },
 ];
 
 class FakeLog {
   readonly lines: string[] = [];
   appendLine(text: string): void { this.lines.push(text); }
 }
-
-type Head = typeof REGISTRIES_HEAD;
 
 // headOf splits a root into the rows at its head and what follows them, and
 // fails where an action row appears anywhere but at the head — a row among the
@@ -68,9 +70,10 @@ function headOf<N extends { kind: string }>(root: N[]): { head: PanelActionNode[
 }
 
 // assertHead checks the rows at a root's head against the literal set, in the
-// state the folder is in. Anchored, each row runs its command and gives no
-// reason; not anchored, each row gives the reason the Commands panel gives for
-// the same state, carries it on its hover, and binds nothing.
+// state the folder is in. A row whose operation needs no folder, and any row
+// with a folder anchored, runs its command and gives no reason; a row needing a
+// folder, with none anchored, gives the reason the Commands panel gives for the
+// same state, carries it on its hover, and binds nothing.
 function assertHead(head: PanelActionNode[], expected: Head, anchored: boolean, state: string): void {
   assert.deepStrictEqual(
     head.map((node) => node.row.label),
@@ -80,7 +83,7 @@ function assertHead(head: PanelActionNode[], expected: Head, anchored: boolean, 
   for (const [at, node] of head.entries()) {
     const want = expected[at];
     assert.strictEqual(node.row.icon, want.icon, `${want.label} carries a different icon in the ${state} state`);
-    if (anchored) {
+    if (anchored || !want.folder) {
       assert.deepStrictEqual(
         node.row.press,
         { command: want.command, title: want.label },
@@ -225,9 +228,9 @@ const CATALOG_STATES: Array<{
   },
 ];
 
-describe('the Catalog panel is headed by its own operation in every state', () => {
+describe('the Catalog panel is headed by its own operations in every state', () => {
   for (const { state, root, running, answer, first } of CATALOG_STATES) {
-    it(`opens with Search catalog — ${state}`, async () => {
+    it(`opens with Search catalog then Draft entity — ${state}`, async () => {
       const { head, rest } = headOf(await catalogPanelNodes(catalogDeps(root, running, answer)));
       assertHead(head, CATALOG_HEAD, root !== null, state);
       assert.ok(rest.length > 0 && first(rest[0]), `in the ${state} state the list after the head is not the one this state draws`);

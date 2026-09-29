@@ -21,7 +21,6 @@ import {
 } from './operation-groups';
 import {
   MenuOption,
-  entityKindMenuOptions,
   menuAnswer,
   menuFor,
   subjectMenuOptions,
@@ -1266,10 +1265,9 @@ const NO_KIND_TO_OFFER = 'Aggrega: the compiler reports no entity kind to draft.
 // and reports null where there are none to offer — having already told the
 // reader why.
 //
-// remember is how a fill whose answers are POSITIONS records the offer those
-// positions index into. A fill whose choices carry the compiler's own vocabulary
-// never calls it: the value such a choice composes is the token itself, so there
-// is no offer to resolve against and nothing to keep.
+// remember is how a fill records the offer its answers index into: each choice
+// composes its POSITION in that offer, so the offer is kept to resolve a choice
+// against.
 type MenuFill = (
   deps: OperationDeps,
   remember: (subjects: EntitySubject[]) => void,
@@ -1284,7 +1282,6 @@ type MenuFill = (
 // to be written last. Each fill routes through the same helper the chooser uses,
 // so a menu cannot come to offer a set the chooser does not.
 const FILLS_ITS_MENU: Partial<Record<OperationId, MenuFill>> = {
-  scaffold: (deps) => kindChoices(deps),
   inspect: (deps, remember) => subjectChoices(deps, inspectableSubjects, remember),
   push: (deps, remember) => subjectChoices(deps, publishableSubjects, remember),
 };
@@ -1302,19 +1299,12 @@ async function subjectChoices(
   return subjectMenuOptions(subjects);
 }
 
-// kindChoices offers the kinds an author may write a document of, as the
-// compiler answers them.
-async function kindChoices(deps: OperationDeps): Promise<MenuOption[] | null> {
-  const kinds = await askEntityKinds(deps);
-  return kinds === null ? null : entityKindMenuOptions(kinds);
-}
-
 // askEntityKinds reads the kinds an author may write a document of, and reports
 // null where there are none to offer — having already told the reader why.
 //
 // 🔴 THE REFUSAL HAS ONE HOME AND IT IS HERE, on the same terms as the entity
-// index below: the menu and the chooser both route through this, so one cannot
-// come to say something the other does not. A failed request surfaces the
+// index below: every way into the drafting flow routes through this, so no two
+// of them can come to say different things. A failed request surfaces the
 // language server's own message, which is where the remediation is named.
 //
 // 🔴 IT READS THE NARROW SET THE ANSWER CARRIES AND NEVER THE WIDE ONE. The wide
@@ -1342,18 +1332,18 @@ async function askEntityKinds(deps: OperationDeps): Promise<EntityKind[] | null>
 // pickEntityKind offers kinds already read as a chooser and returns the one
 // chosen, in both of its registers.
 //
-// This is the path a command invoked from the editor's own index takes, where
-// there is no button for a menu to hang under. It offers the same kinds from the
-// same read rather than asking for text, because a reader naming a kind from
-// memory is exactly what asking the compiler removes — and it costs no second
-// request and no second refusal, since every route comes through the read above.
+// This is the path a press on the Catalog panel's row and a command invoked from
+// the editor's own index both take: neither carries a kind. It offers the kinds
+// from the read above rather than asking for text, because a reader naming a
+// kind from memory is exactly what asking the compiler removes.
 //
-// A reader reads the value the document carries and the request takes the token,
-// which is the same separation the menu makes and for the same reason: the two
-// are different words for a kind of more than one word. The whole entry is
-// returned rather than the token alone because the flow that asked has a reader
-// to address afterwards, and it can only name the kind to them in the register
-// they read.
+// 🔴 A READER READS THE VALUE THE DOCUMENT CARRIES AND THE REQUEST TAKES THE
+// TOKEN, AND NEITHER IS DERIVED FROM THE OTHER. The two are different words for
+// a kind whose name is more than one word, so taking either for the other would
+// compose a request the compiler refuses or show a reader a word their own
+// document never carries. The whole entry is returned rather than the token
+// alone because the flow that asked has a reader to address afterwards, and it
+// can only name the kind to them in the register they read.
 async function pickEntityKind(
   kinds: readonly EntityKind[],
 ): Promise<EntityKind | null> {
@@ -1596,15 +1586,16 @@ async function reportDaemonFailure(
 // a copy on this side that would agree on the day it was written and diverge
 // silently the day a kind was declared, with nothing comparing the two.
 //
-// 🔴 IT IS ONE FLOW WITH THREE WAYS IN AND NEVER THREE FLOWS. chosen is the kind
-// a reader already named in the menu beside the control. drafting is the kind a
-// control that exists for one kind already knows it is making — the Release
-// row's create control, and the welcome page's button beside it — named the way
-// a reader reads it, because a control on this side may not know a token. Where
-// neither is carried the chooser opens here, which is the path a command invoked
-// from the editor's own index takes. A second routine for the pre-set case would
-// drift from this one the first time either changed, so the pre-set case is an
-// argument rather than a door.
+// 🔴 IT IS ONE FLOW WITH THREE WAYS IN AND NEVER THREE FLOWS. chosen is a kind's
+// token an invocation carried outright — a reader's own keybinding or recorded
+// workflow naming the kind to draft. drafting is the kind a control that exists
+// for one kind already knows it is making — the Release row's create control,
+// and the welcome page's button beside it — named the way a reader reads it,
+// because a control on this side may not know a token. Where neither is carried
+// the chooser opens here, which is the path a press on the Catalog panel's row
+// and a command invoked from the editor's own index both take. A second routine
+// for the pre-set case would drift from this one the first time either changed,
+// so the pre-set case is an argument rather than a door.
 //
 // The kinds are read before any of the three is settled, because the prompt
 // names the kind and only the compiler's answer can name it. That read is what
@@ -1613,10 +1604,11 @@ async function reportDaemonFailure(
 // kind this compiler does not have falls back to the ordinary question instead
 // of failing.
 //
-// A kind the compiler does not answer to still comes back refused with the
-// compiler's own corrective text naming the whole valid set — which is the
-// answer for an invocation that named a kind no route offered, a reader's own
-// keybinding or recorded workflow among them.
+// A carried token is checked for being a non-empty string and nothing more, and
+// the kind it names is left to the compiler: one it does not answer to comes
+// back refused with the compiler's own corrective text naming the whole valid
+// set, which is a better answer than a refusal this side could word from the
+// narrower view it holds.
 //
 // It is reachable from outside this module because WHICH QUESTION IT ASKS is the
 // whole of what it decides, and that is observable only by running it: a reading
@@ -1632,7 +1624,7 @@ export async function runScaffold(
 
   const carried = draftSubjectFor(
     kinds,
-    menuAnswer('scaffold', chosen),
+    typeof chosen === 'string' && chosen.trim() !== '' ? chosen : null,
     typeof drafting === 'string' && drafting !== '' ? drafting : null,
   );
   const subject: DraftSubject | null = carried ?? await pickEntityKind(kinds);

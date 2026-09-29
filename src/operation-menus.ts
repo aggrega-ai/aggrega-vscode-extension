@@ -7,7 +7,6 @@ import {
   OperationId,
 } from './operation-groups';
 import { BUILD_DIALS } from './build-dials';
-import { EntityKind } from './entity-kinds';
 
 // This module is the one description of which controls answer a press by
 // offering a choice BESIDE THEMSELVES, and what each of those choices holds.
@@ -118,7 +117,6 @@ export type OperationMenu =
 const CACHE_MENU_LABEL = 'Cache operation';
 const INSPECT_MENU_LABEL = 'Entity to inspect';
 const PUBLISH_MENU_LABEL = 'Entity to publish';
-const DRAFT_MENU_LABEL = 'Kind of entity to draft';
 
 // BUILD_DIALS_MENU_LABEL names what the options beside the Build button are. It
 // says they apply to the next build rather than naming them a mode, because
@@ -132,13 +130,6 @@ const BUILD_DIALS_MENU_LABEL = 'Options for the next build';
 // two wordings for one wait would tell a reader the two controls do different
 // work.
 const READING_THE_INDEX = 'Reading the workspace entity index…';
-
-// READING_THE_KINDS is what the drafting menu says while it waits. It is a
-// second sentence rather than the one above because it names a DIFFERENT read:
-// the kinds are the compiler's own, answered from the schemas compiled into it,
-// and telling a reader that the workspace was being read would name a subject
-// this read never touches.
-const READING_THE_KINDS = 'Reading the entity kinds the compiler declares…';
 
 // OPERATION_MENUS is the whole set, keyed by the control whose press opens it.
 // A control absent from this map answers a press by running, or by opening a
@@ -165,23 +156,12 @@ export const OPERATION_MENUS: Partial<Record<MenuControlId, OperationMenu>> = {
       detail: operation.detail,
     })),
   },
-  // The drafting control's choices are the KINDS THE COMPILER ANSWERS FOR, and
-  // it is fetched for that reason rather than because the answer is slow: the
-  // set of kinds belongs to the compiler, so a list of them here would be a
-  // second statement of it, agreeing until the day a kind was declared and then
-  // quietly wrong with nothing comparing the two. Asking is what makes what a
-  // reader is offered follow the running binary.
-  //
-  // The fetched kind admits no options field at all, so a list on this side is
-  // not a thing this entry can hold — the type refuses it rather than a reviewer
-  // having to notice.
-  scaffold: {
-    kind: 'fetched',
-    label: DRAFT_MENU_LABEL,
-    pending: READING_THE_KINDS,
-  },
-  // The two whose subjects are the workspace's own entities, on the same terms:
-  // the menu opens saying it is reading and fills in when the answer arrives.
+  // The two whose subjects are the workspace's own entities: the menu opens
+  // saying it is reading and fills in when the answer arrives. They are fetched
+  // because those entities are the language server's answer about the
+  // workspace, and the fetched kind admits no options field at all — so a list
+  // on this side is not a thing either entry can hold, and the type refuses it
+  // rather than a reviewer having to notice.
   inspect: {
     kind: 'fetched',
     label: INSPECT_MENU_LABEL,
@@ -223,11 +203,9 @@ export function menuFor(id: MenuControlId): OperationMenu | null {
 // It answers for a FIXED menu only, and returns false for every other case —
 // including for a fetched menu, whose choices are not this surface's to hold.
 // That is the honest bound rather than a gap: a fetched value is a position into
-// an offer that was composed for one opening of one menu, or a token of the
-// compiler's own vocabulary, and neither is a member of any set kept here. So
-// such a choice is resolved where it can be — against the offer by whoever
-// consumes it, or by the compiler, which refuses in its own words a value it no
-// longer answers for.
+// an offer that was composed for one opening of one menu, which is not a member
+// of any set kept here. So such a choice is resolved where it can be — against
+// the offer, by whoever consumes it.
 //
 // A dials menu answers false for a different reason again, and it is not a
 // bound: it holds no choices at all. Nothing it holds is an answer an operation
@@ -260,36 +238,6 @@ export function subjectMenuOptions(subjects: EntitySubject[]): MenuOption[] {
   }));
 }
 
-// entityKindMenuOptions turns the kinds the compiler answered with into the
-// choices the drafting menu offers.
-//
-// 🔴 A READER READS THE VALUE THE DOCUMENT CARRIES AND THE CHOICE COMPOSES THE
-// TOKEN THE REQUEST TAKES, AND NEITHER IS DERIVED FROM THE OTHER. The two are
-// different words for a kind whose name is more than one word, so taking either
-// for the other would compose a request the compiler refuses or show a reader a
-// word their own document never carries. The word a reader reads is the one
-// their draft will open with, which is what makes it the right one to show.
-//
-// The value is the kind's own token rather than the choice's position in the
-// offer, and that is the one difference from the menus offering the workspace's
-// own entities. Two entities may share a name, so only a position identifies
-// one; a kind's token is the compiler's own identity for that kind and is
-// already the vocabulary its request takes, so it is carried through verbatim —
-// which is also what keeps the same command working when a reader's keybinding
-// or recorded workflow invokes it naming a kind outright.
-//
-// The second line is left empty rather than composed. On the menus that carry
-// one it says what choosing does or which document a subject is; here the word
-// a reader reads names the kind completely, and drawing the token beside it
-// would show two spellings of one thing with nothing to say why they differ.
-export function entityKindMenuOptions(kinds: EntityKind[]): MenuOption[] {
-  return kinds.map((kind) => ({
-    value: kind.kind,
-    label: kind.documentKind,
-    detail: '',
-  }));
-}
-
 // menuAnswer reports the choice a caller may act on, or null where there is
 // none to act on.
 //
@@ -309,10 +257,8 @@ export function entityKindMenuOptions(kinds: EntityKind[]): MenuOption[] {
 //     instead. The set is closed and this side owns it, so the check is exact.
 //   - a FETCHED menu's answer is checked for being a non-empty string and
 //     nothing more, because this side holds no set for it to belong to. Such a
-//     value is a position into an offer composed for one opening of one menu, or
-//     a token of the compiler's own vocabulary; the first is resolved against
-//     that offer by whoever consumes it, and the second by the compiler, which
-//     refuses in its own words a value it no longer answers for.
+//     value is a position into an offer composed for one opening of one menu,
+//     and it is resolved against that offer by whoever consumes it.
 //   - a DIALS menu has no answer to report. Its entries are settings carried
 //     into the next press of the control beside it, not answers to a question
 //     this operation asked — so every value falls to the check below and comes

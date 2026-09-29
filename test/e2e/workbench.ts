@@ -437,6 +437,44 @@ export async function pressPanelAction(driver: UiDriver, title: string, label: s
   await driver.click(at);
 }
 
+// PaneState is one side-bar view as drawn: whether it was found, whether its
+// header reads expanded, and the labels of the rows drawn with a height, in
+// order. A row the editor keeps in the document while the view is folded has no
+// height, so it is not among them — which is what makes this the reading of
+// what a person can see rather than of what the document holds.
+export interface PaneState { found: boolean; expanded: string | null; rows: string[] }
+
+export function paneState(driver: UiDriver, title: string): Promise<PaneState> {
+  return driver.workbench<PaneState>(`((title) => {
+    for (const pane of document.querySelectorAll('.pane')) {
+      const h = pane.querySelector('.pane-header');
+      const t = h ? ((h.querySelector('h3.title, .title') || {}).innerText || '').trim() : '';
+      if (t.toLowerCase() !== title.toLowerCase()) { continue; }
+      const rows = [...pane.querySelectorAll('.pane-body .monaco-list-row')]
+        .filter((r) => r.getBoundingClientRect().height > 0)
+        .map((r) => ((r.querySelector('.label-name') || {}).innerText || '').trim());
+      return { found: true, expanded: h.getAttribute('aria-expanded'), rows };
+    }
+    return { found: false, expanded: null, rows: [] };
+  })(${JSON.stringify(title)})`);
+}
+
+// pressPaneHeader presses the header of the side-bar view titled `title` where a
+// person presses it to fold or unfold the view: on its title, clear of the
+// actions the header draws at its right.
+export async function pressPaneHeader(driver: UiDriver, title: string): Promise<void> {
+  const at = await until(`the "${title}" view's header`, 10000, () => driver.workbench<{ x: number; y: number } | null>(`((t) => {
+    for (const h of document.querySelectorAll('#workbench\\\\.parts\\\\.sidebar .pane-header')) {
+      if (((h.querySelector('h3.title') || {}).innerText || '').trim().toLowerCase() === t.toLowerCase()) {
+        const r = h.getBoundingClientRect(); return { x: r.x + 40, y: r.y + r.height / 2 };
+      }
+    }
+    return null;
+  })(${JSON.stringify(title)})`), (v) => v !== null);
+  if (at === null) { throw new Error(`unreachable: the "${title}" view's header`); }
+  await driver.click(at);
+}
+
 // visibleText is a workbench element's drawn text, for a person to read.
 export function workbenchText(driver: UiDriver, selector: string): Promise<string> {
   return driver.workbench<string>(`((s) => { const e = document.querySelector(s); return e ? (e.innerText || '').trim() : ''; })(${JSON.stringify(selector)})`);

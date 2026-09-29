@@ -15,16 +15,18 @@ import {
 } from './suite-context';
 import { contextRowsCheck } from './suite-gateway';
 import {
-  commandsPanel, documentWith, holds, NOT_RUNNING, pickQuickInputRow, pressIn, pressOperation, pressPanelAction, pressToastButton, QuickInput, quickInput, RUNNING,
-  sleep, statusLog, STARTING, toasts, toastsSince, treeRowCentre, treeRows, until, waitQuickInput, waitStatus, waitToast,
+  commandsPanel, documentWith, holds, NOT_RUNNING, operationButtons, paneState, pickQuickInputRow, pressIn, pressOperation, pressPaneHeader, pressPanelAction,
+  pressToastButton, QuickInput, quickInput, RUNNING, sleep, statusLog, STARTING, toasts, toastsSince, TreeRow, treeRowCentre, treeRows, until, waitQuickInput,
+  waitStatus, waitToast,
 } from './workbench';
 
 // The checks run in the storefront folder: the capabilities walked end to end —
 // the language server recovering from a kill, diagnostics on a real mistake and
 // across a cascade, completion and hover, the published-catalog search with no
 // registry and the filter it keeps from one search to the next, the workspace
-// catalog panel, the operations that end in words, and what the extension says
-// about settings that are wrong.
+// catalog panel, the operations heading the Catalog, Registries and Plugins
+// panels and the Commands panel that holds none of them, the operations that end
+// in words, and what the extension says about settings that are wrong.
 
 export const STOREFRONT_CHECKS = [
   'commands-panel.context-rows-name-the-opened-folder',
@@ -43,6 +45,13 @@ export const STOREFRONT_CHECKS = [
   'catalog-view.deleted-closed-file-row-leaves-without-a-press',
   'catalog-view.new-entity-appears-after-refresh',
   'catalog-view.deleted-entity-row-leaves-at-once',
+  'catalog-panel.head-reads-search-catalog-then-draft-entity-and-folds-with-the-panel',
+  'catalog-panel.draft-entity-asks-for-the-kind',
+  'registries-panel.head-leads-no-registries-configured-and-folds-with-the-panel',
+  'registries-panel.add-registry-asks-for-the-host',
+  'registries-panel.update-index-starts-the-update',
+  'plugins-panel.head-reads-add-plugin-then-generate-entities-and-folds-with-the-panel',
+  'commands-panel.holds-none-of-the-list-panels-operations-and-keeps-its-order-and-walk',
   'operations.validate-ends-in-a-sentence',
   'operations.lint-ends-in-a-sentence',
   'operations.build-ends-in-words-and-writes-its-files',
@@ -69,7 +78,33 @@ const SEARCH_PLACEHOLDER = 'Narrow the search, then choose Search';
 
 // The rows at the head of the Catalog panel, by the words each reads, in the
 // order the panel draws them; the first opens the search.
-const CATALOG_HEAD = ['Search catalog'];
+const CATALOG_HEAD = ['Search catalog', 'Draft entity'];
+
+// The rows at the head of the Registries and Plugins panels, the row the
+// Registries panel draws beneath its head with no registry configured, and what
+// pressing a head row asks or writes first, held as written for the same reason.
+const REGISTRIES_HEAD = ['Add registry', 'Update index'];
+const PLUGINS_HEAD = ['Add plugin', 'Generate entities'];
+const NO_REGISTRIES_ROW = 'No registries configured.';
+const DRAFT_PLACEHOLDER = 'Aggrega: choose the kind of entity to draft';
+const ADD_REGISTRY_TITLE = 'Aggrega: add a registry';
+const INDEX_BUILD_OPENING = 'Index build for every configured registry.';
+
+// The Commands panel's buttons in the order it draws them, and the stops its
+// arrow keys walk from Validate — the Build options chevron beside Build among
+// them — held as written. None of the operations heading a list panel is among
+// either, by label or by command.
+const COMMANDS_PANEL_LABELS = [
+  'Validate', 'Lint', 'Build', 'Preview', 'Graph', 'Pull', 'Import', 'Inspect', 'Push', 'Sign', 'Deprecate', 'Show config', 'Cache…',
+];
+const COMMANDS_PANEL_WALK = [
+  'aggrega.op.validate', 'aggrega.op.lint', 'aggrega.op.build', 'caret:build', 'aggrega.op.preview', 'aggrega.graph.show', 'aggrega.op.pull',
+  'aggrega.op.import', 'aggrega.op.inspect', 'aggrega.op.push', 'aggrega.op.sign', 'aggrega.op.deprecate', 'aggrega.config.open', 'aggrega.op.cache',
+];
+const LIST_PANEL_OPERATIONS = [...CATALOG_HEAD, ...REGISTRIES_HEAD, ...PLUGINS_HEAD];
+const LIST_PANEL_COMMANDS = [
+  'aggrega.catalog.searchPublished', 'aggrega.op.scaffold', 'aggrega.registries.add', 'aggrega.registries.update', 'aggrega.plugins.add', 'aggrega.plugins.genCatalog',
+];
 
 // The stopped-responding notification, held as written for the same reason.
 export const STOPPED_RESPONDING = 'Aggrega language server has stopped responding. Run "Aggrega: Start or restart the language server" to recover.';
@@ -467,6 +502,147 @@ export async function storefrontChecks(ctx: SuiteContext, referenceFolder: strin
     const rows = await treeRows(ctx.d, 'Catalog');
     const row = rows?.find((r) => r.label === copyName);
     return { passed: gone && stayed, seen: gone ? (stayed ? 'the row left and stayed out' : 'the row left, then came back') : `the row is still drawn 5 s after the tab closed${row ? ` (${row.decorations})` : ''}` };
+  });
+
+  // ---- the operations heading each list panel, and the Commands panel without them ----
+  // headAndFold reads a list panel as drawn once it has settled, leaves a capture
+  // of it, then folds the panel by its header and watches that none of its head
+  // rows is drawn for 1.5 s, and unfolds it and waits for the head to be drawn
+  // again — the positive control showing the same reading sees the rows when
+  // they are there.
+  const headAndFold = async (title: string, focus: string, head: readonly string[], settled: (rows: TreeRow[]) => boolean, shot: string) => {
+    await closeAllEditors(ctx);
+    await run(ctx, focus);
+    const drawn = await until(`the ${title} view drawing its rows`, 20000, () => treeRows(ctx.d, title), (v) => v !== null && settled(v)) ?? [];
+    const first = drawn.slice(0, head.length);
+    const inOrder = JSON.stringify(first.map((r) => r.label)) === JSON.stringify(head);
+    const runnable = first.every((r) => r.level === 1 && r.description === '');
+    const beneath = drawn[head.length];
+    const captured = await capture(ctx, shot);
+    const open = await paneState(ctx.d, title);
+    need(open.found && open.expanded === 'true', `the ${title} view is not drawn unfolded, so folding it cannot be observed: ${JSON.stringify(open)}`);
+    await pressPaneHeader(ctx.d, title);
+    const folded = await until(`the ${title} view folding`, 5000, () => paneState(ctx.d, title), (s) => s.expanded === 'false').then(() => true, () => false);
+    const hidden = folded ? await holds(1500, () => paneState(ctx.d, title), (s) => s.expanded === 'false' && !s.rows.some((l) => head.includes(l))) : null;
+    await pressPaneHeader(ctx.d, title);
+    const unfolded = await until(`the ${title} view unfolding with its head drawn`, 10000, () => paneState(ctx.d, title), (s) => s.expanded === 'true' && head.every((l) => s.rows.includes(l))).then(() => true, () => false);
+    const folds = folded && hidden !== null && hidden.held && unfolded;
+    const seen = `the panel reads ${JSON.stringify(drawn.slice(0, head.length + 2).map((r) => `${r.label}${r.description ? ` (${r.description})` : ''} at level ${r.level}`))}; `
+      + `folded by its header ${folded ? (hidden?.held ? 'it drew none of the head rows for 1.5 s' : `it drew ${JSON.stringify(hidden?.broke)} at ${hidden?.atMs} ms`) : 'it did not fold'}; `
+      + `unfolded, ${unfolded ? 'the head was drawn again' : 'the head was not drawn again within 10 s'}; capture ${captured}`;
+    return { inOrder, runnable, beneath, folds, seen };
+  };
+  await c.run('catalog-panel.head-reads-search-catalog-then-draft-entity-and-folds-with-the-panel', {
+    expected: `the Catalog panel's first rows are "${CATALOG_HEAD[0]}" then "${CATALOG_HEAD[1]}", each at the panel's top level and able to run, above the first kind heading; folding the panel by its header hides them with the list (watched for 1.5 s), and unfolding it draws them again`,
+    plant: 'in the scratch copy, out/src/panel-actions.js made to draw every list panel\'s head in the reverse order',
+  }, async () => {
+    const r = await headAndFold('Catalog', 'aggrega.workspaceCatalog.focus', CATALOG_HEAD, (v) => v.some((x) => /^Aggregate \(\d+\)$/.test(x.label)), 'catalog-panel-head');
+    const heading = r.beneath !== undefined && /^[A-Z][A-Za-z]+ \(\d+\)$/.test(r.beneath.label);
+    return { passed: r.inOrder && r.runnable && heading && r.folds, seen: r.seen };
+  });
+  await c.run('catalog-panel.draft-entity-asks-for-the-kind', {
+    expected: `pressing "${CATALOG_HEAD[1]}" at the head of the Catalog panel opens a list whose placeholder reads "${DRAFT_PLACEHOLDER}", offering, in order, the value each kind's document carries for every kind the compiler's own answer to the same request names; Escape closes it having drafted nothing`,
+    plant: 'in the scratch copy, out/src/panel-actions.js made to bind no command to the Draft entity row',
+  }, async () => {
+    const answer = await referenceAnswer({ binary: bin, root: referenceFolder, method: 'aggrega/getSchema', params: {}, home: ctx.home, table: ctx.s.table, log: ctx.cliLog });
+    need(answer.ok, `the compiler gave no reference answer for the kinds: ${answer.ok ? '' : answer.error.message}`);
+    const kinds = ((answer.result as { entityKinds?: { documentKind?: string }[] }).entityKinds ?? []).map((k) => k.documentKind ?? '');
+    need(kinds.length > 0, 'the compiler names no kind an author may draft, so there is nothing for the question to offer');
+    await closeAllEditors(ctx);
+    await run(ctx, 'aggrega.workspaceCatalog.focus');
+    await pressPanelAction(ctx.d, 'Catalog', CATALOG_HEAD[1]);
+    const q = await waitQuickInput(ctx.d, 'the kind being asked for', (x) => x.placeholder === DRAFT_PLACEHOLDER && x.rows.length > 0, 15000);
+    const offered = q.rows.map((row) => row.label);
+    await ctx.d.press('Escape');
+    const closed = await until('the kind question closing', 5000, () => quickInput(ctx.d), (x) => x === null).then(() => true, () => false);
+    const active = await ctx.probe.request<{ path: string } | null>('editor.active');
+    return {
+      passed: JSON.stringify(offered) === JSON.stringify(kinds) && closed && active === null,
+      seen: `the list's placeholder "${q.placeholder}", rows ${JSON.stringify(offered)}; the compiler's own answer names ${JSON.stringify(kinds)}; Escape ${closed ? 'closed it' : 'left it open'}; the active editor after it ${active?.path ?? 'none'}`,
+    };
+  });
+  await c.run('registries-panel.head-leads-no-registries-configured-and-folds-with-the-panel', {
+    expected: `with no registry configured, the Registries panel's first rows are "${REGISTRIES_HEAD[0]}" then "${REGISTRIES_HEAD[1]}", each at the panel's top level and able to run, and the row beneath them reads "${NO_REGISTRIES_ROW}"; folding the panel by its header hides them with the list (watched for 1.5 s), and unfolding it draws them again`,
+    plant: 'in the scratch copy, out/src/panel-actions.js made to draw no head above a list that reads a message; or to draw every list panel\'s head in the reverse order',
+  }, async () => {
+    const r = await headAndFold('Registries', 'aggrega.registries.focus', REGISTRIES_HEAD, (v) => v.some((x) => x.label === NO_REGISTRIES_ROW), 'registries-panel-head');
+    return { passed: r.inOrder && r.runnable && r.beneath?.label === NO_REGISTRIES_ROW && r.folds, seen: r.seen };
+  });
+  await c.run('registries-panel.add-registry-asks-for-the-host', {
+    expected: `pressing "${REGISTRIES_HEAD[0]}" at the head of the Registries panel opens an input titled "${ADD_REGISTRY_TITLE}" asking for the registry's host; Escape closes it, and the panel still reads "${NO_REGISTRIES_ROW}"`,
+    plant: 'in the scratch copy, out/src/panel-actions.js made to bind no command to the Add registry row',
+  }, async () => {
+    await closeAllEditors(ctx);
+    await run(ctx, 'aggrega.registries.focus');
+    await pressPanelAction(ctx.d, 'Registries', REGISTRIES_HEAD[0]);
+    const q = await waitQuickInput(ctx.d, 'the host being asked for', (x) => x.title === ADD_REGISTRY_TITLE, 10000);
+    await ctx.d.press('Escape');
+    const closed = await until('the input closing', 5000, () => quickInput(ctx.d), (x) => x === null).then(() => true, () => false);
+    const rows = ((await treeRows(ctx.d, 'Registries')) ?? []).map((r) => r.label);
+    return { passed: closed && rows.includes(NO_REGISTRIES_ROW), seen: `an input titled "${q.title}" (placeholder "${q.placeholder}"); Escape ${closed ? 'closed it' : 'left it open'}; the panel then reads ${JSON.stringify(rows)}` };
+  });
+  await c.run('registries-panel.update-index-starts-the-update', {
+    expected: `pressing "${REGISTRIES_HEAD[1]}" at the head of the Registries panel starts the index build: the output channel opens it with "${INDEX_BUILD_OPENING}" within 10 s`,
+    plant: 'in the scratch copy, out/src/panel-actions.js made to bind no command to the Update index row',
+  }, async () => {
+    const mark = ctx.out.mark();
+    const toastMark = (await toasts(ctx.d)).length;
+    await closeAllEditors(ctx);
+    await run(ctx, 'aggrega.registries.focus');
+    await pressPanelAction(ctx.d, 'Registries', REGISTRIES_HEAD[1]);
+    const text = await ctx.out.waitFor('the index build opening in the channel', mark, (t) => t.split('\n').includes(INDEX_BUILD_OPENING), 10000).catch(() => ctx.out.since(mark));
+    const opened = text.split('\n').includes(INDEX_BUILD_OPENING);
+    await sleep(2000);
+    const channel = ctx.out.since(mark).split('\n').filter((l) => l.trim() !== '').slice(0, 6);
+    const drawn = (await toastsSince(ctx.d, toastMark)).map((t) => `${t.message.slice(0, 120)} (${t.severity})`);
+    return { passed: opened, seen: `the channel after the press: ${JSON.stringify(channel)}; notifications drawn since: ${JSON.stringify(drawn)}` };
+  });
+  await c.run('plugins-panel.head-reads-add-plugin-then-generate-entities-and-folds-with-the-panel', {
+    expected: `the Plugins panel's first rows are "${PLUGINS_HEAD[0]}" then "${PLUGINS_HEAD[1]}", each at the panel's top level and able to run, above the first group of plugins; folding the panel by its header hides them with the list (watched for 1.5 s), and unfolding it draws them again`,
+    plant: 'in the scratch copy, out/src/panel-actions.js made to draw every list panel\'s head in the reverse order',
+  }, async () => {
+    const r = await headAndFold('Plugins', 'aggrega.plugins.focus', PLUGINS_HEAD, (v) => v.length > PLUGINS_HEAD.length && !PLUGINS_HEAD.includes(v[v.length - 1].label), 'plugins-panel-head');
+    const group = r.beneath !== undefined && !PLUGINS_HEAD.includes(r.beneath.label) && r.beneath.level === 1;
+    return { passed: r.inOrder && r.runnable && group && r.folds, seen: r.seen };
+  });
+  await c.run('commands-panel.holds-none-of-the-list-panels-operations-and-keeps-its-order-and-walk', {
+    expected: `the Commands panel's buttons read, in order, ${COMMANDS_PANEL_LABELS.join(', ')}: none of ${LIST_PANEL_OPERATIONS.join(', ')}, and no button runs one of their commands, while each of those is drawn at the head of its own panel in the same scenario; and from Validate the arrow keys walk ${COMMANDS_PANEL_WALK.join(' → ')}, and stay on the last`,
+    plant: 'in the scratch copy, out/src/operation-groups.js with Draft entity put back at the top of the Author group',
+  }, async () => {
+    await closeAllEditors(ctx);
+    await run(ctx, 'workbench.view.extension.aggrega');
+    const panel = await commandsPanel(ctx.d);
+    const buttons = await operationButtons(panel);
+    need(buttons.find((b) => b.command === 'aggrega.op.build')?.disabled === false, 'Build cannot run here, so the chevron its walk passes through is not drawn');
+    const labels = buttons.map((b) => b.label);
+    const leaked = [...labels.filter((l) => LIST_PANEL_OPERATIONS.includes(l)), ...buttons.map((b) => b.command).filter((x) => LIST_PANEL_COMMANDS.includes(x))];
+    // The positive control for that absence: every one of those operations is
+    // drawn, at the head of its own panel, read in the same scenario.
+    const heads = [
+      ...((await treeRows(ctx.d, 'Catalog')) ?? []).slice(0, CATALOG_HEAD.length),
+      ...((await treeRows(ctx.d, 'Registries')) ?? []).slice(0, REGISTRIES_HEAD.length),
+      ...((await treeRows(ctx.d, 'Plugins')) ?? []).slice(0, PLUGINS_HEAD.length),
+    ].map((r) => r.label);
+    const drawnAtHeads = JSON.stringify(heads) === JSON.stringify(LIST_PANEL_OPERATIONS);
+    await run(ctx, 'aggrega.operations.focus');
+    await sleep(300);
+    const focused = await panel.evaluate<boolean>(`(() => { const b = document.querySelector('button.op[data-command="aggrega.op.validate"]'); if (!b) { return false; } b.focus(); return document.activeElement === b; })()`);
+    need(focused, 'Validate could not be given the focus, so the walk has nowhere to start');
+    const stop = `(() => { const e = document.activeElement; if (!e) { return 'nothing'; } return e.dataset.command || (e.dataset.dials ? 'caret:' + e.dataset.dials : e.tagName); })()`;
+    const walk = [await panel.evaluate<string>(stop)];
+    // One press more than the walk has stops, so the last reading shows it stays
+    // on the last stop rather than leaving the panel.
+    for (let i = 0; i < COMMANDS_PANEL_WALK.length; i++) {
+      await ctx.d.press('ArrowRight');
+      await sleep(100);
+      walk.push(await panel.evaluate<string>(stop));
+    }
+    const walked = JSON.stringify(walk) === JSON.stringify([...COMMANDS_PANEL_WALK, COMMANDS_PANEL_WALK[COMMANDS_PANEL_WALK.length - 1]]);
+    const shot = await capture(ctx, 'commands-panel');
+    return {
+      passed: JSON.stringify(labels) === JSON.stringify(COMMANDS_PANEL_LABELS) && leaked.length === 0 && drawnAtHeads && walked,
+      seen: `the buttons read ${JSON.stringify(labels)}; of the list panels' operations ${leaked.length === 0 ? 'none' : JSON.stringify(leaked)} on this panel; the list panels' heads read ${JSON.stringify(heads)}; the walk from Validate ${JSON.stringify(walk)}; capture ${shot}`,
+    };
   });
 
   // ---- operations end in words ----

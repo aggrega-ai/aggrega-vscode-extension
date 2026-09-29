@@ -88,9 +88,9 @@ export interface DraftSubject {
 // at its head arriving through a different door, and it would go on naming a
 // token the day the compiler stopped answering to it.
 //
-// A TOKEN OUTRANKS A NAME, and the two are never both meant. A token is what a
-// reader's own press composed, so a name pre-set by the call site that overrode
-// it would be the control ignoring the choice that was just made.
+// A TOKEN OUTRANKS A NAME, and the two are never both meant. A token is the kind
+// the invocation itself named outright, so a name pre-set by the call site that
+// overrode it would be the flow ignoring the kind it was just told to draft.
 //
 // A token the answer does not hold still travels, with no name against it. That
 // is an invocation of a reader's own — a keybinding, a recorded workflow — and

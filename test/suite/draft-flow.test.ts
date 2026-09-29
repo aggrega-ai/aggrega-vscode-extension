@@ -299,7 +299,34 @@ describe('the one drafting flow, entered three ways', () => {
     assert.deepStrictEqual(drafted, [{ kind: 'aggregate', name: 'web' }]);
   });
 
-  it('names the kind a menu answer carried, without asking again', async () => {
+  it('offers the word a reader reads and drafts the token the request takes, for a kind of more than one word', async () => {
+    // Every press asks through this chooser — the Catalog panel's row and the
+    // editor's own command index alike carry no kind — so it is the one place
+    // the two registers can be taken for each other. The choice is the kind
+    // whose two registers differ by more than case, so a chooser that composed
+    // the request from the word a reader reads, or showed the token, fails here.
+    const drafted: { kind: string; name: string }[] = [];
+    answerQuickPick = (items) => items.find((item) => item.label === 'FeatureRecipe');
+    answerInputBox = 'nightly';
+
+    await runScaffold(depsAnswering(ANSWERED, drafted));
+
+    assert.deepStrictEqual(
+      asked.quickPicks, [['Aggregate', 'Release', 'FeatureRecipe']],
+      'the chooser offers something other than the value each document carries',
+    );
+    assert.deepStrictEqual(
+      asked.prompts.map((p) => p.prompt),
+      ['Name for the new FeatureRecipe — leave empty for a placeholder'],
+      'the prompt does not name the kind in the register a reader reads',
+    );
+    assert.deepStrictEqual(
+      drafted, [{ kind: 'feature-recipe', name: 'nightly' }],
+      'the request carried something other than the compiler\'s own token for the kind chosen',
+    );
+  });
+
+  it('names the kind an invocation carried outright, without asking again', async () => {
     const drafted: { kind: string; name: string }[] = [];
     answerInputBox = 'api';
 
