@@ -49,6 +49,7 @@ const SEARCH_RUN = 'out/src/catalog-search-run.js';
 const OPERATIONS = 'out/src/operations.js';
 const RENDER = 'out/src/operations-render.js';
 const PANEL_SCRIPT = 'media/operations.js';
+const REGISTRATION_OUTCOME = 'out/src/registration-outcome.js';
 
 const CONTEXT_ROW_LABEL = {
   file: 'out/src/selector-levels.js',
@@ -311,6 +312,20 @@ export const PLANTS: readonly Plant[] = [
     says: 'a respawn is allowed only while one more would still be under the bound, so a bound of N allows N − 1 restarts, as counting the end being handled against the bound does',
   },
   {
+    name: 'restart-names-no-version', scenario: 'storefront-killed-server', checks: ['language-server.restart-notification-names-the-running-version'], moves: 'red', target: 'extension',
+    file: EXTENSION,
+    find: "serverInPlaceMessage)('restarted', daemon?.getServerInitMetadata()?.version)",
+    replace: "serverInPlaceMessage)('restarted', undefined)",
+    says: 'the notification a restart ends in is handed no version, so it says the version was not reported whatever the running server reported',
+  },
+  {
+    name: 'start-names-no-version', scenario: 'storefront-killed-server', checks: ['language-server.start-notification-names-the-running-version'], moves: 'red', target: 'extension',
+    file: EXTENSION,
+    find: "serverInPlaceMessage)('started', daemon?.getServerInitMetadata()?.version)",
+    replace: "serverInPlaceMessage)('started', undefined)",
+    says: 'the notification a start ends in is handed no version, so it says the version was not reported whatever the server started reported',
+  },
+  {
     name: 'error-at-activation', scenario: 'storefront-killed-server', checks: ['language-server.starts-without-an-error-notification'], moves: 'red', target: 'extension',
     file: EXTENSION,
     find: "    outputChannel = vscode.window.createOutputChannel('Aggrega');\n    context.subscriptions.push(outputChannel);",
@@ -341,6 +356,23 @@ export const PLANTS: readonly Plant[] = [
     find: '            message: `Aggrega: no catalog matches for ${describeFilter(filter)}.`,',
     replace: '            message: exports.NO_REGISTRIES_MESSAGE,',
     says: 'a search that matched nothing is answered as a search with no registry configured',
+  },
+  {
+    name: 'trust-reason-dropped', scenario: 'storefront-with-registries', checks: ['registration.says-an-entry-carries-no-trust-where-none-is-advertised'], moves: 'red', target: 'extension',
+    file: REGISTRATION_OUTCOME, find: "    const because = trust.reason ? ` ${trust.reason}` : '';", replace: "    const because = '';",
+    says: 'a registration\'s trust clause drops the answer\'s own account of why no advertised policy was taken',
+  },
+  {
+    name: 'baseline-unread', scenario: 'storefront-with-registries', checks: ['registration.says-the-hub-took-its-built-in-baseline-offline'], moves: 'red', target: 'extension',
+    file: REGISTRATION_OUTCOME, find: '    if (trust.baseline) {', replace: '    if (false) {',
+    says: 'an answer carrying the built-in trust baseline is read as one naming no trust outcome',
+  },
+  {
+    name: 'refusal-short-code-cut', scenario: 'storefront-with-registries', checks: ['registration.refusal-carries-the-servers-words'], moves: 'red', target: 'extension',
+    file: 'out/src/error-surfaces.js',
+    find: '        return `code=${err.code} ${err.message}`;',
+    replace: "        return `code=${err.code} ${err.message.replace(/^E\\d{4}: /, '')}`;",
+    says: 'a language-server refusal reaches the reader with the short code it opens with cut off',
   },
 ];
 

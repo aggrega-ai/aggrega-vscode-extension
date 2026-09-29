@@ -1,20 +1,32 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cognitio S.r.l.
 
+import * as fs from 'fs';
+import * as path from 'path';
+
+import { IN_EFFECT_SENTENCE } from '../../src/config-change-watch';
+import { CONFIG_WRITE_DESTINATIONS } from '../../src/config-write-scope';
+import { RESTART_COMMAND } from '../../src/daemon-status';
+import type { TrustFetchOutcome } from '../../src/registration-outcome';
+import { addRequest, REGISTRATION_DESTINATION_PROMPT, REGISTRATION_SUBJECT, REGISTRY_ADD_COMMAND } from '../../src/registry-configure';
 import { need } from './checks';
-import { runCompiler } from './cli';
+import { makeScratchHome, runCompiler, ScratchHome } from './cli';
 import { UNREACHABLE_HOST } from './fixtures';
+import { referenceAnswer } from './reference';
 import { PUBLISHED_ENTITY, ScratchRegistry, WITHDRAWN_PLUGIN_LINK } from './registry';
-import { capture, closeAllEditors, ready, run, SuiteContext } from './suite-context';
+import { capture, closeAllEditors, ready, run, send, SuiteContext, theServer } from './suite-context';
 import { pressViewAction } from './suite-storefront';
 import {
-  pickQuickInputRow, pressPanelAction, QuickInput, toasts, treeRows, until, waitQuickInput, waitToast,
+  pickQuickInputRow, pressPanelAction, QuickInput, RUNNING, Toast, toasts, treeRows, until, waitQuickInput, waitStatus, waitToast,
 } from './workbench';
 
 // The checks run in the storefront folder with a scratch registry configured
 // beside an unreachable one: the published-catalog search over an index that
 // holds a withdrawn version, what the channel says about each registry's index,
-// and the withdrawal a plugin attachment would name.
+// and the withdrawal a plugin attachment would name. After them, registrations
+// made through Add registry — online, and then with the offline posture taken —
+// and what each one's closing line says about the trust the entry was given, or
+// how the refusal reads.
 
 export const REGISTRY_CHECKS = [
   'catalog-search.lists-matches-and-copies-a-reference',
@@ -25,6 +37,9 @@ export const REGISTRY_CHECKS = [
   'catalog-search.index-sentences-direct-the-reader',
   'plugins.add-names-the-withdrawn-version-it-passed-over',
   'side-bar.plugins-and-registries-views-refresh-without-a-network',
+  'registration.says-an-entry-carries-no-trust-where-none-is-advertised',
+  'registration.says-the-hub-took-its-built-in-baseline-offline',
+  'registration.refusal-carries-the-servers-words',
 ] as const;
 
 const SEARCH_TITLE = 'Aggrega: search published catalog';
@@ -67,6 +82,120 @@ async function searchFor(ctx: SuiteContext, query: string): Promise<QuickInput |
     waitToast(ctx.d, 'the search answering', mark, (t) => t.message.startsWith('Aggrega:'), 30000).then(() => null, () => null),
   ]);
   return answer;
+}
+
+// ---- registrations --------------------------------------------------------------
+
+// The prompt Add registry asks for the host with, by its title, and the global
+// file as the destination picker names it, read from the list it is drawn from.
+const ADD_REGISTRY_TITLE = 'Aggrega: add a registry';
+const GLOBAL_DESTINATION = CONFIG_WRITE_DESTINATIONS.find((d) => d.value === 'global')?.label ?? '';
+
+// The trust clauses a registration's closing line carries for the two outcomes
+// the checks below reach, held as the words a reader is to meet, so a change of
+// wording is a change these checks report. The reason that follows each is the
+// server's own, and is read from its answer rather than written here.
+const NO_POLICY_CLAUSE = 'It advertises no signature trust policy, and this registration names no identity or key, so the entry carries none.';
+const BASELINE_CLAUSE = 'The built-in trust baseline was pinned instead of an advertised policy.';
+
+// The hosts registered. The two loopback ports are ones nothing listens on: the
+// first is asked for its advertised policy while the posture is online and the ask
+// is refused on this machine, so it never leaves it; the second is named once the
+// posture is offline, where a registry other than the hub is not asked at all.
+const HUB = 'hub.aggrega.ai';
+const UNLISTENED_ONLINE = 'localhost:1';
+const UNLISTENED_OFFLINE = 'localhost:2';
+
+const globalConfiguration = (h: ScratchHome): string => path.join(h.home, '.config', 'aggrega', 'config.yaml');
+
+// referenceHome is a home of its own for the server's reference answer to a
+// registration, holding a copy of the scenario's global configuration as it
+// stands. The reference registration writes what the editor's is about to write,
+// so it is kept out of the home the editor reads.
+function referenceHome(ctx: SuiteContext, name: string): ScratchHome {
+  const h = makeScratchHome(path.join(ctx.s.root.dir, 'reference-homes', name));
+  const from = globalConfiguration(ctx.home);
+  if (fs.existsSync(from)) {
+    fs.mkdirSync(path.dirname(globalConfiguration(h)), { recursive: true });
+    fs.copyFileSync(from, globalConfiguration(h));
+  }
+  return h;
+}
+
+// Registered is the server's own answer to a registration, taken outside the
+// editor: the trust outcome it reports, or its refusal.
+interface Registered { trust: TrustFetchOutcome | null; refusal: { code: unknown; message: string } | null; raw: string }
+
+async function referenceRegistration(ctx: SuiteContext, host: string, name: string): Promise<Registered> {
+  const answer = await referenceAnswer({ binary: ctx.inputs.compiler.path, root: ctx.folder, method: 'aggrega/registryAdd', params: addRequest(host, 'global'), home: referenceHome(ctx, name), table: ctx.s.table, log: ctx.cliLog });
+  const raw = JSON.stringify(answer).slice(0, 600);
+  if (!answer.ok) { return { trust: null, refusal: { code: answer.error.code, message: answer.error.message }, raw }; }
+  return { trust: (answer.result as { trust?: TrustFetchOutcome }).trust ?? null, refusal: null, raw };
+}
+
+// Ending is how a registration made in the editor ended: the channel's closing
+// line and the notification raised with it.
+interface Ending { line: string; toast: Toast | null }
+
+// registerThrough runs Add registry as a person does — the command, the host typed
+// into its prompt, the global file chosen from its picker — and waits for the
+// ending, and for the language server the registration restarts to read running.
+async function registerThrough(ctx: SuiteContext, host: string): Promise<Ending> {
+  const opening = `${REGISTRATION_SUBJECT} `;
+  const mark = ctx.out.mark();
+  const toastMark = (await toasts(ctx.d)).length;
+  await send(ctx, REGISTRY_ADD_COMMAND);
+  await waitQuickInput(ctx.d, 'the prompt for the registry host', (q) => q.title === ADD_REGISTRY_TITLE);
+  await ctx.d.type(host);
+  await ctx.d.press('Enter');
+  await waitQuickInput(ctx.d, 'the choice of configuration file', (q) => q.placeholder === REGISTRATION_DESTINATION_PROMPT && q.rows.some((r) => r.label === GLOBAL_DESTINATION));
+  await pickQuickInputRow(ctx.d, GLOBAL_DESTINATION);
+  const text = await ctx.out.waitFor('the registration closing its report', mark, (t) => t.split('\n').some((l) => l.startsWith(opening)), 60000);
+  const line = text.split('\n').find((l) => l.startsWith(opening)) ?? '';
+  const toast = await waitToast(ctx.d, 'the registration raising its notification', toastMark, (t) => t.message.startsWith(opening), 15000).catch(() => null);
+  await waitStatus(ctx.d, RUNNING, 60000).catch(() => undefined);
+  return { line, toast };
+}
+
+// readsCompleted says whether a completed registration's line opens by naming the
+// host and the file, and carries the trust clause followed by the server's reason
+// exactly once, with nothing after the reason but the sentence saying the change
+// is in effect — which the ending adds after a closing stop where the reason has
+// none of its own.
+function readsCompleted(line: string, host: string, file: string, clause: string, reason: string): boolean {
+  const opening = `${REGISTRATION_SUBJECT} registered ${host} in ${file}, `;
+  const trust = ` ${clause} ${reason}`;
+  const at = line.indexOf(trust);
+  if (!line.startsWith(opening) || at < opening.length || line.indexOf(trust, at + 1) !== -1) { return false; }
+  const after = line.slice(at + trust.length);
+  return after === '' || after === ` ${IN_EFFECT_SENTENCE}` || after === `. ${IN_EFFECT_SENTENCE}`;
+}
+
+function describeEnding(e: Ending): string {
+  return `the channel: "${e.line}"; the notification: ${e.toast ? `"${e.toast.message}" (${e.toast.severity})` : 'none'}`;
+}
+
+// takeOfflinePosture takes the offline posture the way a reader takes it: the
+// top-level key written into the global configuration, which the server reads
+// only as it starts, and the language server restarted by the restart command to
+// read it. The warning the extension raises for a configuration changed under it
+// is not what is waited on: which of the two a reader uses to restart is not what
+// these checks are about. It answers whether a new server reads running
+// afterwards, and what it found where one does not.
+async function takeOfflinePosture(ctx: SuiteContext): Promise<{ taken: boolean; said: string }> {
+  const file = globalConfiguration(ctx.home);
+  if (!fs.existsSync(file)) { return { taken: false, said: `there is no global configuration at ${file}` }; }
+  await waitStatus(ctx.d, RUNNING, 60000).catch(() => undefined);
+  const before = await theServer(ctx).catch(() => null);
+  if (before === null) { return { taken: false, said: 'no one language server was running before the key was written' }; }
+  const text = fs.readFileSync(file, 'utf8');
+  fs.writeFileSync(file, `${text}${text.endsWith('\n') ? '' : '\n'}offline: true\n`);
+  await send(ctx, RESTART_COMMAND);
+  const next = await theServer(ctx, 30000, before.pid).catch(() => null);
+  const running = await waitStatus(ctx.d, RUNNING, 60000).then(() => true, () => false);
+  return next !== null && running
+    ? { taken: true, said: `the server ${before.pid} was replaced by ${next.pid}, which reads running` }
+    : { taken: false, said: `after the restart command ${next === null ? `no language server other than ${before.pid} was running within 30000 ms` : `the server ${next.pid} did not read running within 60000 ms`}` };
 }
 
 export async function registryChecks(ctx: SuiteContext, registry: ScratchRegistry): Promise<void> {
@@ -175,5 +304,56 @@ export async function registryChecks(ctx: SuiteContext, registry: ScratchRegistr
       ([r, p]) => r.length > 0 && p.length > 0).catch(() => undefined);
     const rows = [...((await treeRows(ctx.d, 'Registries')) ?? []).map((r) => `Registries: ${r.label} ${r.description}`), ...((await treeRows(ctx.d, 'Plugins')) ?? []).slice(0, 8).map((r) => `Plugins: ${r.label} ${r.description}`)];
     return { screenshot: await capture(ctx, 'views-after-refresh'), drawnText: rows.join('\n') };
+  });
+
+  // ---- what a registration says about the trust it took ----
+  const file = globalConfiguration(ctx.home);
+  await c.run('registration.says-an-entry-carries-no-trust-where-none-is-advertised', {
+    expected: `Add registry, given ${UNLISTENED_ONLINE} (a loopback port nothing listens on) and the global file, online, ends in a channel line opening "${REGISTRATION_SUBJECT} registered ${UNLISTENED_ONLINE} in ${file}, " whose trust clause reads "${NO_POLICY_CLAUSE}" followed, unaltered, by the reason the server's own answer to the same request gives, with nothing after it but the sentence saying the change is in effect; an information notification carries the same line`,
+    plant: 'in the scratch copy, out/src/registration-outcome.js made to drop the answer\'s reason from the trust clause',
+  }, async () => {
+    const ref = await referenceRegistration(ctx, UNLISTENED_ONLINE, 'no-policy');
+    const trust = ref.trust;
+    need(trust !== null && trust.notAdvertised === true && !trust.pinned && !trust.baseline && (trust.reason ?? '') !== '', `the server's own answer to the same request is not a registry asked and advertising nothing, with its reason: ${ref.raw}`);
+    const ending = await registerThrough(ctx, UNLISTENED_ONLINE);
+    const reason = trust.reason ?? '';
+    return {
+      passed: readsCompleted(ending.line, UNLISTENED_ONLINE, file, NO_POLICY_CLAUSE, reason) && ending.toast?.message === ending.line && ending.toast.severity === 'info',
+      seen: `${describeEnding(ending)}; the server's reason "${reason}"`,
+    };
+  });
+
+  const offline = await takeOfflinePosture(ctx);
+
+  await c.run('registration.says-the-hub-took-its-built-in-baseline-offline', {
+    expected: `with "offline: true" written into the global configuration and the language server restarted by the restart command to read it, Add registry, given ${HUB} and the global file, ends in a channel line opening "${REGISTRATION_SUBJECT} registered ${HUB} in ${file}, " whose trust clause reads "${BASELINE_CLAUSE}" followed, unaltered, by the reason the server's own answer to the same request in the same posture gives — the offline refusal that kept the hub from being asked — with nothing after it but the sentence saying the change is in effect; an information notification carries the same line`,
+    plant: 'in the scratch copy, out/src/registration-outcome.js made to read an answer carrying the built-in baseline as one naming no trust outcome',
+  }, async () => {
+    need(offline.taken, `the offline posture was not taken: ${offline.said}`);
+    const ref = await referenceRegistration(ctx, HUB, 'hub-offline');
+    const trust = ref.trust;
+    need(trust !== null && trust.baseline === true && !trust.pinned && !trust.notAdvertised && (trust.reason ?? '') !== '', `the server's own answer to the same request is not the hub pinned to its baseline alone, with its reason: ${ref.raw}`);
+    const ending = await registerThrough(ctx, HUB);
+    const reason = trust.reason ?? '';
+    return {
+      passed: readsCompleted(ending.line, HUB, file, BASELINE_CLAUSE, reason) && ending.toast?.message === ending.line && ending.toast.severity === 'info',
+      seen: `${describeEnding(ending)}; the server's reason "${reason}"`,
+    };
+  });
+
+  await c.run('registration.refusal-carries-the-servers-words', {
+    expected: `with the offline posture still taken, Add registry, given ${UNLISTENED_OFFLINE} (a registry other than the hub) and the global file, is refused, and the channel's closing line is exactly "${REGISTRATION_SUBJECT} did not complete: code=<code> <message>", <code> and <message> being the code and the message of the server's own refusal of the same request in the same posture, the message opening with its short code; an error notification carries the same line`,
+    plant: 'in the scratch copy, out/src/error-surfaces.js made to cut the short code off the front of a language-server refusal',
+  }, async () => {
+    need(offline.taken, `the offline posture was not taken: ${offline.said}`);
+    const ref = await referenceRegistration(ctx, UNLISTENED_OFFLINE, 'refusal');
+    const refusal = ref.refusal;
+    need(refusal !== null && /^E\d{4}: /.test(refusal.message), `the server's own answer to the same request is not a refusal opening with its short code: ${ref.raw}`);
+    const ending = await registerThrough(ctx, UNLISTENED_OFFLINE);
+    const want = `${REGISTRATION_SUBJECT} did not complete: code=${String(refusal.code)} ${refusal.message}`;
+    return {
+      passed: ending.line === want && ending.toast?.message === want && ending.toast.severity === 'error',
+      seen: `${describeEnding(ending)}; the server's refusal: code ${String(refusal.code)}, "${refusal.message}"`,
+    };
   });
 }

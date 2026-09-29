@@ -1,28 +1,33 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cognitio S.r.l.
 
+import * as fs from 'fs';
 import * as path from 'path';
 
 import { RESTART_COMMAND } from '../../src/daemon-status';
-import { need } from './checks';
-import { languageServers, open, ready, run, Server, SuiteContext, theServer } from './suite-context';
+import { need, NotRun } from './checks';
+import { referenceAnswer } from './reference';
+import { closeAllEditors, languageServers, open, ready, run, save, Server, SuiteContext, theServer } from './suite-context';
 import { killServer, STOPPED_RESPONDING } from './suite-storefront';
-import { RUNNING, sleep, statusNow, toasts, toastsSince, until, waitStatus } from './workbench';
+import { NOT_RUNNING, observeWorkbench, RUNNING, sleep, statusNow, toasts, toastsSince, until, waitStatus, waitToast } from './workbench';
 
 // The checks run with the language server killed from outside, repeatedly: that
 // it starts without an error notification, that a server started in place of a
 // killed one and killed in turn while its handshake is still open is started
 // again, and what happens once it has been killed more often than the respawn
 // bound allows. The scenario sets that bound low, and says so in its report, so
-// the bound is reached in a few kills.
+// the bound is reached in a few kills. Beside them, the notifications a restart
+// and a start the reader asked for end in, and the version they name.
 
 export const RESPAWN_BOUND = 2;
 export const KILLED_SETTINGS = { 'aggrega.server.respawnAttempts': RESPAWN_BOUND };
 
 export const KILLED_CHECKS = [
   'language-server.restarts-after-dying-during-its-handshake',
+  'language-server.restart-notification-names-the-running-version',
   'language-server.stopped-responding-after-the-respawn-bound',
   'language-server.starts-without-an-error-notification',
+  'language-server.start-notification-names-the-running-version',
 ] as const;
 
 // START_WINDOW_MS is how long after the server first runs the start is watched
@@ -39,6 +44,43 @@ const HANDSHAKE_ENDED_BY_EXIT = 'initialize failed: daemon exited';
 const ENDED_UNEXPECTEDLY = 'the language server stopped unexpectedly';
 const RESTART_DID_NOT_COME_UP = 'the language server started again did not come up';
 const STARTING_AGAIN = 'starting the language server again';
+
+// InPlaceAct, inPlaceOpening and inPlaceSentence are the notification a restart or
+// a start the reader asked for ends in. The words around the version are the
+// extension's and are held here as written, for the reason the channel's words
+// above are; the version is the server's own, so it is never written here: the
+// checks read it from the server.
+type InPlaceAct = 'started' | 'restarted';
+const inPlaceOpening = (act: InPlaceAct): string => `Aggrega language server ${act}`;
+const inPlaceSentence = (act: InPlaceAct, version: string): string => `${inPlaceOpening(act)}, version ${version}.`;
+
+// handshakeVersion is the version the language server reports about itself in its
+// handshake, asked of the server outside the editor through the extension's own
+// client, over the same folder and home; null where the answer named none.
+async function handshakeVersion(ctx: SuiteContext): Promise<{ version: string | null; answer: string }> {
+  const answer = await referenceAnswer({ binary: ctx.inputs.compiler.path, root: ctx.folder, method: 'aggrega/initialize', params: {}, home: ctx.home, table: ctx.s.table, log: ctx.cliLog });
+  const v = answer.ok ? (answer.result as { version?: unknown } | null)?.version : undefined;
+  return { version: typeof v === 'string' && v !== '' ? v : null, answer: JSON.stringify(answer).slice(0, 400) };
+}
+
+// BINARY_PATH_SETTING is the setting a start is taken away with and given back by.
+const BINARY_PATH_SETTING = 'aggrega.server.binaryPath';
+
+// setBinaryPath rewrites the user settings' one line naming the binary, in the
+// editor as a person edits it, and saves it. The line is found by its key and
+// value, whatever follows them, since the profile's writer ends it with a comma
+// only where another setting comes after it.
+async function setBinaryPath(ctx: SuiteContext, from: string, to: string): Promise<void> {
+  const userSettings = path.join(ctx.s.root.userData, 'User', 'settings.json');
+  const doc = await open(ctx, userSettings);
+  const naming = `"${BINARY_PATH_SETTING}": ${JSON.stringify(from)}`;
+  const at = (doc.text ?? '').split('\n').map((l, i) => (l.trim().startsWith(naming) ? i : -1)).filter((i) => i !== -1);
+  need(at.length === 1, `the user settings name ${from} as the binary ${at.length} times, not once`);
+  const text = (doc.text ?? '').split('\n')[at[0]];
+  await ctx.probe.request('document.edit', { path: userSettings, start: { line: at[0], character: 0 }, end: { line: at[0] + 1, character: 0 }, text: `${text.replace(JSON.stringify(from), JSON.stringify(to))}\n` });
+  await save(ctx, userSettings);
+  await closeAllEditors(ctx);
+}
 
 // killOnSight signals, by its PID, the first language server listed that is none
 // of `known`, as soon as it is listed, and returns it — or null where none is
@@ -104,11 +146,26 @@ export async function killedChecks(ctx: SuiteContext): Promise<void> {
     };
   });
 
+  // The version the running server reports about itself, asked of the server
+  // outside the editor; the restart below and the start at the end name it.
+  const reported = await handshakeVersion(ctx);
   // The bound below is counted from a restart the reader asks for, and the check
   // relies on that: the restarts the check above used are not carried into it.
+  const restartMark = (await toasts(ctx.d)).length;
   await run(ctx, RESTART_COMMAND, [], 60000).catch(() => undefined);
   const afresh = await waitStatus(ctx.d, RUNNING, 60000).then(() => true, () => false);
-  // A notification the check above raised is its own, and not the one the bound
+
+  await c.run('language-server.restart-notification-names-the-running-version', {
+    expected: `the restart command, run while a language server runs, ends in the notification "${inPlaceOpening('restarted')}, version <v>.", <v> being the version the language server reports about itself in its handshake (${reported.version ?? 'not read'}), asked of the server outside the editor through the extension's own client`,
+    plant: 'in the scratch copy, out/src/extension.js made to hand the notification a restart ends in no version',
+  }, async () => {
+    need(reported.version !== null, `the server's handshake, asked outside the editor, named no version: ${reported.answer}`);
+    need(afresh, 'the language server did not read running after the restart command');
+    const t = await waitToast(ctx.d, 'the restart ending in its notification', restartMark, (x) => x.message.startsWith(inPlaceOpening('restarted')), 15000);
+    return { passed: t.message === inPlaceSentence('restarted', reported.version) && t.severity === 'info', seen: `"${t.message}" (${t.severity})` };
+  });
+
+  // A notification the checks above raised is theirs, and not the one the bound
   // below is to raise.
   const boundMark = (await toasts(ctx.d)).length;
 
@@ -158,5 +215,41 @@ export async function killedChecks(ctx: SuiteContext): Promise<void> {
   }, async () => {
     need(control, 'its positive control did not fire: no stopped-responding error notification was recorded in this scenario, so the observer is not shown to catch one');
     return { passed: atStart.length === 0, seen: atStart.length === 0 ? `none at start; the control recorded the stopped-responding error` : `at start: ${JSON.stringify(atStart.map((t) => t.message))}` };
+  });
+
+  // A start is what the restart command performs where the extension holds no
+  // language server at all. A restart that fails keeps the one it holds, so the
+  // one way this window comes to hold none is a start that fails as the window's
+  // extensions start: the window is reloaded while the binary setting names a
+  // file that does not exist, and the binary is then given back.
+  const bin = ctx.inputs.compiler.path;
+  const missing = path.join(ctx.s.root.dir, 'no-such-compiler', 'aggrega');
+  await c.run('language-server.start-notification-names-the-running-version', {
+    expected: `with no language server held — the window reloaded while ${BINARY_PATH_SETTING} named a file that does not exist (${missing}), so the start as the extension activated failed, the status bar reads "${NOT_RUNNING}" and no language server runs — giving the setting back the binary under test and running the restart command ends in the notification "${inPlaceOpening('started')}, version <v>.", <v> being the version the language server reports about itself in its handshake (${reported.version ?? 'not read'}), and the status bar then reads "${RUNNING}"`,
+    plant: 'in the scratch copy, out/src/extension.js made to hand the notification a start ends in no version',
+  }, async () => {
+    need(reported.version !== null, `the server's handshake, asked outside the editor, named no version: ${reported.answer}`);
+    need(!fs.existsSync(missing), `${missing} exists`);
+    await setBinaryPath(ctx, bin, missing);
+    const hello = await ctx.probe.request<{ instance: string }>('hello');
+    await ctx.probe.request('command.run', { command: 'workbench.action.reloadWindow' }, 3000).catch(() => undefined);
+    await ctx.probe.waitHello(60000, hello.instance);
+    await observeWorkbench(ctx.d);
+    const detached = await waitStatus(ctx.d, NOT_RUNNING, 60000).then(() => true, () => false);
+    const serving = languageServers(ctx).length;
+    if (!detached || serving !== 0) {
+      const reading = await statusNow(ctx.d);
+      await setBinaryPath(ctx, missing, bin).catch(() => undefined);
+      throw new NotRun(`after the reload the status bar reads "${reading}" and ${serving} language server(s) run, so there was no language server to start`);
+    }
+    await setBinaryPath(ctx, missing, bin);
+    const mark = (await toasts(ctx.d)).length;
+    await run(ctx, RESTART_COMMAND, [], 60000).catch(() => undefined);
+    const t = await waitToast(ctx.d, 'the start ending in its notification', mark, (x) => x.message.startsWith(inPlaceOpening('started')) || x.message.startsWith(inPlaceOpening('restarted')), 30000);
+    const running = await waitStatus(ctx.d, RUNNING, 30000).then(() => true, () => false);
+    return {
+      passed: t.message === inPlaceSentence('started', reported.version) && t.severity === 'info' && running,
+      seen: `"${t.message}" (${t.severity}); the status bar ${running ? `reads "${RUNNING}"` : `reads "${await statusNow(ctx.d)}"`}`,
+    };
   });
 }

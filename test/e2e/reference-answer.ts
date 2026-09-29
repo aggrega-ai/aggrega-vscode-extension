@@ -15,6 +15,12 @@ import { DEFAULT_SETTINGS } from '../../src/settings';
 // the runner with the scenario's contained environment, which it passes on to
 // the server it starts. It prints one JSON line — the result, or the error the
 // server answered with — and exits.
+//
+// The handshake is the one request the client makes by itself, as it starts, so
+// it is not sent a second time: asked for it, the child answers with what the
+// server said in the handshake it has just had, as the client read it.
+
+const HANDSHAKE = 'aggrega/initialize';
 
 async function main(): Promise<void> {
   const [binary, root, method, paramsJson, flag] = process.argv.slice(2);
@@ -22,7 +28,7 @@ async function main(): Promise<void> {
   let out: unknown;
   try {
     await daemon.start(root);
-    const result = await daemon.request(method as never, JSON.parse(paramsJson));
+    const result = method === HANDSHAKE ? daemon.getServerInitMetadata() : await daemon.request(method as never, JSON.parse(paramsJson));
     out = { ok: true, result };
   } catch (err) {
     const e = err as { code?: unknown; message?: unknown; data?: unknown };
