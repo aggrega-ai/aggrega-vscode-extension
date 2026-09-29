@@ -6,6 +6,7 @@ import * as path from 'path';
 
 import { buildParams } from '../../src/build-dials';
 import { RESTART_COMMAND } from '../../src/daemon-status';
+import type { BuildResponse, DependencyResolutionReport } from '../../src/types';
 import { outputParentFor } from '../../src/workspace';
 import { need } from './checks';
 import { WebviewDocument } from './drivers';
@@ -72,6 +73,18 @@ const BOOKKEEPING = /toast|suppress|throttl|next surface allowed/i;
 // Release it pulls, held as written for the reason the notice's words are.
 const pullProgress = (release: string): string => `Aggrega: pulling dependencies for ${release}`;
 const pullEnding = (release: string): string => `The pull resolved the dependencies of ${release} and wrote its lockfile, recording the external inputs it renders with.`;
+
+// What the channel lists for a build's own dependency resolution, composed from
+// the language server's own answer to the same build: each reference it pinned,
+// in the answer's order, then the command line's summary of the resolution. The
+// frame is held here as the words a reader is to meet, for the reason the words
+// above are; every value in it is the answer's.
+type PinnedReference = NonNullable<DependencyResolutionReport['entities']>[number];
+const pinnedLine = (r: PinnedReference): string => `pinned ${r.uri}${r.version ? ` at ${r.version}` : ''}${r.kind ? ` (${r.kind})` : ''}`;
+const pullComplete = (r: DependencyResolutionReport): string =>
+  `Pull complete: ${r.lockfile} (entities=${(r.entities ?? []).length}, source_artifacts=${r.sourceArtifacts}, external_inputs=${r.externalInputs}${r.trustedPlugins > 0 ? `, trusted_plugins=${r.trustedPlugins}` : ''})`;
+const resolutionLines = (r: DependencyResolutionReport): string[] =>
+  [...[...(r.entities ?? []), ...(r.libraries ?? []), ...(r.plugins ?? [])].map(pinnedLine), pullComplete(r)];
 
 // GRAPH_DRAWN identifies the graph panel's document once it has drawn a node.
 const GRAPH_DRAWN = `!!document.getElementById('canvas') && document.querySelectorAll('#canvas g, #canvas rect').length > 0`;
@@ -396,10 +409,25 @@ export async function aboveChecks(ctx: SuiteContext, layout: { root: string; ref
     return { passed, seen: `${seen.join('; ')}; the compiler's words "${words}"` };
   });
   await c.run('build.auto-pull-fills-the-lockfile-then-builds', {
-    expected: 'with the box ticked, Build resolves the dependencies first — the channel lists what the resolution did before the files — completes, and the lockfile is back beside the Release',
-    plant: 'in the scratch copy, out/src/build-dials.js made to send the option as false',
+    expected: 'with the box ticked, Build resolves the dependencies first and completes, the lockfile is back beside the Release, and the channel lists what the resolution did before the files: each reference the language server\'s own answer to the same build reports pinned, as "pinned <reference> at <version> (<kind>)", in that answer\'s order, then "Pull complete: <lockfile> (entities=<n>, source_artifacts=<n>, external_inputs=<n>)" naming the lockfile that answer names',
+    plant: 'in the scratch copy, out/src/build-report.js made to list nothing for the resolution; or out/src/build-dials.js made to send the option as false',
   }, async () => {
     need(!fs.existsSync(lock), 'the lockfile is not aside, so there is nothing for the option to fill');
+    // The server's own answer to the same build, over the reference copy, which
+    // holds no lockfile and so resolves everything this build resolves. The
+    // lockfile that build writes there is removed, leaving the copy as found.
+    const refFolder = path.join(layout.referenceRoot, path.relative(layout.root, ctx.folder));
+    const refLock = path.join(refFolder, path.basename(lock));
+    need(!fs.existsSync(refLock), `the reference copy holds a lockfile (${refLock}), so its build would not resolve what this one does`);
+    const params = buildParams(releaseRel, ['autoPull'], outputParentFor(layout.referenceRoot, refFolder));
+    const ref = await referenceAnswer({ binary: bin, root: layout.referenceRoot, method: 'aggrega/build', params, home: ctx.home, table: ctx.s.table, log: ctx.cliLog, boundMs: 180000 });
+    fs.rmSync(refLock, { force: true });
+    need(ref.ok, `the compiler did not build the reference copy with its dependencies resolved first: ${ref.ok ? '' : `code=${String(ref.error.code)} ${ref.error.message}`}`);
+    const answered = ref.result as BuildResponse;
+    const report = answered.dependencyResolution;
+    need(report !== undefined && (report.entities ?? []).length > 0, `the compiler's own answer to the same build reports no resolution: ${JSON.stringify(answered).slice(0, 400)}`);
+    const want = resolutionLines(report);
+    const files = answered.files ?? [];
     await pressIn(ctx.d, panel, CARET);
     await menuOpen();
     await pressIn(ctx.d, panel, ROW);
@@ -411,9 +439,20 @@ export async function aboveChecks(ctx: SuiteContext, layout: { root: string; ref
     const lines = text.split('\n');
     const start = lines.findIndex((l) => l.startsWith('Build of '));
     const end = lines.findIndex((l) => l.startsWith('Build completed: '));
-    const between = end > start ? lines.slice(start + 1, end) : [];
-    const resolution = between.filter((l) => !/^\s+\S+\.ya?ml$/.test(l) && l.trim() !== '');
-    return { passed: end !== -1 && fs.existsSync(lock) && resolution.length > 0, seen: `${end !== -1 ? lines[end] : lines.find((l) => l.startsWith('The build')) ?? 'no ending'}; the lockfile ${fs.existsSync(lock) ? 'is back' : 'is not back'}; before the files: ${JSON.stringify(resolution.slice(0, 4))}` };
+    const between = end > start ? lines.slice(start + 1, end).map((l) => l.trim()) : [];
+    // The resolution's lines are written together, so they are read as one run
+    // wherever it starts; what is judged is that run, and that it ends before the
+    // first file the same build writes.
+    const at = between.indexOf(want[0]);
+    const listed = at === -1 ? [] : between.slice(at, at + want.length);
+    const firstFile = between.findIndex((l) => files.includes(l));
+    const asAnswered = at !== -1 && JSON.stringify(listed) === JSON.stringify(want);
+    const beforeFiles = asAnswered && firstFile !== -1 && at + want.length <= firstFile;
+    const back = fs.existsSync(lock);
+    return {
+      passed: end !== -1 && back && asAnswered && beforeFiles,
+      seen: `${end !== -1 ? lines[end] : lines.find((l) => l.startsWith('The build')) ?? 'no ending'}; the lockfile ${back ? 'is back' : 'is not back'}; the compiler's answer gives ${want.length} line(s) for the resolution, from ${JSON.stringify(want[0])} to ${JSON.stringify(want[want.length - 1])}, and ${files.length} file(s); the channel ${asAnswered ? `lists them as answered${beforeFiles ? ', before the first file' : `, but not before the first file (at ${at}, the first file at ${firstFile})`}` : 'does not list them as answered'}; between the opening and the closing line: ${JSON.stringify(between.slice(0, Math.max(want.length + 2, 6)))}`,
+    };
   });
   await c.run('preview.never-carries-auto-pull', {
     expected: 'with the box still ticked and the lockfile moved aside again, Preview is refused with the same missing-lockfile notice an unticked build gets, and nothing refuses the combination of a preview and a pull',

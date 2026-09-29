@@ -390,6 +390,20 @@ export const PLANTS: readonly Plant[] = [
     says: 'a refusal for a missing lockfile that nobody asked for — an open graph redrawn after a save — raises its notice every time, however recently it was shown',
   },
   {
+    name: 'resolution-not-listed', scenario: 'workspace-above', checks: ['build.auto-pull-fills-the-lockfile-then-builds'], moves: 'red', target: 'extension',
+    file: 'out/src/build-report.js',
+    find: '        ...dependencyResolutionLines(report.dependencyResolution),\n',
+    replace: '',
+    says: 'a build that resolved its dependencies first lists nothing about the resolution, going straight from its opening line to its advisories and files',
+  },
+  {
+    name: 'auto-pull-sent-off', scenario: 'workspace-above', checks: ['build.auto-pull-fills-the-lockfile-then-builds'], moves: 'red', target: 'extension',
+    file: 'out/src/build-dials.js',
+    find: '        [exports.AUTO_PULL_DIAL]: on.includes(exports.AUTO_PULL_DIAL),',
+    replace: '        [exports.AUTO_PULL_DIAL]: false,',
+    says: 'a build is sent with Auto pull off whatever the box beside it shows',
+  },
+  {
     name: 'preview-carries-auto-pull', scenario: 'workspace-above', checks: ['preview.never-carries-auto-pull'], moves: 'red', target: 'extension',
     file: 'out/src/build-dials.js',
     find: 'function buildPreviewParams(release) {\n    return { release };',

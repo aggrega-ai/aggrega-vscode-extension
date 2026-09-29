@@ -258,6 +258,13 @@ export type BuildPreviewResponse = wire.BuildPreviewResult;
 // why this response names a directory where the preview beside it cannot.
 export type BuildResponse = wire.BuildResult;
 
+// DependencyResolutionReport is what a dependency resolution reports it did: the
+// lockfile it wrote, each reference it pinned with the version that reference
+// resolved to, and how many source artifacts, external inputs and recorded plugin
+// identities the lockfile pins after it. A build answer carries it where the build
+// resolved its dependencies before rendering, and carries none where it did not.
+export type DependencyResolutionReport = wire.DependencyResolutionReport;
+
 // ActiveReleaseResponse is the aggrega/activeRelease result: the absolute path
 // of the Release the workspace points at by default, and, where it points at
 // none, an account of why.

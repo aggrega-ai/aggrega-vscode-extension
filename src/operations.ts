@@ -33,6 +33,7 @@ import {
   readEntityKinds,
 } from './entity-kinds';
 import { dialsTurnedOn } from './build-dials';
+import { buildReportLines } from './build-report';
 import { CancellationSignal } from './cancellation';
 import { reportOutcome, runWatchableCli } from './cli-operation';
 import { DaemonErrorRouting, WhoAsked } from './error-surfaces';
@@ -816,7 +817,9 @@ async function runReleaseScoped(
 // arrive on the server's own channel and are published by the extension's
 // diagnostic path, so nothing here handles them; the advisories that carry no
 // position ride back on the answer and are written to this channel, which is the
-// only surface that can show them.
+// only surface that can show them. A build that resolved its dependencies first
+// also carries that resolution's report, and the channel lists what it pinned and
+// the lockfile it wrote ahead of everything else the build reports.
 //
 // dials names the adjustments the reader turned beside the button. They are
 // passed through as data rather than composed here: what a given set carries on
@@ -865,16 +868,12 @@ async function runBuild(deps: OperationDeps, dials: readonly string[]): Promise<
     return;
   }
 
-  for (const notice of result.notices ?? []) {
-    out.appendLine(notice.class ? `  ${notice.class}: ${notice.text}` : `  ${notice.text}`);
+  for (const line of buildReportLines(result)) {
+    out.appendLine(line);
   }
   // A build that wrote nothing answers with null rather than an empty list, and
-  // the two say the same thing, so the list is coalesced once here and read
-  // from below.
+  // the two say the same thing.
   const files = result.files ?? [];
-  for (const file of files) {
-    out.appendLine(`  ${file}`);
-  }
   // The closing line is the command line's own summary of a completed build,
   // in the same words: the two surfaces perform one operation, so a reader who
   // has seen one report should not have to work out that the other is the same.
@@ -943,15 +942,12 @@ async function runPreview(deps: OperationDeps): Promise<void> {
     return;
   }
 
-  for (const notice of result.notices ?? []) {
-    out.appendLine(notice.class ? `  ${notice.class}: ${notice.text}` : `  ${notice.text}`);
+  for (const line of buildReportLines(result)) {
+    out.appendLine(line);
   }
   // A build that would write nothing answers with null rather than an empty
   // list, and the two say the same thing.
   const files = result.files ?? [];
-  for (const file of files) {
-    out.appendLine(`  ${file}`);
-  }
   // The count is followed by where the files go, because the names above are
   // names and not paths: each one is relative to the output directory the build
   // is given, so a reader comparing this list against a build's output finds the
