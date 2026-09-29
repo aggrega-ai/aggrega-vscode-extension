@@ -2812,7 +2812,9 @@ async function requestRegistryList(): Promise<RegistryListDoc> {
 // Where the registration takes the registry's advertised trust policy it makes
 // one unauthenticated request to that registry's own origin. Nothing is prompted
 // for: a registry advertising nothing is reported as advertising nothing and the
-// registration proceeds.
+// registration proceeds, except the official hub, which is reported as pinned to
+// its built-in baseline — as it is when the offline posture keeps it from being
+// asked.
 //
 // It carries no cancellation, and that is read off what the compiler does rather
 // than assumed: the shared operation behind the request is reached with none, and

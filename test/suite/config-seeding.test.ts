@@ -202,16 +202,43 @@ describe('a completed seeding says what was seeded and where', () => {
   });
 
   it('reports a registry that advertises nothing as a result, carrying the compiler\'s reason', () => {
+    // A registry other than the hub that advertises nothing is written from what
+    // the request supplied, and this client supplies no identity and no key — so
+    // the sentence says the entry carries no policy, rather than claiming one.
     const reason = 'GET https://registry.example.com/.well-known/aggrega-trust: 404 Not Found';
     const detail = seedingDetail(answer({
       host: 'registry.example.com',
       trust: { pinned: false, notAdvertised: true, reason },
     }));
-    assert.ok(
-      detail.endsWith(reason),
-      'the endpoint\'s own account is the compiler\'s text and must arrive unaltered',
+    assert.strictEqual(
+      detail,
+      'registered registry.example.com in /home/reader/.config/aggrega/config.yaml, the global '
+      + 'file shared by every project on this machine. It advertises no signature trust policy, '
+      + 'and this registration names no identity or key, so the entry carries none. '
+      + reason,
     );
-    assert.ok(detail.includes('the built-in baseline stands'));
+  });
+
+  it('reports the official hub seeded offline as pinned to its built-in baseline', async () => {
+    // The answer the language server gives for the official hub seeded while the
+    // workspace is offline: the hub was never asked, so the answer carries the
+    // baseline alone and the offline refusal as the reason, which arrives whole.
+    const reason = 'registrytrust: fetch hub.aggrega.ai: egress: network access refused because '
+      + 'the workspace is offline; remediation: pass `--offline=false` to allow the network for '
+      + 'this one run, or clear the top-level `offline` key in the configuration file (or '
+      + 'AGGREGA_OFFLINE) to allow it from now on; where the work is a build that needs content '
+      + 'the machine does not have, run `aggrega pull --release <release>` from a connected '
+      + 'environment first to populate the cache';
+    const outcome = await runSeeding(
+      recorder(answer({ trust: { pinned: false, baseline: true, reason } })),
+      null,
+    );
+    assert.strictEqual(
+      terminalLine(SEEDING_SUBJECT, outcome),
+      'The seeding registered hub.aggrega.ai in /home/reader/.config/aggrega/config.yaml, the '
+      + 'global file shared by every project on this machine. The built-in trust baseline was '
+      + `pinned instead of an advertised policy. ${reason}`,
+    );
   });
 
   it('reports a fetch that was not attempted, and never as a failure', () => {
@@ -242,6 +269,8 @@ describe('a completed seeding says what was seeded and where', () => {
       { trust: { pinned: false } },
       { trust: { pinned: false, skipped: true } },
       { trust: { pinned: false, notAdvertised: true } },
+      { trust: { pinned: false, baseline: true } },
+      { trust: { pinned: false, notAdvertised: true, baseline: true } },
       { trust: { pinned: true } },
     ];
     for (const over of shapes) {

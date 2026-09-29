@@ -109,8 +109,8 @@ export type RegistryAddParams = Required<
 // It is the reason this operation ends in something a reader can check rather
 // than in a status: the host is echoed as the compiler normalised it, the scope
 // names the file the write actually landed in and how far that file reaches, and
-// the trust outcome says what the registry advertised. Every field is read from
-// the answer; none is assumed.
+// the trust outcome says what reading the registry's advertised policy did. Every
+// field is read from the answer; none is assumed.
 export type RegistryAddResult = wire.RegistryAddResult;
 
 // RegistryRemoveParams is what this client sends to drop a registry's entry.
@@ -231,9 +231,9 @@ export function logoutRequest(host: string): LogoutParams {
 // It returns the ending rather than announcing it, because the words a reader
 // reads and the place they read them belong to the surface. What is decided here
 // is whether the registration completed and, if it did, the sentence naming what
-// was actually registered, where, and what the registry advertised — followed by
-// the sentence saying it is in effect, where the language server running
-// afterwards has read it.
+// was actually registered, where, and what signature trust it was given —
+// followed by the sentence saying it is in effect, where the language server
+// running afterwards has read it.
 //
 // 🔴 IT TAKES THREE ARGUMENTS AND MUST KEEP TAKING THREE. A fourth carrying a
 // stop would be a stop the compiler cannot honour, for the reason at the head of

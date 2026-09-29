@@ -20,35 +20,51 @@ import { ConfigWriteScope, reachPhrase } from './config-write-scope';
 
 // TrustFetchOutcome is what the advertised-trust fetch did (mirrors `trust`).
 //
-// The three states mean different things to a reader and are carried as separate
+// The outcomes mean different things to a reader and are carried as separate
 // fields rather than as a sentence, so this surface reads a value instead of
 // parsing prose. A registry that advertises nothing is not a failure: the
-// registration proceeds on the built-in baseline and says so.
+// registration proceeds on what the request supplied, and this client supplies
+// no identity and no key. The official hub is the exception, because the
+// compiler carries a built-in baseline for it and pins that whenever no
+// advertised policy was taken — including where the offline posture kept the
+// hub from being asked at all, which the answer reports as the baseline alone.
 export type TrustFetchOutcome = wire.TrustFetchOutcome;
 
 // trustPhrase says what the advertised-trust fetch found.
 //
-// A registry that advertises nothing carries the endpoint's own account of what
-// happened, unaltered — it is the compiler's text and it names what was actually
-// reached, which a re-wording would discard.
+// 🔴 THE BUILT-IN BASELINE IS READ AHEAD OF THE NOT-ADVERTISED CASE, which is the
+// compiler's own order. Both are set where the hub was asked and advertised
+// nothing, and the entry then carries the baseline, so a sentence saying only
+// that nothing was advertised would tell the reader the entry trusts nothing
+// when it carries the baseline's identities.
+//
+// Where a fetch was attempted and took no policy, the sentence ends on the
+// answer's own account of why, unaltered — the endpoint's reply, or the offline
+// refusal that kept the registry from being asked. It is the compiler's text and
+// it names what was actually reached, which a re-wording would discard.
 export function trustPhrase(trust: TrustFetchOutcome): string {
+  const because = trust.reason ? ` ${trust.reason}` : '';
   if (trust.pinned) {
     const count = trust.identities ?? 0;
     return count === 1
       ? 'Its advertised signature trust policy was pinned, naming 1 identity.'
       : `Its advertised signature trust policy was pinned, naming ${count} identities.`;
   }
+  if (trust.baseline) {
+    return 'The built-in trust baseline was pinned instead of an advertised policy.'
+      + because;
+  }
   if (trust.notAdvertised) {
-    const because = trust.reason ? ` ${trust.reason}` : '';
-    return 'It advertises no signature trust policy, so the built-in baseline stands.'
+    return 'It advertises no signature trust policy, and this registration names no '
+      + 'identity or key, so the entry carries none.'
       + because;
   }
   if (trust.skipped) {
     return 'No advertised signature trust policy was fetched.';
   }
-  // The answer reported none of the three. Saying so is the honest reading: a
-  // surface that picked one of them would report a fact the compiler did not
-  // send.
+  // The answer reported none of the outcomes above. Saying so is the honest
+  // reading: a surface that picked one of them would report a fact the compiler
+  // did not send.
   return 'The answer names no signature trust policy outcome.';
 }
 

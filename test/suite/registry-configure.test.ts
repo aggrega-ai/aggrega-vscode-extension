@@ -395,8 +395,9 @@ describe('a completed registration says what was registered and where', () => {
     assert.strictEqual(
       terminalLine(REGISTRATION_SUBJECT, outcome),
       'The registration registered normalised.example.test in /work/project/aggrega.yaml, '
-      + 'this project\'s own configuration file. It advertises no signature trust policy, so '
-      + 'the built-in baseline stands. HTTP 404 from its origin',
+      + 'this project\'s own configuration file. It advertises no signature trust policy, and '
+      + 'this registration names no identity or key, so the entry carries none. HTTP 404 from '
+      + 'its origin',
     );
   });
 
@@ -410,6 +411,12 @@ describe('a completed registration says what was registered and where', () => {
         'Its advertised signature trust policy was pinned, naming 1 identity.'],
       [{ pinned: true, identities: 0 },
         'Its advertised signature trust policy was pinned, naming 0 identities.'],
+      [{ pinned: false, notAdvertised: true, reason: 'HTTP 404 from its origin' },
+        'It advertises no signature trust policy, and this registration names no identity or '
+        + 'key, so the entry carries none. HTTP 404 from its origin'],
+      [{ pinned: false, notAdvertised: true },
+        'It advertises no signature trust policy, and this registration names no identity or '
+        + 'key, so the entry carries none.'],
       [{ pinned: false, skipped: true },
         'No advertised signature trust policy was fetched.'],
       [{ pinned: false },
@@ -424,6 +431,44 @@ describe('a completed registration says what was registered and where', () => {
       assert.strictEqual(
         terminalLine(REGISTRATION_SUBJECT, outcome),
         'The registration registered registry.example.test in '
+        + '/home/reader/.config/aggrega/config.yaml, the global file shared by every project '
+        + `on this machine. ${sentence}`,
+      );
+    }
+  });
+
+  it('says the official hub was pinned to its built-in baseline, whether or not it was asked', async () => {
+    // 🔴 THE BASELINE IS READ BEFORE NOT-ADVERTISED, and the second row is the one
+    // that holds the order: the hub asked and advertising nothing carries both
+    // keys, and its entry carries the baseline, so a sentence saying only that
+    // nothing was advertised would tell the reader the entry trusts nothing. The
+    // first row is the answer the language server gives for the hub registered
+    // offline, where it was never asked: the baseline alone, with the offline
+    // refusal as the reason, carried whole.
+    const offline = 'registrytrust: fetch hub.aggrega.ai: egress: network access refused because '
+      + 'the workspace is offline; remediation: pass `--offline=false` to allow the network for '
+      + 'this one run, or clear the top-level `offline` key in the configuration file (or '
+      + 'AGGREGA_OFFLINE) to allow it from now on; where the work is a build that needs content '
+      + 'the machine does not have, run `aggrega pull --release <release>` from a connected '
+      + 'environment first to populate the cache';
+    const notFound = 'registrytrust: registry advertises no trust config';
+    const cases: Array<[RegistryAddResult['trust'], string]> = [
+      [{ pinned: false, baseline: true, reason: offline },
+        `The built-in trust baseline was pinned instead of an advertised policy. ${offline}`],
+      [{ pinned: false, notAdvertised: true, baseline: true, reason: notFound },
+        `The built-in trust baseline was pinned instead of an advertised policy. ${notFound}`],
+      [{ pinned: false, baseline: true },
+        'The built-in trust baseline was pinned instead of an advertised policy.'],
+    ];
+    for (const [trust, sentence] of cases) {
+      const outcome = await runRegistryAdd(
+        recorder({ add: addAnswer({ host: 'hub.aggrega.ai', trust }) }),
+        'hub.aggrega.ai',
+        'global',
+      );
+      assert.strictEqual(
+        terminalLine(REGISTRATION_SUBJECT, outcome),
+        'The registration registered hub.aggrega.ai in '
         + '/home/reader/.config/aggrega/config.yaml, the global file shared by every project '
         + `on this machine. ${sentence}`,
       );
