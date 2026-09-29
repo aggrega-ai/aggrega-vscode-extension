@@ -11,7 +11,7 @@ import { Inputs } from './inputs';
 import { DiagnosticEntry, ProbeClient } from './probe-client';
 import { readCmdline } from './processes';
 import { Scenario } from './scenario';
-import { commandsPanel, documentWith, OutputLog, RUNNING, sleep, until, waitStatus } from './workbench';
+import { commandsPanel, documentWith, OutputLog, RUNNING, scrollTreeToTop, sleep, treeRows, until, waitStatus } from './workbench';
 
 // What every check body of the suite reaches: the launched editor, the probe,
 // the inputs, the output channel, and the scenario's contained home.
@@ -167,6 +167,19 @@ export function describeDiagnostics(file: string, ds: DiagnosticEntry[]): string
   return ds.length === 0
     ? `${path.basename(file)}: none`
     : ds.map((d) => `${path.basename(file)}:${d.range.start.line + 1} [${d.source ?? 'no source'}${d.code ? ` ${d.code}` : ''}] ${d.message.split('\n')[0]}`).join('; ');
+}
+
+// catalogPanelAtItsHead puts the Catalog panel back at the head of its list, as
+// a person does with Home in it: its focus on the first row and the list
+// scrolled to its start, read back as the panel's first row being drawn. A check
+// that pressed a row further down leaves the focus there, and the panel brings
+// the focused row back into sight each time it reads its list again, so
+// scrolling alone would not stay done.
+export async function catalogPanelAtItsHead(ctx: SuiteContext, firstRow: string): Promise<boolean> {
+  await run(ctx, 'aggrega.workspaceCatalog.focus');
+  await run(ctx, 'list.focusFirst').catch(() => undefined);
+  await scrollTreeToTop(ctx.d, 'Catalog');
+  return until(`the Catalog panel drawing "${firstRow}" first`, 10000, () => treeRows(ctx.d, 'Catalog'), (v) => v !== null && v.length > 0 && v[0].label === firstRow).then(() => true, () => false);
 }
 
 // capture writes a screenshot for a person to judge.

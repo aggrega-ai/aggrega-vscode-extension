@@ -273,6 +273,43 @@ export const PLANTS: readonly Plant[] = [
     replace: "        this.rejectPending(new Error('the language server could not be started'));",
     says: 'a failure to start the binary is reported in a sentence naming no path, and not written to the channel',
   },
+  {
+    name: 'column-grips-not-resizable', scenario: 'storefront',
+    checks: ['config-panel.setting-column-follows-its-grip-and-stops-at-its-floor', 'config-panel.source-column-follows-its-grip-and-keeps-its-paths-inside'],
+    moves: 'red', target: 'extension',
+    file: 'media/config.css', find: '  resize: horizontal;\n', replace: '',
+    says: 'the configuration panel\'s labelled headings are drawn without the resizing rule, so the editor draws no grip to drag',
+  },
+  {
+    name: 'shape-switch-not-allowed-to-run', scenario: 'storefront', checks: ['config-panel.explanation-and-shape-switch-work-beside-the-grips'], moves: 'red', target: 'extension',
+    file: 'out/src/config-view.js',
+    find: 'enableCommandUris: [config_render_1.PRESENTATION_TOGGLE_COMMAND],',
+    replace: 'enableCommandUris: [],',
+    says: 'the configuration panel is created allowing no command to run from it, so its switch to the per-setting shape runs nothing',
+  },
+  {
+    name: 'declaring-document-branch-removed', scenario: 'storefront',
+    checks: ['inspect.catalog-row-refused-for-its-document-names-it-and-opens-it', 'inspect.commands-panel-refused-for-its-document-ends-as-the-row-does'],
+    moves: 'red', target: 'extension',
+    file: 'out/src/inspection-request.js',
+    find: '    if ((0, error_surfaces_1.isJsonRpcError)(err) && err.code === types_1.ERR_ENTITY_NOT_RESOLVABLE && err.data?.file) {',
+    replace: '    if (false) {',
+    says: 'an inspection refused because of the document declaring the entity ends as any failed operation does, "The inspection did not complete: code=1004 …" with its "Show output" button',
+  },
+  {
+    name: 'commands-panel-inspects-on-its-own', scenario: 'storefront', checks: ['inspect.commands-panel-refused-for-its-document-ends-as-the-row-does'], moves: 'red', target: 'extension',
+    file: OPERATIONS,
+    find: '    await (0, inspection_1.inspectEntity)(deps, subject.name);',
+    replace: "    try {\n        await (0, open_document_1.openDocument)(JSON.stringify(await deps.entityDefinition(subject.name), null, 2), 'json');\n    }\n    catch (err) {\n        await reportDaemonFailure(deps, err, 'The inspection');\n    }",
+    says: 'the Commands panel composes an inspection of its own rather than the one the Catalog panel row runs, ending a refusal as an operation that did not complete',
+  },
+  {
+    name: 'cache-miss-asks-first', scenario: 'storefront', checks: ['language-features.hover-after-a-change-on-disk-answers-without-asking'], moves: 'red', target: 'extension',
+    file: EXTENSION,
+    find: '    return (0, cache_miss_1.recoverFromCacheMiss)({',
+    replace: "    if ((await vscode.window.showInformationMessage('Aggrega has no cached state for ' + path.basename(doc.uri.fsPath) + '. Revalidate?', 'Revalidate')) !== 'Revalidate') {\n        return null;\n    }\n    return (0, cache_miss_1.recoverFromCacheMiss)({",
+    says: 'a language request the language server answers "file not validated" first raises a notification asking "Revalidate?", and the document is validated and the request sent again only once it is pressed',
+  },
   // ---- the workspace above the folder ----
   {
     name: 'options-drawn-on-a-disabled-build', scenario: 'workspace-above', checks: ['build-options.control-is-absent-while-build-cannot-run'], moves: 'red', target: 'extension',

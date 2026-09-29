@@ -34,6 +34,11 @@ export interface UiDriver {
   webviews(): Promise<WebviewDocument[]>;
   screenshot(file: string): Promise<number>;
   drag(from: { x: number; y: number }, to: { x: number; y: number }, steps: number): Promise<void>;
+  // dragAtPace drags with the primary button from one point to another the way a
+  // person's pointer does: each event is sent `paceMs` after the one before it,
+  // whether or not the editor has acknowledged the last. It reports how many of
+  // the events were acknowledged within `boundMs` of the release being sent.
+  dragAtPace(from: { x: number; y: number }, to: { x: number; y: number }, steps: number, paceMs: number, boundMs: number): Promise<{ sent: number; acknowledged: number }>;
   press(key: string): Promise<void>;
   // type sends text as key presses, to whatever holds the focus.
   type(text: string): Promise<void>;
@@ -46,6 +51,9 @@ export interface UiDriver {
   // a hover.
   click(at: { x: number; y: number }, button?: 'left' | 'right'): Promise<void>;
   moveTo(at: { x: number; y: number }): Promise<void>;
+  // wheel turns the pointer's wheel where it rests, which scrolls whatever is
+  // under it as a person scrolls a list too long for its view.
+  wheel(deltaX: number, deltaY: number): Promise<void>;
   platformFonts(doc: WebviewDocument, selector: string): Promise<PlatformFonts>;
   // detach lets go of the editor without stopping it.
   detach(): Promise<void>;
@@ -88,6 +96,32 @@ class PlaywrightDriver implements UiDriver {
     await this.page.mouse.up();
   }
 
+  async dragAtPace(from: { x: number; y: number }, to: { x: number; y: number }, steps: number, paceMs: number, boundMs: number): Promise<{ sent: number; acknowledged: number }> {
+    const session = await this.context.newCDPSession(this.page);
+    const pause = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+    let acknowledged = 0;
+    const sent: Promise<void>[] = [];
+    const send = (type: 'mouseMoved' | 'mousePressed' | 'mouseReleased', x: number, y: number, buttons: number): void => {
+      sent.push(session.send('Input.dispatchMouseEvent', { type, x, y, button: type === 'mouseMoved' && buttons === 0 ? 'none' : 'left', buttons, clickCount: 1 })
+        .then(() => { acknowledged++; }, () => undefined));
+    };
+    try {
+      send('mouseMoved', from.x, from.y, 0);
+      await pause(paceMs);
+      send('mousePressed', from.x, from.y, 1);
+      for (let i = 1; i <= steps; i++) {
+        await pause(paceMs);
+        send('mouseMoved', from.x + ((to.x - from.x) * i) / steps, from.y + ((to.y - from.y) * i) / steps, 1);
+      }
+      await pause(paceMs);
+      send('mouseReleased', to.x, to.y, 0);
+      await Promise.race([Promise.all(sent), pause(boundMs)]);
+      return { sent: sent.length, acknowledged };
+    } finally {
+      await session.detach().catch(() => undefined);
+    }
+  }
+
   press(key: string): Promise<void> {
     return this.page.keyboard.press(key);
   }
@@ -108,6 +142,10 @@ class PlaywrightDriver implements UiDriver {
 
   moveTo(at: { x: number; y: number }): Promise<void> {
     return this.page.mouse.move(at.x, at.y);
+  }
+
+  wheel(deltaX: number, deltaY: number): Promise<void> {
+    return this.page.mouse.wheel(deltaX, deltaY);
   }
 
   async platformFonts(doc: WebviewDocument, selector: string): Promise<PlatformFonts> {

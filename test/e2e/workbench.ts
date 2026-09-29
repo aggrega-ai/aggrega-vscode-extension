@@ -178,14 +178,33 @@ export async function pressToastButton(driver: UiDriver, prefix: string, label: 
 
 // ---- webview panels ----------------------------------------------------------
 
+// within settles as `p` does, or refuses once `boundMs` has passed without it
+// settling, naming `what` did not finish.
+export function within<T>(p: Promise<T>, boundMs: number, what: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const expired = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${what} did not finish within ${boundMs} ms`)), boundMs);
+  });
+  return Promise.race([p, expired]).finally(() => clearTimeout(timer));
+}
+
+// evaluateWithin evaluates `expression` in a webview document, refusing once
+// `boundMs` has passed without an answer. A document that runs no script may
+// never answer an evaluation made in it, and an unbounded one would hold the
+// whole scenario on it.
+export function evaluateWithin<T>(doc: WebviewDocument, expression: string, boundMs: number): Promise<T> {
+  return within(doc.evaluate<T>(expression), boundMs, `an evaluation in the document at ${doc.url.slice(0, 80)}`);
+}
+
 // documentWith finds the one webview document for which `probe` evaluates true,
-// waiting for it to be drawn.
+// waiting for it to be drawn. A document that gives no answer within 2 s counts
+// as not being the one.
 export async function documentWith(driver: UiDriver, what: string, probe: string, boundMs: number): Promise<WebviewDocument> {
   let found: WebviewDocument | null = null;
   await until(what, boundMs, async () => {
     const hits: WebviewDocument[] = [];
     for (const d of await driver.webviews()) {
-      try { if (await d.evaluate<boolean>(probe)) { hits.push(d); } } catch { /* a document being replaced */ }
+      try { if (await evaluateWithin<boolean>(d, probe, 2000)) { hits.push(d); } } catch { /* a document being replaced, or one that does not answer */ }
     }
     found = hits.length === 1 ? hits[0] : null;
     return hits.length;
@@ -417,6 +436,115 @@ export function treeRowCentre(driver: UiDriver, title: string, label: string): P
     }
     return null;
   })(${JSON.stringify(title)}, ${JSON.stringify(label)})`);
+}
+
+// revealTreeRow scrolls the side-bar view titled `title` with the pointer's wheel
+// until its row labelled `label` is drawn whole inside the view, as a person
+// scrolls a list longer than its view, and returns where the row's middle is. A
+// tree draws only the rows in sight, so a row further down is not in the
+// document at all until then; and a row the view's edge cuts through has the
+// edge's sash drawn over its middle, where a press or a hover lands on the sash
+// instead.
+export async function revealTreeRow(driver: UiDriver, title: string, label: string, boundMs = 15000): Promise<{ x: number; y: number }> {
+  const place = (): Promise<{ body: { x: number; y: number }; row: { x: number; y: number } | null; inside: boolean } | null> => driver.workbench(`((title, label) => {
+    for (const pane of document.querySelectorAll('.pane')) {
+      const h = pane.querySelector('.pane-header');
+      const t = h ? ((h.querySelector('h3.title, .title') || {}).innerText || '').trim() : '';
+      if (t.toLowerCase() !== title.toLowerCase()) { continue; }
+      const b = pane.querySelector('.pane-body');
+      const r = b ? b.getBoundingClientRect() : null;
+      if (!r || r.height === 0) { return null; }
+      const body = { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+      for (const row of pane.querySelectorAll('.pane-body .monaco-list-row')) {
+        if (((row.querySelector('.label-name') || {}).innerText || '').trim() !== label) { continue; }
+        const x = row.getBoundingClientRect();
+        if (x.height === 0) { continue; }
+        return { body, row: { x: x.x + x.width / 2, y: x.y + x.height / 2 }, inside: x.top >= r.top - 0.5 && x.bottom <= r.bottom + 0.5 };
+      }
+      return { body, row: null, inside: false };
+    }
+    return null;
+  })(${JSON.stringify(title)}, ${JSON.stringify(label)})`);
+  const first = await until(`the ${title} view's body`, 10000, place, (v) => v !== null);
+  if (first === null) { throw new Error(`unreachable: the ${title} view's body`); }
+  if (first.inside && first.row !== null) { return first.row; }
+  // From the top of the list downwards, in steps shorter than the view, so a
+  // row above the part in sight is passed over on the way rather than
+  // scrolled away from, and a row reached at the view's edge is brought inside.
+  await driver.moveTo(first.body);
+  await driver.wheel(0, -100000);
+  const at = await until(`the "${label}" row being drawn whole in the ${title} view`, boundMs, async () => {
+    const p = await place();
+    if (p !== null && p.inside && p.row !== null) { return p.row; }
+    await driver.moveTo(first.body);
+    await driver.wheel(0, 44);
+    return null;
+  }, (v) => v !== null);
+  if (at === null) { throw new Error(`unreachable: the "${label}" row`); }
+  return at;
+}
+
+// pressTreeRowAction presses the action labelled `action` that the row labelled
+// `label` draws at its end, where a person presses it: the pointer rests on the
+// row first, which is what draws a row's own actions, and the press lands on the
+// action's icon. It refuses a row that draws no such action.
+export async function pressTreeRowAction(driver: UiDriver, title: string, label: string, action: string): Promise<void> {
+  const row = await revealTreeRow(driver, title, label);
+  await driver.moveTo(row);
+  // What the row draws at its end, read with each look: the action's box where
+  // it is drawn with a size, and the labels of every action the row draws, so a
+  // row drawing others than the one asked for says which.
+  const look = (): Promise<{ at: { x: number; y: number } | null; drawn: string[]; hovered: boolean; row: { x: number; y: number } | null; under: string; hoveredNow: string[] }> => driver.workbench(`((title, label, action) => {
+    for (const pane of document.querySelectorAll('.pane')) {
+      const h = pane.querySelector('.pane-header');
+      const t = h ? ((h.querySelector('h3.title, .title') || {}).innerText || '').trim() : '';
+      if (t.toLowerCase() !== title.toLowerCase()) { continue; }
+      for (const r of pane.querySelectorAll('.pane-body .monaco-list-row')) {
+        if (((r.querySelector('.label-name') || {}).innerText || '').trim() !== label) { continue; }
+        const drawn = [...r.querySelectorAll('.action-label')].map((a) => (a.getAttribute('aria-label') || a.title || '') + ' ' + Math.round(a.getBoundingClientRect().width) + 'px');
+        const a = [...r.querySelectorAll('.action-label')].find((x) => (x.getAttribute('aria-label') || x.title || '') === action);
+        const b = a ? a.getBoundingClientRect() : null;
+        const rb = r.getBoundingClientRect();
+        const under = document.elementFromPoint(rb.x + rb.width / 2, rb.y + rb.height / 2);
+        const chain = [];
+        for (let e = under; e && chain.length < 4; e = e.parentElement) { chain.push(e.tagName.toLowerCase() + (e.className && typeof e.className === 'string' ? '.' + e.className.trim().split(/\\s+/).slice(0, 2).join('.') : '')); }
+        const hoveredNow = [...document.querySelectorAll(':hover')].map((e) => e.tagName.toLowerCase() + (typeof e.className === 'string' && e.className ? '.' + e.className.trim().split(/\\s+/)[0] : '')).slice(-3);
+        return { at: b && b.width > 0 && b.height > 0 ? { x: b.x + b.width / 2, y: b.y + b.height / 2 } : null, drawn, hovered: r.matches(':hover'), row: { x: rb.x + rb.width / 2, y: rb.y + rb.height / 2 }, under: chain.join(' < '), hoveredNow };
+      }
+    }
+    return { at: null, drawn: [], hovered: false, row: null, under: '', hoveredNow: [] };
+  })(${JSON.stringify(title)}, ${JSON.stringify(label)}, ${JSON.stringify(action)})`);
+  // The row draws its actions while the pointer rests on it, so where it does
+  // not read as hovered the pointer is moved onto it again, a pixel along, as a
+  // person's hand settles.
+  let nudge = 0;
+  const seen = await until(`the "${action}" action drawn on the "${label}" row`, 5000, async () => {
+    const v = await look();
+    if (v.at === null && v.row !== null) { nudge = 1 - nudge; await driver.moveTo({ x: v.row.x + nudge, y: v.row.y }); }
+    return v;
+  }, (v) => v.at !== null).catch(look);
+  if (seen.at === null) { throw new Error(`the "${label}" row in the ${title} view draws no "${action}" action to press; it draws ${JSON.stringify(seen.drawn)}, and reads as ${seen.hovered ? '' : 'not '}hovered; under its centre ${seen.under}; hovered now ${JSON.stringify(seen.hoveredNow)}`); }
+  await driver.click(seen.at);
+}
+
+// scrollTreeToTop turns the pointer's wheel over the side-bar view titled
+// `title` far enough to bring its list back to its start, as a person scrolls
+// back up; whether it got there is for the caller to read, off the rows drawn.
+export async function scrollTreeToTop(driver: UiDriver, title: string): Promise<void> {
+  const body = await driver.workbench<{ x: number; y: number } | null>(`((title) => {
+    for (const pane of document.querySelectorAll('.pane')) {
+      const h = pane.querySelector('.pane-header');
+      const t = h ? ((h.querySelector('h3.title, .title') || {}).innerText || '').trim() : '';
+      if (t.toLowerCase() !== title.toLowerCase()) { continue; }
+      const b = pane.querySelector('.pane-body');
+      const r = b ? b.getBoundingClientRect() : null;
+      return r && r.height > 0 ? { x: r.x + r.width / 2, y: r.y + r.height / 2 } : null;
+    }
+    return null;
+  })(${JSON.stringify(title)})`);
+  if (body === null) { return; }
+  await driver.moveTo(body);
+  await driver.wheel(0, -100000);
 }
 
 // pressPanelAction presses one of the operations drawn at the head of the

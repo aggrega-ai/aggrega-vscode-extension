@@ -10,10 +10,13 @@ import { need } from './checks';
 import { runCompiler } from './cli';
 import { UNREACHABLE_HOST } from './fixtures';
 import { referenceAnswer } from './reference';
+import { CACHE_MISS_CHECKS, cacheMissChecks } from './suite-cache-miss';
+import { CONFIG_PANEL_CHECKS, configPanelChecks } from './suite-config-panel';
 import {
   capture, closeAllEditors, deleteLine, describeDiagnostics, diagnostics, lineOf, open, putBack, ready, run, save, send, SuiteContext, theServer,
 } from './suite-context';
 import { contextRowsCheck } from './suite-gateway';
+import { INSPECTION_CHECKS, inspectionChecks } from './suite-inspection';
 import {
   commandsPanel, documentWith, holds, NOT_RUNNING, operationButtons, paneState, pickQuickInputRow, pressIn, pressOperation, pressPaneHeader, pressPanelAction,
   pressToastButton, QuickInput, quickInput, RUNNING, sleep, statusLog, STARTING, toasts, toastsSince, TreeRow, treeRowCentre, treeRows, until, waitQuickInput,
@@ -21,21 +24,26 @@ import {
 } from './workbench';
 
 // The checks run in the storefront folder: the capabilities walked end to end —
-// the language server recovering from a kill, diagnostics on a real mistake and
-// across a cascade, completion and hover, the published-catalog search with no
-// registry and the filter it keeps from one search to the next, the workspace
-// catalog panel, the operations heading the Catalog, Registries and Plugins
-// panels and the Commands panel that holds none of them, the operations that end
-// in words, and what the extension says about settings that are wrong.
+// the configuration panel's resizable columns, the language server recovering
+// from a kill, diagnostics on a real mistake and across a cascade, an inspection
+// refused because of the document declaring the entity, completion and hover,
+// a hover answered after its document changed on disk, the published-catalog
+// search with no registry and the filter it keeps from one search to the next,
+// the workspace catalog panel, the operations heading the Catalog, Registries and
+// Plugins panels and the Commands panel that holds none of them, the operations
+// that end in words, and what the extension says about settings that are wrong.
 
 export const STOREFRONT_CHECKS = [
   'commands-panel.context-rows-name-the-opened-folder',
+  ...CONFIG_PANEL_CHECKS,
   'language-server.restarts-after-a-kill',
   'problems.authoring-mistake-lands-on-its-line-in-the-compilers-words',
   'problems.authoring-mistake-reads-as-actionable',
   'problems.cascade-names-the-entity-that-broke',
+  ...INSPECTION_CHECKS,
   'language-features.completion-offers-the-workspace-and-catalog-entities',
   'language-features.hover-names-the-resolved-entity',
+  ...CACHE_MISS_CHECKS,
   'catalog-search.palette-shows-its-facets',
   'catalog-search.no-registry-answer-says-so',
   'catalog-search.no-registry-sentence-directs-the-reader',
@@ -166,6 +174,9 @@ export async function storefrontChecks(ctx: SuiteContext, referenceFolder: strin
   await ready(ctx);
   await contextRowsCheck(ctx);
 
+  // ---- the configuration panel's columns ----
+  await configPanelChecks(ctx);
+
   // ---- the daemon starts, and recovers ----
   await c.run('language-server.restarts-after-a-kill', {
     expected: 'the language server this window started (the one working in the opened folder), signalled by its PID, is started again after an edit: the status bar passes through "starting" back to "running" and a new server works in the same folder',
@@ -280,6 +291,9 @@ export async function storefrontChecks(ctx: SuiteContext, referenceFolder: strin
     };
   });
 
+  // ---- an inspection refused because of the document declaring the entity ----
+  await inspectionChecks(ctx, referenceFolder);
+
   // ---- completion and hover ----
   const features = [...entityNames(path.join(ctx.folder, 'catalog'), 'Feature'), ...entityNames(ctx.inputs.catalog.dir, 'Feature')];
   const localFeatures = entityNames(path.join(ctx.folder, 'catalog'), 'Feature');
@@ -324,6 +338,9 @@ export async function storefrontChecks(ctx: SuiteContext, referenceFolder: strin
     const text = (hovers ?? []).flatMap((h) => (h.contents ?? []).map((x) => (typeof x === 'string' ? x : x.value ?? ''))).join('\n');
     return { passed: text.includes('core/datastore/postgres') && postgresVersions.some((v) => text.includes(v)), seen: `hover: ${JSON.stringify(text.slice(0, 300))}; ${note}` };
   });
+
+  // ---- a hover answered after its document changed on disk ----
+  await cacheMissChecks(ctx);
 
   // ---- the published-catalog palette, with no registry ----
   let noRegistry = '';

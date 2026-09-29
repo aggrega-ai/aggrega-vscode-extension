@@ -199,13 +199,16 @@ function listDiagnostics(file: string | undefined): unknown {
 }
 
 // toJson turns whatever an editor API returned into plain data: a URI as its
-// string, a cycle cut, a function dropped.
+// string, a markdown string as its text, a cycle cut, a function dropped.
 function toJson(value: unknown): unknown {
   const seen = new WeakSet<object>();
   // The replacer reads the holder's own value, because JSON.stringify hands it a
   // URI already turned into its components by the URI's own toJSON.
   const text = JSON.stringify(value, function (this: Record<string, unknown>, key: string, v: unknown) {
     if (this[key] instanceof vscode.Uri) { return (this[key] as vscode.Uri).toString(); }
+    // A markdown string keeps its text behind an accessor, which plain
+    // serialisation does not read, so a hover's words would arrive as nothing.
+    if (this[key] instanceof vscode.MarkdownString) { return { value: (this[key] as vscode.MarkdownString).value }; }
     if (typeof v === 'bigint') { return v.toString(); }
     if (typeof v === 'function') { return undefined; }
     if (typeof v === 'object' && v !== null) {
