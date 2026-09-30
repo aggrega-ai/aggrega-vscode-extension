@@ -1,0 +1,7 @@
+workspace:
+  # The standard library, whose directory the editor suite writes in place of
+  # the placeholder below when it copies this folder. The one component here is
+  # one of its entities, so the folder needs no catalog of its own. No Release is
+  # named as the default, so opening the folder selects neither of its two.
+  catalog_dirs:
+    - <standard-library-catalog>

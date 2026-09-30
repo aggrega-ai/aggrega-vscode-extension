@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Cognitio S.r.l.
+
+apiVersion: aggrega.ai/v1alpha1
+kind: Aggregate
+metadata:
+  name: console
+  version: 1.0.0
+  description: >
+    One Adminer database console, compiled to a Docker Compose stack. Two
+    Releases deploy it, one for local work and one for a staging host, so a
+    Release has to be chosen before anything is built.
+spec:
+  components:
+    console:
+      type: core/devtool/adminer

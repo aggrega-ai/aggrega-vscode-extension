@@ -9,6 +9,7 @@ import { containmentSummary, ContainmentStart, markStart, placesFor, readContain
 import { markRunnerEnvironment } from './editor';
 import { DOCS_EXAMPLE, MYSQL_EXAMPLE, OWN_CATALOGS_EXAMPLE } from './fixtures';
 import { checkInputs, EDITOR_VERSION, INPUT_NAMES, InputOptions, Inputs, REPO_ROOT } from './inputs';
+import { POSTGRES_EXAMPLE } from './layouts';
 import { checkLibraries, libraryRefusal, LibraryReport } from './libraries';
 import { checkPlant, PLANTS, Plant, plantNamed, PlantRefused } from './plants';
 import { runProbeProofs } from './probe-proofs';
@@ -298,7 +299,7 @@ async function commandSuite(opts: Options): Promise<number> {
     compiler: inputs.compiler.path,
     registryServer: inputs.registryServer.path,
     editor: inputs.editor.dir,
-    docsExamples: [DOCS_EXAMPLE, OWN_CATALOGS_EXAMPLE, MYSQL_EXAMPLE].map((e) => path.join(REPO_ROOT, '..', e)),
+    docsExamples: [DOCS_EXAMPLE, OWN_CATALOGS_EXAMPLE, MYSQL_EXAMPLE, POSTGRES_EXAMPLE].map((e) => path.join(REPO_ROOT, '..', e)),
   }));
   const summary = [...report.summary, ...containmentSummary(containment)];
   writeReport(runDir, 'suite', { ...(report.data as Record<string, unknown>), containment }, summary);

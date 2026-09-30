@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Cognitio S.r.l.
+
+apiVersion: aggrega.ai/v1alpha1
+kind: Release
+metadata:
+  name: console-staging
+  environment: staging
+  version: 1.0.0
+spec:
+  # Both named by path beside this file, so `aggrega inspect
+  # ./release-staging.yaml --detail` reads them as well as a build does.
+  aggregate: ./aggregate.yaml
+  manifest: ./manifest-compose.yaml
+  boundaries:
+    app:
+      directory: app
+      components:
+        console:
+          infra:
+            port: 9080

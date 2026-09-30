@@ -12,8 +12,14 @@ import {
   placeWorkspaceAbove, proveMissing, proveUnreachable, readTree, Tree, UNREACHABLE_HOST, writeLockfile,
 } from './fixtures';
 import { Inputs, REPO_ROOT } from './inputs';
+import { placeLayouts, POSTGRES_EXAMPLE, proveNothingAbove } from './layouts';
+import { LEVEL_OBSERVERS } from './levels';
 import { applyPlant, Plant } from './plants';
 import { aboveChecks, ABOVE_CHECKS } from './suite-above';
+import { ABOVE_DIALOG_CHECKS, ABOVE_DIALOG_FIRST, ABOVE_DIALOG_LAYOUTS, aboveDialogChecks } from './suite-above-dialog';
+import { BENEATH_CHECKS, beneathChecks } from './suite-beneath';
+import { DISCOVERY_CHECKS, DISCOVERY_FIRST, DISCOVERY_LAYOUTS, discoveryChecks } from './suite-discovery';
+import { FOLDER_ADDS_CHECKS, FOLDER_ADDS_FIRST, FOLDER_ADDS_LAYOUTS, folderAddsChecks, NOT_A_FOLDER } from './suite-folder-adds';
 import { CACHE_CHECKS, cacheChecks } from './suite-cache';
 import { EMPTY_WORKSPACE_CHECKS, emptyWorkspaceChecks } from './suite-empty-workspace';
 import { ENDINGS_CHECKS, endingsChecks, WATCH_AND_STOP_CHECKS, watchAndStopChecks } from './suite-endings';
@@ -25,12 +31,14 @@ import { makeContext, SuiteContext } from './suite-context';
 import { gatewayChecks, GATEWAY_CHECKS } from './suite-gateway';
 import { GRAPH_PANEL_CHECKS, graphPanelChecks } from './suite-graph-panel';
 import { KILLED_CHECKS, KILLED_SETTINGS, killedChecks } from './suite-killed';
+import { LEVELS_CHECKS, levelsChecks } from './suite-levels';
 import { OFFLINE_RELEASES, OWN_CATALOGS_CHECKS, ownCatalogsChecks } from './suite-own-catalogs';
 import { PROBES_CHECKS, probesChecks } from './suite-probes';
 import { READINESS_CHECKS, readinessChecks } from './suite-readiness';
 import { registryChecks, REGISTRY_CHECKS } from './suite-registry';
 import { storefrontChecks, STOREFRONT_CHECKS } from './suite-storefront';
 import { TOP_LEVEL_ATTACH_CHECKS, topLevelAttachChecks } from './suite-top-level-attach';
+import { TWO_WORKSPACES_CHECKS, twoWorkspacesChecks } from './suite-two-workspaces';
 
 // The suite: the checks of which build is under test, of the build-analysis
 // setting and the two diagnostic layers it separates, and of the capabilities
@@ -57,6 +65,12 @@ export const SCENARIO_CHECKS: Readonly<Record<string, readonly string[]>> = {
   'workspace-above-authoring-release': AUTHORING_RELEASE_CHECKS,
   'gateway-endings': ENDINGS_CHECKS,
   'mysql-watch-and-stop': WATCH_AND_STOP_CHECKS,
+  'two-releases-context-rows': LEVELS_CHECKS,
+  'two-workspaces-context-rows': TWO_WORKSPACES_CHECKS,
+  'project-folder-adds': FOLDER_ADDS_CHECKS,
+  'workspace-discovery-layouts': DISCOVERY_CHECKS,
+  'release-beneath-a-workspace-root': BENEATH_CHECKS,
+  'workspace-above-interruption': ABOVE_DIALOG_CHECKS,
 };
 
 // ScenarioResult is one scenario as the report states it.
@@ -357,6 +371,82 @@ function plans(inputs: Inputs): ScenarioPlan[] {
         return { folder: layout.folder, fixtures, extra: { releases: layout.releases } };
       },
       body: (ctx, p) => watchAndStopChecks(ctx, p.extra?.releases as string[]),
+    },
+    {
+      name: 'two-releases-context-rows',
+      checks: LEVELS_CHECKS,
+      observers: LEVEL_OBSERVERS,
+      prepare: async (root) => {
+        const folder = path.join(root.dir, 'workspace', 'two-releases');
+        const missing = path.join(root.dir, 'no-such-compiler', 'aggrega');
+        const fixtures = [placeFolder(inputs.extension.dir, 'two-releases', folder, inputs.catalog.dir), proveNothingAbove(folder), proveMissing(missing)];
+        return { folder, fixtures, extra: { missing } };
+      },
+      body: (ctx, p) => levelsChecks(ctx, p.extra?.missing as string),
+    },
+    {
+      name: 'two-workspaces-context-rows',
+      checks: TWO_WORKSPACES_CHECKS,
+      observers: LEVEL_OBSERVERS,
+      prepare: async (root) => {
+        const docs = path.resolve(REPO_ROOT, '..');
+        const parent = path.join(root.dir, 'workspace');
+        // Both examples name the standard library by the same line beside the
+        // documentation checkout.
+        const mysql = placeDocsExample(docs, MYSQL_EXAMPLE, path.join(parent, 'mysql-innodb-cluster'), inputs.catalog.dir, MYSQL_CATALOG_LINE);
+        const postgres = placeDocsExample(docs, POSTGRES_EXAMPLE, path.join(parent, 'postgres-init-config'), inputs.catalog.dir, MYSQL_CATALOG_LINE);
+        return { folder: mysql.folder, fixtures: [mysql.proof, postgres.proof, proveNothingAbove(parent, true)], extra: { postgres: postgres.folder } };
+      },
+      body: (ctx, p) => twoWorkspacesChecks(ctx, p.extra?.postgres as string),
+    },
+    {
+      name: 'project-folder-adds',
+      checks: FOLDER_ADDS_CHECKS,
+      observers: LEVEL_OBSERVERS,
+      prepare: async (root) => {
+        const layouts = path.join(root.dir, 'layouts');
+        const fixtures = await placeLayouts(layouts, FOLDER_ADDS_LAYOUTS);
+        fs.writeFileSync(path.join(layouts, NOT_A_FOLDER), 'A file beside the folders a folder dialog lists.\n');
+        return { folder: path.join(layouts, FOLDER_ADDS_FIRST), fixtures, extra: { layouts } };
+      },
+      body: (ctx, p) => folderAddsChecks(ctx, p.extra?.layouts as string),
+    },
+    {
+      name: 'workspace-discovery-layouts',
+      checks: DISCOVERY_CHECKS,
+      observers: LEVEL_OBSERVERS,
+      prepare: async (root) => {
+        const layouts = path.join(root.dir, 'layouts');
+        const fixtures = await placeLayouts(layouts, DISCOVERY_LAYOUTS);
+        return { folder: path.join(layouts, DISCOVERY_FIRST), fixtures, extra: { layouts } };
+      },
+      body: (ctx, p) => discoveryChecks(ctx, p.extra?.layouts as string),
+    },
+    {
+      name: 'release-beneath-a-workspace-root',
+      checks: BENEATH_CHECKS,
+      observers: LEVEL_OBSERVERS,
+      prepare: async (root, home, log) => {
+        const docs = path.resolve(REPO_ROOT, '..');
+        const layout = placeWorkspaceAbove(docs, path.join(root.dir, 'checkout'), inputs.catalog.dir);
+        const fixtures = [layout.proof, proveNothingAbove(layout.root)];
+        for (const release of fs.readdirSync(layout.folder).filter((f) => /^release.*\.ya?ml$/.test(f)).sort()) {
+          fixtures.push(await writeLockfile(bin, layout.folder, release, home, log));
+        }
+        return { folder: layout.folder, fixtures, extra: { root: layout.root } };
+      },
+      body: (ctx, p) => beneathChecks(ctx, p.extra?.root as string),
+    },
+    {
+      name: 'workspace-above-interruption',
+      checks: ABOVE_DIALOG_CHECKS,
+      observers: LEVEL_OBSERVERS,
+      prepare: async (root) => {
+        const layouts = path.join(root.dir, 'layouts');
+        const fixtures = await placeLayouts(layouts, ABOVE_DIALOG_LAYOUTS);
+        return { folder: path.join(layouts, ABOVE_DIALOG_FIRST), fixtures, extra: { layouts } };
+      },
+      body: (ctx, p) => aboveDialogChecks(ctx, p.extra?.layouts as string),
     },
   ];
 }

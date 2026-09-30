@@ -421,8 +421,9 @@ and the catalog's commit, and gives each check one of four outcomes:
 - **for a person**, where the question is a judgement: the check stops at the
   state to judge and leaves a capture and the drawn text for someone to look at.
 
-Each scenario opens one folder in an editor of its own. Three of them work in
-the topology graph panel:
+Each scenario starts an editor of its own on one folder, and a few then open or
+add others in that window as a reader does. Some work in the topology graph
+panel:
 
 - `storefront-graph-panel` opens a storefront whose one attachment authors a
   value its Feature declares sensitive. It checks what the attachments panel
@@ -467,7 +468,7 @@ server comes and goes, and what each operation ends in:
   anchored and a server answers, and the welcome page's control that creates a
   workspace configuration, checked again after the editor is closed and opened
   again.
-  `workspace-above-authoring-release` opens a folder beneath a workspace root
+- `workspace-above-authoring-release` opens a folder beneath a workspace root
   and checks which configuration file the Release configuration command opens.
 - `gateway-cache` runs the four cache operations from the Commands panel and
   checks each confirmation, each ending, and that every one of them reached only
@@ -478,6 +479,47 @@ server comes and goes, and what each operation ends in:
   registry, twice; `mysql-watch-and-stop` chooses a Release, then stops a build
   and a pull part-way and reads the language server's CPU time and the processes
   the extension started, to see that the compiler stopped as well as the editor.
+
+A further group follows which folder, which Aggrega workspace and which Release
+the editor works on, and the three rows at the head of the Commands panel that
+say so:
+
+- `two-releases-context-rows` opens a folder that is its own workspace and holds
+  two Releases with no default: the three rows as drawn, hovered and pressed; a
+  level with one candidate taken with no chooser; choosing where the editor
+  already is restarting nothing; and the Release chosen remembered through a
+  window reload and a reopen, and said to be dropped once it is no longer
+  offered.
+- `two-workspaces-context-rows` opens one documentation example, adds a second
+  with the editor's own command, and checks that no language server starts until
+  the reader chooses between them, that choosing and switching move the rows,
+  the status bar and the welcome page, that the Project folder chosen scopes
+  which workspaces are on offer, and that both choices survive a reload.
+- `project-folder-adds` follows what the Project folder row's chooser can do to
+  a window: its two folder dialogs, a folder already open refused, an add from
+  one folder that comes back working from the folder added, an add in place, an
+  open that replaces what the window had, the rows in a window with no folder,
+  and the Aggrega workspace row's last entry carrying the workspace chosen into
+  the window it makes.
+- `workspace-discovery-layouts` opens, in turn, folders that place a workspace
+  marker somewhere different relative to the folder opened — none at all, one
+  marker beneath another, markers only below — and the spellings that mark a
+  root, each read on the row as the folder opens and again after a reload.
+- `release-beneath-a-workspace-root` opens a documentation example beneath a
+  root that marks it as the workspace: the rows naming the folder and the root,
+  every Release the chooser offers drawn as a topology graph with no refusal and
+  one of them built, and the chooser offering every Release file the workspace
+  holds.
+- `workspace-above-interruption` opens a folder beneath a workspace root it has
+  no marker of its own for: the dialog that says so and the mark it leaves on the
+  row, the dialog raised again in each new window until the reader asks not to be
+  told about that folder, which silences that folder alone, and the two ways to
+  open the workspace itself.
+
+The folders these open are built inside the scratch directory, and before any of
+them is opened the runner reads every directory above it for anything that marks
+a workspace root, refusing the scenario where it finds one: a marker above them
+would be found before their own.
 
 The report also gives each scenario's bring-up, wall clock and teardown, each
 check's elapsed time, the peak memory and the CPU time of the editor's processes

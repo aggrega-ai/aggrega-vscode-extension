@@ -997,7 +997,307 @@ export const PLANTS: readonly Plant[] = [
     replace: "            if (false) {\n                child.kill('SIGTERM');",
     says: 'a stopped command is reported stopped without the process being ended, so it runs on',
   },
+  // ---- which folder, which Aggrega workspace, which Release: one folder, two Releases ----
+  {
+    name: 'sole-folder-left-unchosen', scenario: 'two-releases-context-rows', checks: ['context-rows.sole-candidates-taken-without-a-chooser'], moves: 'red', target: 'extension',
+    file: 'out/src/project-folder.js', find: '    if (folders.length === 1) {\n        return folders[0];', replace: '    if (folders.length === 1) {\n        return null;',
+    says: 'a window\'s sole open folder is not taken as the Project folder, so the row waits on a choice with nothing to choose between',
+  },
+  { name: 'context-row-renamed-two-releases', scenario: 'two-releases-context-rows', checks: ['context-rows.three-rows-on-lines-of-their-own'], moves: 'red', target: 'extension', ...CONTEXT_ROW_LABEL },
+  {
+    name: 'create-gap-left-out', scenario: 'two-releases-context-rows', checks: ['context-rows.create-controls-beside-the-workspace-and-release-rows'], moves: 'red', target: 'extension',
+    file: RENDER, find: `        ? '<span class="selector-create-gap" aria-hidden="true"></span>'`, replace: "        ? ''",
+    says: 'a row without a create control draws no empty space in its place, so its choosing control is wider than the rows beside it',
+  },
+  {
+    name: 'row-labels-given-one-width', scenario: 'two-releases-context-rows', checks: ['context-rows.values-start-in-line'], moves: 'green', target: 'extension',
+    file: 'media/operations.css', find: '.selector-label {\n  flex: 0 0 auto;', replace: '.selector-label {\n  flex: 0 0 10rem;',
+    says: 'the three rows\' labels are drawn at one width, so the values after them start in line',
+  },
+  {
+    name: 'workspace-chooser-titled-as-the-release-chooser', scenario: 'two-releases-context-rows', checks: ['context-rows.each-row-opens-its-own-chooser'], moves: 'red', target: 'extension',
+    file: 'out/src/anchor-picker.js', find: 'exports.CHOOSE_ANCHOR_PLACEHOLDER = `Aggrega: choose which ${selector_levels_1.SELECTOR_ROW_LABELS.workspace} the editor works in`;',
+    replace: "exports.CHOOSE_ANCHOR_PLACEHOLDER = 'Aggrega: choose the Release to work on';",
+    says: 'the Aggrega workspace row\'s chooser carries the Release chooser\'s placeholder, so one placeholder serves two rows',
+  },
+  {
+    name: 'release-create-settles-no-kind', scenario: 'two-releases-context-rows', checks: ['release-row.create-control-asks-only-for-the-name'], moves: 'red', target: 'extension',
+    file: 'out/src/get-started.js', find: "    await vscode.commands.executeCommand('aggrega.op.scaffold', undefined, selector_levels_1.SELECTOR_ROW_LABELS.release);",
+    replace: "    await vscode.commands.executeCommand('aggrega.op.scaffold', undefined, undefined);",
+    says: 'the Release row\'s create control opens the drafting flow with no kind settled, so it asks for a kind before the name',
+  },
+  {
+    name: 'choice-of-the-workspace-in-use-restarts', scenario: 'two-releases-context-rows', checks: ['context-rows.choosing-where-you-are-restarts-nothing'], moves: 'red', target: 'extension',
+    file: EXTENSION, find: '        await ensureDaemonAt(extensionContext, choice.offer.anchored);',
+    replace: '        await vscode.commands.executeCommand(daemon_status_1.RESTART_COMMAND);\n        await ensureDaemonAt(extensionContext, choice.offer.anchored);',
+    says: 'a choice on the Aggrega workspace row restarts the language server, the workspace already in use included',
+  },
+  {
+    name: 'release-hover-ends-lowercase', scenario: 'two-releases-context-rows', checks: ['context-rows.hovers-promise-a-choice'], moves: 'red', target: 'extension',
+    file: 'out/src/release-selection.js', find: 'Click to choose a different ${selector_levels_1.SELECTOR_ROW_LABELS.release}.`,', replace: 'Click to choose a different release.`,',
+    says: 'the Release row\'s hover closes with a lowercase "release."',
+  },
+  {
+    name: 'chosen-release-not-remembered', scenario: 'two-releases-context-rows', checks: ['release-selection.survives-a-window-reload', 'release-selection.survives-closing-and-reopening-the-window'], moves: 'red', target: 'extension',
+    file: 'out/src/release-selection.js', find: '            deps.store.write(chosen.release);', replace: '            void 0;',
+    says: 'a Release chosen is not remembered for the window, so a reload and a reopen each come back on the workspace\'s default',
+  },
+  {
+    name: 'dropped-release-not-said', scenario: 'two-releases-context-rows', checks: ['release-selection.one-no-longer-offered-falls-back-and-says-so'], moves: 'red', target: 'extension',
+    file: 'out/src/release-selection.js',
+    find: "            deps.reportInfo(`Aggrega: ${remembered} is no longer offered in this workspace, so the previous selection was dropped. Falling back to this workspace's default.`);",
+    replace: '            void 0;',
+    says: 'a remembered Release that is no longer offered is dropped without a word',
+  },
+  {
+    name: 'unanswered-server-read-as-none-selected', scenario: 'two-releases-context-rows', checks: ['release-row.reads-unavailable-with-the-server-stopped'], moves: 'red', target: 'extension',
+    file: 'out/src/release-selection.js', find: "                value: 'unavailable',", replace: "                value: 'none selected',",
+    says: 'the Release row reads "none selected" where no language server answers which Release is selected',
+  },
+  {
+    name: 'workspace-hover-promises-a-switch', scenario: 'two-releases-context-rows', checks: ['context-rows.no-surface-refuses-a-sole-candidate-or-promises-a-switch'], moves: 'red', target: 'extension',
+    file: 'out/src/anchor-picker.js', find: 'exports.CHOOSE_ANCHOR_INVITATION = `Click to choose which ${selector_levels_1.SELECTOR_ROW_LABELS.workspace} the editor works in.`;',
+    replace: "exports.CHOOSE_ANCHOR_INVITATION = 'Click to switch the anchored folder.';",
+    says: 'the Aggrega workspace row\'s hover closes by promising a switch',
+  },
+  // ---- two Aggrega workspaces reached in one window ----
+  {
+    name: 'two-workspaces-attach-to-the-first', scenario: 'two-workspaces-context-rows', checks: ['two-workspaces.editor-add-leaves-the-choice-to-the-reader'], moves: 'red', target: 'extension',
+    ...severalReachedAttachToTheFirst(),
+  },
+  {
+    name: 'pending-notice-button-opens-nothing', scenario: 'two-workspaces-context-rows', checks: ['two-workspaces.choosing-from-the-notice-starts-the-server-there'], moves: 'red', target: 'extension',
+    file: EXTENSION, find: '    if (choice === action) {\n        void vscode.commands.executeCommand(anchor_picker_1.SWITCH_ANCHOR_COMMAND);',
+    replace: '    if (false) {\n        void vscode.commands.executeCommand(anchor_picker_1.SWITCH_ANCHOR_COMMAND);',
+    says: 'the notice offering the choice of workspace opens nothing when its button is pressed',
+  },
+  {
+    name: 'every-add-read-as-costing-a-restart', scenario: 'two-workspaces-context-rows', checks: ['two-workspaces.workspace-chooser-in-a-two-folder-window'], moves: 'red', target: 'extension',
+    ...everyAddReadAsMakingANewWorkspace(),
+  },
+  {
+    name: 'status-item-names-the-first-workspace', scenario: 'two-workspaces-context-rows', checks: ['two-workspaces.switching-moves-the-rows-and-the-status-bar'], moves: 'red', target: 'extension',
+    file: 'out/src/anchor-picker.js', find: '(0, workspace_1.workspaceRootOf)(active), anchored.map', replace: '(0, workspace_1.workspaceRootOf)(anchored[0]), anchored.map',
+    says: 'the status bar\'s workspace item names the first workspace reached, whichever is in use',
+  },
+  {
+    name: 'chosen-workspace-not-remembered', scenario: 'two-workspaces-context-rows', checks: ['two-workspaces.workspace-chosen-survives-a-reload'], moves: 'red', target: 'extension',
+    file: 'out/src/anchor-picker.js', find: '    await state.update(exports.STATE_KEY, anchorPath ?? undefined);', replace: '    void 0;',
+    says: 'the Aggrega workspace chosen is not remembered for the window',
+  },
+  {
+    name: 'project-folder-scopes-nothing', scenario: 'two-workspaces-context-rows', checks: ['two-workspaces.project-folder-choice-scopes-the-workspaces-on-offer'], moves: 'red', target: 'extension',
+    file: EXTENSION, find: '    return inForce === null ? [...folders] : [inForce];', replace: '    return [...folders];',
+    says: 'the Project folder chosen scopes nothing, so every open folder answers for the workspaces on offer',
+  },
+  {
+    name: 'chosen-project-folder-not-remembered', scenario: 'two-workspaces-context-rows', checks: ['two-workspaces.project-folder-choice-survives-a-reload'], moves: 'red', target: 'extension',
+    file: 'out/src/project-folder.js', find: '    await state.update(exports.PROJECT_FOLDER_STATE_KEY, folderPath ?? undefined);', replace: '    void 0;',
+    says: 'the Project folder chosen is not remembered for the window',
+  },
+  {
+    name: 'sole-folder-line-at-every-count', scenario: 'two-workspaces-context-rows', checks: ['two-workspaces.project-hover-with-two-folders-names-no-sole-candidate'], moves: 'red', target: 'extension',
+    file: 'out/src/selector-rows.js', find: '    const sole = candidates === 1 ?', replace: '    const sole = candidates >= 1 ?',
+    says: 'the Project folder row\'s hover says only one Project folder is available whatever the count',
+  },
+  // ---- the Project folder row's opens and adds ----
+  {
+    name: 'add-entry-labelled-otherwise', scenario: 'project-folder-adds', checks: ['project-folder.chooser-offers-two-ways-to-reach-another'], moves: 'red', target: 'extension',
+    file: 'out/src/project-folder.js', find: "exports.ADD_FOLDER_ENTRY_LABEL = 'Add folder to this window…';", replace: "exports.ADD_FOLDER_ENTRY_LABEL = 'Add folder…';",
+    says: 'the Project folder chooser\'s add entry is labelled "Add folder…", which says nothing of which folders it is added beside',
+  },
+  {
+    name: 'widen-detail-names-no-cost', scenario: 'project-folder-adds', checks: ['workspace-row.last-entry-names-what-the-add-costs-here'], moves: 'red', target: 'extension',
+    file: 'out/src/anchor-picker.js', find: '    return (0, window_kind_1.withAddingCost)(WIDEN_ANCHOR_OFFER_DETAIL, windowKind);', replace: '    return WIDEN_ANCHOR_OFFER_DETAIL;',
+    says: 'the Aggrega workspace row\'s last entry is composed without what the add it ends in costs',
+  },
+  {
+    name: 'open-dialog-button-reads-add', scenario: 'project-folder-adds', checks: ['project-folder.open-dialog-names-its-act-lists-folders-and-cancels-quietly'], moves: 'red', target: 'extension',
+    file: 'out/src/project-folder.js', find: "    openLabel: 'Open',", replace: "    openLabel: 'Add',",
+    says: 'the open entry\'s dialog names the other act on its button',
+  },
+  {
+    name: 'add-dialog-titled-as-the-open-dialog', scenario: 'project-folder-adds', checks: ['project-folder.add-dialog-names-its-act-and-cancels-quietly'], moves: 'red', target: 'extension',
+    file: 'out/src/project-folder.js', find: "    title: 'Aggrega: select a folder to add to this window',", replace: "    title: 'Aggrega: select a folder to open in this window',",
+    says: 'the add entry\'s dialog is titled as the open entry\'s',
+  },
+  {
+    name: 'folder-already-open-handed-to-the-editor', scenario: 'project-folder-adds', checks: ['project-folder.adding-a-folder-already-open-says-so'], moves: 'red', target: 'extension',
+    file: 'out/src/project-folder.js', find: '    if (open.some((f) => f.uri.fsPath === folderPath)) {', replace: '    if (false) {',
+    says: 'a folder already open is handed to the editor to add like any other, which refuses it as a decline',
+  },
+  {
+    name: 'add-answer-kept-by-the-window-left', scenario: 'project-folder-adds', checks: ['project-folder.add-from-one-folder-comes-back-working-from-it'], moves: 'red', target: 'extension',
+    file: 'out/src/project-folder.js', find: '    if ((0, window_kind_1.addingMakesNewWorkspace)(adding.windowKind)) {\n', replace: '    if (false) {\n',
+    says: 'the answer an add gives is written into the window being left rather than carried into the workspace it makes',
+  },
+  {
+    name: 'add-in-place-read-as-a-new-workspace', scenario: 'project-folder-adds', checks: ['project-folder.add-in-place-costs-nothing-and-says-where'], moves: 'red', target: 'extension',
+    ...everyAddReadAsMakingANewWorkspace(),
+  },
+  {
+    name: 'open-entry-adds-instead', scenario: 'project-folder-adds', checks: ['project-folder.open-replaces-and-leaves-nothing-behind'], moves: 'red', target: 'extension',
+    file: EXTENSION, find: '                openFolder: (folder) => (0, window_folders_1.openFolderInWindow)(folder),',
+    replace: '                openFolder: async (folder) => { (0, window_folders_1.appendFolderToWindow)(folder); },',
+    says: 'the open entry adds the folder picked beside the ones the window has rather than opening it in their place',
+  },
+  {
+    name: 'no-folder-answered-with-a-chooser', scenario: 'project-folder-adds', checks: ['workspace-row.no-folder-open-answers-with-the-ways-out'], moves: 'red', target: 'extension',
+    file: EXTENSION, find: '        if ((vscode.workspace.workspaceFolders ?? []).length === 0) {', replace: '        if (false) {',
+    says: 'the Aggrega workspace row answers a window with no folder by opening a chooser',
+  },
+  {
+    name: 'no-folder-read-as-none-chosen', scenario: 'project-folder-adds', checks: ['project-folder.row-in-a-window-with-no-folder'], moves: 'red', target: 'extension',
+    file: 'out/src/selector-rows.js', find: '    if (candidates === 0) {\n        // The chooser this row opens carries opening a folder', replace: '    if (candidates === -1) {\n        // The chooser this row opens carries opening a folder',
+    says: 'a window with no folder open is read as one with folders open and none chosen',
+  },
+  {
+    name: 'widened-workspace-not-carried', scenario: 'project-folder-adds', checks: ['workspace-row.last-entry-carries-the-workspace-chosen'], moves: 'red', target: 'extension',
+    file: 'out/src/get-started.js', find: "{ level: 'workspace', path: choice.anchorPath });", replace: "{ level: 'workspace', path: '' });",
+    says: 'the workspace picked through the last entry is not carried into the window the add makes',
+  },
+  // ---- where the markers sit, relative to the folder opened ----
+  {
+    name: 'nothing-reachable-read-as-none-chosen', scenario: 'workspace-discovery-layouts', checks: ['workspace-row.nothing-reachable-reads-none-available-and-the-ways-out'], moves: 'red', target: 'extension',
+    file: 'out/src/selector-rows.js', find: '    if (anchoredRoot === null) {\n        if (candidates === 0) {', replace: '    if (anchoredRoot === null) {\n        if (candidates === -1) {',
+    says: 'a project reaching no Aggrega workspace is read as one holding several with none chosen',
+  },
+  {
+    name: 'release-row-asks-with-no-workspace', scenario: 'workspace-discovery-layouts', checks: ['release-row.no-workspace-in-use-answers-with-the-ways-out'], moves: 'red', target: 'extension',
+    file: EXTENSION, find: 'SELECT_RELEASE_COMMAND, async () => {\n        if (!workspaceRootForCommands) {', replace: 'SELECT_RELEASE_COMMAND, async () => {\n        if (false) {',
+    says: 'the Release row asks the selection for a chooser whether or not a workspace is in use',
+  },
+  {
+    name: 'widen-label-says-another-always', scenario: 'workspace-discovery-layouts', checks: ['workspace-row.nothing-reachable-offers-only-the-first-folder-entry'], moves: 'red', target: 'extension',
+    file: 'out/src/anchor-picker.js', find: '    return anchoredCount === 0', replace: '    return anchoredCount === -1',
+    says: 'the Aggrega workspace row\'s last entry says "another" with no workspace reached',
+  },
+  {
+    name: 'workspace-create-drafts-a-release', scenario: 'workspace-discovery-layouts', checks: ['workspace-row.create-control-makes-the-folder-the-root'], moves: 'red', target: 'extension',
+    file: 'out/src/selector-rows.js', find: '            command: get_started_steps_1.CREATE_WORKSPACE_COMMAND,', replace: '            command: get_started_steps_1.DRAFT_RELEASE_COMMAND,',
+    says: 'the Aggrega workspace row\'s create control runs the Release row\'s drafting rather than writing a workspace configuration',
+  },
+  {
+    name: 'look-inside-never-completes', scenario: 'workspace-discovery-layouts', checks: ['workspace-discovery.a-marker-below-the-folder-is-offered-beside-it'], moves: 'red', target: 'extension',
+    file: EXTENSION, find: '    if (generation !== folderEvaluation) {', replace: '    if (true) {',
+    says: 'the look through what the folder holds never completes the workspaces on offer',
+  },
+  {
+    name: 'workspace-in-use-compared-by-marker', scenario: 'workspace-discovery-layouts', checks: ['workspace-discovery.choosing-the-workspace-below-moves-there'], moves: 'green', target: 'extension',
+    file: EXTENSION, find: '    if (daemon && activeAnchored?.folder.uri.fsPath === anchoring.openedFolder) {', replace: '    if (daemon && activeAnchored?.anchorPath === target.anchorPath) {',
+    says: 'the guard against restarting for the workspace already in use compares the markers of the two workspaces, so a second one reached from the same folder is told apart from the first',
+  },
+  {
+    name: 'several-below-attach-to-the-first', scenario: 'workspace-discovery-layouts', checks: ['workspace-discovery.two-below-wait-for-a-choice'], moves: 'red', target: 'extension',
+    ...severalReachedAttachToTheFirst(),
+  },
+  {
+    name: 'remembered-choice-kept-until-the-look-inside', scenario: 'workspace-discovery-layouts', checks: ['workspace-discovery.a-choice-below-survives-a-reload-unsaid', 'workspace-discovery.one-below-survives-a-reload-unsaid'], moves: 'green', target: 'extension',
+    file: EXTENSION, find: '    if (savedAnchor !== null && !anchored.some(a => a.anchorPath === savedAnchor)) {', replace: '    if (false) {',
+    says: 'a remembered choice is not dropped on the walk up from the folder alone, so the look inside it can find the workspace again',
+  },
+  {
+    name: 'one-reached-asks-to-choose', scenario: 'workspace-discovery-layouts', checks: ['workspace-discovery.one-below-is-taken-without-a-press'], moves: 'red', target: 'extension',
+    file: 'out/src/anchor-picker.js', find: "        return { kind: 'single', target: anchored[0] };", replace: "        return { kind: 'multiPrompt', anchored: [...anchored] };",
+    says: 'a window reaching one Aggrega workspace asks the reader to choose it',
+  },
+  {
+    name: 'yml-release-marks-no-root', scenario: 'workspace-discovery-layouts', checks: ['workspace-discovery.root-marker-spellings-read-as-roots'], moves: 'red', target: 'extension',
+    file: 'out/src/workspace.js', find: "const YAML_SUFFIXES = ['.yaml', '.yml'];", replace: "const YAML_SUFFIXES = ['.yaml'];",
+    says: 'a Release spelled with .yml marks no root in the editor, though the compiler anchors on it',
+  },
+  // ---- a documentation example beneath the workspace root ----
+  {
+    name: 'workspace-row-drawn-unmarked-beneath', scenario: 'release-beneath-a-workspace-root', checks: ['beneath-a-workspace.rows-name-the-folder-and-the-root-above-it'], moves: 'red', target: 'extension',
+    ...workspaceRowDrawnUnmarked(),
+  },
+  {
+    name: 'release-row-reads-the-file-alone', scenario: 'release-beneath-a-workspace-root', checks: ['context-rows.release-row-names-the-path-relative-to-the-root'], moves: 'red', target: 'extension',
+    file: 'out/src/release-selection.js', find: '                value: state.release,', replace: '                value: path.basename(state.absolute),',
+    says: 'the Release row reads the file name alone, as the status bar\'s indicator does',
+  },
+  {
+    name: 'release-named-by-its-file-alone', scenario: 'release-beneath-a-workspace-root', checks: ['beneath-a-workspace.every-offered-release-is-accepted'], moves: 'red', target: 'extension',
+    file: 'out/src/release-selection.js', find: '            const release = (0, workspace_1.releaseParamFor)(root, absolute);', replace: '            const release = path.basename(absolute);',
+    says: 'each Release offered is sent by its file name alone rather than by its path relative to the root',
+  },
+  {
+    name: 'last-release-left-out-unsaid', scenario: 'release-beneath-a-workspace-root', checks: ['beneath-a-workspace.release-chooser-offers-every-release-file'], moves: 'red', target: 'extension',
+    file: 'out/src/release-selection.js', find: '        const candidates = answer.releases ?? [];', replace: '        const candidates = (answer.releases ?? []).slice(0, -1);',
+    says: 'the last Release the language server lists is left out of the chooser without a word',
+  },
+  // ---- the interruption for a workspace above the folder opened ----
+  {
+    name: 'dialog-labels-the-workspace-bare', scenario: 'workspace-above-interruption', checks: ['workspace-above.dialog-says-only-the-two-paths'], moves: 'red', target: 'extension',
+    file: 'out/src/workspace-above.js', find: '        workspace: `${selector_levels_1.SELECTOR_ROW_LABELS.workspace}: ${anchoredRoot}`,', replace: '        workspace: `Workspace: ${anchoredRoot}`,',
+    says: 'the dialog labels the workspace\'s line "Workspace:"',
+  },
+  {
+    name: 'workspace-row-drawn-unmarked', scenario: 'workspace-above-interruption', checks: ['workspace-above.continue-here-closes-the-dialog-and-leaves-the-mark'], moves: 'red', target: 'extension',
+    ...workspaceRowDrawnUnmarked(),
+  },
+  {
+    name: 'continue-here-silences-the-folder', scenario: 'workspace-above-interruption', checks: ['workspace-above.dialog-returns-in-a-new-window-until-silenced'], moves: 'red', target: 'extension',
+    file: 'out/src/workspace-above.js', find: "    if (choice === 'silence') {", replace: "    if (choice === 'silence' || choice === 'continue') {",
+    says: '"Continue here" is kept for the folder as "Don\'t show again for this folder" is, so no later window raises the dialog',
+  },
+  {
+    // Escape reaches the action the dialog declares as its close affordance, so it
+    // is that declaration, and not the answer read when nothing was pressed, that
+    // decides what a dismissal does.
+    name: 'escape-read-as-silence', scenario: 'workspace-above-interruption', checks: ['workspace-above.escape-on-the-dialog-is-continue-here'], moves: 'red', target: 'extension',
+    file: 'out/src/workspace-above.js',
+    find: "            { title: 'Continue here', isCloseAffordance: true, choice: 'continue' },\n            { title: 'Don\\'t show again for this folder', choice: 'silence' },",
+    replace: "            { title: 'Continue here', choice: 'continue' },\n            { title: 'Don\\'t show again for this folder', isCloseAffordance: true, choice: 'silence' },",
+    says: 'the dialog dismissed with Escape answers as "Don\'t show again for this folder", its close affordance declared there rather than on "Continue here"',
+  },
+  {
+    name: 'one-silence-for-every-folder', scenario: 'workspace-above-interruption', checks: ['workspace-above.silencing-one-folder-leaves-another-warning'], moves: 'red', target: 'extension',
+    file: 'out/src/workspace-above.js', find: '    if (readFoldersSilenced(silenced).includes(folder)) {', replace: '    if (readFoldersSilenced(silenced).length > 0) {',
+    says: 'silencing one folder silences every folder the window works from',
+  },
+  {
+    name: 'open-control-offered-always', scenario: 'workspace-above-interruption', checks: ['workspace-above.open-control-opens-the-workspace-when-pressed'], moves: 'red', target: 'extension',
+    file: 'out/src/selector-rows.js', find: '        offer: differs\n            ? {', replace: '        offer: anchoredRoot !== null\n            ? {',
+    says: 'the open control is offered whether or not the workspace sits outside the folder opened',
+  },
+  {
+    name: 'dialog-open-action-opens-nothing', scenario: 'workspace-above-interruption', checks: ['workspace-above.dialog-open-action-opens-the-workspace-when-pressed'], moves: 'red', target: 'extension',
+    file: 'out/src/workspace-above.js', find: "    if (choice === 'open') {", replace: '    if (false) {',
+    says: 'the dialog\'s opening action opens nothing',
+  },
+  {
+    name: 'interruption-raised-as-a-notification', scenario: 'workspace-above-interruption', checks: ['workspace-above.dialog-drawn-in-the-editors-own-drawing'], moves: 'red', target: 'extension',
+    file: EXTENSION, find: '{ modal: true, detail: notice.detail }', replace: '{ modal: false, detail: notice.detail }',
+    says: 'the interruption is raised as a notification rather than a dialog',
+  },
 ];
+
+// The edits two scenarios' plants make alike, each named once. They are function
+// declarations so the catalogue above can spread them though they are written
+// after it.
+type SharedEdit = Pick<Plant, 'file' | 'find' | 'replace' | 'says'>;
+
+function severalReachedAttachToTheFirst(): SharedEdit {
+  return {
+    file: 'out/src/anchor-picker.js', find: "    return { kind: 'multiPrompt', anchored: [...anchored] };", replace: "    return { kind: 'single', target: anchored[0] };",
+    says: 'a window reaching several Aggrega workspaces and remembering none attaches to the first without asking',
+  };
+}
+
+function everyAddReadAsMakingANewWorkspace(): SharedEdit {
+  return {
+    file: 'out/src/window-kind.js', find: '    return !windowKind.onWorkspaceFile;', replace: '    return true;',
+    says: 'every window is read as one an add turns into a new workspace, a window already on a workspace included, so its add names a cost it does not have',
+  };
+}
+
+function workspaceRowDrawnUnmarked(): SharedEdit {
+  return {
+    file: 'out/src/selector-rows.js', find: '        warning: differs ? workspace_above_1.WORKSPACE_ABOVE_HEADLINE : null,', replace: '        warning: null,',
+    says: 'the Aggrega workspace row is drawn without its mark where the workspace sits outside the folder opened',
+  };
+}
 
 // PlantRefused is a plant that cannot be applied as written.
 export class PlantRefused extends Error {}
