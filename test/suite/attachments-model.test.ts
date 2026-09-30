@@ -223,8 +223,8 @@ describe('AggregaAttachments — withholding sensitive material', () => {
     const byPath = fieldsByPath(a);
     assert.strictEqual(byPath.get('values.origin')!.value, null);
     assert.strictEqual(byPath.get('values.origin')!.withheld, model.WITHHELD_DECLARED);
-    // The locator no declaration covers, on a roll-up-marked attachment. This
-    // is the assertion the whole-attachment gate used to make impossible.
+    // The locator no declaration covers, on a roll-up-marked attachment, is
+    // shown: the roll-up withholds none of the leaves its declarations leave out.
     assert.strictEqual(byPath.get('values.key')!.value, 'REDIS_PASSWORD');
     assert.strictEqual(byPath.get('values.key')!.withheld, '');
     // The reader still learns the fields exist and where they are authored.
@@ -389,11 +389,11 @@ describe('AggregaAttachments — withholding sensitive material', () => {
       model.withheldNote(model.WITHHELD_DECLARED),
       'withheld — declared sensitive',
     );
-    // The attachment-wide reason survives only as the fail-safe, so its
-    // sentence names the fail-safe rather than claiming the attachment handles
-    // sensitive material — which is a claim about the attachment that this
-    // reason no longer carries, and which would be false of a payload withheld
-    // merely because its marking could not be parsed.
+    // The attachment-wide reason is only the fail-safe, so its sentence names
+    // the fail-safe rather than claiming the attachment handles sensitive
+    // material — a claim about the attachment that this reason does not
+    // carry, and which would be false of a payload withheld merely because its
+    // marking could not be parsed.
     assert.strictEqual(
       model.withheldNote(model.WITHHELD_ATTACHMENT),
       "withheld — this attachment's sensitivity marking is unreadable",

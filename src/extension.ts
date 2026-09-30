@@ -565,13 +565,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // that loaded a different set is then watched over the new one.
   ready.onReady(() => { void configurationWatch.reload(); });
 
-  // Registered here rather than when a language server attaches, which is the
-  // defect this replaces: the command that starts one is needed precisely in
-  // the workspace where none has attached, and a command that does not exist is
-  // not in the palette to be found. What decides whether a reader may run one
-  // is the condition above, declared in the manifest — so an unavailable
-  // command is greyed where they can see it rather than absent where they
-  // cannot.
+  // Registered here rather than when a language server attaches: the command
+  // that starts one is needed precisely in the workspace where none has
+  // attached, and a command that does not exist is not in the palette to be
+  // found. What decides whether a reader may run one is the condition above,
+  // declared in the manifest — and the editor leaves a command whose condition
+  // is false out of the command palette, so the condition is declared only on
+  // a command whose whole subject is a running language server.
   registerRestartCommand(context);
   registerLifecycleActionsCommand(context);
   registerBuildOnInspectToggle(context);
@@ -1988,8 +1988,8 @@ function registerBuildOnInspectToggle(context: vscode.ExtensionContext): void {
 // It is the command a reader reaches for when nothing is working, so it is the
 // one command that must never be withheld — and starting is what it does, so
 // refusing to run it because nothing is running would withhold it in exactly
-// the situation it is for. What it used to do there was report that the server
-// is not running, which the reader could already see, and stop.
+// the situation it is for, and answer with a report that the server is not
+// running, which the reader can already see.
 function registerRestartCommand(context: vscode.ExtensionContext): void {
   context.subscriptions.push(vscode.commands.registerCommand(RESTART_COMMAND, async () => {
     if (!daemon) {

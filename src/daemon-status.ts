@@ -3,12 +3,13 @@
 
 // The language server's lifecycle, as a reader reads it.
 //
-// WHY THIS EXISTS AT ALL. A command the editor greys tells a reader that
-// something is unavailable and nothing whatever about why, because no editor
-// surface shows a tooltip on a disabled control. A reader who cannot find out
-// why concludes the extension is broken. This is the surface that carries the
-// reason, and it doubles as the place to act on it — which is why it must be
-// visible in exactly the state the rest of the surface goes quiet in.
+// WHY THIS EXISTS AT ALL. A command that cannot run tells a reader nothing
+// whatever about why: the command palette leaves it out rather than saying so,
+// and no editor surface shows a tooltip on a disabled control. A reader who
+// cannot find out why concludes the extension is broken. This is the surface
+// that carries the reason, and it doubles as the place to act on it — which is
+// why it must be visible in exactly the state the rest of the surface goes
+// quiet in.
 //
 // This module reaches for no editor runtime, so what a reader is shown — which
 // standing each lifecycle position produces, the words on the item, its colour,
@@ -24,9 +25,11 @@ import { versionPhrase } from './version-words';
 // The commands whose availability this state decides, named once here so the
 // manifest and the code that registers them cannot drift onto different
 // spellings. Every one of them is registered when the extension activates; what
-// the manifest declares is which of them the editor greys, and greying is what
-// availability is expressed by. A command that exists only once a language
-// server has attached is missing in the one situation that needs it most.
+// the manifest declares is which of them the editor leaves out of the command
+// palette while the compiler cannot be asked, and leaving it out is what an
+// availability that is false is expressed by. A command that exists only once a
+// language server has attached is missing in the one situation that needs it
+// most.
 export const RESTART_COMMAND = 'aggrega.server.restart';
 export const LIFECYCLE_ACTIONS_COMMAND = 'aggrega.server.lifecycleActions';
 export const STATUS_BAR_MENU_COMMAND = 'aggrega.statusBar.openMenu';
@@ -103,13 +106,14 @@ export function serverInPlaceMessage(act: ServerInPlaceAct, version: string | nu
 // editor reads and nothing here can generate into it, so the two are held
 // together by a conformance assertion reading the manifest back against this
 // function. Without that, a command could carry a condition naming a key
-// nothing sets, and the symptom would be an entry greyed for ever.
+// nothing sets, and the symptom would be an entry left out of the command
+// palette for ever.
 export function enablementClause(): string {
   return COMPILER_ANSWERABLE_CONTEXT_KEY;
 }
 
-// GATED_ON_ANSWERABLE names the commands the editor greys while the compiler
-// cannot be asked.
+// GATED_ON_ANSWERABLE names the commands the editor leaves out of the command
+// palette while the compiler cannot be asked.
 //
 // The quick-action menu is here because its subject is a running language
 // server: it offers a restart of the server, the pending-restart controls, the
@@ -130,9 +134,10 @@ export const GATED_ON_ANSWERABLE: readonly string[] = [STATUS_BAR_MENU_COMMAND];
 // preference through the editor's own configuration API and touches neither the
 // language server nor the workspace root, so its invocation succeeds in every
 // state — and the server reads that preference when it STARTS, which makes a
-// stopped server the most useful moment to set it. Greying it would be the
-// mirror of drawing a control that cannot succeed: a control that would have
-// worked, refused, with the same lesson for the reader and none of the benefit.
+// stopped server the most useful moment to set it. Gating it would leave it out
+// of the command palette in exactly that state, the mirror of drawing a control
+// that cannot succeed: a control that would have worked, withheld, with the
+// same lesson for the reader and none of the benefit.
 export const NEVER_GATED: readonly string[] = [
   RESTART_COMMAND,
   LIFECYCLE_ACTIONS_COMMAND,
@@ -337,8 +342,9 @@ export interface DaemonStatusBar {
 // Every other surface here reports what a running compiler answered; this one
 // reports that there is nothing answering — which is exactly the state a reader
 // needs told, and the state in which every other surface has gone quiet. It is
-// also the only place the reason a greyed command cannot run is written down,
-// because no editor surface shows a tooltip on a disabled control.
+// also the only place the reason a gated command cannot run is written down,
+// because the command palette leaves such a command out and no editor surface
+// shows a tooltip on a disabled control.
 export function createDaemonStatusBar(deps: DaemonStatusDeps): DaemonStatusBar {
   const item = deps.createStatusBarItem();
   item.command = LIFECYCLE_ACTIONS_COMMAND;
@@ -370,7 +376,8 @@ export function daemonStandingAction(standing: DaemonStanding): DaemonStandingAc
   return standing === 'notRunning' ? 'start' : 'restart';
 }
 
-// daemonStandingTooltip is the explanation the greyed commands cannot give.
+// daemonStandingTooltip is the explanation a command left out of the command
+// palette cannot give.
 //
 // The not-running standing has two readings and the reader needs to know
 // which. A workspace nothing anchors has no root for a server to attach to,

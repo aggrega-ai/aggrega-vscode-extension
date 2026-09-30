@@ -11,8 +11,8 @@ import { withSubject } from './operation-groups';
 // without an extension host: a test reads back the exact argument list a press
 // would compose, and the exact value the manifest targets a row with.
 //
-// The publication and the publishing-conventions check are not composed here and
-// no longer pass through here. Each is a language-server request taking the row's
+// The publication and the publishing-conventions check are neither composed here
+// nor passed through here. Each is a language-server request taking the row's
 // own workspace-relative path as a request parameter, so there is no argument
 // list for this module to own or to re-export; the panel reaches both directly.
 

@@ -904,6 +904,20 @@ export const PLANTS: readonly Plant[] = [
     says: 'the restart command returns without a word where nothing is anchored',
   },
   {
+    name: 'status-bar-menu-listed-with-no-server', scenario: 'no-workspace-first-day', checks: ['palette.status-bar-menu-is-left-out-with-no-server'], moves: 'red', target: 'extension',
+    file: 'package.json',
+    find: '        "title": "Aggrega: Open status bar menu",\n        "enablement": "aggrega.compilerAnswerable"',
+    replace: '        "title": "Aggrega: Open status bar menu"',
+    says: 'the status bar menu command carries no enablement condition, so the palette lists it whether or not a language server answers',
+  },
+  {
+    name: 'status-bar-menu-gated-on-a-condition-nothing-publishes', scenario: 'no-workspace-first-day', checks: ['palette.status-bar-menu-is-listed-once-a-server-answers'], moves: 'red', target: 'extension',
+    file: 'package.json',
+    find: '        "title": "Aggrega: Open status bar menu",\n        "enablement": "aggrega.compilerAnswerable"',
+    replace: '        "title": "Aggrega: Open status bar menu",\n        "enablement": "aggrega.compilerAnswered"',
+    says: 'the status bar menu command is gated on an editor condition the extension never publishes, so it stays unavailable once a language server answers',
+  },
+  {
     name: 'toggle-unavailable-while-nothing-answers', scenario: 'no-workspace-first-day', checks: ['palette.build-analysis-toggle-works-with-no-server'], moves: 'red', target: 'extension',
     file: 'package.json',
     find: '        "command": "aggrega.server.toggleBuildOnInspect",\n        "title": "Aggrega: Toggle the build\'s analysis while inspecting"',

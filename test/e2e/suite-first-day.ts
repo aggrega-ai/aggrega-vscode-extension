@@ -11,17 +11,18 @@ import { continueHere } from './suite-above';
 import { closeAllEditors, languageServers, ready, reopen, run, send, SuiteContext } from './suite-context';
 import { HOVER_NOT_RUNNING_UNANCHORED, LIFECYCLE_PLACEHOLDER, RESTART_ACTION, START_ACTION } from './suite-readiness';
 import {
-  commandsPanel, documentWith, hoverAt, NOT_RUNNING, paletteRows, pickQuickInputRow, pressIn, QuickInput, quickInput, RUNNING, selectorRows, sleep, statusItems,
+  commandsPanel, documentWith, holds, hoverAt, NOT_RUNNING, paletteRows, pickQuickInputRow, pressIn, QuickInput, quickInput, RUNNING, selectorRows, sleep, statusItems,
   toasts, Toast, treeRows, until, waitQuickInput, waitStatus, waitToast,
 } from './workbench';
 
 // The checks run in a folder that no workspace marker reaches, on three repairs a
 // reader meets on their first day: the command that starts the language server is
-// there when nothing is running, and says why it starts none; a command that
-// cannot run is shown greyed while one that works without a server is not; the
-// status bar says what is wrong and offers the way out; and the welcome page's
-// control that creates a workspace configuration writes one the folder is
-// anchored by, now and after the window is opened again, and never overwrites it.
+// there when nothing is running, and says why it starts none; the command that
+// cannot run without a language server is left out of the palette until one
+// answers, while one that works without a server is listed; the status bar says
+// what is wrong and offers the way out; and the welcome page's control that
+// creates a workspace configuration writes one the folder is anchored by, now and
+// after the window is opened again, and never overwrites it.
 // Beside them, in a folder beneath a workspace root, the command that opens the
 // Release configuration opens the root's file and writes nothing where the reader
 // stands.
@@ -29,11 +30,12 @@ import {
 export const NO_WORKSPACE_CHECKS = [
   'palette.restart-command-is-there-with-no-workspace',
   'language-server.restart-with-no-workspace-says-there-is-none',
-  'palette.status-bar-menu-is-there-and-greyed-with-no-server',
+  'palette.status-bar-menu-is-left-out-with-no-server',
   'palette.build-analysis-toggle-works-with-no-server',
   'status-bar.lifecycle-item-says-there-is-nothing-to-attach-to',
   'workspace-config.authoring-release-with-no-workspace-says-so-and-writes-nothing',
   'welcome-page.create-workspace-configuration-anchors-the-folder',
+  'palette.status-bar-menu-is-listed-once-a-server-answers',
   'welcome-page.created-configuration-still-anchors-after-a-reopen',
   'welcome-page.create-workspace-configuration-again-opens-it-unchanged',
 ] as const;
@@ -51,6 +53,12 @@ const RESTART_SERVER = 'Restart server';
 const NO_ENTITIES = 'No entities in this workspace.';
 const CREATE_CONTROL = 'button.step-action[data-command="aggrega.getStarted.createWorkspace"]';
 const CONFIG = '.aggrega-config.yaml';
+
+// MENU_WINDOW_MS is how long the palette is watched for the status bar menu it is
+// to leave out, and MENU_LISTED_MS how long it is given to list the command once a
+// language server answers.
+const MENU_WINDOW_MS = 3000;
+const MENU_LISTED_MS = 10000;
 
 // paletteTitle is how the palette lists a command: the manifest's category, where
 // it declares one, then its title.
@@ -129,15 +137,35 @@ export async function noWorkspaceChecks(ctx: SuiteContext): Promise<void> {
     return { passed: told !== null && told.message === NO_WORKSPACE && servers === 0, seen: `${told === null ? 'no notification' : `"${told.message}" (${told.severity})`}; language servers running: ${servers}` };
   });
 
-  // ---- the greyed command and the one that is not ----
-  await c.run('palette.status-bar-menu-is-there-and-greyed-with-no-server', {
-    expected: `with no language server, the palette searched for "${menuTitle}" (the manifest's title for aggrega.statusBar.openMenu) lists it, drawn as unavailable rather than missing`,
-    plant: 'in the scratch copy\'s package.json, the command\'s enablement condition removed, so it is drawn available',
-  }, async () => {
+  // ---- the command left out with no server, and the one that is not ----
+  // menuReading is the one observation both checks of the status bar menu make,
+  // here with no server and again once one answers: the palette opened, the
+  // command's title typed into it, and the row it draws for the command, if any.
+  const menuReading = async (): Promise<{ query: boolean; row: PaletteRow | undefined; labels: string[] }> => {
     const { q, rows } = await paletteLook(ctx, menuTitle);
-    const row = rows.find((r) => r.label === menuTitle);
     await closePalette(ctx);
-    return { passed: row !== undefined && row.greyed, seen: row === undefined ? `the palette does not list it; for "${menuTitle}" it offers ${JSON.stringify(q.rows.map((r) => r.text))}` : `listed, ${row.greyed ? 'drawn unavailable' : `drawn available (${row.classes})`}` };
+    return { query: q.value === `>${menuTitle}`, row: rows.find((r) => r.label === menuTitle), labels: rows.map((r) => r.label) };
+  };
+  await c.run('palette.status-bar-menu-is-left-out-with-no-server', {
+    expected: `with no language server answering, the palette searched for "${menuTitle}" (the manifest's title for aggrega.statusBar.openMenu) does not list it, at any reading over ${MENU_WINDOW_MS} ms`,
+    plant: 'in the scratch copy\'s package.json, the command\'s enablement condition removed, so the palette lists it with no server',
+  }, async () => {
+    const servers = languageServers(ctx).length;
+    need(servers === 0, `${servers} language server(s) running, so there is no window without one to read the palette in`);
+    const first = await menuReading();
+    need(first.query, `the palette did not hold the typed title "${menuTitle}", so what it lists says nothing about the command`);
+    const watch = first.row === undefined
+      ? await holds(MENU_WINDOW_MS, menuReading, (v) => v.query && v.row === undefined)
+      : { held: false, readings: 0, broke: first, atMs: 0 };
+    const broke = watch.broke;
+    return {
+      passed: watch.held,
+      seen: watch.held
+        ? `the palette held the typed title and did not list the command at any of ${1 + watch.readings} readings over ${MENU_WINDOW_MS} ms; for "${menuTitle}" it offers ${JSON.stringify(first.labels)}`
+        : broke === undefined || !broke.query
+          ? `at a reading ${watch.atMs ?? 0} ms in, the palette did not hold the typed title`
+          : `listed ${watch.atMs ?? 0} ms in, drawn ${broke.row?.greyed ? `unavailable (${broke.row.classes})` : 'available'}`,
+    };
   });
   await c.run('palette.build-analysis-toggle-works-with-no-server', {
     expected: `with no language server, the palette lists "${toggleTitle}" available; taking it turns aggrega.server.buildOnInspect on in the user settings and raises "${toggleSentence(true)}" with a "${RESTART_SERVER}" button; taking it again turns the setting off and raises "${toggleSentence(false)}"`,
@@ -241,6 +269,25 @@ export async function noWorkspaceChecks(ctx: SuiteContext): Promise<void> {
     return {
       passed: created !== null && sentence && active?.path === config && running && answered.workspace === path.basename(ctx.folder) && answered.catalog.includes(NO_ENTITIES) && same,
       seen: `${told === null ? 'no notification' : `"${words}"`}; ${CONFIG} ${created === null ? 'not written' : `written (${JSON.stringify(created.toString('utf8'))})`}; the tab in front ${active?.path ?? 'none'}; the status bar ${running ? `reads "${RUNNING}"` : 'never read running'}; the Aggrega workspace row "${answered.workspace}", the Catalog panel ${JSON.stringify(answered.catalog)}; the window ${same ? 'was not reloaded' : 'was reloaded'}`,
+    };
+  });
+  // The positive control for the status bar menu's absence: the same reading, in
+  // the same window, once the folder is anchored and its language server answers.
+  await c.run('palette.status-bar-menu-is-listed-once-a-server-answers', {
+    expected: `once the folder is anchored and its language server answers — the status bar reading "${RUNNING}" — the same palette search for "${menuTitle}" lists it, drawn available, within ${MENU_LISTED_MS} ms`,
+    plant: 'in the scratch copy\'s package.json, the command\'s enablement condition naming an editor condition the extension never publishes, so it stays unavailable once a server answers',
+  }, async () => {
+    need(created !== null, 'the control wrote no configuration, so nothing anchors the folder for a language server to answer in');
+    const running = await waitStatus(ctx.d, RUNNING, 20000).then(() => true, () => false);
+    need(running, `the status bar does not read "${RUNNING}", so no language server answers`);
+    const last = await until(`the palette listing "${menuTitle}"`, MENU_LISTED_MS, menuReading, (v) => v.query && v.row !== undefined).catch(() => menuReading());
+    return {
+      passed: last.query && last.row !== undefined && !last.row.greyed,
+      seen: !last.query
+        ? 'the palette did not hold the typed title'
+        : last.row === undefined
+          ? `the palette does not list it; for "${menuTitle}" it offers ${JSON.stringify(last.labels)}`
+          : `listed, drawn ${last.row.greyed ? `unavailable (${last.row.classes})` : 'available'}`,
     };
   });
   await c.run('welcome-page.created-configuration-still-anchors-after-a-reopen', {

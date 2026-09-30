@@ -22,8 +22,8 @@
 // published under, so a command's availability can be declared in the manifest
 // instead of decided inside its handler. A command whose handler registers and
 // then returns looks enabled and does nothing, which teaches a reader that the
-// command is broken; a command the editor greys says the same thing before it
-// is pressed.
+// command is broken; a command whose condition is false is left out of the
+// command palette by the editor, so it is never offered to be pressed.
 //
 // The key is a PROJECTION of the state below and never a second answer to it:
 // its one publisher reads isReady() and publishes nothing else. That is why the

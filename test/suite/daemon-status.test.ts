@@ -360,11 +360,11 @@ describe('the lifecycle indicator', () => {
 
 describe('what the manifest declares about availability', () => {
   // 🔴 THE CLAUSE THIS FILE EXISTS FOR. Registration is assertable and passes
-  // while the palette hides a command behind an enablement clause that is
-  // false — so what is asserted here is the clause, and whether the palette
-  // then greys rather than hides is the editor's own behaviour, met on the
-  // walk. What can be proved here is that the restart is gated by nothing at
-  // all.
+  // while the palette leaves a command out behind an enablement clause that is
+  // false — so what is asserted here is the clause, and that the palette then
+  // leaves the command out is the editor's own behaviour, read in a running
+  // editor by the end-to-end suite. What can be proved here is that the restart
+  // is gated by nothing at all.
   it('gates the command that starts a language server on nothing', () => {
     const entry = declared(RESTART_COMMAND);
     assert.ok(entry, `${RESTART_COMMAND} is not declared, so the palette offers no way to start one`);
@@ -381,7 +381,7 @@ describe('what the manifest declares about availability', () => {
     }
   });
 
-  it('expresses an unavailable command as greyed rather than as absent', () => {
+  it('gates a command whose subject is a running server on the readiness condition, which leaves it out of the command palette while none answers', () => {
     for (const id of GATED_ON_ANSWERABLE) {
       assert.strictEqual(
         declared(id)?.enablement,
@@ -396,7 +396,7 @@ describe('what the manifest declares about availability', () => {
       assert.strictEqual(
         declared(id)?.enablement,
         undefined,
-        `${id} is greyed while its invocation would have succeeded, which teaches a reader to distrust the surface for nothing`,
+        `${id} is left out of the command palette while its invocation would have succeeded, so a reader searching for it concludes it does not exist`,
       );
     }
   });
@@ -409,19 +409,17 @@ describe('what the manifest declares about availability', () => {
       assert.strictEqual(
         gate,
         COMPILER_ANSWERABLE_CONTEXT_KEY,
-        `no part of this extension sets ${gate}, so a command carrying it is greyed for ever`,
+        `no part of this extension sets ${gate}, so a command carrying it is left out of the command palette for ever`,
       );
     }
   });
 
-  // The assertion this replaces required the command gate not to be one of the
-  // welcome panel's four step conditions, which the editor published as
-  // conditions of its own. Retired rather than adjusted: the panel is drawn by
-  // this extension and reads its four standings directly, so no step condition
-  // is published to the editor at all and there is none for a gate to collide
-  // with. The assertion above — that every declared gate is the one condition
-  // this extension publishes — is what now carries that guarantee, and it
-  // carries it for every key rather than for four named ones.
+  // No command gate can collide with one of the welcome panel's four step
+  // conditions: the panel is drawn by this extension and reads its four
+  // standings directly, so no step condition is published to the editor at
+  // all. The assertion above — that every declared gate is the one condition
+  // this extension publishes — carries that guarantee, and it carries it for
+  // every key rather than for four named ones.
 
   // Two palette entries differing only in wording leave a reader choosing
   // between two names for one act. The offer the indicator opens is the

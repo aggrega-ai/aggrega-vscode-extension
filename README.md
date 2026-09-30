@@ -210,25 +210,26 @@ own shape is admissible — and the checks that need a Release are skipped until
 
 ## When the language server is not running
 
-**Every command this extension contributes is there from the moment it starts, whether or not a
-language server is running.** A command that only came into being once one had attached would be
-missing from the palette in exactly the window that needs it most — the one where nothing is
-running and you are looking for the way to start it.
+**Every command this extension contributes exists from the moment it starts, whether or not a
+language server is running**, and only one of them, named below, waits on a server before the
+command index lists it. A command that only came into being once one had attached would be missing
+from the command index in exactly the window that needs it most — the one where nothing is running
+and you are looking for the way to start it.
 
 **The status-bar indicator on the left is where you find out what is going on.** It reads
 **running**, **starting**, or **not running** in red, and its tooltip says why: no folder in this
 window is one Aggrega recognises, or there is one and the server is not attached to it. Clicking it
 offers **Start** or **Restart** — whichever applies — and does it.
 
-That indicator exists because a greyed-out command explains nothing. No editor surface shows a
-tooltip on a disabled control, so a command you cannot run tells you only that you cannot run it.
-The indicator is where the reason is written down, and it is also where you act on it.
+That indicator exists because a command that cannot run explains nothing: the command index leaves
+it out rather than saying why, and no editor surface shows a tooltip on a disabled control. The
+indicator is where the reason is written down, and it is also where you act on it.
 
 **Aggrega: Open status bar menu** is left out of the command index while no language server is
 answering: everything it offers is an action on a running language server, and your editor does not
 list a command that cannot run there. It comes back the moment one is answering.
 
-**A command that works without one is not greyed**, even though it concerns the server.
+**A command that works without one stays in the command index**, even though it concerns the server.
 **Aggrega: Toggle the build's analysis while inspecting** writes a preference, and the server reads
 that preference when it starts — so a stopped server is the most useful moment to set it, not a
 reason to withhold it.
@@ -322,7 +323,7 @@ they write `.aggrega/active-release` or `.aggrega-config.yaml` rather than an ed
 - **Aggrega: Select Release…** — choose the Release the editor works on. Takes effect at once and re-checks the open files against it; nothing restarts. Also reachable by clicking the Release indicator in the status bar. See [Selecting a Release](#selecting-a-release).
 - **Aggrega: Set the selected Release as this workspace's default** — record the selected Release in `.aggrega/active-release`, so a later session starts on it. Local to your checkout, and it does not change the current selection.
 - **Aggrega: Set authoring_release in .aggrega-config.yaml…** — open the configuration file to set `build.authoring_release`, the committed default a team shares. It outranks the marker file.
-- **Aggrega: Start or restart the language server** — starts the language server where none is running, and where one is, terminates it and spawns a fresh one, resetting the respawn-attempt counter. It is never greyed: starting is what it does, so withholding it while nothing is running would withhold it in the one situation that needs it. Also reachable by clicking the language-server indicator in the status bar. Where no folder in the window is one Aggrega recognises, it says so rather than appearing to do nothing.
+- **Aggrega: Start or restart the language server** — starts the language server where none is running, and where one is, terminates it and spawns a fresh one, resetting the respawn-attempt counter. It is never left out of the command palette: starting is what it does, so withholding it while nothing is running would withhold it in the one situation that needs it. Also reachable by clicking the language-server indicator in the status bar. Where no folder in the window is one Aggrega recognises, it says so rather than appearing to do nothing.
 - **Aggrega: Toggle the build's analysis while inspecting** — flips the `aggrega.server.buildOnInspect` setting in place, so the settings UI always agrees with it, and offers the restart that applies it — the language server reads the setting when it starts. Also reachable from the status-bar quick-action menu, which shows whether the setting is currently on. Findings arrive tagged with the layer that raised them, so the build's analysis groups apart from validation in the Problems panel and clears independently of it.
 - **Aggrega: Validate active file / Build / Preview build / Lint** — run the corresponding compiler operation through the language server. Build, preview build and pull act on the selected Release rather than asking each time. Build compiles the selected Release with every gate on and writes the artifacts it renders into the workspace's `dist/` directory; preview build runs the same compile and reports what it would have written, leaving the output directory untouched. On the Commands panel the Build button carries a caret beside it, named **Build options**, opening the options that apply to the next build — **Auto pull** resolves the selected Release's dependencies into the lockfile before rendering, and it is off unless you turn it on, which is the command line's own default for the same choice. Each option carries a box beside it — empty while it is off, ticked while it is on — so you can read its standing without pressing anything, and the sentence saying what turning it on does appears while you are pointing at the row or have reached it with the arrow keys. Turning an option runs nothing and leaves the list open, so you can turn another; pressing Build — or the caret again — puts the list away. Options last for the session and are written nowhere, so closing the window discards them, and they belong to Build alone: preview build reports what a build would write while writing none of it, and resolving dependencies writes the lockfile, so it takes no options at all. Both put the findings that carry a document position in the Problems panel, tagged with the layer that raised them, and write the advisories that name no position — a withdrawn pin, an unresolvable parent — to the Aggrega output channel along with the artifact list. Lint checks publishing conventions and places each finding in the Problems panel, tagged with the rule that produced it, so clicking one opens the entity it concerns; a finding located to a file but not to a line sits at the top of that file rather than at a guessed position, and every finding is written to the Aggrega output channel as well, in the same line form the command line uses, with the rule's own identity and wording untouched. All four report how many findings they produced, including when the answer is none, so a clean run is distinguishable from a command that did not run; all four show progress with a Cancel button while they work.
 - **Aggrega: Pull** — run the `aggrega` binary against the selected Release and stream its output to the Aggrega output channel. It resolves the catalog and source dependencies the Release declares into the cache and writes the per-Release lockfile, recording in that lockfile the external inputs the Release's render consumes, so a later build serves them from the local store. It reaches a registry, so it shows progress with a Cancel button, and it ends in a message saying what it did. A Build, a Preview or a graph you open that the compiler refuses because the Release has no lockfile ends in one notification, `Aggrega: <release> has no lockfile.` followed by the compiler's own sentence, with a **Pull** button: pressing it runs this command, with the binary the extension is configured with, for the Release the compiler named — or for the selected Release where the compiler named none — and the output channel carries the compiler's sentence in the line the operation ends with. A redraw you did not ask for, such as an open graph redrawn after a save, raises the same notice at most as often as the two `aggrega.notifications` settings allow. Whatever writes the selected Release's lockfile — this command, a build with Auto pull, or `aggrega pull` typed in a terminal — the open files are checked again against it, and a warning that the lockfile has drifted leaves the Problems panel on its own once the write has resolved it: a graph open on that Release is redrawn, which checks the lockfile again, and where no graph shows that Release — none is open, or the one open is still showing a Release you selected before — the extension asks for its graph once without drawing anything. Only the selected Release's lockfile is followed this way, and only inside the folders the window has open; a warning on another Release's lockfile stays until you show that Release's graph.
@@ -461,10 +462,11 @@ server comes and goes, and what each operation ends in:
   the server more often than its respawn bound allows — and what the status
   bar's language-server item says and offers in that state.
 - `no-workspace-first-day` opens a folder no workspace marker reaches: the
-  commands that must answer with nothing to attach to, whether the one that
-  cannot run without a server is listed as unavailable in the command palette,
-  and the welcome page's control that creates a workspace
-  configuration, checked again after the editor is closed and opened again.
+  commands that must answer with nothing to attach to, that the one that cannot
+  run without a server is left out of the command palette until the folder is
+  anchored and a server answers, and the welcome page's control that creates a
+  workspace configuration, checked again after the editor is closed and opened
+  again.
   `workspace-above-authoring-release` opens a folder beneath a workspace root
   and checks which configuration file the Release configuration command opens.
 - `gateway-cache` runs the four cache operations from the Commands panel and
