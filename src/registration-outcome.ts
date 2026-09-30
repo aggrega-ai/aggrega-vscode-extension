@@ -23,14 +23,32 @@ import { ConfigWriteScope, reachPhrase } from './config-write-scope';
 // The outcomes mean different things to a reader and are carried as separate
 // fields rather than as a sentence, so this surface reads a value instead of
 // parsing prose. A registry that advertises nothing is not a failure: the
-// registration proceeds on what the request supplied, and this client supplies
-// no identity and no key. The official hub is the exception, because the
-// compiler carries a built-in baseline for it and pins that whenever no
-// advertised policy was taken — including where the offline posture kept the
-// hub from being asked at all, which the answer reports as the baseline alone.
+// registration proceeds on what the request supplied, and a registration this
+// client sends first supplies no identity and no key. Where the reader then
+// supplies either by hand, a second registration carries it, and that one's fetch
+// is skipped, because a policy stated by hand takes the place of an advertised
+// one. The official hub is the exception, because the compiler carries a built-in
+// baseline for it and pins that whenever no advertised policy was taken —
+// including where the offline posture kept the hub from being asked at all, which
+// the answer reports as the baseline alone.
 export type TrustFetchOutcome = wire.TrustFetchOutcome;
 
-// trustPhrase says what the advertised-trust fetch found.
+// PinnedByHand says what a registration supplied to pin by hand: how many keyless
+// identities, and whether a public key.
+//
+// 🔴 IT CARRIES NO IDENTITY AND NO PATH, AND THE ABSENCE IS THE POINT. The
+// sentence below names what kind of trust the entry now carries and never the
+// values: the reader has just typed or chosen them, and the command line's own
+// confirmation of such a registration names neither. A refusal of one is the
+// compiler's own sentence, carried whole, and names what the compiler names.
+export interface PinnedByHand {
+  identities: number;
+  key: boolean;
+}
+
+// trustPhrase says what the advertised-trust fetch found, and — where the fetch
+// was skipped because the registration supplied a policy by hand — what the entry
+// carries in its place.
 //
 // 🔴 THE BUILT-IN BASELINE IS READ AHEAD OF THE NOT-ADVERTISED CASE, which is the
 // compiler's own order. Both are set where the hub was asked and advertised
@@ -42,7 +60,11 @@ export type TrustFetchOutcome = wire.TrustFetchOutcome;
 // answer's own account of why, unaltered — the endpoint's reply, or the offline
 // refusal that kept the registry from being asked. It is the compiler's text and
 // it names what was actually reached, which a re-wording would discard.
-export function trustPhrase(trust: TrustFetchOutcome): string {
+//
+// What was pinned by hand is read only where the answer says the fetch was
+// skipped. That is the answer confirming the compiler took the policy the request
+// stated; an answer reporting anything else is read as that, whatever was sent.
+export function trustPhrase(trust: TrustFetchOutcome, byHand: PinnedByHand | null = null): string {
   const because = trust.reason ? ` ${trust.reason}` : '';
   if (trust.pinned) {
     const count = trust.identities ?? 0;
@@ -60,12 +82,29 @@ export function trustPhrase(trust: TrustFetchOutcome): string {
       + because;
   }
   if (trust.skipped) {
-    return 'No advertised signature trust policy was fetched.';
+    const supplied = byHand === null ? null : pinnedByHandPhrase(byHand);
+    return supplied === null
+      ? 'No advertised signature trust policy was fetched.'
+      : `Its signature trust policy is ${supplied} this registration supplied, so no `
+        + 'advertised policy was fetched.';
   }
   // The answer reported none of the outcomes above. Saying so is the honest
   // reading: a surface that picked one of them would report a fact the compiler
   // did not send.
   return 'The answer names no signature trust policy outcome.';
+}
+
+// pinnedByHandPhrase names the kinds of trust a registration pinned by hand, or
+// reports null where it pinned none.
+function pinnedByHandPhrase(byHand: PinnedByHand): string | null {
+  const identities = byHand.identities === 0
+    ? null
+    : byHand.identities === 1 ? 'the keyless identity' : 'the keyless identities';
+  const key = byHand.key ? 'the public key' : null;
+  if (identities !== null && key !== null) {
+    return `${identities} and ${key}`;
+  }
+  return identities ?? key;
 }
 
 // registrationSentence is what a completed registration reads as.
@@ -75,11 +114,13 @@ export function trustPhrase(trust: TrustFetchOutcome): string {
 // the trust fetch found — rather than that something finished. The host is the
 // normalised one the compiler keyed the entry under, which is not always the
 // token that was typed, and the file is the one the write actually resolved to.
+// A registration that supplied a policy by hand says what kind it pinned.
 export function registrationSentence(
   host: string,
   scope: ConfigWriteScope,
   trust: TrustFetchOutcome,
+  byHand: PinnedByHand | null = null,
 ): string {
   return `registered ${host} in ${scope.configFile}, ${reachPhrase(scope)}. `
-    + trustPhrase(trust);
+    + trustPhrase(trust, byHand);
 }

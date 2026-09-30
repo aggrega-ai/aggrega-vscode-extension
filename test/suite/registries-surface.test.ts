@@ -326,6 +326,7 @@ describe('the registries panel and the catalog search reach the compiler without
       [
         './config-change-watch',
         './config-write-scope',
+        './error-surfaces',
         './operation-groups',
         './operation-outcome',
         './registration-outcome',

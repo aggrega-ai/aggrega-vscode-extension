@@ -9,8 +9,9 @@ import {
   reachOfDestination,
   reachPhrase,
 } from './config-write-scope';
+import { isJsonRpcError } from './error-surfaces';
 import { OperationOutcome, outcomeOf } from './operation-outcome';
-import { registrationSentence } from './registration-outcome';
+import { PinnedByHand, registrationSentence } from './registration-outcome';
 import { withSubject } from './operation-groups';
 
 // This module is the whole of what changing the configured registries means on
@@ -81,20 +82,28 @@ export function removalConsentDetail(destination: ConfigWriteDestination): strin
 
 // RegistryAddParams is what this client sends to register a registry.
 //
-// 🔴 IT CARRIES THE HOST AND THE DESTINATION, AND THE ABSENCE OF THE REST IS THE
-// CONTRACT RATHER THAN AN OMISSION. The operation also accepts a friendly alias,
-// pinned identities, a key path, a trust-root path, a signature requirement, an
-// advisory downgrade and a switch for the advertised-trust fetch. This client
-// offers none of them, so none is declared here, because a declared field is a
-// field a later call site will fill.
+// 🔴 IT CARRIES THE HOST AND THE DESTINATION, AND, WHERE THE READER SUPPLIED THEM,
+// KEYLESS IDENTITIES AND A PUBLIC KEY — AND THE ABSENCE OF THE REST IS THE
+// CONTRACT RATHER THAN AN OMISSION. The operation also accepts a friendly alias, a
+// trust-root path, a signature requirement, an advisory downgrade and a switch for
+// the advertised-trust fetch. This client offers none of them, so none is declared
+// here, because a declared field is a field a later call site will fill.
 //
-// Sending none of them takes the compiler's own defaults, which are the defaults
-// a reader gets from a bare command line: the advertised trust policy is fetched
-// and pinned, nothing is required, nothing is downgraded, and no identity is
-// pinned by hand. Two of those defaults are not the zero value — the fetch
-// defaults to on, and an unset signature requirement is distinguishable from one
-// explicitly turned off — which is why omitting the fields is not the same as
-// declaring them false, and why they must stay undeclared rather than sent empty.
+// The identities and the key are declared because they are exactly what the
+// command line takes where a registry advertises no trust policy: its notice for
+// that case, and its refusal of such a registry while the workspace is offline,
+// each name those two and nothing else. They are asked for only in that case (see
+// asksForTrust), and each is sent only where the reader supplied it, so a
+// registration that names neither is the bare one.
+//
+// Sending none of the rest takes the compiler's own defaults, which are the
+// defaults a reader gets from a command line naming none of those flags: the
+// advertised trust policy is fetched and pinned unless identities or a key are
+// supplied, nothing is required, and nothing is downgraded. Two of those defaults
+// are not the zero value — the fetch defaults to on, and an unset signature
+// requirement is distinguishable from one explicitly turned off — which is why
+// omitting the fields is not the same as declaring them false, and why they must
+// stay undeclared rather than sent empty.
 //
 // The two destination fields are declared BECAUSE the reader chooses between
 // them. Exactly one is true on any request, decided by one value in one place,
@@ -102,7 +111,7 @@ export function removalConsentDetail(destination: ConfigWriteDestination): strin
 // that would silently take a default instead of the reader's answer.
 export type RegistryAddParams = Required<
   Pick<wire.RegistryAddParams, 'host' | 'global' | 'workspace'>
->;
+> & Pick<wire.RegistryAddParams, 'identities' | 'keyPath'>;
 
 // RegistryAddResult is the answer a registration produces.
 //
@@ -185,9 +194,123 @@ export const REGISTRATION_SUBJECT = 'The registration';
 export const REGISTRY_REMOVAL_SUBJECT = 'The removal';
 export const CREDENTIAL_REMOVAL_SUBJECT = 'The credential removal';
 
+// --- a trust policy pinned by hand ---------------------------------------
+
+// TrustByHand is what a reader supplied to pin by hand where a registration took
+// no advertised policy: keyless identities, each exactly as typed, and the path
+// of a public-key file, or null where no key was chosen.
+//
+// 🔴 NOTHING HERE READS, CHECKS OR KEEPS EITHER. Each identity is sent as typed
+// and the key file is read by the compiler, which refuses a malformed identity, an
+// unreadable file or one that is not a public key in the same sentence the command
+// line prints for it; a check on this side would be a second answer to what an
+// identity or a key is. Nothing is
+// written anywhere by this side, and the answers last only as long as the one
+// registration they are sent with.
+export interface TrustByHand {
+  identities: string[];
+  keyPath: string | null;
+}
+
+// TrustByHandChoice is one row of the question asked first: which kinds of trust
+// the reader wants to pin. The row that pins neither is a way to say no, beside
+// dismissing the question.
+export interface TrustByHandChoice {
+  label: string;
+  description: string;
+  identities: boolean;
+  key: boolean;
+}
+
+export const TRUST_BY_HAND_CHOICES: readonly TrustByHandChoice[] = [
+  { label: 'Keyless identities', description: 'each written identity=issuer', identities: true, key: false },
+  { label: 'A public key', description: 'a public-key file, read and pinned in the entry', identities: false, key: true },
+  { label: 'Keyless identities and a public key', description: 'the identities first, then the key', identities: true, key: true },
+  { label: 'Neither', description: 'leave it as it stands', identities: false, key: false },
+];
+
+// trustByHandTitle and TRUST_BY_HAND_PLACEHOLDER are how the question is put.
+// One wording serves both cases it is asked in — a registry that advertises
+// nothing, and one refused offline for want of a policy — because the ending
+// in front of the reader has already said which it was.
+export function trustByHandTitle(host: string): string {
+  return `Aggrega: pin a signature trust policy for ${host} by hand?`;
+}
+export const TRUST_BY_HAND_PLACEHOLDER =
+  'The registry\'s own policy was not taken. Choose what to pin, or press Escape to pin nothing.';
+
+// The prompt that asks for the identities, one at a time. An empty answer ends
+// the list, and dismissing any prompt pins nothing at all.
+export function identityPromptTitle(host: string): string {
+  return `Aggrega: a keyless identity to trust for ${host}`;
+}
+export const IDENTITY_PROMPT_FIRST =
+  'Written identity=issuer. Press Enter with nothing typed to pin none; Escape pins nothing at all.';
+export const IDENTITY_PROMPT_NEXT =
+  'Another, written identity=issuer. Press Enter with nothing typed when there are no more.';
+export const IDENTITY_PLACEHOLDER = 'dev@example.com=https://accounts.google.com';
+
+// The dialog that asks for the key file. A file dialog rather than a typed path,
+// because it answers with an absolute path: the compiler reads a relative one
+// against the directory the language server was started in, which a reader of
+// this surface cannot see.
+export function keyDialogTitle(host: string): string {
+  return `Aggrega: a public key to trust for ${host}`;
+}
+export const KEY_DIALOG_BUTTON = 'Pin this key';
+
+// OFFLINE_REGISTRATION_WITHOUT_TRUST_POLICY is the short code of the compiler's
+// refusal to register a registry other than the official hub while the workspace
+// is offline and no policy was supplied by hand.
+//
+// 🔴 IT IS HELD HERE BECAUSE NOTHING ELSE ON THE WIRE NAMES THE CONDITION. The
+// refusal carries it at the head of its message, and a short code is handed out
+// once and never given to another condition, which is what makes it the identity
+// a client records for a condition it acts on. The sentence after it is not read:
+// it is the compiler's, and it may be reworded.
+export const OFFLINE_REGISTRATION_WITHOUT_TRUST_POLICY = 'E0310';
+
+// asksForTrust says whether a completed registration leaves the reader a trust
+// policy to pin by hand: the registry was asked and advertised none, and no
+// built-in baseline was pinned in its place.
+//
+// 🔴 IT IS DECIDED ON THE ANSWER, NEVER BEFORE THE REQUEST. A policy supplied by
+// hand takes the place of the advertised one, so a question asked first would
+// invite a reader to override a policy the registry does advertise. A pinned
+// policy and the hub's baseline are therefore never followed by the question.
+export function asksForTrust(result: RegistryAddResult): boolean {
+  return result.trust.notAdvertised === true && !result.trust.pinned && !result.trust.baseline;
+}
+
+// refusedForWantOfTrust says whether a refused registration is the offline
+// refusal whose remedy is a policy supplied by hand. The command line names
+// exactly the identities and the key as that remedy, so it is the same case as a
+// registry advertising nothing, met before anything was written.
+export function refusedForWantOfTrust(err: unknown): boolean {
+  return isJsonRpcError(err)
+    && err.message.startsWith(`${OFFLINE_REGISTRATION_WITHOUT_TRUST_POLICY}: `);
+}
+
+// pinsAnything says whether a reader's answers supply anything to pin. Where they
+// do not — the question dismissed, Neither chosen, or no identity typed and no
+// key chosen — no second registration is sent, and the entry is what the first
+// one wrote.
+export function pinsAnything(byHand: TrustByHand | null): byHand is TrustByHand {
+  return byHand !== null && (byHand.identities.length > 0 || byHand.keyPath !== null);
+}
+
+// pinnedIn is the part of a sent request the ending names: how many identities it
+// carried, and whether a key — never either value. It is read off the request
+// rather than off the reader's answers, so the ending names what was sent.
+function pinnedIn(request: RegistryAddParams): PinnedByHand {
+  return { identities: request.identities?.length ?? 0, key: request.keyPath !== undefined };
+}
+
 // --- composing the requests ----------------------------------------------
 
-// addRequest composes the registration of one registry at a chosen destination.
+// addRequest composes the registration of one registry at a chosen destination,
+// carrying the identities and the key a reader supplied by hand where there are
+// any.
 //
 // The blank guard is REACHED rather than restated. It is the extension's one home
 // for refusing an operation with nothing to act on, exported for exactly this
@@ -195,12 +318,23 @@ export const CREDENTIAL_REMOVAL_SUBJECT = 'The credential removal';
 // one of the two was changed. It is a second guard rather than the only one — the
 // prompt that asks for a host invokes nothing when it is dismissed — and it is
 // the one that holds if a later binding is written more loosely.
+//
+// Each detail is added only where it was supplied: an empty list of identities is
+// omitted rather than sent, so a registration naming none is the bare request.
 export function addRequest(
   host: string,
   destination: ConfigWriteDestination,
+  byHand: TrustByHand | null = null,
 ): RegistryAddParams {
   const [, checked] = withSubject('registry add', host, 'the registry to register');
-  return { host: checked, ...configWriteOverrides(destination) };
+  const request: RegistryAddParams = { host: checked, ...configWriteOverrides(destination) };
+  if (byHand !== null && byHand.identities.length > 0) {
+    request.identities = [...byHand.identities];
+  }
+  if (byHand !== null && byHand.keyPath !== null) {
+    request.keyPath = byHand.keyPath;
+  }
+  return request;
 }
 
 // removeRequest composes the removal of one registry's entry from a chosen
@@ -225,15 +359,26 @@ export function logoutRequest(host: string): LogoutParams {
 
 // --- running them --------------------------------------------------------
 
+// RegistrationEnding is how a registration ended, together with whether the reader
+// is then asked for a trust policy to pin by hand, and the host that question
+// names — the one the compiler keyed the entry under where it answered, and the
+// one the request carried where it refused.
+export interface RegistrationEnding {
+  outcome: OperationOutcome;
+  asksForTrust: boolean;
+  host: string;
+}
+
 // runRegistryAdd asks the compiler to register the registry and reports how it
-// ended.
+// ended, and whether the ending leaves the reader a trust policy to pin by hand.
 //
 // It returns the ending rather than announcing it, because the words a reader
 // reads and the place they read them belong to the surface. What is decided here
 // is whether the registration completed and, if it did, the sentence naming what
 // was actually registered, where, and what signature trust it was given —
 // followed by the sentence saying it is in effect, where the language server
-// running afterwards has read it.
+// running afterwards has read it — and whether the answer, or the refusal, is the
+// one case in which the command line takes identities or a key.
 //
 // 🔴 IT TAKES THREE ARGUMENTS AND MUST KEEP TAKING THREE. A fourth carrying a
 // stop would be a stop the compiler cannot honour, for the reason at the head of
@@ -243,10 +388,46 @@ export async function runRegistryAdd(
   deps: RegistryConfigureDeps,
   host: string,
   destination: ConfigWriteDestination,
-): Promise<OperationOutcome> {
+): Promise<RegistrationEnding> {
+  const request = addRequest(host, destination);
   try {
-    const { answer, inEffect } = await deps.addRegistry(addRequest(host, destination));
-    return { kind: 'ok', detail: endingInEffect(registrationDetail(answer), inEffect) };
+    const { answer, inEffect } = await deps.addRegistry(request);
+    return {
+      outcome: { kind: 'ok', detail: endingInEffect(registrationDetail(answer), inEffect) },
+      asksForTrust: asksForTrust(answer),
+      host: answer.host,
+    };
+  } catch (err) {
+    return { outcome: outcomeOf(err), asksForTrust: refusedForWantOfTrust(err), host: request.host };
+  }
+}
+
+// runRegistryAddWithTrust registers the registry again, at the same destination
+// and through the same request, carrying what the reader supplied by hand, and
+// reports how it ended.
+//
+// The entry it writes takes the place of the one the first registration wrote,
+// which is what the command line writes when it is given the same identities and
+// key. A refusal — a malformed identity, a key file that cannot be read or is not
+// a public key — is the compiler's own sentence, carried whole; the first
+// registration's entry is then left as it was written. Carried whole is safe for a
+// file that is not a public key, a private key chosen by mistake among them,
+// because the compiler's sentence names the field and the form it expects and
+// withholds what the file holds.
+//
+// 🔴 IT TAKES FOUR ARGUMENTS AND MUST KEEP TAKING FOUR: the three the first
+// registration takes and what was supplied. None of them is a stop, for the reason
+// at the head of this module, and an assertion holds the arity.
+export async function runRegistryAddWithTrust(
+  deps: RegistryConfigureDeps,
+  host: string,
+  destination: ConfigWriteDestination,
+  byHand: TrustByHand,
+): Promise<OperationOutcome> {
+  const request = addRequest(host, destination, byHand);
+  try {
+    const { answer, inEffect } = await deps.addRegistry(request);
+    return { kind: 'ok', detail: endingInEffect(registrationDetail(answer, request), inEffect) };
   } catch (err) {
     return outcomeOf(err);
   }
@@ -294,9 +475,19 @@ export async function runLogout(
 //
 // It is the shared registration sentence rather than a wording of its own,
 // because seeding a configuration reaches the same registration and the compiler
-// renders both as one set of sentences.
-export function registrationDetail(result: RegistryAddResult): string {
-  return registrationSentence(result.host, result.scope, result.trust);
+// renders both as one set of sentences. Given the request that was sent, a
+// registration that carried a policy supplied by hand says what kind it pinned,
+// and names none of the values.
+export function registrationDetail(
+  result: RegistryAddResult,
+  sent: RegistryAddParams | null = null,
+): string {
+  return registrationSentence(
+    result.host,
+    result.scope,
+    result.trust,
+    sent === null ? null : pinnedIn(sent),
+  );
 }
 
 // registryRemovalDetail is the sentence a completed removal ends in.

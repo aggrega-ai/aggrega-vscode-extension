@@ -4,21 +4,25 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
+import { loadAll } from 'js-yaml';
+
 import { IN_EFFECT_SENTENCE } from '../../src/config-change-watch';
 import { CONFIG_WRITE_DESTINATIONS } from '../../src/config-write-scope';
 import { RESTART_COMMAND } from '../../src/daemon-status';
 import type { TrustFetchOutcome } from '../../src/registration-outcome';
-import { addRequest, REGISTRATION_DESTINATION_PROMPT, REGISTRATION_SUBJECT, REGISTRY_ADD_COMMAND } from '../../src/registry-configure';
+import {
+  addRequest, identityPromptTitle, keyDialogTitle, REGISTRATION_DESTINATION_PROMPT, REGISTRATION_SUBJECT, REGISTRY_ADD_COMMAND, TrustByHand, trustByHandTitle,
+} from '../../src/registry-configure';
 import { need } from './checks';
 import { makeScratchHome, runCompiler, ScratchHome } from './cli';
 import { UNREACHABLE_HOST } from './fixtures';
 import { referenceAnswer } from './reference';
-import { PUBLISHED_ENTITY, ScratchRegistry, StubRegistries, WITHDRAWN_PLUGIN_LINK } from './registry';
+import { makeSigningKey, PUBLISHED_ENTITY, ScratchRegistry, StubRegistries, WITHDRAWN_PLUGIN_LINK } from './registry';
 import { capture, closeAllEditors, ready, run, send, SuiteContext, theServer } from './suite-context';
 import { INDEX_BUILD_OPENING, pressViewAction, REGISTRIES_HEAD } from './suite-storefront';
 import {
-  holds, NotificationReading, notificationReadings, pickQuickInputRow, pressPanelAction, QuickInput, RUNNING, stopWatchingNotification, Toast, toasts, treeRows, until,
-  waitQuickInput, waitStatus, waitToast, watchNotification,
+  holds, NotificationReading, notificationReadings, pickQuickInputRow, pressPanelAction, QuickInput, quickInput, RUNNING, sleep, stopWatchingNotification, Toast, toasts,
+  toastsSince, treeRows, until, waitQuickInput, waitStatus, waitToast, watchNotification,
 } from './workbench';
 
 // The checks run in the storefront folder with a scratch registry configured
@@ -31,7 +35,10 @@ import {
 // repeats in the compiler's words and report the one beside it indexed. After
 // them, registrations made through Add registry — online, and then with the
 // offline posture taken — and what each one's closing line says about the trust
-// the entry was given, or how the refusal reads.
+// the entry was given, or how the refusal reads; and, where the registry
+// advertises no trust policy or is refused offline for want of one, the question
+// asking for a policy to pin by hand, what each answer to it writes, and what a
+// reader is shown of a file chosen as the key that is not a public key.
 
 export const REGISTRY_CHECKS = [
   'catalog-search.lists-matches-and-copies-a-reference',
@@ -46,8 +53,15 @@ export const REGISTRY_CHECKS = [
   'registries-panel.update-index-names-the-registry-whose-listing-repeats-in-the-compilers-words',
   'registries-panel.update-index-reports-the-registry-beside-it-indexed',
   'registration.says-an-entry-carries-no-trust-where-none-is-advertised',
+  'registration.asks-for-a-trust-policy-where-the-registry-advertises-none',
+  'registration.declined-writes-what-the-command-line-writes',
+  'registration.refuses-a-malformed-identity-in-the-compilers-words',
+  'registration.writes-the-identities-and-key-supplied',
+  'registration.refuses-a-key-file-that-is-not-a-public-key-without-showing-its-content',
   'registration.says-the-hub-took-its-built-in-baseline-offline',
+  'registration.asks-nothing-after-the-hubs-built-in-baseline',
   'registration.refusal-carries-the-servers-words',
+  'registration.asks-for-a-trust-policy-after-the-offline-refusal',
 ] as const;
 
 const SEARCH_TITLE = 'Aggrega: search published catalog';
@@ -105,6 +119,16 @@ const GLOBAL_DESTINATION = CONFIG_WRITE_DESTINATIONS.find((d) => d.value === 'gl
 // server's own, and is read from its answer rather than written here.
 const NO_POLICY_CLAUSE = 'It advertises no signature trust policy, and this registration names no identity or key, so the entry carries none.';
 const BASELINE_CLAUSE = 'The built-in trust baseline was pinned instead of an advertised policy.';
+const BOTH_BY_HAND_CLAUSE = 'Its signature trust policy is the keyless identity and the public key this registration supplied, so no advertised policy was fetched.';
+
+// The rows of the question asking for a trust policy to pin by hand, held as the
+// words a reader is to meet, in the order drawn.
+const TRUST_BY_HAND_ROWS = ['Keyless identities', 'A public key', 'Keyless identities and a public key', 'Neither'];
+
+// The identities typed at that question: one the compiler reads, and one it
+// refuses because it names no issuer.
+const PINNED_IDENTITY = { identity: 'editor-suite@example.test', issuer: 'https://issuer.example.test' };
+const MALFORMED_IDENTITY = 'not-an-identity-pair';
 
 // The hosts registered. The two loopback ports are ones nothing listens on: the
 // first is asked for its advertised policy while the posture is online and the ask
@@ -131,24 +155,48 @@ function referenceHome(ctx: SuiteContext, name: string): ScratchHome {
 }
 
 // Registered is the server's own answer to a registration, taken outside the
-// editor: the trust outcome it reports, or its refusal.
-interface Registered { trust: TrustFetchOutcome | null; refusal: { code: unknown; message: string } | null; raw: string }
+// editor: the trust outcome it reports, or its refusal; and the global
+// configuration file of the home it was taken in, which a refusal naming the file
+// it could not write names in place of the scenario's own.
+interface Registered { trust: TrustFetchOutcome | null; refusal: { code: unknown; message: string } | null; raw: string; file: string }
 
-async function referenceRegistration(ctx: SuiteContext, host: string, name: string): Promise<Registered> {
-  const answer = await referenceAnswer({ binary: ctx.inputs.compiler.path, root: ctx.folder, method: 'aggrega/registryAdd', params: addRequest(host, 'global'), home: referenceHome(ctx, name), table: ctx.s.table, log: ctx.cliLog });
+async function referenceRegistration(ctx: SuiteContext, host: string, name: string, byHand: TrustByHand | null = null): Promise<Registered> {
+  const home = referenceHome(ctx, name);
+  const answer = await referenceAnswer({ binary: ctx.inputs.compiler.path, root: ctx.folder, method: 'aggrega/registryAdd', params: addRequest(host, 'global', byHand), home, table: ctx.s.table, log: ctx.cliLog });
   const raw = JSON.stringify(answer).slice(0, 600);
-  if (!answer.ok) { return { trust: null, refusal: { code: answer.error.code, message: answer.error.message }, raw }; }
-  return { trust: (answer.result as { trust?: TrustFetchOutcome }).trust ?? null, refusal: null, raw };
+  const file = globalConfiguration(home);
+  if (!answer.ok) { return { trust: null, refusal: { code: answer.error.code, message: answer.error.message }, raw, file }; }
+  return { trust: (answer.result as { trust?: TrustFetchOutcome }).trust ?? null, refusal: null, raw, file };
 }
 
+// Asked is how a registration's question asking for a trust policy to pin by hand
+// is met: not waited for, because none is expected; pressed away; or answered
+// with identities, typed one at a time, and a key file chosen in the file dialog
+// or none.
+type Asked =
+  | { kind: 'not-waited-for' }
+  | { kind: 'pressed-away' }
+  | { kind: 'answered'; identities: string[]; keyFile: string | null };
+const NOT_WAITED_FOR: Asked = { kind: 'not-waited-for' };
+const PRESSED_AWAY: Asked = { kind: 'pressed-away' };
+
+// Question is the question as it was first seen drawn, and whether the channel
+// already held the registration's closing line at that moment.
+interface Question { title: string; placeholder: string; rows: string[]; lineFirst: boolean }
+
 // Ending is how a registration made in the editor ended: the channel's closing
-// line and the notification raised with it.
-interface Ending { line: string; toast: Toast | null }
+// line and the notification raised with it; the question that followed, where one
+// was waited for and drawn; and, where it was answered, the second registration's
+// closing line and notification.
+interface Ending { line: string; toast: Toast | null; question: Question | null; second: { line: string; toast: Toast | null } | null }
 
 // registerThrough runs Add registry as a person does — the command, the host typed
 // into its prompt, the global file chosen from its picker — and waits for the
 // ending, and for the language server the registration restarts to read running.
-async function registerThrough(ctx: SuiteContext, host: string): Promise<Ending> {
+// Where a question for a trust policy is expected it is waited for, and met as
+// `asked` says: pressed away, or answered as a person answers it, row, identities
+// and file dialog, after which the second registration's ending is waited for.
+async function registerThrough(ctx: SuiteContext, host: string, asked: Asked = NOT_WAITED_FOR): Promise<Ending> {
   const opening = `${REGISTRATION_SUBJECT} `;
   const mark = ctx.out.mark();
   const toastMark = (await toasts(ctx.d)).length;
@@ -158,21 +206,79 @@ async function registerThrough(ctx: SuiteContext, host: string): Promise<Ending>
   await ctx.d.press('Enter');
   await waitQuickInput(ctx.d, 'the choice of configuration file', (q) => q.placeholder === REGISTRATION_DESTINATION_PROMPT && q.rows.some((r) => r.label === GLOBAL_DESTINATION));
   await pickQuickInputRow(ctx.d, GLOBAL_DESTINATION);
+  let question: Question | null = null;
+  if (asked.kind !== 'not-waited-for') {
+    // The question and the channel are read together, so whether the closing line
+    // was there when the question was first seen is observed rather than assumed.
+    // A registration that raises none is given 15 s past its closing line.
+    const title = trustByHandTitle(host);
+    let lineAt: number | null = null;
+    const seen = await until('the question asking for a trust policy to pin by hand', 90000, async () => {
+      const q = await quickInput(ctx.d);
+      const hasLine = ctx.out.since(mark).split('\n').some((l) => l.startsWith(opening));
+      if (hasLine && lineAt === null) { lineAt = Date.now(); }
+      return { q, hasLine };
+    }, (v) => v.q?.title === title || (lineAt !== null && Date.now() - lineAt > 15000)).catch(() => null);
+    if (seen !== null && seen.q !== null && seen.q.title === title) {
+      question = { title: seen.q.title, placeholder: seen.q.placeholder, rows: seen.q.rows.map((r) => r.label), lineFirst: seen.hasLine };
+    }
+  }
   const text = await ctx.out.waitFor('the registration closing its report', mark, (t) => t.split('\n').some((l) => l.startsWith(opening)), 60000);
   const line = text.split('\n').find((l) => l.startsWith(opening)) ?? '';
   const toast = await waitToast(ctx.d, 'the registration raising its notification', toastMark, (t) => t.message.startsWith(opening), 15000).catch(() => null);
+  let second: Ending['second'] = null;
+  if (question !== null && asked.kind === 'pressed-away') {
+    await ctx.d.press('Escape');
+    await until('the question closing', 5000, () => quickInput(ctx.d), (q) => q === null || q.title !== question?.title).catch(() => undefined);
+  }
+  if (question !== null && asked.kind === 'answered') {
+    const secondMark = ctx.out.mark();
+    const secondToastMark = (await toasts(ctx.d)).length;
+    await answerTrustByHand(ctx, host, asked.identities, asked.keyFile);
+    const after = await ctx.out.waitFor('the second registration closing its report', secondMark, (t) => t.split('\n').some((l) => l.startsWith(opening)), 60000).catch(() => '');
+    const secondLine = after.split('\n').find((l) => l.startsWith(opening)) ?? '';
+    const secondToast = secondLine === '' ? null
+      : await waitToast(ctx.d, 'the second registration raising its notification', secondToastMark, (t) => t.message === secondLine, 15000).catch(() => null);
+    second = { line: secondLine, toast: secondToast };
+  }
   await waitStatus(ctx.d, RUNNING, 60000).catch(() => undefined);
-  return { line, toast };
+  return { line, toast, question, second };
+}
+
+// answerTrustByHand answers the drawn question as a person does: the row naming
+// what is to be pinned; where that row asks for identities, each typed into its
+// own prompt and then an empty one ending the list; and the key file's path typed
+// into the file dialog.
+async function answerTrustByHand(ctx: SuiteContext, host: string, identities: string[], keyFile: string | null): Promise<void> {
+  const row = identities.length > 0 && keyFile !== null ? TRUST_BY_HAND_ROWS[2] : identities.length > 0 ? TRUST_BY_HAND_ROWS[0] : TRUST_BY_HAND_ROWS[1];
+  await pickQuickInputRow(ctx.d, row);
+  const identityTitle = identityPromptTitle(host);
+  for (const typed of identities.length > 0 ? [...identities, ''] : []) {
+    await waitQuickInput(ctx.d, 'the prompt for a keyless identity', (q) => q.title === identityTitle && q.value === '', 15000);
+    if (typed !== '') { await ctx.d.type(typed); }
+    await ctx.d.press('Enter');
+    await sleep(400);
+  }
+  if (keyFile === null) { return; }
+  const keyTitle = keyDialogTitle(host);
+  await waitQuickInput(ctx.d, 'the file dialog for the public key', (q) => q.title === keyTitle, 15000);
+  await ctx.d.press('Control+a');
+  await ctx.d.type(keyFile);
+  await sleep(500);
+  await ctx.d.press('Enter');
+  await sleep(800);
+  const still = await quickInput(ctx.d);
+  if (still !== null && still.title === keyTitle) { await ctx.d.press('Enter'); await sleep(800); }
 }
 
 // readsCompleted says whether a completed registration's line opens by naming the
 // host and the file, and carries the trust clause followed by the server's reason
 // exactly once, with nothing after the reason but the sentence saying the change
 // is in effect — which the ending adds after a closing stop where the reason has
-// none of its own.
+// none of its own. A clause with no reason after it is given an empty reason.
 function readsCompleted(line: string, host: string, file: string, clause: string, reason: string): boolean {
   const opening = `${REGISTRATION_SUBJECT} registered ${host} in ${file}, `;
-  const trust = ` ${clause} ${reason}`;
+  const trust = reason === '' ? ` ${clause}` : ` ${clause} ${reason}`;
   const at = line.indexOf(trust);
   if (!line.startsWith(opening) || at < opening.length || line.indexOf(trust, at + 1) !== -1) { return false; }
   const after = line.slice(at + trust.length);
@@ -181,6 +287,78 @@ function readsCompleted(line: string, host: string, file: string, clause: string
 
 function describeEnding(e: Ending): string {
   return `the channel: "${e.line}"; the notification: ${e.toast ? `"${e.toast.message}" (${e.toast.severity})` : 'none'}`;
+}
+
+function describeQuestion(q: Question | null): string {
+  return q === null ? 'no question asking for a trust policy was drawn'
+    : `the question "${q.title}" (placeholder "${q.placeholder}") drew the rows ${JSON.stringify(q.rows)}, first seen with the closing line ${q.lineFirst ? 'already in the channel' : 'not yet in the channel'}`;
+}
+
+function describeSecond(e: Ending): string {
+  return e.second === null ? 'no second registration ended'
+    : `the second registration's line: "${e.second.line}"; its notification: ${e.second.toast ? `"${e.second.toast.message}" (${e.second.toast.severity})` : 'none'}`;
+}
+
+// fileNamedBy reads the configuration file a completed registration's line names.
+function fileNamedBy(line: string, host: string): string | null {
+  const opening = `${REGISTRATION_SUBJECT} registered ${host} in `;
+  if (!line.startsWith(opening)) { return null; }
+  const rest = line.slice(opening.length);
+  const at = rest.indexOf(', ');
+  return at === -1 ? null : rest.slice(0, at);
+}
+
+// RegistryEntry is the part of a configuration's registry entry these checks read.
+interface RegistryEntry { host?: string; trusted_identities?: Array<{ identity?: string; issuer?: string }>; public_key?: string }
+
+// entryFor reads a configuration file's one document and the entry keyed under
+// `host` in it.
+function entryFor(text: string, host: string): RegistryEntry | null {
+  const [doc] = loadAll(text) as Array<{ registries?: RegistryEntry[] } | null>;
+  return (doc?.registries ?? []).find((r) => r.host === host) ?? null;
+}
+
+// commandLineReference is what `aggrega registry add <host> <args…>` writes, run
+// by the same compiler in the copy of the folder, into a home holding a copy of
+// the scenario's global configuration as it stands — so it is asked before the
+// editor's registration it is the reference for.
+async function commandLineReference(ctx: SuiteContext, referenceFolder: string, name: string, host: string, args: string[]): Promise<{ text: string | null; said: string }> {
+  const h = referenceHome(ctx, name);
+  const r = await runCompiler(ctx.inputs.compiler.path, ['registry', 'add', host, ...args], { cwd: referenceFolder, home: h, boundMs: 60000, log: ctx.cliLog });
+  const f = globalConfiguration(h);
+  if (r.status !== 0 || !fs.existsSync(f)) {
+    return { text: null, said: `\`aggrega registry add ${host} ${args.join(' ')}\` exited ${r.status ?? r.signal}: ${(r.stderr || r.stdout).trim().slice(0, 300)}` };
+  }
+  return { text: fs.readFileSync(f, 'utf8'), said: `\`aggrega registry add ${host} ${args.join(' ')}\` wrote ${f}` };
+}
+
+// firstDifference names the first line at which two texts part, for a report.
+function firstDifference(a: string, b: string): string {
+  const x = a.split('\n');
+  const y = b.split('\n');
+  for (let i = 0; i < Math.max(x.length, y.length); i++) {
+    if (x[i] !== y[i]) { return `line ${i + 1}: ${JSON.stringify(x[i] ?? null)} against ${JSON.stringify(y[i] ?? null)}`; }
+  }
+  return 'none';
+}
+
+// A file chosen as the key that is not one: its lines, which of them a text
+// carries, and a text with each of them withheld.
+//
+// 🔴 A REPORT NAMES A LINE BY ITS POSITION, NEVER BY ITS CONTENT. The file is a
+// private key, so what these checks report of anything that might carry it —
+// the channel, a notification, the server's own answer — passes through
+// withheldFrom first, and a line found is named by its number in the file.
+function keyFileLines(file: string): string[] {
+  return fs.readFileSync(file, 'utf8').split('\n').filter((l) => l.trim() !== '');
+}
+
+function keyLinesIn(text: string, lines: readonly string[]): number[] {
+  return lines.flatMap((l, i) => (text.includes(l) ? [i + 1] : []));
+}
+
+function withheldFrom(text: string, lines: readonly string[]): string {
+  return lines.reduce((t, l, i) => t.split(l).join(`<line ${i + 1} of the key file>`), text);
 }
 
 // takeOfflinePosture takes the offline posture the way a reader takes it: the
@@ -498,22 +676,138 @@ export async function registryChecks(ctx: SuiteContext, registry: ScratchRegistr
   // ---- what a registration says about the trust it took ----
   const file = globalConfiguration(ctx.home);
   await c.run('registration.says-an-entry-carries-no-trust-where-none-is-advertised', {
-    expected: `Add registry, given ${UNLISTENED_ONLINE} (a loopback port nothing listens on) and the global file, online, ends in a channel line opening "${REGISTRATION_SUBJECT} registered ${UNLISTENED_ONLINE} in ${file}, " whose trust clause reads "${NO_POLICY_CLAUSE}" followed, unaltered, by the reason the server's own answer to the same request gives, with nothing after it but the sentence saying the change is in effect; an information notification carries the same line`,
+    expected: `Add registry, given ${UNLISTENED_ONLINE} (a loopback port nothing listens on) and the global file, online, ends in a channel line opening "${REGISTRATION_SUBJECT} registered ${UNLISTENED_ONLINE} in ${file}, " whose trust clause reads "${NO_POLICY_CLAUSE}" followed, unaltered, by the reason the server's own answer to the same request gives, with nothing after it but the sentence saying the change is in effect; an information notification carries the same line (the question for a trust policy to pin by hand that follows it is pressed away)`,
     plant: 'in the scratch copy, out/src/registration-outcome.js made to drop the answer\'s reason from the trust clause',
   }, async () => {
     const ref = await referenceRegistration(ctx, UNLISTENED_ONLINE, 'no-policy');
     const trust = ref.trust;
     need(trust !== null && trust.notAdvertised === true && !trust.pinned && !trust.baseline && (trust.reason ?? '') !== '', `the server's own answer to the same request is not a registry asked and advertising nothing, with its reason: ${ref.raw}`);
-    const ending = await registerThrough(ctx, UNLISTENED_ONLINE);
+    const ending = await registerThrough(ctx, UNLISTENED_ONLINE, PRESSED_AWAY);
     const reason = trust.reason ?? '';
     return {
       passed: readsCompleted(ending.line, UNLISTENED_ONLINE, file, NO_POLICY_CLAUSE, reason) && ending.toast?.message === ending.line && ending.toast.severity === 'info',
-      seen: `${describeEnding(ending)}; the server's reason "${reason}"`,
+      seen: `${describeEnding(ending)}; the server's reason "${reason}"; ${describeQuestion(ending.question)}`,
+    };
+  });
+
+  // ---- a trust policy pinned by hand, for the scenario's own scratch registry ----
+  // It answers its trust endpoint with 404, so it is a registry that advertises no
+  // trust policy; each check below takes the server's own answer for it first.
+  // The registrations replace its entry, as the command line's do, and nothing
+  // after them reads from it.
+  const zot = registry.host;
+  let declined: Ending | null = null;
+  let declinedReference: { text: string | null; said: string } = { text: null, said: 'not asked' };
+
+  await c.run('registration.asks-for-a-trust-policy-where-the-registry-advertises-none', {
+    expected: `Add registry, given the scratch registry ${zot} and the global file, ends in the line saying the entry carries no policy, and is followed by a question titled "${trustByHandTitle(zot)}" whose rows are, in order, ${TRUST_BY_HAND_ROWS.map((r) => `"${r}"`).join(', ')}, first seen with that line already in the channel`,
+    plant: 'in the scratch copy, out/src/registry-configure.js made to read an answer saying a registry advertises nothing as one leaving nothing to ask',
+  }, async () => {
+    const ref = await referenceRegistration(ctx, zot, 'zot-advertises-none');
+    const trust = ref.trust;
+    need(trust !== null && trust.notAdvertised === true && !trust.pinned && !trust.baseline, `the server's own answer to the same request is not a registry asked and advertising nothing: ${ref.raw}`);
+    declinedReference = await commandLineReference(ctx, referenceFolder, 'zot-declined', zot, []);
+    const ending = await registerThrough(ctx, zot, PRESSED_AWAY);
+    declined = ending;
+    const q = ending.question;
+    return {
+      passed: readsCompleted(ending.line, zot, file, NO_POLICY_CLAUSE, trust.reason ?? '') && q !== null && q.lineFirst && JSON.stringify(q.rows) === JSON.stringify(TRUST_BY_HAND_ROWS),
+      seen: `${describeEnding(ending)}; ${describeQuestion(q)}; the server's own answer: ${ref.raw}`,
+    };
+  });
+
+  await c.run('registration.declined-writes-what-the-command-line-writes', {
+    expected: `in that registration, with the question pressed away, the configuration file its line names is ${file} and reads byte for byte as the one \`aggrega registry add ${zot}\`, with no trust flag, writes — run by the same compiler in the copy of the folder, over a copy of the same configuration taken just before`,
+    plant: 'in the scratch copy, out/src/registry-configure.js made to state a signature requirement on every registration it composes',
+  }, async () => {
+    const d = declined as Ending | null;
+    need(d !== null && d.question !== null, 'the registration did not reach its question, so there is nothing that was declined');
+    need(declinedReference.text !== null, `the command line's reference was not written: ${declinedReference.said}`);
+    const named = fileNamedBy(d.line, zot);
+    const text = named !== null && fs.existsSync(named) ? fs.readFileSync(named, 'utf8') : null;
+    return {
+      passed: named === file && text === declinedReference.text,
+      seen: `the line names ${named === null ? 'no file' : named}; ${text === null ? 'no file there' : text === declinedReference.text ? 'it reads byte for byte as the reference' : `it parts from the reference at ${firstDifference(text, declinedReference.text)}`}; ${declinedReference.said}`,
+    };
+  });
+
+  await c.run('registration.refuses-a-malformed-identity-in-the-compilers-words', {
+    expected: `Add registry, given ${zot} and the global file, with "${TRUST_BY_HAND_ROWS[0]}" chosen at the question and "${MALFORMED_IDENTITY}" typed as the one identity, ends its second registration in a channel line reading exactly "${REGISTRATION_SUBJECT} did not complete: code=<code> <message>", <code> and <message> being the server's own refusal of the same request carrying that identity; an error notification carries the same line`,
+    plant: 'in the scratch copy, out/src/registry-configure.js made to drop, before the request goes out, an identity this side judges malformed',
+  }, async () => {
+    const ref = await referenceRegistration(ctx, zot, 'zot-malformed', { identities: [MALFORMED_IDENTITY], keyPath: null });
+    const refusal = ref.refusal;
+    need(refusal !== null, `the server's own answer to the same request is not a refusal: ${ref.raw}`);
+    const ending = await registerThrough(ctx, zot, { kind: 'answered', identities: [MALFORMED_IDENTITY], keyFile: null });
+    need(ending.question !== null, `the registration did not reach its question: ${describeEnding(ending)}`);
+    const want = `${REGISTRATION_SUBJECT} did not complete: code=${String(refusal.code)} ${refusal.message}`;
+    return {
+      passed: ending.second !== null && ending.second.line === want && ending.second.toast?.message === want && ending.second.toast.severity === 'error',
+      seen: `${describeSecond(ending)}; the server's refusal: code ${String(refusal.code)}, "${refusal.message}"`,
+    };
+  });
+
+  const keyDir = path.join(ctx.s.root.dir, 'trust-by-hand');
+  fs.mkdirSync(keyDir, { recursive: true });
+  const pinnedKey = makeSigningKey(keyDir).publicPem;
+  const pinnedIdentity = `${PINNED_IDENTITY.identity}=${PINNED_IDENTITY.issuer}`;
+  await c.run('registration.writes-the-identities-and-key-supplied', {
+    expected: `Add registry, given ${zot} and the global file, with "${TRUST_BY_HAND_ROWS[2]}" chosen at the question, "${pinnedIdentity}" typed as the one identity and ${pinnedKey} chosen in the file dialog, ends its second registration in a channel line opening "${REGISTRATION_SUBJECT} registered ${zot} in ${file}, " whose trust clause reads "${BOTH_BY_HAND_CLAUSE}", with nothing after it but the sentence saying the change is in effect, and an information notification carrying the same line; the file that line names holds an entry for ${zot} whose trusted_identities are exactly that identity and issuer and whose public_key is the chosen file's bytes, and reads byte for byte as the one \`aggrega registry add ${zot} --identity ${pinnedIdentity} --key ${pinnedKey}\` writes over a copy of the same configuration taken just before`,
+    plant: 'in the scratch copy, out/src/registry-configure.js made to leave the key path out of the registration it composes from the reader\'s answers',
+  }, async () => {
+    const reference = await commandLineReference(ctx, referenceFolder, 'zot-by-hand', zot, ['--identity', pinnedIdentity, '--key', pinnedKey]);
+    need(reference.text !== null, `the command line's reference was not written: ${reference.said}`);
+    const ending = await registerThrough(ctx, zot, { kind: 'answered', identities: [pinnedIdentity], keyFile: pinnedKey });
+    need(ending.question !== null, `the registration did not reach its question: ${describeEnding(ending)}`);
+    const secondLine = ending.second?.line ?? '';
+    const named = fileNamedBy(secondLine, zot);
+    const text = named !== null && fs.existsSync(named) ? fs.readFileSync(named, 'utf8') : null;
+    const entry = text === null ? null : entryFor(text, zot);
+    const key = fs.readFileSync(pinnedKey, 'utf8');
+    const identitiesOk = JSON.stringify(entry?.trusted_identities ?? null) === JSON.stringify([PINNED_IDENTITY]);
+    const keyOk = entry?.public_key === key;
+    return {
+      passed: readsCompleted(secondLine, zot, file, BOTH_BY_HAND_CLAUSE, '') && ending.second?.toast?.message === secondLine && ending.second.toast.severity === 'info'
+        && named === file && identitiesOk && keyOk && text === reference.text,
+      seen: `${describeSecond(ending)}; the file named: ${named ?? 'none'}; its entry for ${zot}: trusted_identities ${JSON.stringify(entry?.trusted_identities ?? null)}, public_key ${keyOk ? 'the chosen file\'s bytes' : JSON.stringify((entry?.public_key ?? null)?.slice(0, 80) ?? null)}; ${text === null ? 'no file' : text === reference.text ? 'the file reads byte for byte as the reference' : `the file parts from the reference at ${firstDifference(text, reference.text)}`}`,
+    };
+  });
+
+  // A file that is not a public key, chosen as the key: a private key written
+  // for this check alone, in a directory of its own under the scenario's root.
+  const notAKeyDir = path.join(ctx.s.root.dir, 'not-a-public-key');
+  fs.mkdirSync(notAKeyDir, { recursive: true });
+  const notAKey = makeSigningKey(notAKeyDir).privatePem;
+  await c.run('registration.refuses-a-key-file-that-is-not-a-public-key-without-showing-its-content', {
+    expected: `Add registry, given ${zot} and the global file, with "${TRUST_BY_HAND_ROWS[1]}" chosen at the question and ${notAKey} — a private key written for this check — chosen in the file dialog, ends its second registration in a channel line reading exactly "${REGISTRATION_SUBJECT} did not complete: code=<code> <message>", <code> and <message> being the server's own refusal of the same request carrying that file, the message opening with its short code and naming ${file} where the server's names the configuration file of the home it was asked in; an error notification carries the same line; and no line of that file appears anywhere in the Aggrega output channel or in any notification drawn from that registration on — read by a search first shown to find every line of the file in the file itself`,
+    plant: 'in the scratch copy, out/src/registry-configure.js made to put the chosen key file\'s content in place of the value the compiler\'s refusal withholds',
+  }, async () => {
+    const lines = keyFileLines(notAKey);
+    need(lines.length > 0 && keyLinesIn(fs.readFileSync(notAKey, 'utf8'), lines).length === lines.length, 'the search for the key file\'s lines does not find them in the file itself, so their absence anywhere else would prove nothing');
+    const ref = await referenceRegistration(ctx, zot, 'zot-not-a-public-key', { identities: [], keyPath: notAKey });
+    const refusal = ref.refusal;
+    need(refusal !== null && /^E\d{4}: /.test(refusal.message), `the server's own answer to the same request is not a refusal opening with its short code: ${withheldFrom(ref.raw, lines)}`);
+    const toastMark = (await toasts(ctx.d)).length;
+    const ending = await registerThrough(ctx, zot, { kind: 'answered', identities: [], keyFile: notAKey });
+    need(ending.question !== null, `the registration did not reach its question: ${withheldFrom(describeEnding(ending), lines)}`);
+    // The refusal names the configuration file whose validation it refused, which
+    // for the server's own answer is the reference home's; the editor's names the
+    // scenario's, so that one path is read as the scenario's and nothing else is.
+    const want = `${REGISTRATION_SUBJECT} did not complete: code=${String(refusal.code)} ${refusal.message.split(ref.file).join(file)}`;
+    const inChannel = keyLinesIn(ctx.out.text(), lines);
+    const drawn = await toastsSince(ctx.d, toastMark);
+    const inDrawn = keyLinesIn(drawn.map((t) => t.message).join('\n'), lines);
+    const where = (found: number[]): string => (found.length === 0 ? 'none' : `line(s) ${found.join(', ')}`);
+    return {
+      passed: ending.second !== null && ending.second.line === want && ending.second.toast?.message === want && ending.second.toast.severity === 'error'
+        && inChannel.length === 0 && inDrawn.length === 0,
+      seen: withheldFrom(`${describeSecond(ending)}; the server's refusal: code ${String(refusal.code)}, "${refusal.message}", asked in the home whose configuration is ${ref.file}; of the key file's ${lines.length} lines, the output channel carries ${where(inChannel)} and the ${drawn.length} notification(s) drawn from the registration on carry ${where(inDrawn)}`, lines),
     };
   });
 
   const offline = await takeOfflinePosture(ctx);
 
+  let hubEnded = false;
   await c.run('registration.says-the-hub-took-its-built-in-baseline-offline', {
     expected: `with "offline: true" written into the global configuration and the language server restarted by the restart command to read it, Add registry, given ${HUB} and the global file, ends in a channel line opening "${REGISTRATION_SUBJECT} registered ${HUB} in ${file}, " whose trust clause reads "${BASELINE_CLAUSE}" followed, unaltered, by the reason the server's own answer to the same request in the same posture gives — the offline refusal that kept the hub from being asked — with nothing after it but the sentence saying the change is in effect; an information notification carries the same line`,
     plant: 'in the scratch copy, out/src/registration-outcome.js made to read an answer carrying the built-in baseline as one naming no trust outcome',
@@ -523,6 +817,7 @@ export async function registryChecks(ctx: SuiteContext, registry: ScratchRegistr
     const trust = ref.trust;
     need(trust !== null && trust.baseline === true && !trust.pinned && !trust.notAdvertised && (trust.reason ?? '') !== '', `the server's own answer to the same request is not the hub pinned to its baseline alone, with its reason: ${ref.raw}`);
     const ending = await registerThrough(ctx, HUB);
+    hubEnded = true;
     const reason = trust.reason ?? '';
     return {
       passed: readsCompleted(ending.line, HUB, file, BASELINE_CLAUSE, reason) && ending.toast?.message === ending.line && ending.toast.severity === 'info',
@@ -530,6 +825,23 @@ export async function registryChecks(ctx: SuiteContext, registry: ScratchRegistr
     };
   });
 
+  await c.run('registration.asks-nothing-after-the-hubs-built-in-baseline', {
+    expected: `after that registration's ending, no question titled "${trustByHandTitle(HUB)}" is drawn over the 5 s that follow — read the way the question was seen drawn for ${zot}, which is the reading's positive control`,
+    plant: 'in the scratch copy, out/src/registry-configure.js made to ask after every answer that pinned no advertised policy',
+  }, async () => {
+    const d = declined as Ending | null;
+    need(hubEnded, 'the hub was not registered');
+    need(d !== null && d.question !== null, `the same reading did not see the question drawn for ${zot}, so an absence of it here would prove nothing`);
+    const title = trustByHandTitle(HUB);
+    const quiet = await holds(5000, () => quickInput(ctx.d), (q) => q === null || q.title !== title);
+    if (!quiet.held) { await ctx.d.press('Escape'); }
+    return {
+      passed: quiet.held,
+      seen: quiet.held ? `no question drawn over ${quiet.readings} readings in 5 s` : `the question "${title}" was drawn ${quiet.atMs} ms after the ending`,
+    };
+  });
+
+  let refused: Ending | null = null;
   await c.run('registration.refusal-carries-the-servers-words', {
     expected: `with the offline posture still taken, Add registry, given ${UNLISTENED_OFFLINE} (a registry other than the hub) and the global file, is refused, and the channel's closing line is exactly "${REGISTRATION_SUBJECT} did not complete: code=<code> <message>", <code> and <message> being the code and the message of the server's own refusal of the same request in the same posture, the message opening with its short code; an error notification carries the same line`,
     plant: 'in the scratch copy, out/src/error-surfaces.js made to cut the short code off the front of a language-server refusal',
@@ -538,11 +850,26 @@ export async function registryChecks(ctx: SuiteContext, registry: ScratchRegistr
     const ref = await referenceRegistration(ctx, UNLISTENED_OFFLINE, 'refusal');
     const refusal = ref.refusal;
     need(refusal !== null && /^E\d{4}: /.test(refusal.message), `the server's own answer to the same request is not a refusal opening with its short code: ${ref.raw}`);
-    const ending = await registerThrough(ctx, UNLISTENED_OFFLINE);
+    const ending = await registerThrough(ctx, UNLISTENED_OFFLINE, PRESSED_AWAY);
+    refused = ending;
     const want = `${REGISTRATION_SUBJECT} did not complete: code=${String(refusal.code)} ${refusal.message}`;
     return {
       passed: ending.line === want && ending.toast?.message === want && ending.toast.severity === 'error',
       seen: `${describeEnding(ending)}; the server's refusal: code ${String(refusal.code)}, "${refusal.message}"`,
+    };
+  });
+
+  await c.run('registration.asks-for-a-trust-policy-after-the-offline-refusal', {
+    expected: `in that registration, the refusal — whose message the server opens with a short code and whose sentence names --identity and --key as the remedy — is followed by the question titled "${trustByHandTitle(UNLISTENED_OFFLINE)}" with the rows ${TRUST_BY_HAND_ROWS.map((r) => `"${r}"`).join(', ')}, first seen with the refusal's line already in the channel`,
+    plant: 'in the scratch copy, out/src/registry-configure.js made to recognise the offline refusal by a short code it does not carry',
+  }, async () => {
+    const e = refused as Ending | null;
+    need(e !== null && e.line.startsWith(`${REGISTRATION_SUBJECT} did not complete: `), `the registration was not refused: ${e === null ? 'not run' : describeEnding(e)}`);
+    need(e.line.includes('--identity') && e.line.includes('--key'), `the refusal does not name --identity and --key as its remedy: ${describeEnding(e)}`);
+    const q = e.question;
+    return {
+      passed: q !== null && q.lineFirst && JSON.stringify(q.rows) === JSON.stringify(TRUST_BY_HAND_ROWS),
+      seen: `${describeEnding(e)}; ${describeQuestion(q)}`,
     };
   });
 }

@@ -17,13 +17,19 @@ import {
   RegistryAddResult,
   RegistryRemoveParams,
   RegistryRemoveResult,
+  TRUST_BY_HAND_CHOICES,
+  TrustByHand,
   addRequest,
+  asksForTrust,
   credentialRemovalDetail,
   logoutRequest,
+  pinsAnything,
+  refusedForWantOfTrust,
   removalConsentDetail,
   removeRequest,
   runLogout,
   runRegistryAdd,
+  runRegistryAddWithTrust,
   runRegistryRemove,
 } from '../../src/registry-configure';
 import {
@@ -226,12 +232,13 @@ describe('the registration request says only what this surface has decided to sa
     );
   });
 
-  it('sends no trust field, so the compiler\'s own defaults stand', () => {
+  it('sends no trust field where none was supplied, so the compiler\'s own defaults stand', () => {
     // Named separately from the equality above because it is the property, and a
     // reader of a failure should see which rule was broken. The fetch of an
     // advertised policy defaults to ON and an unset signature requirement is
     // distinguishable from one turned off, so an omitted field is not a false
-    // one.
+    // one. The identities and the key are sent only where a reader supplied them,
+    // which the specs on a policy pinned by hand hold.
     const params = addRequest('registry.example.test', 'global') as unknown as
       Record<string, unknown>;
     for (const forbidden of [
@@ -245,8 +252,8 @@ describe('the registration request says only what this surface has decided to sa
     ]) {
       assert.ok(
         !(forbidden in params),
-        `${forbidden} must not be sent: it shapes the trust policy, which this surface offers `
-        + 'no way to state, and sending its zero value is not the same as omitting it',
+        `${forbidden} must not be sent by a registration that supplies no trust detail: it `
+        + 'shapes the trust policy, and sending its zero value is not the same as omitting it',
       );
     }
   });
@@ -288,6 +295,207 @@ describe('the registration request says only what this surface has decided to sa
       runRegistryAdd.length,
       3,
       'a fourth argument carrying a stop would offer a stop the compiler cannot honour',
+    );
+  });
+});
+
+// --- a trust policy pinned by hand ---------------------------------------
+
+// The compiler's own words for the three cases below, as the pinned language
+// server answered them over stdio. Literals, for the reason the refusals above
+// are: the property under test is that each arrives, or is read, unaltered.
+const OFFLINE_REFUSAL =
+  'E0310: aggrega registry add: localhost:2: a registry other than the official hub is not '
+  + 'registered offline without a trust policy supplied by hand, because the policy it '
+  + 'advertises cannot be fetched; register it once while online, or pin its trust by hand '
+  + 'with `aggrega registry add <host> --identity <identity>=<issuer>` or `--key <public-key-file>`';
+const MALFORMED_IDENTITY_REFUSAL =
+  'aggrega registry add: --identity "not-an-identity-pair" must be in the form identity=issuer';
+const NOT_ADVERTISED = 'registrytrust: registry advertises no trust config';
+
+const IDENTITY_A = 'dev@example.com=https://accounts.google.com';
+const IDENTITY_B = 'ci@example.com=https://token.actions.githubusercontent.com';
+const KEY_FILE = '/home/reader/keys/registry.pub.pem';
+
+describe('the reader is asked for a trust policy to pin by hand exactly where the command line takes one', () => {
+  it('asks where the registry was asked and advertised nothing, naming the host the entry was keyed under', async () => {
+    const answer = addAnswer({ host: 'normalised.example.test', trust: { pinned: false, notAdvertised: true, reason: NOT_ADVERTISED } });
+    assert.strictEqual(asksForTrust(answer), true);
+    const ending = await runRegistryAdd(recorder({ add: answer }), 'registry.example.test', 'global');
+    assert.strictEqual(ending.asksForTrust, true);
+    assert.strictEqual(ending.host, 'normalised.example.test');
+  });
+
+  it('never asks where a policy was taken: an advertised one pinned, or the hub\'s baseline', async () => {
+    // 🔴 A policy supplied by hand takes the place of the one the answer reports,
+    // so asking in any of these would invite a reader to replace trust the entry
+    // already carries. The second baseline row is the hub asked and advertising
+    // nothing, which carries notAdvertised beside the baseline.
+    const taken: Array<RegistryAddResult['trust']> = [
+      { pinned: true, identities: 2 },
+      { pinned: false, baseline: true, reason: 'offline' },
+      { pinned: false, notAdvertised: true, baseline: true, reason: NOT_ADVERTISED },
+      { pinned: false, skipped: true },
+      { pinned: false },
+    ];
+    for (const trust of taken) {
+      const ending = await runRegistryAdd(recorder({ add: addAnswer({ trust }) }), 'registry.example.test', 'global');
+      assert.strictEqual(ending.asksForTrust, false, `asked after an answer reporting ${JSON.stringify(trust)}`);
+    }
+  });
+
+  it('asks after the offline refusal whose remedy is identities or a key, naming the host the request carried', async () => {
+    const refusal: DaemonRefusal = { code: REFUSAL_CODE, message: OFFLINE_REFUSAL };
+    assert.strictEqual(refusedForWantOfTrust(refusal), true);
+    const ending = await runRegistryAdd(recorder({ add: refusal }), '  localhost:2  ', 'global');
+    assert.strictEqual(ending.asksForTrust, true);
+    assert.strictEqual(ending.host, 'localhost:2');
+    // The refusal is still the ending, whole, and it is what the reader meets
+    // before the question.
+    assert.strictEqual(
+      terminalLine(REGISTRATION_SUBJECT, ending.outcome),
+      `The registration did not complete: code=-32602 ${OFFLINE_REFUSAL}`,
+    );
+  });
+
+  it('does not ask after any other refusal, nor after a failure that is not a refusal', async () => {
+    // The last row carries the offline refusal's words on a value that is not a
+    // language-server refusal, so the short code is read only where the server
+    // answered with it.
+    const others: unknown[] = [
+      { code: REFUSAL_CODE, message: ADD_REFUSAL },
+      { code: REFUSAL_CODE, message: MALFORMED_IDENTITY_REFUSAL },
+      { code: REFUSAL_CODE, message: OFFLINE_REFUSAL.replace('E0310: ', 'E0309: ') },
+      { code: REFUSAL_CODE, message: OFFLINE_REFUSAL.replace('E0310: ', '') },
+      new Error(OFFLINE_REFUSAL),
+    ];
+    for (const refusal of others) {
+      assert.strictEqual(refusedForWantOfTrust(refusal), false, `read ${String((refusal as { message?: string }).message)} as the offline refusal`);
+    }
+    const ending = await runRegistryAdd(recorder({ add: { code: REFUSAL_CODE, message: ADD_REFUSAL } }), 'registry.example.test', 'global');
+    assert.strictEqual(ending.asksForTrust, false);
+  });
+
+  it('offers exactly the two kinds the command line takes for this case, one, the other, both or neither', () => {
+    // 🔴 AN EQUALITY OVER THE WHOLE OFFER. The command line's notice for a
+    // registry advertising nothing, and its offline refusal, name the identities
+    // and the key and nothing else; a row reaching any other trust detail would be
+    // a capability the two surfaces do not share.
+    assert.deepStrictEqual(
+      TRUST_BY_HAND_CHOICES.map((c) => [c.label, c.identities, c.key]),
+      [
+        ['Keyless identities', true, false],
+        ['A public key', false, true],
+        ['Keyless identities and a public key', true, true],
+        ['Neither', false, false],
+      ],
+    );
+  });
+
+  it('sends a second registration only where the reader supplied something', () => {
+    assert.strictEqual(pinsAnything(null), false);
+    assert.strictEqual(pinsAnything({ identities: [], keyPath: null }), false);
+    assert.strictEqual(pinsAnything({ identities: [IDENTITY_A], keyPath: null }), true);
+    assert.strictEqual(pinsAnything({ identities: [], keyPath: KEY_FILE }), true);
+  });
+});
+
+describe('a registration carrying a policy pinned by hand sends what was supplied and says what kind it pinned', () => {
+  it('composes the host, the destination, the identities in order and the key path, and nothing else', () => {
+    assert.deepStrictEqual(addRequest('registry.example.test', 'workspace', { identities: [IDENTITY_A, IDENTITY_B], keyPath: KEY_FILE }), {
+      host: 'registry.example.test',
+      global: false,
+      workspace: true,
+      identities: [IDENTITY_A, IDENTITY_B],
+      keyPath: KEY_FILE,
+    });
+    assert.deepStrictEqual(addRequest('registry.example.test', 'global', { identities: [IDENTITY_A], keyPath: null }), {
+      host: 'registry.example.test', global: true, workspace: false, identities: [IDENTITY_A],
+    });
+    assert.deepStrictEqual(addRequest('registry.example.test', 'global', { identities: [], keyPath: KEY_FILE }), {
+      host: 'registry.example.test', global: true, workspace: false, keyPath: KEY_FILE,
+    });
+  });
+
+  it('omits what was not supplied, so supplying nothing composes the bare request', () => {
+    assert.deepStrictEqual(
+      addRequest('registry.example.test', 'global', { identities: [], keyPath: null }),
+      addRequest('registry.example.test', 'global'),
+    );
+  });
+
+  it('sends each identity exactly as typed, leaving every check to the compiler', () => {
+    // 🔴 No second rule: a malformed identity, one with stray spaces, and one with
+    // no issuer each travel untouched, and the compiler's refusal is what the
+    // reader meets.
+    const typed = ['not-an-identity-pair', ' dev@example.com=https://accounts.google.com ', 'x='];
+    assert.deepStrictEqual(addRequest('registry.example.test', 'global', { identities: typed, keyPath: null }).identities, typed);
+  });
+
+  it('registers once more at the same destination, through the same request, carrying what was supplied', async () => {
+    const registries = recorder({ add: addAnswer({ trust: { pinned: false, skipped: true } }) });
+    const byHand: TrustByHand = { identities: [IDENTITY_A], keyPath: KEY_FILE };
+    await runRegistryAddWithTrust(registries, 'registry.example.test', 'workspace', byHand);
+    assert.deepStrictEqual(registries.addSent, [
+      { host: 'registry.example.test', global: false, workspace: true, identities: [IDENTITY_A], keyPath: KEY_FILE },
+    ]);
+  });
+
+  it('says what kind of trust the entry now carries, and names none of the values', async () => {
+    const opening = 'The registration registered registry.example.test in '
+      + '/home/reader/.config/aggrega/config.yaml, the global file shared by every project on this machine. ';
+    const cases: Array<[TrustByHand, string]> = [
+      [{ identities: [IDENTITY_A], keyPath: null },
+        'Its signature trust policy is the keyless identity this registration supplied, so no advertised policy was fetched.'],
+      [{ identities: [IDENTITY_A, IDENTITY_B], keyPath: null },
+        'Its signature trust policy is the keyless identities this registration supplied, so no advertised policy was fetched.'],
+      [{ identities: [], keyPath: KEY_FILE },
+        'Its signature trust policy is the public key this registration supplied, so no advertised policy was fetched.'],
+      [{ identities: [IDENTITY_A, IDENTITY_B], keyPath: KEY_FILE },
+        'Its signature trust policy is the keyless identities and the public key this registration supplied, so no '
+        + 'advertised policy was fetched.'],
+    ];
+    for (const [byHand, sentence] of cases) {
+      const outcome = await runRegistryAddWithTrust(recorder({ add: addAnswer({ trust: { pinned: false, skipped: true } }) }), 'registry.example.test', 'global', byHand);
+      const line = terminalLine(REGISTRATION_SUBJECT, outcome);
+      assert.strictEqual(line, `${opening}${sentence}`);
+      for (const value of [...byHand.identities, byHand.keyPath ?? '', 'dev@example.com', 'accounts.google.com']) {
+        if (value !== '') { assert.ok(!line.includes(value), `the ending names "${value}": ${line}`); }
+      }
+    }
+  });
+
+  it('reads what was supplied only where the answer says the fetch was skipped', async () => {
+    // An answer reporting anything else is read as that: the sentence is about
+    // what the compiler did, and the request is not evidence of it.
+    const outcome = await runRegistryAddWithTrust(
+      recorder({ add: addAnswer({ trust: { pinned: false, notAdvertised: true, reason: NOT_ADVERTISED } }) }),
+      'registry.example.test', 'global', { identities: [IDENTITY_A], keyPath: KEY_FILE },
+    );
+    assert.strictEqual(
+      terminalLine(REGISTRATION_SUBJECT, outcome),
+      'The registration registered registry.example.test in /home/reader/.config/aggrega/config.yaml, the global '
+      + 'file shared by every project on this machine. It advertises no signature trust policy, and this '
+      + `registration names no identity or key, so the entry carries none. ${NOT_ADVERTISED}`,
+    );
+  });
+
+  it('ends a refused one in the compiler\'s own sentence, whole', async () => {
+    const outcome = await runRegistryAddWithTrust(
+      recorder({ add: { code: REFUSAL_CODE, message: MALFORMED_IDENTITY_REFUSAL } }),
+      'registry.example.test', 'global', { identities: ['not-an-identity-pair'], keyPath: null },
+    );
+    assert.strictEqual(
+      terminalLine(REGISTRATION_SUBJECT, outcome),
+      `The registration did not complete: code=-32602 ${MALFORMED_IDENTITY_REFUSAL}`,
+    );
+  });
+
+  it('accepts no cancellation either: its four arguments carry no stop', () => {
+    assert.strictEqual(
+      runRegistryAddWithTrust.length,
+      4,
+      'a fifth argument carrying a stop would offer a stop the compiler cannot honour',
     );
   });
 });
@@ -362,7 +570,7 @@ describe('the credential removal request says only what this surface has decided
 
 describe('a completed registration says what was registered and where', () => {
   it('names the host, the file, how far it reaches, and what the registry advertised', async () => {
-    const outcome = await runRegistryAdd(recorder({}), 'registry.example.test', 'global');
+    const { outcome } = await runRegistryAdd(recorder({}), 'registry.example.test', 'global');
     assert.strictEqual(outcome.kind, 'ok');
     assert.strictEqual(
       terminalLine(REGISTRATION_SUBJECT, outcome),
@@ -377,7 +585,7 @@ describe('a completed registration says what was registered and where', () => {
     // The request asked for the global file and the answer reports the project's
     // one; the ending must describe where the write LANDED, because the compiler
     // resolves the destination and this surface only asked.
-    const outcome = await runRegistryAdd(
+    const { outcome } = await runRegistryAdd(
       recorder({
         add: addAnswer({
           host: 'normalised.example.test',
@@ -423,7 +631,7 @@ describe('a completed registration says what was registered and where', () => {
         'The answer names no signature trust policy outcome.'],
     ];
     for (const [trust, sentence] of cases) {
-      const outcome = await runRegistryAdd(
+      const { outcome } = await runRegistryAdd(
         recorder({ add: addAnswer({ trust }) }),
         'registry.example.test',
         'global',
@@ -461,7 +669,7 @@ describe('a completed registration says what was registered and where', () => {
         'The built-in trust baseline was pinned instead of an advertised policy.'],
     ];
     for (const [trust, sentence] of cases) {
-      const outcome = await runRegistryAdd(
+      const { outcome } = await runRegistryAdd(
         recorder({ add: addAnswer({ host: 'hub.aggrega.ai', trust }) }),
         'hub.aggrega.ai',
         'global',
@@ -516,7 +724,7 @@ describe('a completed removal says what was removed and from where', () => {
 // meets, driven through the operation rather than read off the composer.
 describe('a registration and a removal say they are in effect once the language server has read them', () => {
   it('ends a registration the restarted server has read by saying it is in effect', async () => {
-    const outcome = await runRegistryAdd(recorder({ inEffect: true }), 'registry.example.test', 'global');
+    const { outcome } = await runRegistryAdd(recorder({ inEffect: true }), 'registry.example.test', 'global');
     assert.strictEqual(
       terminalLine(REGISTRATION_SUBJECT, outcome),
       'The registration registered registry.example.test in '
@@ -537,7 +745,7 @@ describe('a registration and a removal say they are in effect once the language 
   });
 
   it('says nothing of the kind where no running server has read the write', async () => {
-    const add = await runRegistryAdd(recorder({ inEffect: false }), 'registry.example.test', 'global');
+    const { outcome: add } = await runRegistryAdd(recorder({ inEffect: false }), 'registry.example.test', 'global');
     const remove = await runRegistryRemove(recorder({ inEffect: false }), 'registry.example.test', 'global');
     for (const outcome of [add, remove]) {
       assert.strictEqual(outcome.kind, 'ok');
@@ -618,7 +826,7 @@ describe('a refused operation carries the compiler\'s own diagnostic', () => {
   // summarised.
   it('renders the registration refusal exactly, character for character', async () => {
     const refusal: DaemonRefusal = { code: REFUSAL_CODE, message: ADD_REFUSAL };
-    const outcome = await runRegistryAdd(
+    const { outcome } = await runRegistryAdd(
       recorder({ add: refusal }),
       'registry.example.test',
       'global',
@@ -683,7 +891,7 @@ describe('a refused operation carries the compiler\'s own diagnostic', () => {
   it('reports a server that is not running as the failure it is, on all three', async () => {
     const notRunning = new Error('the Aggrega language server is not running');
     const outcomes = [
-      await runRegistryAdd(recorder({ add: notRunning }), 'registry.example.test', 'global'),
+      (await runRegistryAdd(recorder({ add: notRunning }), 'registry.example.test', 'global')).outcome,
       await runRegistryRemove(
         recorder({ remove: notRunning }),
         'registry.example.test',

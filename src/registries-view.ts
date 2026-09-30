@@ -15,16 +15,28 @@ import {
 } from './registry-index-request';
 import {
   CREDENTIAL_REMOVAL_SUBJECT,
+  IDENTITY_PLACEHOLDER,
+  IDENTITY_PROMPT_FIRST,
+  IDENTITY_PROMPT_NEXT,
+  KEY_DIALOG_BUTTON,
   REGISTRATION_DESTINATION_PROMPT,
   REGISTRATION_SUBJECT,
   REGISTRY_ADD_COMMAND,
   REGISTRY_REMOVAL_SUBJECT,
   REMOVAL_DESTINATION_PROMPT,
   RegistryConfigureDeps,
+  TRUST_BY_HAND_CHOICES,
+  TRUST_BY_HAND_PLACEHOLDER,
+  TrustByHand,
+  identityPromptTitle,
+  keyDialogTitle,
+  pinsAnything,
   removalConsentDetail,
   runLogout,
   runRegistryAdd,
+  runRegistryAddWithTrust,
   runRegistryRemove,
+  trustByHandTitle,
 } from './registry-configure';
 import {
   REGISTRY_ROW_CONTEXT,
@@ -72,6 +84,55 @@ async function askWriteDestination(prompt: string): Promise<ConfigWriteDestinati
     { placeHolder: prompt },
   );
   return chosen ? chosen.destination : null;
+}
+
+// askTrustByHand asks the reader for a trust policy to pin by hand, or reports
+// null when they dismissed a prompt.
+//
+// It asks for exactly what the command line takes where a registry advertises no
+// policy: keyless identities, as many as the reader types, and a public-key file.
+// It asks first which of the two the reader wants, so a reader who wants one is
+// not walked through the other. The identities are asked for one at a time and
+// each is kept exactly as typed; an empty answer ends the list. Dismissing any
+// prompt pins nothing at all, rather than whatever was typed before it: backing
+// out is not an answer.
+async function askTrustByHand(host: string): Promise<TrustByHand | null> {
+  const chosen = await vscode.window.showQuickPick(
+    TRUST_BY_HAND_CHOICES.map((choice) => ({
+      label: choice.label,
+      description: choice.description,
+      choice,
+    })),
+    { title: trustByHandTitle(host), placeHolder: TRUST_BY_HAND_PLACEHOLDER, ignoreFocusOut: true },
+  );
+  if (!chosen) { return null; }
+  const identities: string[] = [];
+  if (chosen.choice.identities) {
+    for (;;) {
+      const typed = await vscode.window.showInputBox({
+        title: identityPromptTitle(host),
+        prompt: identities.length === 0 ? IDENTITY_PROMPT_FIRST : IDENTITY_PROMPT_NEXT,
+        placeHolder: IDENTITY_PLACEHOLDER,
+        ignoreFocusOut: true,
+      });
+      if (typed === undefined) { return null; }
+      if (typed === '') { break; }
+      identities.push(typed);
+    }
+  }
+  let keyPath: string | null = null;
+  if (chosen.choice.key) {
+    const picked = await vscode.window.showOpenDialog({
+      title: keyDialogTitle(host),
+      openLabel: KEY_DIALOG_BUTTON,
+      canSelectFiles: true,
+      canSelectFolders: false,
+      canSelectMany: false,
+    });
+    if (!picked || picked.length === 0) { return null; }
+    keyPath = picked[0].fsPath;
+  }
+  return { identities, keyPath };
 }
 
 // RegistriesTreeProvider renders the configured registries in the Aggrega
@@ -215,6 +276,17 @@ export function activateRegistriesView(
     // the request is reached with no cancellation, so a stop here could only stop
     // this side waiting — and reporting that as a stop would tell a reader the
     // compiler stopped when it did not.
+    //
+    // 🔴 WHERE THE REGISTRY ADVERTISES NO TRUST POLICY, THE READER IS ASKED FOR ONE
+    // TO PIN BY HAND — AFTER THE ENDING, NEVER BEFORE THE REQUEST. That is the one
+    // case in which the command line takes identities or a key, and the same case
+    // met offline, where a registry other than the official hub is refused for want
+    // of one. The ending is put in front of the reader first, so the question
+    // follows the sentence saying why it is asked; it is not waited on, because a
+    // refusal's notification stays until the reader answers it. What the reader
+    // supplies is sent as a second registration of the same host at the same
+    // destination, whose own ending follows; declining sends nothing more, so what
+    // stands is what the command line leaves when given neither.
     vscode.commands.registerCommand(REGISTRY_ADD_COMMAND, async () => {
       const host = await vscode.window.showInputBox({
         title: 'Aggrega: add a registry',
@@ -224,13 +296,25 @@ export function activateRegistriesView(
       if (!host) { return; }
       const destination = await askWriteDestination(REGISTRATION_DESTINATION_PROMPT);
       if (!destination) { return; }
-      const outcome = await runRegistryAdd(deps, host, destination);
+      const first = await runRegistryAdd(deps, host, destination);
       // The listing is re-read whatever the ending was. A registration that was
       // refused may still have changed what the workspace resolves, because the
       // work is the compiler's and it is not this surface's to say how far it
       // got.
       registries.refresh();
-      await reportOutcome(deps, REGISTRATION_SUBJECT, outcome, true);
+      const reported = reportOutcome(deps, REGISTRATION_SUBJECT, first.outcome, true);
+      if (!first.asksForTrust) {
+        await reported;
+        return;
+      }
+      const byHand = await askTrustByHand(first.host);
+      if (!pinsAnything(byHand)) {
+        await reported;
+        return;
+      }
+      const second = await runRegistryAddWithTrust(deps, host, destination, byHand);
+      registries.refresh();
+      await Promise.all([reported, reportOutcome(deps, REGISTRATION_SUBJECT, second, true)]);
     }),
 
     // The index build is the one registry operation that reaches the network,

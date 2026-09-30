@@ -52,6 +52,17 @@ const PANEL_SCRIPT = 'media/operations.js';
 const REGISTRATION_OUTCOME = 'out/src/registration-outcome.js';
 const INDEX_REQUEST = 'out/src/registry-index-request.js';
 
+// The compiled lines deciding whether a registration is followed by the question
+// for a trust policy to pin by hand, naming the offline refusal that is, and
+// composing the registration request.
+const REGISTRY_CONFIGURE = 'out/src/registry-configure.js';
+const ASKS_FOR_TRUST = '    return result.trust.notAdvertised === true && !result.trust.pinned && !result.trust.baseline;';
+const OFFLINE_REFUSAL_CODE = "exports.OFFLINE_REGISTRATION_WITHOUT_TRUST_POLICY = 'E0310';";
+const REGISTRATION_REQUEST = '    const request = { host: checked, ...(0, config_write_scope_1.configWriteOverrides)(destination) };';
+// The compiled lines ending a registration that carries what the reader supplied
+// by hand, where a refusal becomes the ending the reader is shown.
+const BY_HAND_REFUSAL = '(registrationDetail(answer, request), inEffect) };\n    }\n    catch (err) {\n        return (0, operation_outcome_1.outcomeOf)(err);';
+
 const CONTEXT_ROW_LABEL = {
   file: 'out/src/selector-levels.js',
   find: "    project: 'Project folder',",
@@ -592,6 +603,43 @@ export const PLANTS: readonly Plant[] = [
     find: '        return `code=${err.code} ${err.message}`;',
     replace: "        return `code=${err.code} ${err.message.replace(/^E\\d{4}: /, '')}`;",
     says: 'a language-server refusal reaches the reader with the short code it opens with cut off',
+  },
+  {
+    name: 'trust-question-not-asked', scenario: 'storefront-with-registries', checks: ['registration.asks-for-a-trust-policy-where-the-registry-advertises-none'], moves: 'red', target: 'extension',
+    file: REGISTRY_CONFIGURE, find: ASKS_FOR_TRUST, replace: '    return result.trust.notAdvertised === true && result.trust.pinned;',
+    says: 'an answer saying the registry advertises no trust policy is read as one leaving nothing to ask',
+  },
+  {
+    name: 'declined-registration-requires-signatures', scenario: 'storefront-with-registries', checks: ['registration.declined-writes-what-the-command-line-writes'], moves: 'red', target: 'extension',
+    file: REGISTRY_CONFIGURE, find: REGISTRATION_REQUEST, replace: REGISTRATION_REQUEST.replace('(destination) };', '(destination), requireSignatures: true };'),
+    says: 'every registration the extension composes states a signature requirement the reader never asked for',
+  },
+  {
+    name: 'identity-checked-before-sending', scenario: 'storefront-with-registries', checks: ['registration.refuses-a-malformed-identity-in-the-compilers-words'], moves: 'red', target: 'extension',
+    file: REGISTRY_CONFIGURE, find: '        request.identities = [...byHand.identities];',
+    replace: '        request.identities = byHand.identities.filter((i) => /^[^=]+=[^=]+$/.test(i));',
+    says: 'an identity the extension judges malformed is dropped before the request goes out, so the compiler never refuses it',
+  },
+  {
+    name: 'supplied-key-left-out', scenario: 'storefront-with-registries', checks: ['registration.writes-the-identities-and-key-supplied'], moves: 'red', target: 'extension',
+    file: REGISTRY_CONFIGURE, find: '        request.keyPath = byHand.keyPath;\n', replace: '',
+    says: 'the registration composed from the reader\'s answers leaves out the key file they chose',
+  },
+  {
+    name: 'baseline-followed-by-a-question', scenario: 'storefront-with-registries', checks: ['registration.asks-nothing-after-the-hubs-built-in-baseline'], moves: 'red', target: 'extension',
+    file: REGISTRY_CONFIGURE, find: ASKS_FOR_TRUST, replace: '    return !result.trust.pinned;',
+    says: 'every answer that pinned no advertised policy is followed by the question, the hub on its built-in baseline included',
+  },
+  {
+    name: 'offline-refusal-code-misread', scenario: 'storefront-with-registries', checks: ['registration.asks-for-a-trust-policy-after-the-offline-refusal'], moves: 'red', target: 'extension',
+    file: REGISTRY_CONFIGURE, find: OFFLINE_REFUSAL_CODE, replace: OFFLINE_REFUSAL_CODE.replace("'E0310'", "'E0311'"),
+    says: 'the offline refusal is recognised by a short code it does not carry, so it is followed by no question',
+  },
+  {
+    name: 'refused-key-file-content-shown', scenario: 'storefront-with-registries', checks: ['registration.refuses-a-key-file-that-is-not-a-public-key-without-showing-its-content'], moves: 'red', target: 'extension',
+    file: REGISTRY_CONFIGURE, find: BY_HAND_REFUSAL,
+    replace: BY_HAND_REFUSAL.replace('    catch (err) {\n', "    catch (err) {\n        if (request.keyPath !== undefined && err && typeof err.message === 'string') { err.message = err.message.replace('<redacted>', JSON.stringify(require('fs').readFileSync(request.keyPath, 'utf8'))); }\n"),
+    says: 'the refusal of a registration carrying a key file is shown with that file\'s content in place of the value the compiler withheld',
   },
   // ---- the Releases with catalog directories of their own ----
   {
