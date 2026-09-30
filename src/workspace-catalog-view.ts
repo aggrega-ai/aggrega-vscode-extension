@@ -36,8 +36,10 @@ const OPEN_COMMAND_TITLE = 'Open the entity file';
 
 // WorkspaceCatalogDeps supplies the live state the workspace-catalog tree
 // needs: the anchored root the reported paths resolve against, whether the
-// language server is running, the index request itself, the resolution request
-// one row asks for, and the shared output channel that carries failure detail.
+// language server is running, the index request itself, the request naming the
+// kinds and what each row operation accepts a document of each for, the
+// resolution request one row asks for, and the shared output channel that
+// carries failure detail.
 //
 // The two transports both appear here because the operations on this panel are
 // split across them, and which one an operation takes is a property of the
@@ -52,6 +54,10 @@ export interface WorkspaceCatalogDeps extends RendersOnReady, CliOperationDeps {
   getBinaryPath(): string;
   isLanguageServerRunning(): boolean;
   requestCatalogIndex(): Promise<CatalogIndexDoc>;
+  // entityKinds asks the language server which kinds an author writes a document
+  // of, and what each row operation accepts a document of each kind for. It is
+  // read beside the index on every read of the list.
+  entityKinds(): Promise<unknown>;
   // entityDefinition asks the language server what one entity resolves to,
   // addressed by the name it resolves under.
   entityDefinition(name: string, signal?: CancellationSignal): Promise<unknown>;
@@ -120,11 +126,11 @@ class WorkspaceCatalogTreeProvider implements vscode.TreeDataProvider<CatalogPan
     item.tooltip = node.row.tooltip;
     item.iconPath = new vscode.ThemeIcon(node.row.icon);
     // Only a row naming an entity carries the value the row operations are
-    // bound to, and which value it carries decides which of them appear. The
-    // search at the head, the kind headings and the message rows above name no
-    // entity — the search acts on the published catalog, a heading names a kind
-    // and a message says why there is nothing to name — so all three return
-    // before this line and the operations do not appear on them at all.
+    // bound to, and the value names which of them appear. The search at the
+    // head, the kind headings and the message rows above name no entity — the
+    // search acts on the published catalog, a heading names a kind and a message
+    // says why there is nothing to name — so all three return before this line
+    // and the operations do not appear on them at all.
     const context = catalogRowContext(node);
     if (context !== null) {
       item.contextValue = context;
@@ -162,6 +168,7 @@ class WorkspaceCatalogTreeProvider implements vscode.TreeDataProvider<CatalogPan
       getWorkspaceRoot: this.deps.getWorkspaceRoot,
       isLanguageServerRunning: this.deps.isLanguageServerRunning,
       requestCatalogIndex: this.deps.requestCatalogIndex,
+      entityKinds: this.deps.entityKinds,
       log: { appendLine: (text) => this.deps.output.appendLine(text) },
     });
   }
@@ -173,13 +180,13 @@ class WorkspaceCatalogTreeProvider implements vscode.TreeDataProvider<CatalogPan
 // The subject is read through the one extractor for it rather than off anything
 // the row displays, and a row that supplies none produces nothing: the handler
 // returns having invoked nothing. The manifest already keeps each entry off the
-// rows that cannot supply its subject, so these are the second of two guards
-// rather than the only one — and they are the ones that hold if a later binding
-// is written more loosely than the ones here.
+// rows that do not offer it, so these are the second of two guards rather than
+// the only one — and they are the ones that hold if a later binding is written
+// more loosely than the ones here.
 //
 // There are two because the operations on this panel take two different
-// subjects. A path-taking operation is unavailable on a row the workspace holds
-// no document for, while an identity-taking one is answerable on every entity
+// subjects. A path-taking operation has nothing to act on where the workspace
+// holds no document, while an identity-taking one has a name on every entity
 // row, so folding them into one extractor would have to pick one of those two
 // rules and would apply it to operations the other governs.
 async function onPath(
@@ -231,12 +238,13 @@ export function activateWorkspaceCatalogView(
     vscode.window.registerTreeDataProvider('aggrega.workspaceCatalog', catalog),
     vscode.commands.registerCommand('aggrega.workspaceCatalog.refresh', () => catalog.refresh()),
 
-    // The inspection is the one operation here every entity row offers, because
-    // it is the only one addressed by identity: an entity resolves under its
-    // name whether or not this workspace holds the document that declares it.
-    // It reads and changes nothing, which is why it is also the entry given the
-    // inline slot — the row affordance a reader reaches without opening a menu.
-    // It is the same inspection the Commands panel runs, ending the same way.
+    // The inspection is the one operation here addressed by identity: an entity
+    // resolves under its name whether or not this workspace holds the document
+    // that declares it, so it is offered on a row with no document too, wherever
+    // the compiler resolves a name to an entity of the row's kind. It reads and
+    // changes nothing, which is why it is also the entry given the inline slot —
+    // the row affordance a reader reaches without opening a menu. It is the same
+    // inspection the Commands panel runs, ending the same way.
     vscode.commands.registerCommand(
       'aggrega.workspaceCatalog.inspect',
       (node?: CatalogPanelNode) => onName(node, (name) => inspectEntity(deps, name)),

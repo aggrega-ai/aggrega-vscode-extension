@@ -532,15 +532,108 @@ export async function revealTreeRow(driver: UiDriver, title: string, label: stri
   return at;
 }
 
+// RowMenu is what a right-click on one tree row read.
+//
+// reached says the right-click's own event landed on that row. It is what lets an
+// empty menu be read as the row offering nothing: the editor draws a row's context
+// menu while it handles that event, and draws none for a row with nothing to
+// offer, so once the event has reached the row, a menu not drawn is a menu the row
+// does not have. A right-click that landed on anything else says nothing about the
+// row, however its menu reads, and misses names what each such right-click landed
+// on instead.
+//
+// items are the menu's entries by their accessible names, read as the menu is
+// drawn, so a menu that closes again at once is still read; empty where the event
+// reached the row and no menu was drawn, or where it never reached it.
+export interface RowMenu { reached: boolean; items: string[]; misses: string[] }
+
+// rowMenuWatch is installed in the workbench just before one right-click. It
+// keeps what that click's context-menu event landed on, and the entries of the
+// first context menu drawn after it.
+function rowMenuWatch(title: string): string {
+  return `((title) => {
+    const prior = window.__editorSuiteRowMenu;
+    if (prior && prior.stop) { prior.stop(); }
+    const w = { row: null, landed: null, items: null };
+    const paneTitle = (e) => {
+      const pane = e.closest('.pane');
+      const h = pane ? pane.querySelector('.pane-header') : null;
+      return h ? ((h.querySelector('h3.title, .title') || {}).innerText || '').trim().toLowerCase() : '';
+    };
+    const onMenu = (e) => {
+      document.removeEventListener('contextmenu', onMenu, true);
+      const t = e.target && e.target.closest ? e.target : null;
+      const row = t ? t.closest('.monaco-list-row') : null;
+      if (row && paneTitle(row) === title.toLowerCase()) {
+        w.row = ((row.querySelector('.label-name') || {}).innerText || '').trim();
+        w.landed = 'the "' + w.row + '" row';
+      } else if (t && t.closest('.workbench-hover, .monaco-hover, .workbench-hover-container')) {
+        w.landed = 'a hover drawn over the row';
+      } else if (row) {
+        w.landed = 'a row of another view';
+      } else {
+        w.landed = t ? 'something that is not a row (' + t.tagName.toLowerCase() + ')' : 'nothing';
+      }
+      read();
+    };
+    const read = () => {
+      if (w.landed === null || w.items !== null || !document.querySelector('.context-view .monaco-menu')) { return; }
+      w.items = [...document.querySelectorAll('.context-view .action-label[aria-label]')].map((e) => e.getAttribute('aria-label'));
+    };
+    const observer = new MutationObserver(read);
+    observer.observe(document.body, { subtree: true, childList: true });
+    document.addEventListener('contextmenu', onMenu, true);
+    w.stop = () => { observer.disconnect(); document.removeEventListener('contextmenu', onMenu, true); };
+    window.__editorSuiteRowMenu = w;
+    return true;
+  })(${JSON.stringify(title)})`;
+}
+
+interface RowMenuWatch { row: string | null; landed: string | null; items: string[] | null }
+
+function rowMenuWatched(driver: UiDriver): Promise<RowMenuWatch> {
+  return driver.workbench<RowMenuWatch>(`(() => { const w = window.__editorSuiteRowMenu || {}; return { row: w.row ?? null, landed: w.landed ?? null, items: w.items ?? null }; })()`);
+}
+
 // rowMenu opens the context menu of the row labelled `label` in the side-bar view
-// titled `title`, as a person does with a right-click on it, and reports the
-// items the menu offers by their accessible names. It reports none where the row
-// is not drawn or no menu opened within 3 s, and leaves an opened menu open.
-export async function rowMenu(driver: UiDriver, title: string, label: string): Promise<string[]> {
-  const at = await treeRowCentre(driver, title, label);
-  if (at === null) { return []; }
-  await driver.click(at, 'right');
-  return until('the row\'s context menu', 3000, () => driver.workbench<string[]>(`[...document.querySelectorAll('.context-view .action-label[aria-label]')].map((e) => e.getAttribute('aria-label'))`), (v) => v.length > 0).catch(() => [] as string[]);
+// titled `title`, as a person does with a right-click on it, and reports what it
+// read; it leaves an opened menu open.
+//
+// 🔴 A RIGHT-CLICK THAT DID NOT REACH THE ROW IS TRIED AGAIN, AND NEVER READ AS
+// THE ROW OFFERING NOTHING. Revealing the row rests the pointer on the list, and a
+// row under a resting pointer opens its tooltip once the hover delay has passed,
+// drawn over the rows around it; a right-click aimed at a row the hover covers
+// lands on the hover, which opens no menu. So before each right-click the pointer
+// is taken off the list and any hover left drawn is waited out, and a click whose
+// event landed elsewhere is taken again, up to `attempts` times.
+export async function rowMenu(driver: UiDriver, title: string, label: string, attempts = 3): Promise<RowMenu> {
+  const misses: string[] = [];
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    await revealTreeRow(driver, title, label);
+    await clearHover(driver);
+    const at = await treeRowCentre(driver, title, label);
+    if (at === null) { misses.push('nothing: the row is not drawn'); continue; }
+    await driver.workbench(rowMenuWatch(title));
+    await driver.click(at, 'right');
+    const landed = await until('the right-click landing', 3000, () => rowMenuWatched(driver), (w) => w.landed !== null).catch(() => rowMenuWatched(driver));
+    if (landed.landed === null) { misses.push('nothing: no element received it'); continue; }
+    if (landed.row !== label) {
+      misses.push(landed.landed);
+      if (landed.items !== null) { await driver.press('Escape'); }
+      continue;
+    }
+    const drawn = await until('the row\'s context menu', 3000, () => rowMenuWatched(driver), (w) => w.items !== null).catch(() => rowMenuWatched(driver));
+    return { reached: true, items: drawn.items ?? [], misses };
+  }
+  return { reached: false, items: [], misses };
+}
+
+// describeRowMenu words what rowMenu read, for a check's report: the items where
+// the right-click reached the row, followed by what any earlier right-click landed
+// on; and what each landed on where none reached it.
+export function describeRowMenu(m: RowMenu): string {
+  const missed = m.misses.length === 0 ? '' : `${m.reached ? ', ' : ''}the right-click landing on ${m.misses.join(', then ')}${m.reached ? ' before it reached the row' : ', and never on the row'}`;
+  return m.reached ? `the menu ${JSON.stringify(m.items)}${missed}` : missed;
 }
 
 // pressMenuItem presses the item named `label` on the open context menu, and
@@ -763,26 +856,37 @@ export function statusItems(driver: UiDriver): Promise<StatusItem[]> {
   })()`);
 }
 
-// hoverAt rests the pointer on a point and returns the words of the hover the
-// workbench draws there, or an empty string where none is drawn within the bound.
-//
-// The pointer is first moved off everything and a hover still drawn from an
-// earlier rest is waited out, so the words read are the hover of this point and
-// not one left standing from the last.
-export async function hoverAt(driver: UiDriver, at: { x: number; y: number }, boundMs = 5000): Promise<string> {
-  const drawn = (): Promise<string> => driver.workbench<string>(`(() => {
+// hoverText is the words of every hover the workbench draws now, or an empty
+// string where none is drawn.
+function hoverText(driver: UiDriver): Promise<string> {
+  return driver.workbench<string>(`(() => {
     const hovers = [...document.querySelectorAll('.workbench-hover, .monaco-hover')].filter((e) => {
       const r = e.getBoundingClientRect();
       return r.width > 0 && r.height > 0 && !e.classList.contains('hidden') && getComputedStyle(e).visibility !== 'hidden';
     });
     return hovers.map((e) => (e.innerText || '').trim()).filter((t) => t !== '').join('\\n');
   })()`);
+}
+
+// clearHover moves the pointer off everything and waits out a hover still drawn
+// from an earlier rest, so what is read or pressed next is not the hover. Escape
+// closes a hover the pointer has entered, which stays drawn otherwise.
+async function clearHover(driver: UiDriver): Promise<void> {
   await driver.moveTo({ x: 1, y: 1 });
   await driver.press('Escape');
-  await until('no hover left drawn', 3000, drawn, (t) => t === '').catch(() => undefined);
+  await until('no hover left drawn', 3000, () => hoverText(driver), (t) => t === '').catch(() => undefined);
+}
+
+// hoverAt rests the pointer on a point and returns the words of the hover the
+// workbench draws there, or an empty string where none is drawn within the bound.
+//
+// The hover left standing from an earlier rest is cleared first, so the words
+// read are the hover of this point and not the last one's.
+export async function hoverAt(driver: UiDriver, at: { x: number; y: number }, boundMs = 5000): Promise<string> {
+  await clearHover(driver);
   await driver.moveTo({ x: at.x + 1, y: at.y });
   await driver.moveTo(at);
-  return until('a hover being drawn', boundMs, drawn, (t) => t !== '').catch(() => '');
+  return until('a hover being drawn', boundMs, () => hoverText(driver), (t) => t !== '').catch(() => '');
 }
 
 // ---- the command palette ------------------------------------------------------

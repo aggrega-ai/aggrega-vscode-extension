@@ -27,6 +27,7 @@ import {
 } from './operation-menus';
 import {
   DraftSubject,
+  ENTITY_KIND_READ,
   EntityKind,
   draftNamePrompt,
   draftSubjectFor,
@@ -1314,7 +1315,7 @@ async function askEntityKinds(deps: OperationDeps): Promise<EntityKind[] | null>
   try {
     answer = await deps.entityKinds();
   } catch (err) {
-    await reportOutcome(deps, 'The entity-kind read', outcomeOf(err), true);
+    await reportOutcome(deps, ENTITY_KIND_READ, outcomeOf(err), true);
     return null;
   }
   const kinds = readEntityKinds(answer);

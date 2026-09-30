@@ -3,6 +3,14 @@
 
 import * as path from 'path';
 import type * as wire from '@aggrega-ai/aggrega-abi/dist/servewire_gen';
+import {
+  ENTITY_KIND_READ,
+  EntityKind,
+  EntityKindAcceptance,
+  acceptanceFor,
+  readEntityKinds,
+} from './entity-kinds';
+import { outcomeOf, terminalLine } from './operation-outcome';
 import { NO_ANCHORED_WORKSPACE_TREE_LABEL } from './workspace';
 
 // --- the workspace entity index, as the compiler publishes it -------------
@@ -168,6 +176,12 @@ export interface WorkspaceEntityRow {
   // that has nothing to open would offer to open the whole workspace. The
   // absence has to be a value no path operation accepts.
   openPath: string | null;
+  // acceptance is what the compiler accepts a document of this row's kind for,
+  // read from its answer naming the kinds — or null where that answer holds no
+  // such kind, or could not be read, either of which accepts nothing. Which of the
+  // row's operations are offered is decided from it in one place, beside the value
+  // the manifest targets the row with, and not here.
+  acceptance: EntityKindAcceptance | null;
 }
 
 // WorkspaceCatalogNode is what the tree renders: a kind heading, an entity
@@ -206,9 +220,13 @@ export function labelSegments(labels: Record<string, string>): string[] {
 // An origin matching neither declared value is classified as neither: it gets
 // no open target, because only a workspace document's path resolves against
 // this root, and no note claiming a source this reader cannot be told about.
+//
+// kinds is the compiler's answer naming the kinds, read once for the whole
+// index; the row takes the entry for the kind its document declares.
 export function rowForEntity(
   workspaceRoot: string,
   entity: CatalogIndexEntity,
+  kinds: readonly EntityKind[],
 ): WorkspaceEntityRow {
   const labels = labelSegments(entity.labels ?? {});
   const fromWorkspace = entity.origin === ENTITY_ORIGIN_WORKSPACE;
@@ -253,6 +271,7 @@ export function rowForEntity(
     tooltip: lines.join('\n'),
     icon: fromWorkspace ? ENTITY_ICON : CATALOG_ENTITY_ICON,
     openPath: hasDocument ? path.join(workspaceRoot, entity.file) : null,
+    acceptance: acceptanceFor(kinds, entity.kind),
   };
 }
 
@@ -269,6 +288,7 @@ export function rowForEntity(
 export function nodesForDocument(
   workspaceRoot: string,
   doc: CatalogIndexDoc,
+  kinds: readonly EntityKind[],
 ): WorkspaceCatalogNode[] {
   const entities = doc.entities ?? [];
   if (entities.length === 0) {
@@ -280,7 +300,7 @@ export function nodesForDocument(
     if (!open || open.label !== entity.kind) {
       groups.push({ kind: 'group', label: entity.kind, rows: [] });
     }
-    groups[groups.length - 1].rows.push(rowForEntity(workspaceRoot, entity));
+    groups[groups.length - 1].rows.push(rowForEntity(workspaceRoot, entity, kinds));
   }
   return groups;
 }
@@ -295,7 +315,7 @@ export interface WorkspaceCatalogLog {
 
 // WorkspaceCatalogRunDeps supplies the run's surfaces: the anchored root the
 // relative paths resolve against, whether the server can be asked at all, the
-// request itself, and the log that carries the server's message when it fails.
+// two requests, and the log that carries the server's message when one fails.
 export interface WorkspaceCatalogRunDeps {
   getWorkspaceRoot(): string | null;
   isLanguageServerRunning(): boolean;
@@ -303,6 +323,11 @@ export interface WorkspaceCatalogRunDeps {
   // resolves the parsed response, and rejects with the server's own message
   // when the request could not be answered.
   requestCatalogIndex(): Promise<CatalogIndexDoc>;
+  // entityKinds asks the server which kinds an author writes a document of, and
+  // what each operation on a row accepts a document of each kind for. It is the
+  // same request the drafting flow reads the kinds from, and it rejects with the
+  // server's own message when it could not be answered.
+  entityKinds(): Promise<unknown>;
   log: WorkspaceCatalogLog;
 }
 
@@ -334,5 +359,35 @@ export async function workspaceCatalogNodes(
     deps.log.appendLine(message);
     return [{ kind: 'message', label: FAILURE_LABEL, detail: message }];
   }
-  return nodesForDocument(workspaceRoot, doc);
+  return nodesForDocument(workspaceRoot, doc, await rowKinds(deps, doc));
+}
+
+// rowKinds reads the kinds answer the rows of one index are classified against.
+//
+// 🔴 IT IS ASKED ON EVERY READ OF THE LIST AND KEPT FOR NONE. Which operations
+// accept which kinds is a property of the binary on the other end, so an answer
+// kept past the server that gave it would offer, after a restart onto another
+// binary, what the previous one accepted.
+//
+// It is not asked where the index holds no entity, since there is then no row to
+// classify. A failed read still draws the rows: the entities are known, and only
+// what the compiler accepts for their kinds is not, so every operation that
+// depends on that is withheld and the rest stay. The failure goes to the channel
+// in the sentence the drafting flow ends the same failed read in, the server's
+// own words carried unchanged; it raises no notification and draws no row, as the
+// index's own failure raises none, because the list is read again on every
+// document change and a notification would repeat with each one.
+async function rowKinds(
+  deps: WorkspaceCatalogRunDeps,
+  doc: CatalogIndexDoc,
+): Promise<EntityKind[]> {
+  if ((doc.entities ?? []).length === 0) {
+    return [];
+  }
+  try {
+    return readEntityKinds(await deps.entityKinds());
+  } catch (err) {
+    deps.log.appendLine(terminalLine(ENTITY_KIND_READ, outcomeOf(err)));
+    return [];
+  }
 }

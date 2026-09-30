@@ -27,29 +27,35 @@ function sourceOf(relative: string): string {
 }
 
 // ANSWERED is an answer of the shape the language server sends for a schema
-// request that named no kind. It is written out here rather than read from any
-// product value, and it deliberately holds a kind whose two registers differ by
-// more than case, so a lookup that derived one register from the other would
-// fail rather than agree.
-const ANSWERED = {
-  entityKinds: [
-    { kind: 'aggregate', documentKind: 'Aggregate' },
-    { kind: 'release', documentKind: 'Release' },
-    { kind: 'feature-recipe', documentKind: 'FeatureRecipe' },
-  ],
+// request that named no kind, each entry carrying what the row operations
+// accept a document of its kind for as that answer carries it. It is written out
+// here rather than read from any product value, and it deliberately holds a kind
+// whose two registers differ by more than case, so a lookup that derived one
+// register from the other would fail rather than agree.
+const AGGREGATE_ENTRY = {
+  kind: 'aggregate',
+  documentKind: 'Aggregate',
+  acceptedBy: { singleEntityValidation: false, publication: true, inspectionByName: true },
 };
+const RELEASE_ENTRY = {
+  kind: 'release',
+  documentKind: 'Release',
+  acceptedBy: { singleEntityValidation: false, publication: false, inspectionByName: false },
+};
+const FEATURE_RECIPE_ENTRY = {
+  kind: 'feature-recipe',
+  documentKind: 'FeatureRecipe',
+  acceptedBy: { singleEntityValidation: true, publication: true, inspectionByName: true },
+};
+
+const ANSWERED = { entityKinds: [AGGREGATE_ENTRY, RELEASE_ENTRY, FEATURE_RECIPE_ENTRY] };
 
 const KINDS = ANSWERED.entityKinds;
 
 // WITHOUT_RELEASE is the same answer from a compiler that has no such kind. It
 // is what the fallback is measured against, and it is the whole of the
 // difference from the answer above.
-const WITHOUT_RELEASE = {
-  entityKinds: [
-    { kind: 'aggregate', documentKind: 'Aggregate' },
-    { kind: 'feature-recipe', documentKind: 'FeatureRecipe' },
-  ],
-};
+const WITHOUT_RELEASE = { entityKinds: [AGGREGATE_ENTRY, FEATURE_RECIPE_ENTRY] };
 
 describe('what a draft is drafting, settled from the compiler\'s own answer', () => {
   it('resolves a name the answer holds to that entry, in both registers', () => {
@@ -77,6 +83,20 @@ describe('what a draft is drafting, settled from the compiler\'s own answer', ()
     assert.notStrictEqual(
       draftSubjectFor(KINDS, null, 'Release'), null,
       'the answer these absences are read from never held the kind, so nothing above measures a fallback',
+    );
+  });
+
+  it('resolves a subject carrying the two registers and nothing else, on either route', () => {
+    // What an operation accepts travels on the answer's entries, and it is not
+    // part of what a draft names: a subject that carried it would hand the
+    // drafting flow a statement about publication it has no use for.
+    assert.deepStrictEqual(
+      Object.keys(draftSubjectFor(KINDS, null, 'Release') ?? {}), ['kind', 'documentKind'],
+      'a subject resolved by name carries more than the two registers',
+    );
+    assert.deepStrictEqual(
+      Object.keys(draftSubjectFor(KINDS, 'release', null) ?? {}), ['kind', 'documentKind'],
+      'a subject resolved by token carries more than the two registers',
     );
   });
 

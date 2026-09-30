@@ -175,27 +175,27 @@
         },
         {
           "command": "aggrega.workspaceCatalog.inspect",
-          "when": "viewItem == aggrega.catalogEntity.document || viewItem == aggrega.catalogEntity.noDocument",
+          "when": "viewItem =~ /^aggrega\\.catalogEntity(:[a-z]+)*:inspect(:[a-z]+)*$/",
           "group": "inline"
         },
         {
           "command": "aggrega.workspaceCatalog.inspect",
-          "when": "viewItem == aggrega.catalogEntity.document || viewItem == aggrega.catalogEntity.noDocument",
+          "when": "viewItem =~ /^aggrega\\.catalogEntity(:[a-z]+)*:inspect(:[a-z]+)*$/",
           "group": "catalogEntity@1"
         },
         {
           "command": "aggrega.workspaceCatalog.validate",
-          "when": "viewItem == aggrega.catalogEntity.document",
+          "when": "viewItem =~ /^aggrega\\.catalogEntity(:[a-z]+)*:validate(:[a-z]+)*$/",
           "group": "catalogEntity@2"
         },
         {
           "command": "aggrega.workspaceCatalog.lint",
-          "when": "viewItem == aggrega.catalogEntity.document",
+          "when": "viewItem =~ /^aggrega\\.catalogEntity(:[a-z]+)*:lint(:[a-z]+)*$/",
           "group": "catalogEntity@3"
         },
         {
           "command": "aggrega.workspaceCatalog.push",
-          "when": "viewItem == aggrega.catalogEntity.document",
+          "when": "viewItem =~ /^aggrega\\.catalogEntity(:[a-z]+)*:push(:[a-z]+)*$/",
           "group": "catalogEntityPublish@1"
         },
         {

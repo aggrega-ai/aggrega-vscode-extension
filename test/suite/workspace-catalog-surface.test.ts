@@ -6,10 +6,19 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { COMMANDS_TITLE_BAR_ENTRIES, commandsPanelTitleBar } from '../helpers/title-bar';
 import {
-  CATALOG_DOCUMENT_ROW_CONTEXT,
-  CATALOG_NO_DOCUMENT_ROW_CONTEXT,
+  CATALOG_ENTITY_ROW_CONTEXT,
+  CATALOG_ROW_OPERATIONS,
+  CatalogRowOperation,
+  catalogRowContext,
+  catalogRowOperations,
 } from '../../src/catalog-entity-operations';
 import { PANEL_ACTIONS, commandIdFor, commandsPanelOperations } from '../../src/operation-groups';
+import {
+  ENTITY_ORIGIN_CATALOG,
+  ENTITY_ORIGIN_WORKSPACE,
+  WorkspaceCatalogNode,
+  rowForEntity,
+} from '../../src/workspace-catalog-run';
 
 // What a reader sees and presses on this panel is not provable here — driving
 // the panel needs an extension host, and the suite that supplies one does not
@@ -52,19 +61,62 @@ const manifest: Manifest = JSON.parse(
 );
 
 const CATALOG_VIEW = 'view == aggrega.workspaceCatalog';
-const DOCUMENT_ROW = `viewItem == ${CATALOG_DOCUMENT_ROW_CONTEXT}`;
-const ANY_ENTITY_ROW =
-  `viewItem == ${CATALOG_DOCUMENT_ROW_CONTEXT} || viewItem == ${CATALOG_NO_DOCUMENT_ROW_CONTEXT}`;
+
+// ROW_COMMAND_PREFIX opens every command a row of this panel binds; what follows
+// it is the operation's own token in the row's value.
+const ROW_COMMAND_PREFIX = 'aggrega.workspaceCatalog.';
 
 // The operations that take the entity's path, and the one addressed by identity.
-// They are listed apart because that difference is what decides which rows each
-// appears on, and it is the panel's whole reason for carrying two row values.
 const PATH_TAKING = [
   'aggrega.workspaceCatalog.validate',
   'aggrega.workspaceCatalog.lint',
   'aggrega.workspaceCatalog.push',
 ];
 const IDENTITY_TAKING = 'aggrega.workspaceCatalog.inspect';
+
+// everyRow is an entity row in every state the offering rule distinguishes: each
+// combination of what the compiler accepts a document of the row's kind for,
+// with and without a document, and a kind the compiler's answer holds no entry
+// for, with and without one. What each offers is the classification's to say;
+// what is asserted below is that the manifest offers exactly that.
+function everyRow(): { name: string; node: WorkspaceCatalogNode }[] {
+  const rows: { name: string; node: WorkspaceCatalogNode }[] = [];
+  for (const document of [true, false]) {
+    const at = document
+      ? { origin: ENTITY_ORIGIN_WORKSPACE, file: 'catalog/components/api-server.yaml' }
+      : { origin: ENTITY_ORIGIN_CATALOG, file: '' };
+    const entity = {
+      kind: 'Component', name: 'core/compute/api-server', apiVersion: 'aggrega.ai/v1alpha1',
+      description: '', labels: {}, ...at,
+    };
+    for (const acceptance of [null, ...[0, 1, 2, 3, 4, 5, 6, 7].map((bits) => ({
+      singleEntityValidation: (bits & 1) !== 0,
+      publication: (bits & 2) !== 0,
+      inspectionByName: (bits & 4) !== 0,
+    }))]) {
+      const kinds = acceptance === null ? [] : [{ kind: 'component', documentKind: 'Component', acceptedBy: acceptance }];
+      rows.push({
+        name: `${document ? 'with' : 'without'} a document, accepting ${JSON.stringify(acceptance)}`,
+        node: { kind: 'entry', row: rowForEntity('/ws', entity, kinds) },
+      });
+    }
+  }
+  return rows;
+}
+
+// whenPattern reads the one clause a row entry is bound by — a pattern over the
+// row's value — as the editor evaluates it, or null where the entry is bound by
+// anything else.
+function whenPattern(when: string): RegExp | null {
+  const m = /^viewItem =~ \/(.+)\/$/.exec(when);
+  return m === null ? null : new RegExp(m[1]);
+}
+
+// rowOperationOf is the operation a row entry's command binds, by the command's
+// own last segment.
+function rowOperationOf(command: string): string {
+  return command.slice(ROW_COMMAND_PREFIX.length);
+}
 
 function declared(): Map<string, CommandEntry> {
   return new Map(manifest.contributes.commands.map((c) => [c.command, c]));
@@ -154,31 +206,56 @@ describe('the operations the workspace-catalog panel contributes', () => {
     }
   });
 
-  it('offers every path-taking operation on a row that has a document, and only there', () => {
-    // This is the rule the panel exists to express. Publishing and both checks
-    // take the entity's path; a row for an entity this workspace holds no
-    // document for has none to give, so an entry reaching it could only invoke
-    // with no path.
-    for (const id of PATH_TAKING) {
-      const bindings = catalogRowEntries().filter((m) => m.command === id);
-      assert.ok(bindings.length > 0, `${id} acts on one entity but is on no row`);
-      for (const binding of bindings) {
+  it('binds each row operation where the classification offers it, and nowhere else', () => {
+    // 🔴 THE MANIFEST IS READ BACK AGAINST THE ONE DECISION, NOT AGAINST A COPY OF
+    // IT. Each entry's clause is evaluated over the value the view sets for a row
+    // in every state the rule distinguishes, and it must reach exactly the rows the
+    // classification offers that operation on — so an entry that reached a row the
+    // compiler refuses the operation for, or missed one it accepts it for, fails
+    // here whatever the clause's wording.
+    const rows = everyRow();
+    for (const entry of catalogRowEntries()) {
+      const pattern = whenPattern(entry.when);
+      assert.ok(pattern !== null, `${entry.command} is bound by "${entry.when}", which is not a pattern over the row's value`);
+      const operation = rowOperationOf(entry.command);
+      for (const { name, node } of rows) {
+        const context = catalogRowContext(node);
+        const reached: boolean = context !== null && pattern.test(context);
+        const offered: boolean = (catalogRowOperations(node) ?? []).includes(operation as CatalogRowOperation);
         assert.strictEqual(
-          binding.when, DOCUMENT_ROW,
-          `${id} takes a path but is bound by "${binding.when}", which reaches a row with none`,
+          reached, offered,
+          `${entry.command} (${entry.group}) ${reached ? 'reaches' : 'misses'} a row ${name}, which the rule ${offered ? 'offers it on' : 'withholds it from'}`,
         );
       }
     }
+    // The negative control: across those rows each operation is both offered and
+    // withheld somewhere, so the equality above is not two sides that agree
+    // because neither ever varies.
+    for (const operation of CATALOG_ROW_OPERATIONS) {
+      const offeredOn = rows.filter(({ node }) => (catalogRowOperations(node) ?? []).includes(operation)).length;
+      assert.ok(offeredOn > 0 && offeredOn < rows.length, `${operation} is offered on ${offeredOn} of ${rows.length} rows`);
+    }
   });
 
-  it('offers the inspection on every entity row, because it is addressed by identity', () => {
-    const bindings = catalogRowEntries().filter((m) => m.command === IDENTITY_TAKING);
-    assert.ok(bindings.length > 0, 'the inspection is on no row');
-    for (const binding of bindings) {
-      assert.strictEqual(
-        binding.when, ANY_ENTITY_ROW,
-        `the inspection is bound by "${binding.when}", which withholds it from rows that can run it`,
-      );
+  it('binds every operation the classification can offer, and the path-taking ones only to a row with a document', () => {
+    const bound = new Set(catalogRowEntries().map((m) => rowOperationOf(m.command)));
+    assert.deepStrictEqual(
+      [...CATALOG_ROW_OPERATIONS].sort(), [...bound].sort(),
+      'an operation the rows can offer has no entry, or an entry binds an operation the rows never offer',
+    );
+    // Publishing and both checks take the entity's path; a row for an entity this
+    // workspace holds no document for has none to give, so none of them may reach
+    // it whatever its kind accepts.
+    for (const { name, node } of everyRow()) {
+      if (node.kind !== 'entry' || node.row.entityPath !== '') { continue; }
+      const context = catalogRowContext(node);
+      for (const entry of catalogRowEntries().filter((m) => PATH_TAKING.includes(m.command))) {
+        const pattern = whenPattern(entry.when);
+        assert.ok(
+          context === null || pattern === null || !pattern.test(context),
+          `${entry.command} takes a path but reaches a row ${name}`,
+        );
+      }
     }
   });
 
@@ -194,21 +271,22 @@ describe('the operations the workspace-catalog panel contributes', () => {
     // This is the assertion that keeps an entity operation off the kind
     // headings and the message rows. Targeting the view instead would put every
     // one of them on "No entities in this workspace." and on the failure row,
-    // where pressing one could only invoke it with no subject.
+    // where pressing one could only invoke it with no subject. Those rows carry
+    // no value, so a clause that can match only a value opening with the entity
+    // rows' own prefix reaches none of them.
     for (const entry of catalogRowEntries()) {
       assert.ok(
-        entry.when === DOCUMENT_ROW || entry.when === ANY_ENTITY_ROW,
-        `${entry.command} is bound by "${entry.when}", which reaches rows that name no entity`,
+        entry.when.startsWith(`viewItem =~ /^${CATALOG_ENTITY_ROW_CONTEXT.replace(/\./g, '\\.')}(`),
+        `${entry.command} is bound by "${entry.when}", which is not anchored to the entity rows' value`,
       );
     }
   });
 
-  it('binds the row entries to the values the view actually sets', () => {
-    // The manifest's strings and the code's constants are the same two values
-    // read from two places; asserting they agree is what keeps a rename from
-    // silently unbinding every row operation.
-    assert.strictEqual(CATALOG_DOCUMENT_ROW_CONTEXT, 'aggrega.catalogEntity.document');
-    assert.strictEqual(CATALOG_NO_DOCUMENT_ROW_CONTEXT, 'aggrega.catalogEntity.noDocument');
+  it('binds the row entries to the value the view actually sets', () => {
+    // The manifest's pattern and the code's constant are the same value read from
+    // two places; asserting it is what keeps a rename from silently unbinding
+    // every row operation. The evaluation above is what shows the two agree.
+    assert.strictEqual(CATALOG_ENTITY_ROW_CONTEXT, 'aggrega.catalogEntity');
     assert.ok(catalogRowEntries().length > 0, 'the panel contributes no row operations at all');
   });
 

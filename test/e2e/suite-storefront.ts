@@ -19,8 +19,8 @@ import {
 import { contextRowsCheck } from './suite-gateway';
 import { INSPECTION_CHECKS, inspectionChecks } from './suite-inspection';
 import {
-  commandsPanel, documentWith, holds, NOT_RUNNING, operationButtons, paneState, pickQuickInputRow, pressIn, pressMenuItem, pressOperation, pressPaneHeader,
-  pressPanelAction, pressToastButton, QuickInput, quickInput, revealTreeRow, rowMenu, RUNNING, sleep, statusLog, STARTING, toasts, toastsSince, TreeRow,
+  commandsPanel, describeRowMenu, documentWith, holds, NOT_RUNNING, operationButtons, paneState, pickQuickInputRow, pressIn, pressMenuItem, pressOperation, pressPaneHeader,
+  pressPanelAction, pressToastButton, QuickInput, quickInput, rowMenu, RUNNING, sleep, statusLog, STARTING, toasts, toastsSince, TreeRow,
   treeRowCentre, treeRows, until, waitQuickInput, waitStatus, waitToast,
 } from './workbench';
 
@@ -55,6 +55,7 @@ export const STOREFRONT_CHECKS = [
   'catalog-view.new-entity-appears-after-refresh',
   'catalog-view.deleted-entity-row-leaves-at-once',
   'catalog-view.refused-validation-ends-in-the-compilers-words',
+  'catalog-view.each-row-offers-what-the-compiler-accepts-for-its-kind',
   'catalog-panel.head-reads-search-catalog-then-draft-entity-and-folds-with-the-panel',
   'catalog-panel.draft-entity-asks-for-the-kind',
   'registries-panel.head-leads-no-registries-configured-and-folds-with-the-panel',
@@ -556,9 +557,9 @@ export async function storefrontChecks(ctx: SuiteContext, referenceFolder: strin
     await save(ctx, feature);
     await closeAllEditors(ctx);
     await run(ctx, 'aggrega.workspaceCatalog.focus');
-    await revealTreeRow(ctx.d, 'Catalog', featureName);
-    const offered = await rowMenu(ctx.d, 'Catalog', featureName);
-    need(offered.includes(validateItem), `the "${featureName}" row's context menu offers ${JSON.stringify(offered)}, so "${validateItem}" cannot be pressed`);
+    const menu = await rowMenu(ctx.d, 'Catalog', featureName);
+    need(menu.reached, `the "${featureName}" row's context menu could not be read: ${describeRowMenu(menu)}`);
+    need(menu.items.includes(validateItem), `the "${featureName}" row's context menu offers ${JSON.stringify(menu.items)}, so "${validateItem}" cannot be pressed`);
     const mark = ctx.out.mark();
     const toastMark = (await toasts(ctx.d)).length;
     const taken = await pressMenuItem(ctx.d, validateItem);
@@ -584,6 +585,78 @@ export async function storefrontChecks(ctx: SuiteContext, referenceFolder: strin
     fs.writeFileSync(feature, featureWhole);
   }
   await closeAllEditors(ctx);
+  await catalogPanelAtItsHead(ctx, CATALOG_HEAD[0]).catch(() => false);
+
+  // Which operations each row's context menu offers, held against the language
+  // server's own answers: the one naming the kinds, which says what each
+  // operation accepts a document of each kind for, and the index the panel is
+  // drawn from, which says which rows have a document in the folder. Both are
+  // asked outside the editor over the same folder, so no kind and no operation's
+  // kinds are written here. One row of every kind the index lists is swept, with
+  // a document and without one wherever it lists both.
+  const rowItems = {
+    inspect: commandTitle(ctx.manifest, 'aggrega.workspaceCatalog.inspect'),
+    validate: validateItem,
+    lint: commandTitle(ctx.manifest, 'aggrega.workspaceCatalog.lint'),
+    push: commandTitle(ctx.manifest, 'aggrega.workspaceCatalog.push'),
+  };
+  const rowItemTitles: string[] = Object.values(rowItems);
+  await c.run('catalog-view.each-row-offers-what-the-compiler-accepts-for-its-kind', {
+    expected: `the context menu of one Catalog row of every kind the index lists — with a document in the folder, and without one wherever it lists both — holds, of "${rowItems.inspect}", "${rowItems.validate}", "${rowItems.lint}" and "${rowItems.push}", exactly those the language server's own answer to \`aggrega/getSchema\` naming no kind accepts for the row's kind, in that order: the inspection where it states \`inspectionByName\`; on a row with a document, the check where it states \`singleEntityValidation\`, the conventions check always, and the publication where it states \`publication\`; the rows and which of them have a document being the language server's own \`aggrega/catalogIndex\` answer over the same folder; and that answer withholds at least one of them from at least one row swept. Each menu is read off a right-click whose own event reached that row: a row it reached that draws no menu offers nothing, a right-click that landed elsewhere is taken again, and a row none reached leaves the check not run, naming what each landed on`,
+    plant: 'in the scratch copy, out/src/catalog-entity-operations.js with the check offered on every row with a document, whatever the compiler says it accepts for the row\'s kind',
+  }, async () => {
+    const kindsAnswer = await referenceAnswer({ binary: bin, root: referenceFolder, method: 'aggrega/getSchema', params: {}, home: ctx.home, table: ctx.s.table, log: ctx.cliLog });
+    need(kindsAnswer.ok, `the compiler gave no reference answer for the kinds: ${kindsAnswer.ok ? '' : kindsAnswer.error.message}`);
+    const indexAnswer = await referenceAnswer({ binary: bin, root: referenceFolder, method: 'aggrega/catalogIndex', params: {}, home: ctx.home, table: ctx.s.table, log: ctx.cliLog });
+    need(indexAnswer.ok, `the compiler gave no reference answer for the entity index: ${indexAnswer.ok ? '' : indexAnswer.error.message}`);
+    type Stated = { singleEntityValidation?: unknown; publication?: unknown; inspectionByName?: unknown };
+    const kinds = (kindsAnswer.result as { entityKinds?: { documentKind?: string; acceptedBy?: Stated }[] }).entityKinds ?? [];
+    const entities = (indexAnswer.result as { entities?: { kind: string; name: string; origin: string; file: string }[] }).entities ?? [];
+    need(entities.length > 0, 'the compiler lists no entity in the folder, so there is no row to sweep');
+    // One row per kind and per having a document, the first the index lists.
+    const swept = new Map<string, { kind: string; name: string; document: boolean }>();
+    for (const e of entities) {
+      const document = e.origin === 'workspace' && e.file !== '';
+      const key = `${e.kind} ${document}`;
+      if (!swept.has(key)) { swept.set(key, { kind: e.kind, name: e.name, document }); }
+    }
+    await closeAllEditors(ctx);
+    await run(ctx, 'aggrega.workspaceCatalog.focus');
+    const seen: string[] = [];
+    const unread: string[] = [];
+    let all = true;
+    let withheld = false;
+    for (const row of swept.values()) {
+      const stated = kinds.find((k) => k.documentKind === row.kind)?.acceptedBy ?? {};
+      const want = [
+        ...(stated.inspectionByName === true ? [rowItems.inspect] : []),
+        ...(row.document && stated.singleEntityValidation === true ? [rowItems.validate] : []),
+        ...(row.document ? [rowItems.lint] : []),
+        ...(row.document && stated.publication === true ? [rowItems.push] : []),
+      ];
+      withheld = withheld || want.length < (row.document ? rowItemTitles.length : 1);
+      const menu = await rowMenu(ctx.d, 'Catalog', row.name);
+      await ctx.d.press('Escape');
+      const subject = `${row.kind} "${row.name}" ${row.document ? 'with' : 'without'} a document`;
+      // A right-click that never reached the row read nothing about it, so the
+      // row is left unread rather than taken for one offering nothing.
+      if (!menu.reached) {
+        unread.push(`${subject}: ${describeRowMenu(menu)}`);
+        continue;
+      }
+      const offered = menu.items.filter((item) => rowItemTitles.includes(item));
+      const agrees = JSON.stringify(offered) === JSON.stringify(want);
+      all = all && agrees;
+      seen.push(`${subject}: ${describeRowMenu(menu)}${agrees ? ', as the answer says' : `, the answer says ${JSON.stringify(want)}`}`);
+    }
+    // A row read offering other than the answer says is a failure whatever else
+    // could not be read; with none, a row left unread leaves the check not run.
+    if (all) {
+      need(unread.length === 0, `${unread.length} row(s) could not be read: ${unread.join('; ')}; the rows read: ${seen.join('; ') || 'none'}`);
+    }
+    return { passed: all && withheld, seen: `${[...seen, ...unread.map((u) => `unread: ${u}`)].join('; ')}${withheld ? '' : '; the answer withholds nothing from any row swept, so nothing above was refused'}` };
+  });
+  await ctx.d.press('Escape');
   await catalogPanelAtItsHead(ctx, CATALOG_HEAD[0]).catch(() => false);
 
   // ---- the operations heading each list panel, and the Commands panel without them ----

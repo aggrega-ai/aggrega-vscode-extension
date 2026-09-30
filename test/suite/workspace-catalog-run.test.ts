@@ -30,21 +30,40 @@ interface Harness {
   nodes(): Promise<WorkspaceCatalogNode[]>;
   log: FakeLog;
   invocations(): number;
+  kindReads(): number;
 }
 
-// harness builds the run's dependency set over a recorder and a caller-supplied
-// answer for the index request, so a test reads back exactly the rows an author
+// KINDS_ANSWERED is an answer of the shape the language server sends for a
+// schema request naming no kind, for the kinds the recorded index responses
+// below declare. It is written out here, each kind stating a different
+// combination, so a row carrying another kind's acceptance fails rather than
+// agreeing.
+const KINDS_ANSWERED = {
+  kinds: ['aggregate', 'component', 'feature', 'recipe'],
+  entityKinds: [
+    { kind: 'component', documentKind: 'Component', acceptedBy: { singleEntityValidation: true, publication: true, inspectionByName: true } },
+    { kind: 'feature', documentKind: 'Feature', acceptedBy: { singleEntityValidation: true, publication: false, inspectionByName: true } },
+    { kind: 'recipe', documentKind: 'Recipe', acceptedBy: { singleEntityValidation: true, publication: true, inspectionByName: false } },
+    { kind: 'aggregate', documentKind: 'Aggregate', acceptedBy: { singleEntityValidation: false, publication: true, inspectionByName: true } },
+  ],
+};
+
+// harness builds the run's dependency set over a recorder and caller-supplied
+// answers for the two requests, so a test reads back exactly the rows an author
 // would have seen in the view.
 function harness(
   root: string | null,
   answer: () => Promise<CatalogIndexDoc>,
   serverRunning = true,
+  kinds: () => Promise<unknown> = () => Promise.resolve(KINDS_ANSWERED),
 ): Harness {
   const log = new FakeLog();
   let calls = 0;
+  let kindCalls = 0;
   return {
     log,
     invocations: () => calls,
+    kindReads: () => kindCalls,
     nodes: () =>
       workspaceCatalogNodes({
         getWorkspaceRoot: () => root,
@@ -52,6 +71,10 @@ function harness(
         requestCatalogIndex: () => {
           calls++;
           return answer();
+        },
+        entityKinds: () => {
+          kindCalls++;
+          return kinds();
         },
         log,
       }),
@@ -500,6 +523,92 @@ describe('workspaceCatalogNodes', () => {
   });
 });
 
+describe('what each row\'s kind is accepted for, read beside the index', () => {
+  it('gives each row the acceptance the answer states for the kind its document declares', async () => {
+    const h = harness(WORKSPACE_ROOT, ok(MEASURED_DOCUMENT));
+    const rows = flatRows(await h.nodes());
+    assert.deepStrictEqual(
+      rows.map((r) => [r.label, r.acceptance]),
+      [
+        ['storefront', { singleEntityValidation: false, publication: true, inspectionByName: true }],
+        ['cache', { singleEntityValidation: true, publication: true, inspectionByName: true }],
+        ['web', { singleEntityValidation: true, publication: true, inspectionByName: true }],
+        ['tls', { singleEntityValidation: true, publication: false, inspectionByName: true }],
+        ['web-helm', { singleEntityValidation: true, publication: true, inspectionByName: false }],
+      ],
+      'a row carries an acceptance other than the one the answer states for its kind',
+    );
+    assert.strictEqual(h.kindReads(), 1);
+  });
+
+  it('asks again on every read of the list, so a restarted server\'s answer is the one read', async () => {
+    // A second binary may accept differently; what the rows carry follows the
+    // answer of the read that drew them, and nothing is kept from the one before.
+    let answer: unknown = KINDS_ANSWERED;
+    const h = harness(WORKSPACE_ROOT, ok(MEASURED_DOCUMENT), true, () => Promise.resolve(answer));
+    const first = flatRows(await h.nodes()).find((r) => r.label === 'storefront');
+    answer = {
+      entityKinds: [
+        { kind: 'aggregate', documentKind: 'Aggregate', acceptedBy: { singleEntityValidation: true, publication: true, inspectionByName: true } },
+      ],
+    };
+    const rows = flatRows(await h.nodes());
+    assert.deepStrictEqual(first?.acceptance, { singleEntityValidation: false, publication: true, inspectionByName: true });
+    assert.deepStrictEqual(
+      rows.find((r) => r.label === 'storefront')?.acceptance,
+      { singleEntityValidation: true, publication: true, inspectionByName: true },
+      'the second read kept the first answer rather than the one the server gave it',
+    );
+    assert.strictEqual(
+      rows.find((r) => r.label === 'cache')?.acceptance, null,
+      'a kind the second answer no longer names kept what the first answer said of it',
+    );
+    assert.strictEqual(h.kindReads(), 2);
+  });
+
+  it('draws the rows accepting nothing when the kinds cannot be read, and says why in the server\'s words', async () => {
+    const message = 'the kinds could not be answered';
+    const h = harness(WORKSPACE_ROOT, ok(MEASURED_DOCUMENT), true, () => Promise.reject(new Error(message)));
+    const nodes = await h.nodes();
+    const rows = flatRows(nodes);
+    // The entities are known, so they are listed; only what their kinds are
+    // accepted for is not, and every row reads as accepting nothing.
+    assert.deepStrictEqual(rows.map((r) => r.label), ['storefront', 'cache', 'web', 'tls', 'web-helm']);
+    assert.deepStrictEqual(rows.map((r) => r.acceptance), [null, null, null, null, null]);
+    assert.deepStrictEqual(messagesOf(nodes), [], 'a failed kinds read drew a row of its own among the entities');
+    assert.deepStrictEqual(
+      h.log.lines, [`The entity-kind read did not complete: ${message}`],
+      'the failure is not the one sentence the failed read ends in, carrying the server\'s words',
+    );
+  });
+
+  it('reads an answer naming no kinds as accepting nothing, and reports no failure for it', async () => {
+    const h = harness(WORKSPACE_ROOT, ok(MEASURED_DOCUMENT), true, () => Promise.resolve({ kinds: ['component'] }));
+    const rows = flatRows(await h.nodes());
+    assert.deepStrictEqual(rows.map((r) => r.acceptance), [null, null, null, null, null]);
+    assert.deepStrictEqual(h.log.lines, []);
+  });
+
+  it('asks for the kinds only when the index answered with an entity to classify', async () => {
+    const empty = harness(WORKSPACE_ROOT, ok({ entities: [] }));
+    assert.deepStrictEqual(await empty.nodes(), [{ kind: 'message', label: EMPTY_LABEL }]);
+    const failed = harness(WORKSPACE_ROOT, () => Promise.reject(new Error('declined')));
+    await failed.nodes();
+    const stopped = harness(WORKSPACE_ROOT, ok(MEASURED_DOCUMENT), false);
+    await stopped.nodes();
+    const unanchored = harness(null, ok(MEASURED_DOCUMENT));
+    await unanchored.nodes();
+    assert.deepStrictEqual(
+      [empty.kindReads(), failed.kindReads(), stopped.kindReads(), unanchored.kindReads()], [0, 0, 0, 0],
+      'the kinds were asked for with no row to classify',
+    );
+    // The positive control: the same harness with an entity to classify asks.
+    const listed = harness(WORKSPACE_ROOT, ok(MEASURED_DOCUMENT));
+    await listed.nodes();
+    assert.strictEqual(listed.kindReads(), 1);
+  });
+});
+
 describe('labelSegments', () => {
   it('renders no segment for a document declaring no label', () => {
     assert.deepStrictEqual(labelSegments({}), []);
@@ -525,7 +634,7 @@ describe('rowForEntity', () => {
       labels: { env: 'prod' },
       file: 'manifest.yaml',
       origin: 'workspace',
-    });
+    }, []);
 
     assert.strictEqual(row.label, 'platform');
     assert.strictEqual(row.description, 'env=prod');
@@ -552,7 +661,7 @@ describe('rowForEntity', () => {
       labels: {},
       file: 'x.yaml',
       origin: 'workspace',
-    });
+    }, []);
     assert.strictEqual(row.label, 'x');
     assert.ok(row.tooltip.startsWith('kind: SomeKindThisExtensionDoesNotKnow'));
   });
@@ -571,7 +680,7 @@ describe('rowForEntity', () => {
       file: '',
     };
 
-    const fromCatalog = rowForEntity(WORKSPACE_ROOT, { ...shared, origin: 'catalog' });
+    const fromCatalog = rowForEntity(WORKSPACE_ROOT, { ...shared, origin: 'catalog' }, []);
     assert.strictEqual(fromCatalog.openPath, null);
     assert.strictEqual(fromCatalog.originLabel, CATALOG_ORIGIN_LABEL);
 
@@ -579,7 +688,7 @@ describe('rowForEntity', () => {
     // target guessed, and no note claiming a source it was not told about. The
     // failure this pins is a missing affordance, which a reader sees, rather
     // than a wrong one, which they do not.
-    const unknown = rowForEntity(WORKSPACE_ROOT, { ...shared, origin: 'something-else' });
+    const unknown = rowForEntity(WORKSPACE_ROOT, { ...shared, origin: 'something-else' }, []);
     assert.strictEqual(unknown.openPath, null);
     assert.strictEqual(unknown.originLabel, '');
   });
@@ -593,7 +702,7 @@ describe('rowForEntity', () => {
       labels: {},
       file: 'features/tls.yaml',
       origin: ENTITY_ORIGIN_WORKSPACE,
-    });
+    }, []);
     assert.strictEqual(row.openPath, '/ws/features/tls.yaml');
     assert.strictEqual(row.originLabel, '');
   });

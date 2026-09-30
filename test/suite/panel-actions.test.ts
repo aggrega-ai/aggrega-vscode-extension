@@ -168,6 +168,7 @@ function catalogDeps(root: string | null, running: boolean, answer: () => Promis
     getWorkspaceRoot: () => root,
     isLanguageServerRunning: () => running,
     requestCatalogIndex: answer,
+    entityKinds: () => Promise.resolve({ entityKinds: [] }),
     log: new FakeLog(),
   };
 }

@@ -3,7 +3,7 @@
 
 import * as assert from 'node:assert';
 
-import { readEntityKinds } from '../../src/entity-kinds';
+import { acceptanceFor, readEntityKinds } from '../../src/entity-kinds';
 
 // The reader holds no editor type, so what the drafting control offers is read
 // back here with no extension host. What no test in this repository can reach is
@@ -34,11 +34,28 @@ const ANSWERED = {
     'plugin-manifest',
   ],
   entityKinds: [
-    { kind: 'aggregate', documentKind: 'Aggregate' },
-    { kind: 'component', documentKind: 'Component' },
-    { kind: 'feature-recipe', documentKind: 'FeatureRecipe' },
+    {
+      kind: 'aggregate',
+      documentKind: 'Aggregate',
+      acceptedBy: { singleEntityValidation: false, publication: true, inspectionByName: true },
+    },
+    {
+      kind: 'component',
+      documentKind: 'Component',
+      acceptedBy: { singleEntityValidation: true, publication: true, inspectionByName: true },
+    },
+    {
+      kind: 'feature-recipe',
+      documentKind: 'FeatureRecipe',
+      acceptedBy: { singleEntityValidation: true, publication: false, inspectionByName: false },
+    },
   ],
 };
+
+// NOTHING_ACCEPTED is the acceptance an entry is read as carrying wherever the
+// answer does not say true for a member, written out rather than taken from the
+// reader.
+const NOTHING_ACCEPTED = { singleEntityValidation: false, publication: false, inspectionByName: false };
 
 // NARROW_TOKENS and NARROW_WORDS are the two registers of the answer above,
 // written out rather than mapped off it.
@@ -148,5 +165,79 @@ describe('the kinds an author may draft', () => {
         `${JSON.stringify(answer)} was read as an answer carrying kinds`,
       );
     }
+  });
+});
+
+describe('what the compiler accepts a document of each kind for', () => {
+  it('reads each member as the answer states it, member by member', () => {
+    // Each entry above states a different combination, and one of them states
+    // true for validation and false for publication, so a reader that read one
+    // member for another fails here rather than agreeing.
+    assert.deepStrictEqual(
+      readEntityKinds(ANSWERED).map((kind) => kind.acceptedBy),
+      [
+        { singleEntityValidation: false, publication: true, inspectionByName: true },
+        { singleEntityValidation: true, publication: true, inspectionByName: true },
+        { singleEntityValidation: true, publication: false, inspectionByName: false },
+      ],
+      'what an operation accepts was read differently from what the answer states',
+    );
+  });
+
+  it('reads a member as accepting only where the answer carries the boolean true', () => {
+    // 🔴 THE DIRECTION A MISREADING MAY FALL IN. A member absent, of another type,
+    // or carried by an acceptance that is not an object, reads as not accepting:
+    // an operation withheld is a control the reader can see is missing, and one
+    // offered wrongly is a press the compiler refuses.
+    const read = readEntityKinds({
+      entityKinds: [
+        { kind: 'a', documentKind: 'A' },
+        { kind: 'b', documentKind: 'B', acceptedBy: null },
+        { kind: 'c', documentKind: 'C', acceptedBy: 'everything' },
+        { kind: 'd', documentKind: 'D', acceptedBy: [true, true, true] },
+        { kind: 'e', documentKind: 'E', acceptedBy: {} },
+        {
+          kind: 'f',
+          documentKind: 'F',
+          acceptedBy: { singleEntityValidation: 'true', publication: 1, inspectionByName: {} },
+        },
+        { kind: 'g', documentKind: 'G', acceptedBy: { publication: true } },
+      ],
+    });
+    assert.deepStrictEqual(
+      read.map((kind) => kind.kind), ['a', 'b', 'c', 'd', 'e', 'f', 'g'],
+      'an entry whose acceptance could not be read was dropped, and drafting would lose a kind the answer names',
+    );
+    assert.deepStrictEqual(
+      read.slice(0, 6).map((kind) => kind.acceptedBy),
+      [NOTHING_ACCEPTED, NOTHING_ACCEPTED, NOTHING_ACCEPTED, NOTHING_ACCEPTED, NOTHING_ACCEPTED, NOTHING_ACCEPTED],
+      'an acceptance not stated as the boolean true was read as accepting',
+    );
+    // The negative control: the one member stated as true beside two absent ones
+    // is read as accepting, so the falses above measure the reading and not a
+    // reader that accepts nothing whatever it is told.
+    assert.deepStrictEqual(
+      read[6].acceptedBy,
+      { singleEntityValidation: false, publication: true, inspectionByName: false },
+      'a member the answer states as true was not read as accepting',
+    );
+  });
+
+  it('looks a row\'s kind up by the value its document carries, and finds nothing for a kind the answer lacks', () => {
+    const kinds = readEntityKinds(ANSWERED);
+    assert.deepStrictEqual(
+      acceptanceFor(kinds, 'FeatureRecipe'),
+      { singleEntityValidation: true, publication: false, inspectionByName: false },
+      'a kind of more than one word was not found by the value its document carries',
+    );
+    assert.strictEqual(
+      acceptanceFor(kinds, 'featurerecipe'), null,
+      'a kind was found by a spelling no document carries, so a register was derived',
+    );
+    assert.strictEqual(
+      acceptanceFor(kinds, 'Manifest'), null,
+      'a kind the answer holds no entry for was given an acceptance invented here',
+    );
+    assert.strictEqual(acceptanceFor([], 'Component'), null);
   });
 });

@@ -198,6 +198,7 @@ describe('a view rendering from readiness', () => {
         getWorkspaceRoot: () => facts.root,
         isLanguageServerRunning: () => facts.running,
         requestCatalogIndex: () => Promise.resolve(empty),
+        entityKinds: () => Promise.resolve({ entityKinds: [] }),
         log: { appendLine: () => undefined },
       });
       const first = nodes[0];

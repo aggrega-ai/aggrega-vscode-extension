@@ -867,6 +867,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     getBinaryPath: () => getSettings().binaryPath,
     isLanguageServerRunning,
     requestCatalogIndex,
+    // Asked with no kind named, as the drafting flow asks it: the answer names
+    // the kinds, and what each row operation accepts a document of each kind for.
+    entityKinds: () => requestSchema(),
     entityDefinition: requestEntityDefinition,
     publishEntity: requestPublishEntity,
     // The conventions check on a row runs through the same runner the Commands

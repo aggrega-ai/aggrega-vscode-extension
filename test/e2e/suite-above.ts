@@ -12,11 +12,11 @@ import { need } from './checks';
 import { WebviewDocument } from './drivers';
 import { referenceAnswer } from './reference';
 import { capture, closeAllEditors, open, ready, run, save, send, SuiteContext, theServer } from './suite-context';
-import { pressViewAction } from './suite-storefront';
+import { entityNames, pressViewAction } from './suite-storefront';
 import {
-  centre, commandsPanel, dialog, documentWith, holds, observeWorkbench, operationButtons, pickQuickInputRow, pressDialogButton, pressIn,
-  pressMenuItem, pressOperation, pressPanelAction, pressToastButton, quickInput, rowMenu, RUNNING, selectorRows, sleep, toasts, toastsSince,
-  treeRowCentre, treeRows, until, waitQuickInput, waitStatus, waitToast,
+  centre, commandsPanel, describeRowMenu, dialog, documentWith, holds, observeWorkbench, operationButtons, pickQuickInputRow, pressDialogButton, pressIn,
+  pressMenuItem, pressOperation, pressPanelAction, pressToastButton, quickInput, rowMenu, RUNNING, selectorRows, sleep, toasts,
+  toastsSince, treeRows, until, waitQuickInput, waitStatus, waitToast,
 } from './workbench';
 
 // The checks run in a folder whose Aggrega workspace is the folder above it:
@@ -601,8 +601,16 @@ export async function aboveChecks(ctx: SuiteContext, layout: { root: string; ref
   const dollar = (text: string): string[] => text.split('\n').filter((l) => l.startsWith('$ '));
   const dollarShape = (l: string): boolean => l.startsWith(`$ ${bin} `) && l.trimEnd().endsWith(`(cwd: ${layout.root})`);
   let control = false;
+  // The Component a catalog row's check is pressed on. The folder's own documents
+  // are an Aggregate, Manifests and Releases, and the compiler checks none of
+  // those kinds as a single entity, so no row of theirs offers the check; a copy
+  // of the gateway folder's scratch Component is placed in the folder for the
+  // press, and taken away after it, whatever the press reached.
+  const scratchSource = path.join(ctx.inputs.extension.dir, 'test', 'e2e', 'fixtures', 'gateway', 'scratch-component.yaml');
+  const scratchName = entityNames(path.dirname(scratchSource), 'Component')[0];
+  const scratchPath = path.join(ctx.folder, 'scratch-component.yaml');
   await c.run('output-channel.command-run-operations-write-a-dollar-line', {
-    expected: `Pull, a catalog row's "Validate this entity" and Generate entities each write a line beginning "$" — the binary, the arguments and "(cwd: ${layout.root})" — before their output; the plugin list behind the Plugins panel writes none`,
+    expected: `Pull, "Validate this entity" on the Catalog row of a Component placed in the folder for the press (a copy of the gateway folder's scratch Component, "${scratchName}") and Generate entities each write a line beginning "$" — the binary, the arguments and "(cwd: ${layout.root})" — before their output; the plugin list behind the Plugins panel writes none`,
     plant: 'in the scratch copy, out/src/cli-operation.js with the command line no longer written',
   }, async () => {
     const seen: string[] = [];
@@ -614,32 +622,33 @@ export async function aboveChecks(ctx: SuiteContext, layout: { root: string; ref
     seen.push(`Pull: ${pullLine ?? 'no $ line'}`);
     all = all && pullLine !== undefined && dollarShape(pullLine);
     control = pullLine !== undefined;
-    // A catalog row's context menu.
-    await run(ctx, 'aggrega.workspaceCatalog.focus');
-    const rows = await until('the Catalog view drawing an entity row', 20000, () => treeRows(ctx.d, 'Catalog'), (v) => v !== null && v.some((r) => r.level === 2));
-    // The first entity row whose context menu offers the operation: it is
-    // offered on a row whose entity has a document of its own.
-    let entity: { label: string } | undefined;
-    const tried: string[] = [];
-    for (const r of (rows ?? []).filter((x) => x.level === 2).slice(0, 6)) {
-      if (await treeRowCentre(ctx.d, 'Catalog', r.label) === null) { continue; }
-      const offered = await rowMenu(ctx.d, 'Catalog', r.label);
-      tried.push(`${r.label}: ${JSON.stringify(offered)}`);
-      if (offered.includes('Validate this entity')) { entity = r; break; }
-      await ctx.d.press('Escape');
+    // A catalog row's context menu, on the Component placed for it.
+    need(!fs.existsSync(scratchPath), `${scratchPath} is already there, so the Component placed for the press would overwrite it`);
+    fs.copyFileSync(scratchSource, scratchPath);
+    try {
+      await run(ctx, 'aggrega.workspaceCatalog.focus');
+      await pressViewAction(ctx, 'Catalog', 'Refresh workspace catalog');
+      await until(`the "${scratchName}" row appearing`, 20000, () => treeRows(ctx.d, 'Catalog'), (v) => v !== null && v.some((r) => r.label === scratchName));
+      const menu = await rowMenu(ctx.d, 'Catalog', scratchName);
+      need(menu.reached, `the "${scratchName}" row's context menu could not be read: ${describeRowMenu(menu)}`);
+      need(menu.items.includes('Validate this entity'), `the "${scratchName}" row's context menu offers ${JSON.stringify(menu.items)}, so "Validate this entity" cannot be pressed`);
+      const mark2 = ctx.out.mark();
+      const toastMark2 = (await toasts(ctx.d)).length;
+      const taken = await pressMenuItem(ctx.d, 'Validate this entity');
+      need(taken !== null, 'the context menu draws no "Validate this entity" item to press');
+      const tookByPointer = taken === 'pointer';
+      const validated = await ctx.out.waitFor('the entity validation writing to the channel', mark2, (t) => dollar(t).length > 0, 20000).catch(() => ctx.out.since(mark2));
+      const validateLine = dollar(validated)[0];
+      // The check is let end before its Component is taken away, so what it
+      // reports is about the document it was pressed on.
+      await ctx.out.waitFor('the entity validation ending', mark2, (t) => /^The check /m.test(t), 60000).catch(() => undefined);
+      const told = (await toastsSince(ctx.d, toastMark2)).map((t) => t.message);
+      const wrote = validated.split('\n').filter((l) => l.trim() !== '').slice(0, 4);
+      seen.push(`Validate this entity (${scratchName}, taken ${tookByPointer ? 'by the pointer' : 'by Enter, the pointer\'s press having left the menu open'}): ${validateLine ?? `no $ line; the channel ${JSON.stringify(wrote)}; notifications ${JSON.stringify(told)}`}`);
+      all = all && validateLine !== undefined && dollarShape(validateLine);
+    } finally {
+      fs.rmSync(scratchPath, { force: true });
     }
-    need(entity !== undefined, `no Catalog row's context menu offers "Validate this entity": ${tried.join('; ')}`);
-    const mark2 = ctx.out.mark();
-    const toastMark2 = (await toasts(ctx.d)).length;
-    const taken = await pressMenuItem(ctx.d, 'Validate this entity');
-    need(taken !== null, 'the context menu draws no "Validate this entity" item to press');
-    const tookByPointer = taken === 'pointer';
-    const validated = await ctx.out.waitFor('the entity validation writing to the channel', mark2, (t) => dollar(t).length > 0, 20000).catch(() => ctx.out.since(mark2));
-    const validateLine = dollar(validated)[0];
-    const told = (await toastsSince(ctx.d, toastMark2)).map((t) => t.message);
-    const wrote = validated.split('\n').filter((l) => l.trim() !== '').slice(0, 4);
-    seen.push(`Validate this entity (${entity.label}, taken ${tookByPointer ? 'by the pointer' : 'by Enter, the pointer\'s press having left the menu open'}): ${validateLine ?? `no $ line; the channel ${JSON.stringify(wrote)}; notifications ${JSON.stringify(told)}`}`);
-    all = all && validateLine !== undefined && dollarShape(validateLine);
     // Generate entities, for real, into an empty directory.
     const overlays = path.join(ctx.s.root.dir, 'generate', 'overlays');
     const outDir = path.join(ctx.s.root.dir, 'generate', 'out');

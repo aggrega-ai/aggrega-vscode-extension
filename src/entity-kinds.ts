@@ -24,8 +24,45 @@ import type * as wire from '@aggrega-ai/aggrega-abi/dist/servewire_gen';
 // correct the day a token stopped being its document value lowercased.
 // kind is the token a request naming this kind takes, and it is what the
 // drafting request sends. documentKind is the value the document itself carries,
-// and it is what a reader reads.
+// and it is what a reader reads. acceptedBy is which operations the compiler
+// accepts a document of this kind for, as the compiler states it.
 export type EntityKind = wire.EntityKindDescriptor;
+
+// EntityKindAcceptance says, for one kind, which operations accept a document of
+// that kind named on its own: checking it as a single entity, publishing it by
+// its path alone, and inspecting it by its name.
+//
+// 🔴 IT IS THE COMPILER'S STATEMENT, AND NO COPY OF IT IS HELD HERE. Which kinds
+// an operation takes is decided by the operation itself, on the other side, and
+// it moves when the operation does; a list of each operation's kinds written on
+// this side would agree until then and go on offering a refusal afterwards.
+export type EntityKindAcceptance = wire.EntityKindAcceptance;
+
+// ENTITY_KIND_READ names the read of the kinds answer in the sentence it ends in
+// when it fails. Two surfaces read that answer — the drafting flow and the
+// Catalog panel — and a failure of the one read reads the same on both.
+export const ENTITY_KIND_READ = 'The entity-kind read';
+
+// readAcceptance reads an entry's acceptance, each member accepting only where
+// the answer carries the boolean true for it.
+//
+// 🔴 ANYTHING ELSE READS AS NOT ACCEPTING — an absent member, a value of another
+// type, an acceptance that is not an object at all. What depends on this is which
+// operations a row offers, and the direction a misreading may fall in is the one
+// where a row offers less than it could: an operation withheld is a control the
+// reader can see is missing, while one offered wrongly is a press the compiler
+// refuses. The entry itself is kept, because its two registers are still whole and
+// the drafting flow needs nothing else of it.
+function readAcceptance(held: unknown): EntityKindAcceptance {
+  const said = typeof held === 'object' && held !== null
+    ? held as { singleEntityValidation?: unknown; publication?: unknown; inspectionByName?: unknown }
+    : {};
+  return {
+    singleEntityValidation: said.singleEntityValidation === true,
+    publication: said.publication === true,
+    inspectionByName: said.inspectionByName === true,
+  };
+}
 
 // readEntityKinds reports the kinds an author may write a document of, from the
 // compiler's answer to a schema request that named none.
@@ -46,7 +83,9 @@ export type EntityKind = wire.EntityKindDescriptor;
 // The answer is unknown by contract, as every answer from another process is, so
 // every field is checked rather than trusted. An entry carrying only one of the
 // two registers is dropped rather than half-read: a choice that could be read
-// but not sent, or sent but not read, is worse than one that is absent.
+// but not sent, or sent but not read, is worse than one that is absent. An entry
+// whose acceptance cannot be read is kept, accepting nothing, for the reason
+// readAcceptance gives.
 export function readEntityKinds(answer: unknown): EntityKind[] {
   if (typeof answer !== 'object' || answer === null) { return []; }
   const held = (answer as { entityKinds?: unknown }).entityKinds;
@@ -54,12 +93,30 @@ export function readEntityKinds(answer: unknown): EntityKind[] {
   const kinds: EntityKind[] = [];
   for (const entry of held) {
     if (typeof entry !== 'object' || entry === null) { continue; }
-    const registers = entry as { kind?: unknown; documentKind?: unknown };
+    const registers = entry as { kind?: unknown; documentKind?: unknown; acceptedBy?: unknown };
     if (typeof registers.kind !== 'string' || registers.kind === '') { continue; }
     if (typeof registers.documentKind !== 'string' || registers.documentKind === '') { continue; }
-    kinds.push({ kind: registers.kind, documentKind: registers.documentKind });
+    kinds.push({
+      kind: registers.kind,
+      documentKind: registers.documentKind,
+      acceptedBy: readAcceptance(registers.acceptedBy),
+    });
   }
   return kinds;
+}
+
+// acceptanceFor reports what the compiler accepts a document of one kind for,
+// the kind named by the value a document carries in its own `kind:` field — or
+// null where the answer holds no such kind, which accepts nothing.
+//
+// It is looked up by that register because that is the one a document, and so an
+// index of documents, carries: the entity index reports each entity's kind as its
+// document wrote it.
+export function acceptanceFor(
+  kinds: readonly EntityKind[],
+  documentKind: string,
+): EntityKindAcceptance | null {
+  return kinds.find((kind) => kind.documentKind === documentKind)?.acceptedBy ?? null;
 }
 
 // DraftSubject is what a draft names: the token its request takes, and the
@@ -68,9 +125,10 @@ export function readEntityKinds(answer: unknown): EntityKind[] {
 // An EntityKind IS one, which is what lets a kind a reader chose and a kind an
 // invocation carried travel the same way from the moment either is settled. The
 // second register is nullable here and is not on an EntityKind, and that is the
-// whole difference between them: a token the compiler's answer does not hold has
+// difference in what they carry: a token the compiler's answer does not hold has
 // no name to show, and inventing one would be the derivation this module refuses
-// at its head.
+// at its head. What an operation accepts is not part of what a draft names, so a
+// subject resolved here carries the two registers and nothing else.
 export interface DraftSubject {
   kind: string;
   documentKind: string | null;
@@ -108,7 +166,8 @@ export function draftSubjectFor(
     return { kind: token, documentKind: held?.documentKind ?? null };
   }
   if (documentKind !== null) {
-    return kinds.find((kind) => kind.documentKind === documentKind) ?? null;
+    const held = kinds.find((kind) => kind.documentKind === documentKind);
+    return held === undefined ? null : { kind: held.kind, documentKind: held.documentKind };
   }
   return null;
 }

@@ -243,6 +243,20 @@ export const PLANTS: readonly Plant[] = [
     says: 'an operation run as a command that the compiler refuses ends by naming the exit status alone, dropping the words the compiler wrote to its error stream',
   },
   {
+    name: 'validation-offered-whatever-the-kind', scenario: 'storefront', checks: ['catalog-view.each-row-offers-what-the-compiler-accepts-for-its-kind'], moves: 'red', target: 'extension',
+    file: 'out/src/catalog-entity-operations.js',
+    find: '    if (hasDocument && accepts !== null && accepts.singleEntityValidation) {',
+    replace: '    if (hasDocument) {',
+    says: 'a Catalog row with a document offers "Validate this entity" whatever the compiler says single-entity validation accepts for the row\'s kind',
+  },
+  {
+    name: 'operations-dropped-from-rows-with-a-document', scenario: 'storefront', checks: ['catalog-view.each-row-offers-what-the-compiler-accepts-for-its-kind'], moves: 'red', target: 'extension',
+    file: CATALOG_VIEW,
+    find: '        if (context !== null) {\n            item.contextValue = context;',
+    replace: '        if (context !== null && node.row.openPath === null) {\n            item.contextValue = context;',
+    says: 'a Catalog row with a document carries no value for its operations to be bound to, so its context menu offers none of those the compiler accepts for its kind, while a row with no document keeps its own',
+  },
+  {
     name: 'list-panel-heads-reversed', scenario: 'storefront',
     checks: [
       'catalog-panel.head-reads-search-catalog-then-draft-entity-and-folds-with-the-panel',

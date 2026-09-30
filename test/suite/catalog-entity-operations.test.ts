@@ -3,13 +3,14 @@
 
 import * as assert from 'node:assert';
 import {
-  CATALOG_DOCUMENT_ROW_CONTEXT,
-  CATALOG_NO_DOCUMENT_ROW_CONTEXT,
+  CatalogRowOperation,
   catalogEntityName,
   catalogEntityPath,
   catalogRowContext,
+  catalogRowOperations,
   catalogValidateArgs,
 } from '../../src/catalog-entity-operations';
+import { EntityKind, EntityKindAcceptance } from '../../src/entity-kinds';
 import { entityLintSubject, lintRequestParams } from '../../src/lint-run';
 import { publishEntityRequest } from '../../src/publication-request';
 import {
@@ -24,6 +25,17 @@ import {
 
 const WORKSPACE_ROOT = '/ws';
 
+// EVERYTHING is an acceptance stating true for every operation, as the
+// compiler's answer states it for a kind every row operation takes.
+const EVERYTHING: EntityKindAcceptance = { singleEntityValidation: true, publication: true, inspectionByName: true };
+
+// kindsAccepting is an answer's entries holding the one kind the rows below
+// declare, accepting what it is given — or an answer holding no entry for that
+// kind, where it is given null.
+function kindsAccepting(acceptance: EntityKindAcceptance | null): EntityKind[] {
+  return acceptance === null ? [] : [{ kind: 'component', documentKind: 'Component', acceptedBy: acceptance }];
+}
+
 function entity(over: Partial<CatalogIndexEntity> = {}): CatalogIndexEntity {
   return {
     kind: 'Component',
@@ -37,9 +49,41 @@ function entity(over: Partial<CatalogIndexEntity> = {}): CatalogIndexEntity {
   };
 }
 
-function entryNode(over: Partial<CatalogIndexEntity> = {}): WorkspaceCatalogNode {
-  return { kind: 'entry', row: rowForEntity(WORKSPACE_ROOT, entity(over)) };
+function entryNode(
+  over: Partial<CatalogIndexEntity> = {},
+  acceptance: EntityKindAcceptance | null = EVERYTHING,
+): WorkspaceCatalogNode {
+  return { kind: 'entry', row: rowForEntity(WORKSPACE_ROOT, entity(over), kindsAccepting(acceptance)) };
 }
+
+// NO_DOCUMENT is a row for an entity resolved from a configured catalog
+// directory, which the workspace holds no document for.
+const NO_DOCUMENT: Partial<CatalogIndexEntity> = { origin: ENTITY_ORIGIN_CATALOG, file: '' };
+
+// OFFERING is the offering rule written out case by case: for each combination of
+// what the compiler accepts a document of the row's kind for, with and without a
+// document in the workspace, the operations the row offers, in order. It is
+// written here rather than computed, so it is a second statement of the rule and
+// not the rule read back to itself. `v`, `p` and `i` are single-entity validation,
+// publication and inspection by name.
+const OFFERING: { v: boolean; p: boolean; i: boolean; document: boolean; offers: CatalogRowOperation[] }[] = [
+  { v: false, p: false, i: false, document: true, offers: ['lint'] },
+  { v: true, p: false, i: false, document: true, offers: ['validate', 'lint'] },
+  { v: false, p: true, i: false, document: true, offers: ['lint', 'push'] },
+  { v: false, p: false, i: true, document: true, offers: ['inspect', 'lint'] },
+  { v: true, p: true, i: false, document: true, offers: ['validate', 'lint', 'push'] },
+  { v: true, p: false, i: true, document: true, offers: ['inspect', 'validate', 'lint'] },
+  { v: false, p: true, i: true, document: true, offers: ['inspect', 'lint', 'push'] },
+  { v: true, p: true, i: true, document: true, offers: ['inspect', 'validate', 'lint', 'push'] },
+  { v: false, p: false, i: false, document: false, offers: [] },
+  { v: true, p: false, i: false, document: false, offers: [] },
+  { v: false, p: true, i: false, document: false, offers: [] },
+  { v: false, p: false, i: true, document: false, offers: ['inspect'] },
+  { v: true, p: true, i: false, document: false, offers: [] },
+  { v: true, p: false, i: true, document: false, offers: ['inspect'] },
+  { v: false, p: true, i: true, document: false, offers: ['inspect'] },
+  { v: true, p: true, i: true, document: false, offers: ['inspect'] },
+];
 
 // everyMessageNode collects the message rows this panel can actually render, by
 // driving the run into each state that produces one rather than by writing the
@@ -52,59 +96,109 @@ function entryNode(over: Partial<CatalogIndexEntity> = {}): WorkspaceCatalogNode
 // to invoke it on.
 async function everyMessageNode(): Promise<WorkspaceCatalogNode[]> {
   const log = { appendLine: () => { /* the run's channel is not under test */ } };
+  const entityKinds = (): Promise<unknown> => Promise.resolve({ entityKinds: [] });
   const noWorkspace = await workspaceCatalogNodes({
     getWorkspaceRoot: () => null,
     isLanguageServerRunning: () => true,
     requestCatalogIndex: () => Promise.resolve({ entities: [] }),
+    entityKinds,
     log,
   });
   const serverStopped = await workspaceCatalogNodes({
     getWorkspaceRoot: () => WORKSPACE_ROOT,
     isLanguageServerRunning: () => false,
     requestCatalogIndex: () => Promise.resolve({ entities: [] }),
+    entityKinds,
     log,
   });
   const failed = await workspaceCatalogNodes({
     getWorkspaceRoot: () => WORKSPACE_ROOT,
     isLanguageServerRunning: () => true,
     requestCatalogIndex: () => Promise.reject(new Error('the server declined')),
+    entityKinds,
     log,
   });
   const empty = await workspaceCatalogNodes({
     getWorkspaceRoot: () => WORKSPACE_ROOT,
     isLanguageServerRunning: () => true,
     requestCatalogIndex: () => Promise.resolve({ entities: [] }),
+    entityKinds,
     log,
   });
   return [...noWorkspace, ...serverStopped, ...failed, ...empty]
     .filter((node) => node.kind === 'message');
 }
 
-describe('what a row of the workspace catalog admits', () => {
-  it('marks a row backed by a document in this workspace', () => {
-    assert.strictEqual(catalogRowContext(entryNode()), CATALOG_DOCUMENT_ROW_CONTEXT);
+describe('which operations a row of the workspace catalog offers', () => {
+  it('offers each operation exactly where the rule written out above says, for every combination', () => {
+    for (const c of OFFERING) {
+      const node = entryNode(c.document ? {} : NO_DOCUMENT, {
+        singleEntityValidation: c.v, publication: c.p, inspectionByName: c.i,
+      });
+      assert.deepStrictEqual(
+        catalogRowOperations(node), c.offers,
+        `validation ${c.v}, publication ${c.p}, inspection ${c.i}, ${c.document ? 'with' : 'without'} a document`,
+      );
+    }
+    // The table covers every combination of the three members, on both kinds of
+    // row, so a case the rule decides differently cannot be one it skipped.
+    const covered = new Set(OFFERING.map((c) => `${c.v}${c.p}${c.i}${c.document}`));
+    assert.strictEqual(covered.size, 16, 'the table leaves a combination of what is accepted, and of a document, undecided');
   });
 
-  it('marks a row for an entity this workspace holds no document for', () => {
-    const node = entryNode({ origin: ENTITY_ORIGIN_CATALOG, file: '' });
-    assert.strictEqual(catalogRowContext(node), CATALOG_NO_DOCUMENT_ROW_CONTEXT);
+  it('offers only the conventions check on a row whose kind the compiler\'s answer holds no entry for', () => {
+    // A kind the answer does not name accepts nothing, so every operation whose
+    // offering depends on the kind is withheld; the conventions check depends on
+    // no kind and stays on a row with a document.
+    assert.deepStrictEqual(catalogRowOperations(entryNode({}, null)), ['lint']);
+    assert.deepStrictEqual(catalogRowOperations(entryNode(NO_DOCUMENT, null)), []);
+    // The negative control: the same row, its kind in the answer, offers more.
+    assert.deepStrictEqual(catalogRowOperations(entryNode({})), ['inspect', 'validate', 'lint', 'push']);
   });
 
-  it('marks an origin it has no reading for as carrying no document', () => {
+  it('matches the kind by the value its document carries, and never by a spelling derived from it', () => {
+    // The index reports the kind as the document wrote it, and the answer's entry
+    // carries that value as its document register. A row of a kind whose entry
+    // differs only by case is a kind the answer does not hold.
+    const node: WorkspaceCatalogNode = {
+      kind: 'entry',
+      row: rowForEntity(WORKSPACE_ROOT, entity({ kind: 'FeatureRecipe' }), [
+        { kind: 'featurerecipe', documentKind: 'featurerecipe', acceptedBy: EVERYTHING },
+      ]),
+    };
+    assert.deepStrictEqual(catalogRowOperations(node), ['lint']);
+  });
+
+  it('carries the operations offered in the value the row is bound by, and no value where it offers none', () => {
+    assert.strictEqual(catalogRowContext(entryNode()), 'aggrega.catalogEntity:inspect:validate:lint:push');
+    assert.strictEqual(
+      catalogRowContext(entryNode({}, { singleEntityValidation: false, publication: true, inspectionByName: true })),
+      'aggrega.catalogEntity:inspect:lint:push',
+    );
+    assert.strictEqual(catalogRowContext(entryNode(NO_DOCUMENT)), 'aggrega.catalogEntity:inspect');
+    assert.strictEqual(
+      catalogRowContext(entryNode(NO_DOCUMENT, { singleEntityValidation: true, publication: true, inspectionByName: false })),
+      null,
+      'a row offering nothing carries a value, so it opens an empty menu',
+    );
+  });
+
+  it('reads an origin it has no reading for as carrying no document', () => {
     // An origin this build does not recognise resolves against nothing on this
     // side, so it falls on the withholding side rather than being assumed to
     // behave like a workspace document.
     const node = entryNode({ origin: 'something-else', file: 'catalog/x.yaml' });
-    assert.strictEqual(catalogRowContext(node), CATALOG_NO_DOCUMENT_ROW_CONTEXT);
+    assert.deepStrictEqual(catalogRowOperations(node), ['inspect']);
   });
 
   it('gives a kind heading no operation at all', () => {
     // A heading names a kind, not an entity, so every extractor must decline
     // it: an operation bound to a heading could only be invoked with no
     // subject.
-    const groups = nodesForDocument(WORKSPACE_ROOT, { entities: [entity()] });
+    const groups = nodesForDocument(WORKSPACE_ROOT, { entities: [entity()] }, kindsAccepting(EVERYTHING));
     const heading = groups.find((node) => node.kind === 'group');
     assert.ok(heading, 'the grouping produced no kind heading to check');
+    assert.strictEqual(catalogRowOperations(heading), null);
     assert.strictEqual(catalogRowContext(heading), null);
     assert.strictEqual(catalogEntityPath(heading), null);
     assert.strictEqual(catalogEntityName(heading), null);
@@ -174,7 +268,7 @@ describe('the subject a row of the workspace catalog supplies', () => {
     assert.strictEqual(node.row.openPath, null);
     assert.strictEqual(node.row.entityPath, '');
     assert.strictEqual(catalogEntityPath(node), null);
-    assert.strictEqual(catalogRowContext(node), CATALOG_NO_DOCUMENT_ROW_CONTEXT);
+    assert.deepStrictEqual(catalogRowOperations(node), ['inspect']);
   });
 });
 
