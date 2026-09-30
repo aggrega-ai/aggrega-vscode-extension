@@ -73,8 +73,8 @@ function appearsAnywhere(payload: unknown, needle: string): boolean {
 // builds are instances of that context's constructors and compare unequal to
 // this one's however identical their contents. Cloning the results across lets
 // the assertions below compare values rather than realms.
-function project(graph: unknown, nodeId: string): Attachment[] {
-  return structuredClone(model.attachmentsFor(graph, nodeId).attachments);
+function project(graph: unknown, nodeId: string, ...shows: [unknown?]): Attachment[] {
+  return structuredClone(model.attachmentsFor(graph, nodeId, ...shows).attachments);
 }
 
 function projectOne(name: string, entry: unknown): Field[] {
@@ -87,7 +87,7 @@ interface Attachment { sensitive: boolean; fields: Field[] }
 const redact = createGraphRedactor(EXTENSION_ROOT);
 const model = loadAttachmentsModel(EXTENSION_ROOT) as unknown as {
   redactGraph(graph: unknown): unknown;
-  attachmentsFor(graph: unknown, nodeId: string): {
+  attachmentsFor(graph: unknown, nodeId: string, showsSensitiveValues?: unknown): {
     attachments: Array<{
       sensitive: boolean;
       fields: Array<{ path: string; value: string | null; withheld: string }>;
@@ -297,6 +297,29 @@ describe('the opt-out the author owns', () => {
   it('shows the payload exactly as the compiler produced it when the setting is on', () => {
     const graph = irGraph({ api: { credentials: credentialEntry() } });
     assert.strictEqual(JSON.stringify(redact(graph, true)), JSON.stringify(graph));
+  });
+
+  it('draws the credential only where one reading of the setting says it is on', () => {
+    // What the extension does with every graph, in miniature: the setting is read
+    // once, that answer decides the redaction, and the same answer is what the
+    // view projects with. A shown credential therefore takes both halves — the
+    // payload sent unredacted AND the view told so — and neither alone draws it.
+    const graph = irGraph({ api: { credentials: credentialEntry() } });
+    for (const configured of [true, false, undefined, 'yes', 1]) {
+      const shows = showsSensitiveValues(configured);
+      const drawn = project(redact(graph, shows), 'api', shows)[0].fields;
+      const literal = drawn.find((f) => f.path === 'values.literalPassword')!;
+      if (configured === true) {
+        assert.deepStrictEqual(literal, { path: 'values.literalPassword', value: SECRET, withheld: '' });
+      } else {
+        assert.ok(!appearsAnywhere(drawn, SECRET), `configured ${JSON.stringify(configured)} drew the credential`);
+        assert.strictEqual(literal.withheld, model.WITHHELD_DECLARED);
+      }
+    }
+    // And each half alone: a payload sent unredacted to a view told nothing, and
+    // a redacted payload to a view told the setting is on.
+    assert.ok(!appearsAnywhere(project(redact(graph, true), 'api'), SECRET), 'a view told nothing drew the credential');
+    assert.ok(!appearsAnywhere(project(redact(graph, false), 'api', true), SECRET), 'a redacted payload drew the credential');
   });
 
   it('withholds for every configured value except the boolean true', () => {

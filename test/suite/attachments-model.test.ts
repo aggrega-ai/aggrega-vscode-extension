@@ -46,8 +46,8 @@ interface Projection {
 }
 
 interface AttachmentsModel {
-  attachmentsFor(graph: unknown, nodeId: string): Projection;
-  projectAttachment(name: string, entry: unknown): Attachment;
+  attachmentsFor(graph: unknown, nodeId: string, showsSensitiveValues?: unknown): Projection;
+  projectAttachment(name: string, entry: unknown, showsSensitiveValues?: unknown): Attachment;
   withheldNote(reason: string): string;
   WITHHELD_DECLARED: string;
   WITHHELD_ATTACHMENT: string;
@@ -64,10 +64,12 @@ function loadModel(): AttachmentsModel {
   // The script runs in its own realm, so the objects and arrays it builds are
   // instances of that realm's constructors and compare unequal to this one's
   // however identical their contents. Cloning the structured results across the
-  // boundary lets the assertions below compare values rather than realms.
+  // boundary lets the assertions below compare values rather than realms. The
+  // setting's state is passed only where a caller gives one, so a call without it
+  // reaches the model exactly as a message carrying none does.
   return {
-    attachmentsFor: (graph, nodeId) => structuredClone(model.attachmentsFor(graph, nodeId)),
-    projectAttachment: (name, entry) => structuredClone(model.projectAttachment(name, entry)),
+    attachmentsFor: (...args) => structuredClone(model.attachmentsFor(...args)),
+    projectAttachment: (...args) => structuredClone(model.projectAttachment(...args)),
     withheldNote: (reason) => model.withheldNote(reason),
     WITHHELD_DECLARED: model.WITHHELD_DECLARED,
     WITHHELD_ATTACHMENT: model.WITHHELD_ATTACHMENT,
@@ -400,5 +402,106 @@ describe('AggregaAttachments — withholding sensitive material', () => {
       model.withheldNote(model.WITHHELD_UNREADABLE),
       'withheld — value not in a readable shape',
     );
+  });
+});
+
+describe('AggregaAttachments — the setting that shows sensitive values', () => {
+  // The payload these tests project is one the sending side did NOT redact, so
+  // the declared value is present in it. With the setting off that is a payload
+  // the redaction missed, and the projection must still refuse it; with the
+  // setting on it is exactly what the sending side sends, and the projection
+  // must draw it. The same payload, projected with two statements about the
+  // setting, is what tells the two apart.
+  const LOCATOR = 'POSTGRES_PASSWORD';
+  function unredacted(): unknown {
+    return irGraph({
+      orders: {
+        password: {
+          type: 'core/secret-value',
+          binding: 'password',
+          values: { key: LOCATOR, origin: SECRET },
+          sensitive: true,
+          sensitive_payload_leaves: ['values.origin'],
+        },
+      },
+    });
+  }
+
+  it('withholds a declared value that arrives unredacted when the setting is off', () => {
+    const projected = model.attachmentsFor(unredacted(), 'orders', false);
+    assert.ok(!appearsAnywhere(projected, SECRET), 'the credential reached the projection');
+    const byPath = fieldsByPath(projected.attachments[0]);
+    assert.strictEqual(byPath.get('values.origin')!.value, null);
+    assert.strictEqual(byPath.get('values.origin')!.withheld, model.WITHHELD_DECLARED);
+  });
+
+  it('draws the same payload as its author wrote it when the setting is on', () => {
+    const projected = model.attachmentsFor(unredacted(), 'orders', true);
+    const byPath = fieldsByPath(projected.attachments[0]);
+    assert.deepStrictEqual(byPath.get('values.origin'), {
+      path: 'values.origin', value: SECRET, withheld: '',
+    });
+    // The attachment is still reported as handling sensitive material: the
+    // setting changes what is drawn, not what the IR says about the attachment.
+    assert.strictEqual(projected.attachments[0].sensitive, true);
+  });
+
+  it('reads a graph that carries no statement about the setting as the setting off', () => {
+    const projected = model.attachmentsFor(unredacted(), 'orders');
+    assert.ok(!appearsAnywhere(projected, SECRET), 'a graph saying nothing about the setting drew the credential');
+    assert.strictEqual(
+      fieldsByPath(projected.attachments[0]).get('values.origin')!.withheld,
+      model.WITHHELD_DECLARED,
+    );
+  });
+
+  it('reads every statement about the setting except the boolean true as the setting off', () => {
+    for (const stated of ['true', 'yes', 1, {}, [], null, 'on']) {
+      const projected = model.attachmentsFor(unredacted(), 'orders', stated);
+      assert.ok(
+        !appearsAnywhere(projected, SECRET),
+        `the statement ${JSON.stringify(stated)} drew the credential`,
+      );
+    }
+  });
+
+  it('draws an attachment whose sensitivity marking it cannot read when the setting is on', () => {
+    // The sending side sends such an attachment untouched with the setting on,
+    // so the fail-safe that withholds it whole with the setting off does not
+    // apply: the value is already here, and the reader asked to see it.
+    for (const marking of ['yes', 1, {}]) {
+      const a = model.projectAttachment('x', { values: { key: SECRET }, sensitive: marking }, true);
+      assert.deepStrictEqual(a.fields, [{ path: 'values.key', value: SECRET, withheld: '' }]);
+    }
+    const a = model.projectAttachment('x', {
+      values: { key: SECRET }, sensitive: false, sensitive_payload_leaves: [1],
+    }, true);
+    assert.deepStrictEqual(a.fields, [{ path: 'values.key', value: SECRET, withheld: '' }]);
+    // The same attachments with the setting off are withheld whole, as before.
+    const off = model.projectAttachment('x', { values: { key: SECRET }, sensitive: 'yes' }, false);
+    assert.strictEqual(off.fields[0].withheld, model.WITHHELD_ATTACHMENT);
+  });
+
+  it('keeps the unreadable-shape sentence, and a marker that arrived, when the setting is on', () => {
+    // Neither is a sensitivity refusal. A value in no shape the panel can
+    // render has no text to draw, and a value already replaced by a marker is
+    // gone — the reason recorded when it was removed is the truthful one.
+    assert.deepStrictEqual(model.projectAttachment('x', { values: SECRET }, true).fields, [
+      { path: 'values', value: null, withheld: model.WITHHELD_UNREADABLE },
+    ]);
+    const marked = model.projectAttachment('x', {
+      values: { origin: { aggrega_withheld: 'declared' } },
+      sensitive_payload_leaves: ['values.origin'],
+    }, true);
+    assert.deepStrictEqual(marked.fields, [
+      { path: 'values.origin', value: null, withheld: model.WITHHELD_DECLARED },
+    ]);
+  });
+
+  it('draws the value no declaration covers the same way in every state of the setting', () => {
+    for (const stated of [undefined, false, true, 'yes']) {
+      const byPath = fieldsByPath(model.attachmentsFor(unredacted(), 'orders', stated).attachments[0]);
+      assert.deepStrictEqual(byPath.get('values.key'), { path: 'values.key', value: LOCATOR, withheld: '' });
+    }
   });
 });

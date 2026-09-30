@@ -309,7 +309,14 @@ async function renderGraph(
         `Aggrega: building the topology of ${release}`,
         (signal) => deps.requestIrGraph(release, signal),
       );
-    const graph = redact(answer, deps.showsSensitiveValues());
+    // Read once, and that one answer both decides the redaction and travels with
+    // the payload it decided. The panel withholds again by the markings unless it
+    // is told the setting was on, so it is told what this payload was built with
+    // rather than left to find out: a second read could disagree with the first,
+    // and the panel would then withhold the very values this side sent for it to
+    // show.
+    const showsSensitiveValues = deps.showsSensitiveValues();
+    const graph = redact(answer, showsSensitiveValues);
     // Read from the answer rather than from the redacted payload, and only once
     // the redaction has succeeded: what this keeps is a path and a set of names
     // per node, none of which the redaction touches, and a render that posts
@@ -322,7 +329,7 @@ async function renderGraph(
     // they are reading and one they pressed for is how they get the whole
     // topology back; and on a refusal it decides whether the notice offering the
     // way past it may be held back.
-    void panel.webview.postMessage({ type: 'render', release, graph, asked: !opts.quiet });
+    void panel.webview.postMessage({ type: 'render', release, graph, asked: !opts.quiet, showsSensitiveValues });
   } catch (err) {
     // A redaction that cannot be performed lands here with the request
     // failures, and is reported the same way. Nothing is posted, which is the

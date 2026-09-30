@@ -137,7 +137,10 @@
     } else if (msg.type === 'error') {
       reportFailure(msg.release, msg.message);
     } else if (msg.type === 'render') {
-      renderGraph(msg.graph, !!msg.asked)
+      // Whether the setting that shows sensitive values was on for this graph is
+      // handed to the projection as it arrived: the projection is where it is
+      // read, and where anything but the boolean true reads as off.
+      renderGraph(msg.graph, !!msg.asked, msg.showsSensitiveValues)
         .catch((err) => reportFailure(msg.release, String(err)));
     } else if (msg.type === 'attachCandidates') {
       showCandidates(msg.requestId, candidates.projectCandidates(msg.result));
@@ -213,7 +216,7 @@
 
   // --- render -------------------------------------------------------------
 
-  async function renderGraph(graph, asked) {
+  async function renderGraph(graph, asked, showsSensitiveValues) {
     const { root, meta } = model.toElkGraph(graph, measureText);
     const laid = await elk.layout(root);
     hideStatus();
@@ -222,7 +225,7 @@
     // node. A recompile re-renders underneath the reader, and dropping the
     // selection every time would close the panel while they are reading it.
     const wasSelected = selectedId;
-    shownAttachments = projectAttachments(graph);
+    shownAttachments = projectAttachments(graph, showsSensitiveValues);
     clearSelection();
     nodeGroups.clear();
 
@@ -409,12 +412,14 @@
   }
 
   // projectAttachments projects every node's attachments up front, so the IR
-  // payload is read here and nowhere else and need not outlive the render.
-  function projectAttachments(graph) {
+  // payload is read here and nowhere else and need not outlive the render. The
+  // projection is made against the setting the graph was posted with, so a panel
+  // left open shows what that graph was built to show until the next one arrives.
+  function projectAttachments(graph, showsSensitiveValues) {
     const nodes = ((graph && graph.spec) || {}).nodes || {};
     const projected = new Map();
     for (const id of Object.keys(nodes)) {
-      projected.set(id, attachments.attachmentsFor(graph, id));
+      projected.set(id, attachments.attachmentsFor(graph, id, showsSensitiveValues));
     }
     return projected;
   }

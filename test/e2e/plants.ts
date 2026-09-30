@@ -637,15 +637,27 @@ export const PLANTS: readonly Plant[] = [
     says: 'every leaf of an attachment is withheld, the ones no declaration covers included, as a panel that hides the whole attachment would',
   },
   {
-    name: 'drawing-side-leaves-withholding-to-the-markers', scenario: 'storefront-graph-panel', checks: ['attachments-panel.setting-on-shows-the-value-as-authored'], moves: 'green', target: 'extension',
-    file: ATTACHMENTS_MODEL, find: '    const declared = declaredLeaves(safe, wholly);', replace: '    const declared = [];',
-    says: 'the drawing side withholds the leaves the sending side replaced with a marker and matches the declarations no further, so a value the sending side left in place because the setting is on is drawn',
+    name: 'graph-posted-without-the-setting', scenario: 'storefront-graph-panel', checks: ['attachments-panel.setting-on-shows-the-value-as-authored'], moves: 'red', target: 'extension',
+    file: GRAPH_VIEW,
+    find: "        void panel.webview.postMessage({ type: 'render', release, graph, asked: !opts.quiet, showsSensitiveValues });",
+    replace: "        void panel.webview.postMessage({ type: 'render', release, graph, asked: !opts.quiet });",
+    says: 'the graph is posted to the panel without saying whether the setting was on, so the panel withholds by the declarations a value the sending side sent because the setting is on',
+  },
+  {
+    name: 'panel-drops-the-setting-it-was-posted', scenario: 'storefront-graph-panel', checks: ['attachments-panel.setting-on-shows-the-value-as-authored'], moves: 'red', target: 'extension',
+    file: GRAPH_SCRIPT, find: '      renderGraph(msg.graph, !!msg.asked, msg.showsSensitiveValues)', replace: '      renderGraph(msg.graph, !!msg.asked)',
+    says: 'the panel draws a graph without the statement it was posted with about the setting, so it projects every graph as though the setting were off',
   },
   {
     name: 'declared-leaves-matched-nowhere', scenario: 'storefront-graph-panel',
     checks: ['attachments-panel.setting-off-again-withholds-the-value', 'attachments-panel.setting-that-is-not-a-boolean-withholds-the-value'], moves: 'red', target: 'extension',
     file: ATTACHMENTS_MODEL, find: '    if (coveredByDeclaration(leaf.path, declared)) { return WITHHELD_DECLARED; }\n', replace: '',
     says: 'no leaf is withheld for a declaration, on the side that sends the graph and on the side that draws it, so a declared-sensitive value is drawn whatever the setting says',
+  },
+  {
+    name: 'any-truthy-setting-read-as-on', scenario: 'storefront-graph-panel', checks: ['attachments-panel.setting-that-is-not-a-boolean-withholds-the-value'], moves: 'red', target: 'extension',
+    file: 'out/src/settings.js', find: '    return configured === true;', replace: '    return !!configured;',
+    says: 'the one reading of the setting takes any value but false, zero or an empty string as on, so a hand-edited "yes" or 1 sends the graph unredacted and tells the panel the setting is on',
   },
   {
     name: 'waiting-drawn-blank', scenario: 'storefront-graph-panel', checks: ['may-attach.section-is-headed-captioned-and-waits-in-words'], moves: 'red', target: 'extension',

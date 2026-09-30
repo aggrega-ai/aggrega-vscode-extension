@@ -19,6 +19,14 @@
 // still on that side; the view then projects what arrives. Both sides run these
 // same functions, so the question "is this value withheld" has one answer and
 // one implementation, and the two cannot drift into disagreeing.
+//
+// The reader's setting that shows sensitive values reaches both sides from one
+// reading of it. The sending side does not redact a payload built with the
+// setting on, and says with each graph it posts whether the setting was on for
+// that payload; the view hands that statement to the projection. Only the
+// boolean true reads as on, so a graph posted without saying so, or saying so in
+// any other shape, is projected with the setting off — and the view then still
+// withholds a declared value that reaches it unredacted.
 
 (function (root) {
   'use strict';
@@ -288,10 +296,40 @@
       : [];
   }
 
+  // withholdingFor is what an attachment's sensitivity markings withhold: whether
+  // the fail-safe withholds the whole attachment, and the declared leaf paths to
+  // match against. Both sides of the boundary read an attachment's markings
+  // through this one function.
+  //
+  // WITH THE SETTING ON, NOTHING IS WITHHELD FOR SENSITIVITY — neither a declared
+  // leaf nor an attachment whose marking cannot be read. The reader has asked to
+  // read back what they wrote, and the sending side sends both untouched in that
+  // state, so withholding either here would refuse what the reader asked for and
+  // protect nothing, the value having already crossed. A value in no shape the
+  // panel can render as text is still withheld, and for that reason alone: it is
+  // a limit of drawing, not a sensitivity refusal.
+  //
+  // Only the boolean true is the setting on. What this is handed is the sending
+  // side's statement about the payload, and anything else — no statement, or one
+  // in a shape this cannot read — is the setting off, which withholds by the
+  // markings whatever arrived.
+  //
+  // The sending side makes the same choice where it decides whether to redact at
+  // all, rather than by asking this: in that direction it must not need this file,
+  // so that a rule file which cannot be loaded blocks only the direction that
+  // needs the rule in order to be safe.
+  function withholdingFor(entry, showsSensitiveValues) {
+    if (showsSensitiveValues === true) { return { wholly: false, declared: [] }; }
+    const wholly = withholdsWholly(entry);
+    return { wholly: wholly, declared: declaredLeaves(entry, wholly) };
+  }
+
   // withheldReasonFor is the single decision "is this leaf withheld, and why".
-  // The side that strips a value before it crosses and the side that draws what
-  // arrives both ask it, so the set of values removed is by construction the set
-  // the panel reports as withheld — not two sets that happen to coincide.
+  // With the setting off, the side that strips a value before it crosses and the
+  // side that draws what arrives both ask it, so the set of values removed is by
+  // construction the set the panel reports as withheld — not two sets that happen
+  // to coincide. With the setting on nothing is removed, and the panel withholds
+  // only a value it cannot render as text.
   //
   // A leaf already carrying a marker keeps that marker's reason: the value is
   // gone, and the reason recorded when it was removed is the truthful one.
@@ -320,23 +358,26 @@
   // projectAttachment turns one IR attachment into the row the panel draws.
   // `name` is the instance name its author gave the attachment, which is the
   // key it sits under; `binding` is the host Component slot it fills, which is
-  // a separate field and frequently a different word.
-  function projectAttachment(name, entry) {
-    const wholly = withholdsWholly(entry);
+  // a separate field and frequently a different word. `showsSensitiveValues` is
+  // the sending side's statement of whether the reader's setting was on for the
+  // payload this entry arrived in; withholdingFor says what it changes, and why
+  // only the boolean true reads as on.
+  function projectAttachment(name, entry, showsSensitiveValues) {
     const safe = isPlainObject(entry) ? entry : {};
-    const declared = declaredLeaves(safe, wholly);
+    const withholding = withholdingFor(entry, showsSensitiveValues);
 
-    // This projection runs on data the boundary has already redacted, and the
-    // withholding below therefore has nothing left to withhold. It is kept
-    // DELIBERATELY, and it is not a duplicate of the redaction: it is the same
-    // single-sourced decision running on the far side of the boundary, so the
-    // panel still refuses a value that reached it by any route the redaction did
-    // not cover — an unredacted payload, a future sender, a reader who turned
-    // the redaction off. Do not remove it as redundant.
+    // With the setting off, this projection runs on data the boundary has
+    // already redacted, and the withholding below therefore has nothing left to
+    // withhold. It is kept DELIBERATELY, and it is not a duplicate of the
+    // redaction: it is the same single-sourced decision running on the far side
+    // of the boundary, so the panel still refuses a value that reached it by any
+    // route the redaction did not cover — an unredacted payload, a future sender.
+    // Do not remove it as redundant. What lifts it is the sending side's own
+    // statement that the setting was on, never the arrival of a value.
     const leaves = leavesOf(safe, function () { return noInstall; });
 
     const fields = leaves.map(function (leaf) {
-      const reason = withheldReasonFor(leaf, wholly, declared);
+      const reason = withheldReasonFor(leaf, withholding.wholly, withholding.declared);
       if (reason) {
         return { path: leaf.path, value: null, withheld: reason };
       }
@@ -366,8 +407,9 @@
   // name or inferred.
   //
   // A node with no bucket has nothing attached, which is a fact the IR carries
-  // and the panel states plainly.
-  function attachmentsFor(graph, nodeId) {
+  // and the panel states plainly. `showsSensitiveValues` is passed through to
+  // each attachment's projection as it arrived.
+  function attachmentsFor(graph, nodeId, showsSensitiveValues) {
     const spec = (graph && graph.spec) || {};
     const mapping = spec.feature_values_mapping;
     const bucket = isPlainObject(mapping) ? mapping[nodeId] : undefined;
@@ -375,14 +417,17 @@
     const names = Object.keys(bucket);
     return {
       nodeId: nodeId,
-      attachments: names.map(function (n) { return projectAttachment(n, bucket[n]); }),
+      attachments: names.map(function (n) {
+        return projectAttachment(n, bucket[n], showsSensitiveValues);
+      }),
     };
   }
 
   // --- redaction at the boundary -------------------------------------------
   //
   // redactGraph is what the side holding the compiled graph calls before handing
-  // the payload to the view. It removes the values the rule above withholds and
+  // the payload to the view, whenever the reader's setting that shows sensitive
+  // values is not on. It removes the values the rule above withholds and
   // KEEPS the markings that say why, so the panel can still name the reason a
   // field is absent. Stripping the markings too would leave the panel able to
   // report only that something is missing.
@@ -433,8 +478,9 @@
       out[keys[i]] = entry[keys[i]];
     }
 
-    const wholly = withholdsWholly(entry);
-    const declared = declaredLeaves(entry, wholly);
+    // The sending side redacts only a payload built with the setting off, so it
+    // asks the rule with the setting off.
+    const withholding = withholdingFor(entry, false);
 
     for (let i = 0; i < PILLARS.length; i++) {
       const pillar = PILLARS[i];
@@ -444,7 +490,7 @@
 
     const leaves = leavesOf(out, function (pillar) { return installer(out, pillar); });
     for (let i = 0; i < leaves.length; i++) {
-      const reason = withheldReasonFor(leaves[i], wholly, declared);
+      const reason = withheldReasonFor(leaves[i], withholding.wholly, withholding.declared);
       if (reason) { leaves[i].install(withheldMarker(reason)); }
     }
     return out;
