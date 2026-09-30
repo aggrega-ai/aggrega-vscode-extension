@@ -280,6 +280,24 @@ async function revertActive(ctx: SuiteContext, file: string): Promise<void> {
   await sleep(300);
 }
 
+// restoringAfter runs a check's body and then puts back what the body changed,
+// whatever it reached, so a check that stops part way leaves the next check the
+// documents as it found them. Where the body stopped, its own reason is the one
+// reported, and a put-back that also fails is not let to replace it; where the
+// body finished, a put-back that fails stops the check, because the check then
+// leaves a document changed.
+async function restoringAfter<T>(body: () => Promise<T>, restore: () => Promise<void>): Promise<T> {
+  let result: T;
+  try {
+    result = await body();
+  } catch (err) {
+    await restore().catch(() => undefined);
+    throw err;
+  }
+  await restore();
+  return result;
+}
+
 // closeEverythingUnsaved closes every open editor, answering "Don't Save" where
 // the editor asks about a changed document, so nothing reaches the disk.
 export async function closeEverythingUnsaved(ctx: SuiteContext): Promise<string[]> {
@@ -431,6 +449,20 @@ export async function graphPanelChecks(ctx: SuiteContext, reference: string, sna
     const r = await originAsRead(ctx);
     return { passed: r.drawn === WITHHELD_DECLARED, seen: `the setting reads ${JSON.stringify((await settingOf(ctx)).globalValue)}; ${r.seen}` };
   });
+  // The setting back at its default, whatever the two checks above reached: a
+  // tick the second of them did not take off is taken off here, the same way, so
+  // the check below starts from a settings file that does not name the setting.
+  // The box is pressed only while it is drawn ticked, so a tick taken off late
+  // is not put back on.
+  if ((await settingOf(ctx)).globalValue === true) {
+    const takeOff = async (): Promise<void> => {
+      const item = await openSettingsOn(ctx, 'showSensitiveValues', label);
+      if (item.checked !== 'false') { await pressIn(ctx.d, null, checkbox); }
+      await until('the setting reading off again', 10000, () => settingOf(ctx), (v) => v.globalValue !== true);
+    };
+    await takeOff().catch(() => undefined);
+    await closeSettingsEditor(ctx).catch(() => undefined);
+  }
   await closeEverythingUnsaved(ctx);
   // setByHand writes the setting's line in the user settings file as a person
   // types it there, replacing the line where one is already written, and saves.
@@ -622,31 +654,34 @@ export async function graphPanelChecks(ctx: SuiteContext, reference: string, sna
     plant: 'in the scratch copy, out/src/graph-view.js made to place the entry by the line the document has on disk',
   }, async () => {
     need(attached !== null, 'no entry was attached before, so which row to press is not known');
+    const prior = attached;
     const at = await containerAnswer(ctx, reference, ADMIN);
     const spec = await lineOf(ctx, aggregate, 'spec:');
-    await ctx.probe.request('document.edit', { path: aggregate, start: { line: spec.index + 1, character: 0 }, text: '  # Typed here and not saved, so the document on disk\n  # is two lines shorter than the one in the editor.\n' });
-    const edited = (await activeDocument(ctx))?.text ?? '';
-    need(edited.split('\n').length === originalAggregate.split('\n').length + 2, 'the two lines were not typed into the Aggregate');
-    const r = await attachAndRead(ADMIN, attached.feature, aggregate, edited);
-    const e = checkEntry(edited, r.after, at.container, attached.name, attached.feature);
-    await revertActive(ctx, aggregate);
-    return { passed: e.ok && !r.failed && fs.readFileSync(aggregate, 'utf8') === originalAggregate, seen: `the panel: "${r.outcome}"; ${e.seen}` };
+    return restoringAfter(async () => {
+      await ctx.probe.request('document.edit', { path: aggregate, start: { line: spec.index + 1, character: 0 }, text: '  # Typed here and not saved, so the document on disk\n  # is two lines shorter than the one in the editor.\n' });
+      const edited = (await activeDocument(ctx))?.text ?? '';
+      need(edited.split('\n').length === originalAggregate.split('\n').length + 2, 'the two lines were not typed into the Aggregate');
+      const r = await attachAndRead(ADMIN, prior.feature, aggregate, edited);
+      const e = checkEntry(edited, r.after, at.container, prior.name, prior.feature);
+      return { passed: e.ok && !r.failed && fs.readFileSync(aggregate, 'utf8') === originalAggregate, seen: `the panel: "${r.outcome}"; ${e.seen}` };
+    }, () => revertActive(ctx, aggregate));
   });
   await c.run('attach.two-subsystems-deep-lands-beside-the-existing-attachment', {
     expected: `pressing Attach on ${LOCAL_FEATURE} in the list of ${ORDERS}, declared under backend › storage with a features block already holding ${PASSWORD}, puts the entry in that block beside ${PASSWORD}, at its indentation and after it, at the container path the language server's own answer names; the document is changed and not saved`,
     plant: 'in the scratch copy, out/src/attachment-edit.js made to indent the entry one step further than the answer says',
   }, async () => {
     const at = await containerAnswer(ctx, reference, ORDERS);
-    const r = await attachAndRead(ORDERS, LOCAL_FEATURE, aggregate, originalAggregate);
-    const name = attachedName(r.outcome, r.feature, ORDERS) ?? '';
-    const e = checkEntry(originalAggregate, r.after, at.container, name, r.feature);
-    let holder: unknown = e.ok ? yamlOf(r.after) : null;
-    for (const k of at.container) { holder = child(holder, k); }
-    const keys = typeof holder === 'object' && holder !== null ? Object.keys(holder) : [];
-    const passwordLine = originalAggregate.split('\n').find((l) => l.trim() === `${PASSWORD}:`) ?? '';
-    const beside = JSON.stringify(keys) === JSON.stringify([PASSWORD, name]) && e.indent === passwordLine.length - passwordLine.trimStart().length;
-    await revertActive(ctx, aggregate);
-    return { passed: name !== '' && e.ok && beside && r.dirty && !r.failed, seen: `the panel: "${r.outcome}"; ${e.seen}; the block holds ${JSON.stringify(keys)}, the entry at indentation ${e.indent} where ${PASSWORD} sits at ${passwordLine.length - passwordLine.trimStart().length}` };
+    return restoringAfter(async () => {
+      const r = await attachAndRead(ORDERS, LOCAL_FEATURE, aggregate, originalAggregate);
+      const name = attachedName(r.outcome, r.feature, ORDERS) ?? '';
+      const e = checkEntry(originalAggregate, r.after, at.container, name, r.feature);
+      let holder: unknown = e.ok ? yamlOf(r.after) : null;
+      for (const k of at.container) { holder = child(holder, k); }
+      const keys = typeof holder === 'object' && holder !== null ? Object.keys(holder) : [];
+      const passwordLine = originalAggregate.split('\n').find((l) => l.trim() === `${PASSWORD}:`) ?? '';
+      const beside = JSON.stringify(keys) === JSON.stringify([PASSWORD, name]) && e.indent === passwordLine.length - passwordLine.trimStart().length;
+      return { passed: name !== '' && e.ok && beside && r.dirty && !r.failed, seen: `the panel: "${r.outcome}"; ${e.seen}; the block holds ${JSON.stringify(keys)}, the entry at indentation ${e.indent} where ${PASSWORD} sits at ${passwordLine.length - passwordLine.trimStart().length}` };
+    }, () => revertActive(ctx, aggregate));
   });
   await c.run('attach.module-component-lands-in-the-modules-document', {
     expected: `pressing Attach on ${LOCAL_FEATURE} in the list of ${STORE}, reached through the module the Aggregate imports, opens the document the language server's own answer names for ${STORE} — the module's own file, not the Aggregate the Release points at — with the entry under that answer's container path, changed and not saved; the Aggregate is not changed; the channel names the module's file`,
@@ -654,15 +689,18 @@ export async function graphPanelChecks(ctx: SuiteContext, reference: string, sna
   }, async () => {
     const at = await containerAnswer(ctx, reference, STORE);
     need(path.join(ctx.folder, at.file) === moduleFile, `the language server places ${STORE}'s attachments in ${at.file}, not the module's file`);
-    const r = await attachAndRead(STORE, LOCAL_FEATURE, moduleFile, originalModule);
-    const name = attachedName(r.outcome, r.feature, STORE) ?? '';
-    const e = checkEntry(originalModule, r.after, at.container, name, r.feature);
-    const agg = await open(ctx, aggregate);
-    const aggregateUntouched = !agg.isDirty && (agg.text ?? '') === originalAggregate;
-    await revertActive(ctx, aggregate).catch(() => undefined);
-    await revertActive(ctx, moduleFile);
-    const passed = name !== '' && e.ok && r.activePath === moduleFile && r.dirty && aggregateUntouched && r.channel === `attached ${r.feature} to ${STORE} as ${name} in ${at.file}`;
-    return { passed, seen: `the document in front ${r.activePath}; the panel: "${r.outcome}"; the channel: "${r.channel}"; ${e.seen}; the Aggregate ${aggregateUntouched ? 'unchanged' : 'CHANGED'}` };
+    return restoringAfter(async () => {
+      const r = await attachAndRead(STORE, LOCAL_FEATURE, moduleFile, originalModule);
+      const name = attachedName(r.outcome, r.feature, STORE) ?? '';
+      const e = checkEntry(originalModule, r.after, at.container, name, r.feature);
+      const agg = await open(ctx, aggregate);
+      const aggregateUntouched = !agg.isDirty && (agg.text ?? '') === originalAggregate;
+      const passed = name !== '' && e.ok && r.activePath === moduleFile && r.dirty && aggregateUntouched && r.channel === `attached ${r.feature} to ${STORE} as ${name} in ${at.file}`;
+      return { passed, seen: `the document in front ${r.activePath}; the panel: "${r.outcome}"; the channel: "${r.channel}"; ${e.seen}; the Aggregate ${aggregateUntouched ? 'unchanged' : 'CHANGED'}` };
+    }, async () => {
+      await revertActive(ctx, aggregate).catch(() => undefined);
+      await revertActive(ctx, moduleFile);
+    });
   });
 
   // ---- a failed drawing and a refused attach, with the lockfile moved aside ----
