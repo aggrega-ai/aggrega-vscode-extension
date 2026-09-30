@@ -271,9 +271,9 @@ const WIDEN_COSTS: Array<[string, WindowKind, string]> = [
 
 describe('what the workspace row offers when clicked', () => {
   it('offers the sole attached folder rather than declining to show a choice', () => {
-    // The defect this replaces was a row whose tooltip promised an action and
-    // whose handler then refused it for exactly this case. One candidate is
-    // still a choice the reader asked to see.
+    // A handler declining here would refuse the action the row's tooltip
+    // promises, for exactly this case. One candidate is still a choice the
+    // reader asked to see.
     const a = fakeAnchor('/ws/foo', '/ws/foo/.aggrega-config.yaml');
     const offers = anchorOffers([a], ON_WORKSPACE_FILE);
     assert.ok(

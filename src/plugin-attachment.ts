@@ -115,10 +115,10 @@ export type PluginAddParams = Required<Pick<wire.PluginAddParams, 'type' | 'quer
 // version that was pinned, and is absent whenever it concluded nothing — which
 // is every ordinary attachment.
 //
-// 🔴 The shape is no longer declared here at all. It was declared member by
-// member so that what this surface drives would be what the wire has, with
-// members carried purely to keep the copy faithful — which is the discipline a
-// copy needs and a consumed contract does not.
+// 🔴 The shape is not declared here at all. Declaring it member by member, so
+// that what this surface drives would be what the wire has, would carry members
+// purely to keep a copy faithful — which is the discipline a copy needs and a
+// consumed contract does not.
 export type PluginAddResult = wire.PluginAddResult;
 
 // PluginRetractionExclusion is one published version the compiler withdrew from

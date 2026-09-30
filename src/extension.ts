@@ -1328,8 +1328,8 @@ async function ensureDaemonAt(
 
   // What is left behind this guard registers editor providers and watchers,
   // each of which has nothing to do without a language server and returns as
-  // much when asked. The commands that used to sit here are registered when the
-  // extension activates instead: a command is something a reader looks for, and
+  // much when asked. The commands are registered when the extension activates
+  // rather than behind this guard: a command is something a reader looks for, and
   // one that does not exist yet is one they conclude is missing.
   if (!lateInitDone) {
     context.subscriptions.push(
@@ -3090,8 +3090,7 @@ async function requestDeprecateArtifact(
 //
 // 🔴 NOTHING IS PROMPTED FOR. Credentials resolve from a supplied or ambient
 // source, and a registry needing one the machine does not carry is refused with
-// the credential named. That was already true of the subprocess this replaces,
-// which was spawned with piped streams.
+// the credential named.
 //
 // It throws when the server is not running, so a caller reports that state rather
 // than presenting an operation that never ran as one that did nothing.

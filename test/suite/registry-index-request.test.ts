@@ -156,9 +156,9 @@ describe('the index-build request is one operation with one scope field', () => 
     // this surface sends, so the exactness below is a statement the compiler
     // checks: naming a second member widens the key set, `Exact` yields false, and
     // the assignment stops compiling. A reading of the source text could not see
-    // that — and it carried its own vacuity guard precisely because a pattern over
-    // prose goes quietly blind, which is the failure mode this replaces rather
-    // than merely detects.
+    // that — and it would need a vacuity guard of its own, because a pattern over
+    // prose goes quietly blind, which is the failure mode this structure removes
+    // rather than merely detects.
     const keySetIsExactlyTheScope: Exact<keyof RegistryUpdateParams, 'registry'> = true;
     assert.ok(keySetIsExactlyTheScope);
     // And what actually leaves, at both scopes, carries that one key and no other.

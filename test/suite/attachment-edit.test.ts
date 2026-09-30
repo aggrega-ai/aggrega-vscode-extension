@@ -258,9 +258,9 @@ describe('attachFailureLine', () => {
 
 describe('no container path is composed on this side', () => {
   // The keys an Aggregate spells its components and their attachments with.
-  // This side used to compose a path out of them; asking the compiler where an
-  // attachment belongs is what removed that, and this is what fails if one
-  // comes back. It is deliberately a reading of the source: the composition
+  // This side composes no path out of them, because the compiler is asked where
+  // an attachment belongs, and this is what fails if such a composition
+  // appears. It is deliberately a reading of the source: the composition
   // could return anywhere in either file, and no signature would change.
   //
   // Only the quoted spellings are looked for, so prose about an Aggregate's

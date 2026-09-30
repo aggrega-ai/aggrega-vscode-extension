@@ -541,7 +541,7 @@ describe('a conventions check about one entity', () => {
   });
 
   // The count the compiler owns can exceed what the panel shows, and the channel
-  // that used to carry the explanation no longer opens on a press.
+  // does not open on a press, so it cannot carry the explanation.
   it('explains a finding the panel cannot show, where the reader is now looking', async () => {
     const h = await afterRowPress({
       entity: CATEGORY_RELATIVE,
@@ -609,10 +609,10 @@ describe('the conventions check reaches the compiler without a launch', () => {
     // folded the two together would let a later change from one kind to the other
     // pass unnoticed.
     //
-    // The module that gathered this surface's own statement of the wire shapes is
-    // no longer on the list, because there is no longer a statement to gather: the
-    // shapes come from the published contract instead, which is a narrowing of what
-    // this module reaches rather than a widening.
+    // No module gathering a statement of the wire shapes of this surface's own is
+    // on the list, because there is no such statement to gather: the shapes come
+    // from the published contract, which is a narrowing of what this module
+    // reaches rather than a widening.
     assert.deepStrictEqual(
       valueImports('src/lint-run.ts'),
       [

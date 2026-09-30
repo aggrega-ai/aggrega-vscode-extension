@@ -260,9 +260,9 @@ describe('Daemon integration (real aggrega serve)', function () {
     }
   });
 
-  // The condition the editor used to carry a dedicated remediation toast for.
-  // Nothing emits it now, and the account it used to pin travels on the ordinary
-  // active-Release answer instead.
+  // An unresolved workspace is answered rather than refused: nothing emits a
+  // dedicated condition for it, and its account travels on the ordinary
+  // active-Release answer.
   it('answers an unresolved workspace rather than refusing it, and says why', async function () {
     const daemon = buildDaemon();
     try {

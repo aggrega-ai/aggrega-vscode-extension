@@ -23,8 +23,8 @@ import {
   ERR_SHUTTING_DOWN,
 } from '../../src/types';
 
-// RETIRED_RELEASE_NOT_RESOLVED is the numeric code the daemon no longer
-// allocates. It is spelled here, in the one test that needs a second key, so
+// RETIRED_RELEASE_NOT_RESOLVED is a numeric code the daemon does not
+// allocate. It is spelled here, in the one test that needs a second key, so
 // nothing in src/ carries a constant for a condition nothing emits.
 const RETIRED_RELEASE_NOT_RESOLVED = 1002;
 

@@ -405,7 +405,7 @@ describe('an adjustment set recorded by a drawing that has since moved on', () =
     // The recorded set arrives from a document the panel drew, and a document
     // drawn by an earlier version of this extension — or one whose adjustment
     // has since been withdrawn — would otherwise carry a value into a request
-    // the compiler no longer reads.
+    // the compiler does not read.
     assert.deepStrictEqual(
       dialsTurnedOn(['somethingWithdrawn']), [],
       'a value the build does not offer survived into the set a request is composed from',

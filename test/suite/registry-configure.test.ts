@@ -721,13 +721,11 @@ describe('the three registry changes reach the compiler without a launch', () =>
   });
 
   it('leaves the panel with no call to any launch helper at all', () => {
-    // 🔴 THE CLAIM GOT STRONGER AND THE CONTROL HAD TO MOVE OUT OF THE SUBJECT. It
-    // used to be that the panel made no STREAMING launch while still making two
-    // watched ones for the index build, and that count of two was the control that
-    // proved the reading live. The index build is a request now — its walk observes
-    // the request's own context, so the stop survived the move — and the panel makes
-    // no launch of either kind. A control read from the same file would be asserting
-    // the very thing this test denies.
+    // 🔴 THE CONTROL LIVES OUTSIDE THE SUBJECT. The panel makes no launch of any
+    // kind — the index build is a request, whose walk observes the request's own
+    // context, so a stop reaches it — and so no count read from the panel's own
+    // file can prove the reading live: a control read from the same file would be
+    // asserting the very thing this test denies.
     //
     // So the subject is counted to zero across every helper, and the control is the
     // same patterns read over a module that provably launches.

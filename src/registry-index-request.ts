@@ -44,8 +44,7 @@ import { OperationOutcome, outcomeOf } from './operation-outcome';
 //
 // 🔴 NOTHING HERE IS ASKED OF A PERSON. Credentials resolve from a supplied or
 // ambient source and are never prompted for: a registry needing one the machine
-// does not carry is refused with the credential named. That was already true of
-// the subprocess this replaces, which was spawned with piped streams.
+// does not carry is refused with the credential named.
 
 // --- the request and answer shapes ---------------------------------------
 

@@ -308,7 +308,7 @@ function regionText(page: string, id: string): string | null {
   return region ? textOf(region[1]) : null;
 }
 
-// RETIRED_UNMET_WORD is the word the unmet standing used to read, kept here as
+// RETIRED_UNMET_WORD is a word the unmet standing must not read, spelled here as
 // the subject of an absence assertion rather than as a value anything composes.
 //
 // 🔴 IT IS SPELLED OUT SO THE ABSENCE CAN BE ASSERTED AT ALL. The word also

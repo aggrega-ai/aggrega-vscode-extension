@@ -464,7 +464,6 @@ describe('Daemon cooperative shutdown under load', function () {
     // short. The heavy cost of a large Tier-4 validate lives in a single
     // straight-line resolve block, so it is not interruptible mid-block;
     // the correct behavior is precisely that the drain lets it finish.
-    // This is the inverse of the previously-expected cut-short bound.
     const ws = scaffoldTier4Workspace(40000);
 
     // Calibrate against the drain grace itself. The observable claim below is

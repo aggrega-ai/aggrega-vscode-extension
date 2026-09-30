@@ -268,7 +268,7 @@ export function withdrawalOpeningLine(reference: string): string {
 // The compiler prints `Push complete: <reference>:<tag> (<digest>)` followed by
 // the kind, the media type and the size; the same facts travel on the answer, so
 // they are composed here from the answer rather than read off a stream this
-// surface no longer has. A dry run and an already-published tag each say what
+// surface does not have. A dry run and an already-published tag each say what
 // they are instead, because neither landed anything and reporting either as a
 // publication would be the one thing a reader cannot check for themselves.
 export function publicationLines(result: PublishEntityResult): readonly string[] {
@@ -346,10 +346,9 @@ function reachPhrase(reach: PublicationReach): string {
 // named on the opening line instead, because that one is the request and this
 // sentence is the result.
 //
-// All of it is strictly more than the exit status this operation used to end in:
-// a publication, an idempotent re-publication of identical bytes, and a dry run
-// all exit zero, so a reader could not previously tell which of the three had
-// happened.
+// All of it is strictly more than an exit status says: a publication, an
+// idempotent re-publication of identical bytes, and a dry run all exit zero, so
+// an exit status alone cannot tell a reader which of the three happened.
 export function publicationOutcome(result: PublishEntityResult): OperationOutcome {
   if (result.dryRun) {
     return {

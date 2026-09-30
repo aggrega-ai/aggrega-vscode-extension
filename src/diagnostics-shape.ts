@@ -136,11 +136,11 @@ export function shapeForDaemonDiagnostic(d: DaemonDiagnostic): ConvertedShape {
 // DIAGNOSTIC_SOURCE_FALLBACK is the source a diagnostic is filed under when the
 // daemon supplied none.
 //
-// The case it covers: a daemon whose diagnostics predate the per-layer source
+// The case it covers: a daemon whose diagnostics carry no per-layer source
 // field, so nothing on the wire says which layer raised the finding. Filing it
-// under the document-validation layer keeps it visible in the group an editor
-// already shows, which is where every diagnostic used to appear; filing it
-// under an empty name would hide it in an unnamed group instead.
+// under the document-validation layer keeps it visible in a group an editor
+// already shows; filing it under an empty name would hide it in an unnamed
+// group instead.
 export const DIAGNOSTIC_SOURCE_FALLBACK = 'aggrega';
 
 // sourceForDaemonDiagnostic reads the layer name off one daemon diagnostic,

@@ -153,7 +153,7 @@ export function buildPreviewParams(release: string): BuildPreviewRequestParams {
 // The recorded set arrives from a document the panel drew, so it is checked
 // rather than trusted: a panel drawn by an earlier version of this extension,
 // or one whose adjustment has since been withdrawn, would otherwise carry a
-// value into a request the compiler no longer reads. Order and duplicates are
+// value into a request the compiler does not read. Order and duplicates are
 // resolved against the declared set as well, so one recorded set has one
 // composition.
 export function dialsTurnedOn(recorded: readonly unknown[]): string[] {
