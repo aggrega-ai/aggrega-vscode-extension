@@ -726,9 +726,9 @@ export const PLANTS: readonly Plant[] = [
     says: 'an attach the compiler declines is reported in a sentence of the extension\'s own, dropping the compiler\'s words',
   },
   {
-    name: 'line-drawn-whatever-node-it-names', scenario: 'storefront-graph-panel', checks: ['attach.request-for-a-node-the-panel-did-not-draw-is-refused-in-its-words'], moves: 'green', target: 'extension',
-    file: GRAPH_SCRIPT, find: '    if (attachOutcomeEl === null || nodeId !== selectedId) { return; }', replace: '    if (attachOutcomeEl === null) { return; }',
-    says: 'the panel draws the line an attach ends in whatever node the line names, under the list of the node it is showing',
+    name: 'refusal-for-an-undrawn-node-dropped', scenario: 'storefront-graph-panel', checks: ['attach.request-for-a-node-the-panel-did-not-draw-is-refused-in-its-words'], moves: 'red', target: 'extension',
+    file: GRAPH_SCRIPT, find: '    if (nodeId !== selectedId && (attached || nodeGroups.has(nodeId))) { return; }', replace: '    if (nodeId !== selectedId) { return; }',
+    says: 'the panel drops every line about an attach whose node is not the one it is showing, the refusal for a node its drawing does not carry included',
   },
   {
     name: 'refused-list-sends-nothing', scenario: 'storefront-graph-panel', checks: ['may-attach.refusal-says-the-list-is-not-coming-and-why'], moves: 'red', target: 'extension',

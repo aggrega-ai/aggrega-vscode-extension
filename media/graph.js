@@ -108,7 +108,8 @@
   // long as the panel stayed open, which buys nothing.
   let shownAttachments = new Map();
   let selectedId = null;
-  // The drawn node groups, so selecting one can mark it and unmark the rest.
+  // The drawn node groups, so selecting one can mark it and unmark the rest,
+  // and so what the drawing on screen carries is read off the drawing itself.
   const nodeGroups = new Map();
   // The body of the palette section for the node the panel is showing, so an
   // answer that arrives later fills it without the whole panel being redrawn
@@ -560,14 +561,27 @@
     return box;
   }
 
-  // showAttachOutcome reports what became of a commit, in the panel the press
-  // came from.
+  // showAttachOutcome reports what became of a commit, under the list the panel
+  // is showing, in the words it arrived in.
   //
-  // An outcome for a node the panel has moved on from is dropped. The reader
+  // It draws an outcome about the node the panel is showing, and a refusal
+  // naming a node the drawing on screen does not carry. The first answers the
+  // reader's press. The second is about a node this drawing never offered for
+  // selection, so no selection in it can have moved on from that node, and
+  // dropping it would leave the request with no answer at all.
+  //
+  // An outcome about another node the drawing does carry is dropped. The reader
   // has selected something else, and a line about the previous node under the
   // current node's palette reads as being about the current one.
+  //
+  // What the drawing carries is read off the node groups it was drawn with.
+  // They are replaced only once a new layout has been drawn, so an outcome
+  // arriving while one is still being computed is judged against the drawing
+  // still on screen, which is the one whose list the line would be written
+  // under.
   function showAttachOutcome(nodeId, message, attached) {
-    if (attachOutcomeEl === null || nodeId !== selectedId) { return; }
+    if (attachOutcomeEl === null) { return; }
+    if (nodeId !== selectedId && (attached || nodeGroups.has(nodeId))) { return; }
     attachOutcomeEl.textContent = message;
     attachOutcomeEl.classList.remove('hidden');
     attachOutcomeEl.classList.toggle('attach-failed', !attached);

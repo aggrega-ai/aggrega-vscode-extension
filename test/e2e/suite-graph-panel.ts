@@ -728,8 +728,8 @@ export async function graphPanelChecks(ctx: SuiteContext, reference: string, sna
     doc = await showGraph(ctx).catch(async () => doc);
   }
   await c.run('attach.request-for-a-node-the-panel-did-not-draw-is-refused-in-its-words', {
-    expected: `with ${ADMIN} selected, a request to attach posted into the graph panel's own channel for a node the drawing does not carry, "no-such-node", is answered in the panel with "${notOnTheGraph('no-such-node')}" as a failure, and changes no document`,
-    plant: 'green under the correction: in the scratch copy, media/graph.js made to draw a line about an attach whatever node it names',
+    expected: `with ${ADMIN} selected, a request to attach posted into the graph panel's own channel for a node the drawing does not carry, "no-such-node", is answered with "${notOnTheGraph('no-such-node')}" as a failure under ${ADMIN}'s list, the panel still showing ${ADMIN}, and changes no document`,
+    plant: 'in the scratch copy, media/graph.js made to drop every line about an attach whose node is not the one selected, the refusal for a node the drawing does not carry included',
   }, async () => {
     const d = (await findGraphPanel(ctx)) ?? await showGraph(ctx);
     doc = d;
@@ -744,8 +744,8 @@ export async function graphPanelChecks(ctx: SuiteContext, reference: string, sna
     const drawn = await until('the panel\'s line about the request', 5000, () => readPanel(d), (x) => x !== null && x.outcome !== null).catch(() => readPanel(d));
     const readings = await panelReadings(d, from);
     const active = await activeDocument(ctx);
-    const passed = drawn?.outcome?.text === notOnTheGraph('no-such-node') && drawn.outcome.failed && (active === null || !active.isDirty);
-    return { passed, seen: `the panel ${drawn?.outcome ? `says ${JSON.stringify(drawn.outcome)}` : 'draws no line within 5000 ms'}; its readings since the request ${JSON.stringify(readings.map((r) => r.outcome))}; the document in front ${active?.path ?? 'none'}${active?.isDirty ? ', changed' : ''}` };
+    const passed = drawn?.outcome?.text === notOnTheGraph('no-such-node') && drawn.outcome.failed && drawn.title === ADMIN && (active === null || !active.isDirty);
+    return { passed, seen: `the panel ${drawn?.outcome ? `says ${JSON.stringify(drawn.outcome)}` : 'draws no line within 5000 ms'}, showing ${JSON.stringify(drawn?.title ?? null)}; its readings since the request ${JSON.stringify(readings.map((r) => r.outcome))}; the document in front ${active?.path ?? 'none'}${active?.isDirty ? ', changed' : ''}` };
   });
 
   // ---- with the language server stopped ----
