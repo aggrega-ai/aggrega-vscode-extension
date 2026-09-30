@@ -235,8 +235,10 @@ export interface Launch {
 
 // launchEditor starts the editor under `env -i` with the stated environment,
 // records it as the root of its own session, and returns once the debugging
-// endpoint answers.
-export async function launchEditor(root: ScenarioRoot, inputs: Inputs, shape: LaunchShape, boundMs = 60000): Promise<Launch> {
+// endpoint answers. Given a table, the editor is recorded in it beside what it
+// already holds — an editor started again on the same profile is one scenario's
+// second launch, and its processes are that scenario's as much as the first's.
+export async function launchEditor(root: ScenarioRoot, inputs: Inputs, shape: LaunchShape, boundMs = 60000, into?: ProcessTable): Promise<Launch> {
   const debugPort = await freePort();
   const probePort = await freePort();
   const env = editorEnvironment(root, probePort);
@@ -255,7 +257,7 @@ export async function launchEditor(root: ScenarioRoot, inputs: Inputs, shape: La
   child.unref();
   fs.closeSync(log);
   if (child.pid === undefined) { throw new Error('the editor could not be started'); }
-  const table = new ProcessTable(root.stateFile);
+  const table = into ?? new ProcessTable(root.stateFile);
   const pid = child.pid;
   const executable = fs.realpathSync(inputs.editor.executable);
   // `env` replaces itself with the editor, keeping its PID; the root is recorded

@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Cognitio S.r.l.
+
+# A folder that is a workspace root and holds nothing else: no entity, no
+# catalog directory and no registry. Every panel's answer here is an empty one,
+# which is what the editor suite reads it for.
+workspace: {}

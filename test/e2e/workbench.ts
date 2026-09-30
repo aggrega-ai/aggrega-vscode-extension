@@ -683,6 +683,122 @@ export async function pressPaneHeader(driver: UiDriver, title: string): Promise<
   await driver.click(at);
 }
 
+// ---- the list panels as they are drawn over time -----------------------------
+
+// LIST_PANELS are the side-bar panels that list what the compiler answers.
+export const LIST_PANELS = ['Catalog', 'Registries', 'Plugins'] as const;
+export type ListPanel = (typeof LIST_PANELS)[number];
+
+// VIEWS_OBSERVER records every change of the rows the list panels draw, as a
+// person sees them — the rows drawn with a height, by the words each reads — from
+// the moment it is installed. It is installed with the workbench's other
+// observers, before the extension has drawn anything, so a row a panel draws for
+// a moment while the editor comes up is caught as it is drawn. A panel not drawn
+// at a reading is absent from it.
+export const VIEWS_OBSERVER = `(() => {
+  if (window.__editorSuiteViews) { return window.__editorSuiteViews.length; }
+  const titles = ${JSON.stringify(LIST_PANELS)};
+  const log = [];
+  let last = null;
+  const read = () => {
+    const out = {};
+    for (const pane of document.querySelectorAll('.pane')) {
+      const h = pane.querySelector('.pane-header');
+      const t = h ? ((h.querySelector('h3.title, .title') || {}).innerText || '').trim() : '';
+      const title = titles.find((x) => x.toLowerCase() === t.toLowerCase());
+      if (!title) { continue; }
+      out[title] = [...pane.querySelectorAll('.pane-body .monaco-list-row')]
+        .filter((r) => r.getBoundingClientRect().height > 0)
+        .map((r) => ((r.querySelector('.label-name') || {}).innerText || '').trim());
+    }
+    return out;
+  };
+  let queued = false;
+  const sample = () => {
+    queued = false;
+    const v = read();
+    const key = JSON.stringify(v);
+    if (key !== last) { last = key; log.push({ at: Date.now(), panes: v }); }
+  };
+  sample();
+  new MutationObserver(() => { if (!queued) { queued = true; setTimeout(sample, 0); } })
+    .observe(document.body, { subtree: true, childList: true, characterData: true });
+  window.__editorSuiteViews = log;
+  return log.length;
+})()`;
+
+// ViewsReading is one change the views observer recorded.
+export interface ViewsReading { at: number; panes: Partial<Record<ListPanel, string[]>> }
+
+export function viewReadings(driver: UiDriver): Promise<ViewsReading[]> {
+  return driver.workbench<ViewsReading[]>('window.__editorSuiteViews || []');
+}
+
+// ---- the status bar's items, one by one --------------------------------------
+
+// StatusItem is one item drawn on the status bar: its words, the glyphs beside
+// them, and how its background is drawn.
+export interface StatusItem { side: 'left' | 'right'; text: string; icons: string[]; errorKind: boolean; background: string; centre: { x: number; y: number } }
+
+// statusItems reads every item the status bar draws, in the order it draws them,
+// left side first.
+export function statusItems(driver: UiDriver): Promise<StatusItem[]> {
+  return driver.workbench<StatusItem[]>(`(() => {
+    const bar = document.getElementById('workbench.parts.statusbar');
+    if (!bar) { return []; }
+    const read = (side) => [...bar.querySelectorAll('.' + side + '-items .statusbar-item')]
+      .filter((e) => e.getBoundingClientRect().width > 0)
+      .map((e) => {
+        const r = e.getBoundingClientRect();
+        return {
+          side,
+          text: (e.innerText || '').trim(),
+          icons: [...e.querySelectorAll('.codicon')].map((i) => i.className),
+          errorKind: e.classList.contains('error-kind'),
+          background: getComputedStyle(e).backgroundColor,
+          centre: { x: r.x + r.width / 2, y: r.y + r.height / 2 },
+        };
+      });
+    return [...read('left'), ...read('right')];
+  })()`);
+}
+
+// hoverAt rests the pointer on a point and returns the words of the hover the
+// workbench draws there, or an empty string where none is drawn within the bound.
+//
+// The pointer is first moved off everything and a hover still drawn from an
+// earlier rest is waited out, so the words read are the hover of this point and
+// not one left standing from the last.
+export async function hoverAt(driver: UiDriver, at: { x: number; y: number }, boundMs = 5000): Promise<string> {
+  const drawn = (): Promise<string> => driver.workbench<string>(`(() => {
+    const hovers = [...document.querySelectorAll('.workbench-hover, .monaco-hover')].filter((e) => {
+      const r = e.getBoundingClientRect();
+      return r.width > 0 && r.height > 0 && !e.classList.contains('hidden') && getComputedStyle(e).visibility !== 'hidden';
+    });
+    return hovers.map((e) => (e.innerText || '').trim()).filter((t) => t !== '').join('\\n');
+  })()`);
+  await driver.moveTo({ x: 1, y: 1 });
+  await driver.press('Escape');
+  await until('no hover left drawn', 3000, drawn, (t) => t === '').catch(() => undefined);
+  await driver.moveTo({ x: at.x + 1, y: at.y });
+  await driver.moveTo(at);
+  return until('a hover being drawn', boundMs, drawn, (t) => t !== '').catch(() => '');
+}
+
+// ---- the command palette ------------------------------------------------------
+
+// paletteRows opens the command palette, types `query` into it as a person does,
+// and returns the rows it offers for it, leaving the palette open.
+export async function paletteRows(driver: UiDriver, send: (command: string) => Promise<void>, query: string): Promise<QuickInput> {
+  await send('workbench.action.showCommands');
+  await waitQuickInput(driver, 'the command palette opening', (q) => q.value.startsWith('>'));
+  await driver.type(query);
+  return waitQuickInput(driver, `the palette's rows for "${query}"`, (q) => q.value === `>${query}` && q.rows.length > 0).catch(async () => {
+    const q = await quickInput(driver);
+    return q ?? { title: '', placeholder: '', value: '', rows: [] };
+  });
+}
+
 // visibleText is a workbench element's drawn text, for a person to read.
 export function workbenchText(driver: UiDriver, selector: string): Promise<string> {
   return driver.workbench<string>(`((s) => { const e = document.querySelector(s); return e ? (e.innerText || '').trim() : ''; })(${JSON.stringify(selector)})`);

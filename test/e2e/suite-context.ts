@@ -10,7 +10,7 @@ import { UiDriver } from './drivers';
 import { Inputs } from './inputs';
 import { DiagnosticEntry, ProbeClient } from './probe-client';
 import { readCmdline } from './processes';
-import { Scenario } from './scenario';
+import { relaunch, Relaunched, Scenario } from './scenario';
 import { commandsPanel, documentWith, OutputLog, RUNNING, scrollTreeToTop, sleep, treeRows, until, waitStatus } from './workbench';
 
 // What every check body of the suite reaches: the launched editor, the probe,
@@ -180,6 +180,17 @@ export async function catalogPanelAtItsHead(ctx: SuiteContext, firstRow: string)
   await run(ctx, 'list.focusFirst').catch(() => undefined);
   await scrollTreeToTop(ctx.d, 'Catalog');
   return until(`the Catalog panel drawing "${firstRow}" first`, 10000, () => treeRows(ctx.d, 'Catalog'), (v) => v !== null && v.length > 0 && v[0].label === firstRow).then(() => true, () => false);
+}
+
+// reopen closes the editor and opens it again on the same profile and folder,
+// as a person closes the window and opens it again, and points the context at
+// the new one. The observers go in before the extension draws anything.
+export async function reopen(ctx: SuiteContext, observers: readonly string[] = []): Promise<Relaunched> {
+  const r = await relaunch(ctx.s, ctx.inputs, observers);
+  need(ctx.s.driver !== null, 'no UI driver is attached to the editor opened again');
+  ctx.d = ctx.s.driver;
+  ctx.probe = ctx.s.probe;
+  return r;
 }
 
 // capture writes a screenshot for a person to judge.

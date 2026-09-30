@@ -5,14 +5,21 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { CheckResult, Checks, EnoughReported, tally } from './checks';
-import { ScratchHome } from './cli';
+import { makeScratchHome, ScratchHome } from './cli';
 import { createScenarioRoot, ScenarioRoot } from './editor';
-import { copyLockfile, FixtureError, FixtureProof, placeFolder, placeOwnCatalogs, placeWorkspaceAbove, proveMissing, proveUnreachable, readTree, Tree, UNREACHABLE_HOST, writeLockfile } from './fixtures';
+import {
+  copyLockfile, FixtureError, FixtureProof, MYSQL_CATALOG_LINE, MYSQL_EXAMPLE, placeDocsExample, placeEmptyBeneathWorkspace, placeFolder, placeOwnCatalogs, placeUnanchored,
+  placeWorkspaceAbove, proveMissing, proveUnreachable, readTree, Tree, UNREACHABLE_HOST, writeLockfile,
+} from './fixtures';
 import { Inputs, REPO_ROOT } from './inputs';
 import { applyPlant, Plant } from './plants';
 import { aboveChecks, ABOVE_CHECKS } from './suite-above';
+import { CACHE_CHECKS, cacheChecks } from './suite-cache';
+import { EMPTY_WORKSPACE_CHECKS, emptyWorkspaceChecks } from './suite-empty-workspace';
+import { ENDINGS_CHECKS, endingsChecks, WATCH_AND_STOP_CHECKS, watchAndStopChecks } from './suite-endings';
+import { AUTHORING_RELEASE_CHECKS, authoringReleaseChecks, NO_WORKSPACE_CHECKS, noWorkspaceChecks } from './suite-first-day';
 import { ProcessTable } from './processes';
-import { populateRegistry, ScratchRegistry, startRegistry, startStubRegistries, StubRegistries } from './registry';
+import { populateRegistry, registerAsDefault, ScratchRegistry, startRegistry, startStubRegistries, StubRegistries } from './registry';
 import { bringUp, DisplayReading, Scenario, ScenarioEnd, tearDown } from './scenario';
 import { makeContext, SuiteContext } from './suite-context';
 import { gatewayChecks, GATEWAY_CHECKS } from './suite-gateway';
@@ -20,6 +27,7 @@ import { GRAPH_PANEL_CHECKS, graphPanelChecks } from './suite-graph-panel';
 import { KILLED_CHECKS, KILLED_SETTINGS, killedChecks } from './suite-killed';
 import { OFFLINE_RELEASES, OWN_CATALOGS_CHECKS, ownCatalogsChecks } from './suite-own-catalogs';
 import { PROBES_CHECKS, probesChecks } from './suite-probes';
+import { READINESS_CHECKS, readinessChecks } from './suite-readiness';
 import { registryChecks, REGISTRY_CHECKS } from './suite-registry';
 import { storefrontChecks, STOREFRONT_CHECKS } from './suite-storefront';
 import { TOP_LEVEL_ATTACH_CHECKS, topLevelAttachChecks } from './suite-top-level-attach';
@@ -42,6 +50,13 @@ export const SCENARIO_CHECKS: Readonly<Record<string, readonly string[]>> = {
   'storefront-graph-panel': GRAPH_PANEL_CHECKS,
   'probes-nothing-may-attach': PROBES_CHECKS,
   'gateway-top-level-attach': TOP_LEVEL_ATTACH_CHECKS,
+  'gateway-readiness': READINESS_CHECKS,
+  'gateway-cache': CACHE_CHECKS,
+  'empty-workspace': EMPTY_WORKSPACE_CHECKS,
+  'no-workspace-first-day': NO_WORKSPACE_CHECKS,
+  'workspace-above-authoring-release': AUTHORING_RELEASE_CHECKS,
+  'gateway-endings': ENDINGS_CHECKS,
+  'mysql-watch-and-stop': WATCH_AND_STOP_CHECKS,
 };
 
 // ScenarioResult is one scenario as the report states it.
@@ -72,6 +87,9 @@ interface ScenarioPlan {
   name: string;
   checks: readonly string[];
   settings?: Record<string, unknown>;
+  // observers are installed in the workbench as soon as it is reachable, for a
+  // scenario whose checks read what the editor drew while the extension started.
+  observers?: readonly string[];
   prepare: (root: ScenarioRoot, home: ScratchHome, log: string) => Promise<Prepared>;
   body: (ctx: SuiteContext, prepared: Prepared) => Promise<void>;
   // cleanup stops what the preparation started beside the editor.
@@ -239,6 +257,107 @@ function plans(inputs: Inputs): ScenarioPlan[] {
       },
       body: (ctx, p) => topLevelAttachChecks(ctx, p.extra?.reference as string, p.extra?.snapshot as Tree),
     },
+    {
+      name: 'gateway-readiness',
+      checks: READINESS_CHECKS,
+      prepare: async (root, home, log) => {
+        const folder = path.join(root.dir, 'workspace', 'gateway');
+        const fixtures = [
+          placeFolder(inputs.extension.dir, 'gateway', folder, inputs.catalog.dir),
+          await writeLockfile(bin, folder, 'release-compose.yaml', home, log),
+        ];
+        return { folder, fixtures };
+      },
+      body: (ctx) => readinessChecks(ctx),
+    },
+    {
+      name: 'gateway-cache',
+      checks: CACHE_CHECKS,
+      prepare: async (root, home, log) => {
+        const folder = path.join(root.dir, 'workspace', 'gateway');
+        const reference = path.join(root.dir, 'reference', 'gateway');
+        const fixtures = [
+          placeFolder(inputs.extension.dir, 'gateway', folder, inputs.catalog.dir),
+          await writeLockfile(bin, folder, 'release-compose.yaml', home, log),
+          placeFolder(inputs.extension.dir, 'gateway', reference, inputs.catalog.dir),
+          await writeLockfile(bin, reference, 'release-compose.yaml', home, log),
+        ];
+        return { folder, fixtures, extra: { reference } };
+      },
+      body: (ctx, p) => cacheChecks(ctx, p.extra?.reference as string),
+    },
+    {
+      name: 'empty-workspace',
+      checks: EMPTY_WORKSPACE_CHECKS,
+      prepare: async (root) => {
+        const folder = path.join(root.dir, 'workspace', 'empty-workspace');
+        const missing = path.join(root.dir, 'no-such-compiler', 'aggrega');
+        const fixtures = [placeFolder(inputs.extension.dir, 'empty-workspace', folder, null), proveMissing(missing)];
+        return { folder, fixtures, extra: { missing } };
+      },
+      body: (ctx, p) => emptyWorkspaceChecks(ctx, p.extra?.missing as string),
+    },
+    {
+      name: 'no-workspace-first-day',
+      checks: NO_WORKSPACE_CHECKS,
+      prepare: async (root) => {
+        const folder = path.join(root.dir, 'pb-none');
+        return { folder, fixtures: [await placeUnanchored(folder)] };
+      },
+      body: (ctx) => noWorkspaceChecks(ctx),
+    },
+    {
+      name: 'workspace-above-authoring-release',
+      checks: AUTHORING_RELEASE_CHECKS,
+      prepare: async (root) => {
+        const top = path.join(root.dir, 'pb-above');
+        const layout = await placeEmptyBeneathWorkspace(top, path.join('services', 'docs'));
+        return { folder: layout.folder, fixtures: [layout.proof], extra: { root: top } };
+      },
+      body: (ctx, p) => authoringReleaseChecks(ctx, p.extra?.root as string),
+    },
+    {
+      name: 'gateway-endings',
+      checks: ENDINGS_CHECKS,
+      prepare: async (root, home, log) => {
+        const folder = path.join(root.dir, 'workspace', 'gateway');
+        const reference = path.join(root.dir, 'reference', 'gateway');
+        const table = new ProcessTable(path.join(root.dir, 'registry-processes.json'));
+        const fixtures = [
+          placeFolder(inputs.extension.dir, 'gateway', folder, inputs.catalog.dir),
+          await writeLockfile(bin, folder, 'release-compose.yaml', home, log),
+          placeFolder(inputs.extension.dir, 'gateway', reference, inputs.catalog.dir),
+          await writeLockfile(bin, reference, 'release-compose.yaml', home, log),
+        ];
+        const registry = await startRegistry(inputs.registryServer.path, path.join(root.dir, 'registry'), home, table)
+          .catch(async (err: unknown) => { await stopTable(table); throw err; });
+        fixtures.push(registry.proof);
+        try {
+          fixtures.push(await registerAsDefault({ binary: bin, registry, folder, home, log }));
+          return { folder, fixtures, extra: { registry, reference, table } };
+        } catch (err) {
+          await stopTable(table);
+          throw err;
+        }
+      },
+      body: (ctx, p) => endingsChecks(ctx, p.extra?.reference as string, p.extra?.registry as ScratchRegistry),
+      cleanup: async (p) => { if (p?.extra?.table) { await stopTable(p.extra.table as ProcessTable); } },
+    },
+    {
+      name: 'mysql-watch-and-stop',
+      checks: WATCH_AND_STOP_CHECKS,
+      prepare: async (root, _home, log) => {
+        const docs = path.resolve(REPO_ROOT, '..');
+        const layout = placeDocsExample(docs, MYSQL_EXAMPLE, path.join(root.dir, 'workspace', 'mysql-innodb-cluster'), inputs.catalog.dir, MYSQL_CATALOG_LINE);
+        // The lockfile is written from a home of its own, so the scenario's own
+        // compiled-module store starts empty and the editor's first build compiles
+        // the providers it renders with: long enough to be stopped part-way.
+        const pullHome = makeScratchHome(path.join(root.dir, 'lockfile-home'));
+        const fixtures = [layout.proof, await writeLockfile(bin, layout.folder, 'release-single.yaml', pullHome, log)];
+        return { folder: layout.folder, fixtures, extra: { releases: layout.releases } };
+      },
+      body: (ctx, p) => watchAndStopChecks(ctx, p.extra?.releases as string[]),
+    },
   ];
 }
 
@@ -264,7 +383,7 @@ async function runScenario(plan: ScenarioPlan, inputs: Inputs, runDir: string, d
     const beforeLaunch = plant !== null && plant.target === 'extension'
       ? (r: ScenarioRoot): void => { result.planted = applyPlant(plant, r.extensionCopy); }
       : undefined;
-    s = await bringUp(plan.name, inputs, runDir, driverName, { root, folder: prepared.folder, settings: plan.settings, beforeLaunch });
+    s = await bringUp(plan.name, inputs, runDir, driverName, { root, folder: prepared.folder, settings: plan.settings, beforeLaunch, observers: plan.observers });
     result.bringUpMs = s.bringUpMs;
     result.display = s.display;
     await plan.body(makeContext(s, inputs, checks), prepared);

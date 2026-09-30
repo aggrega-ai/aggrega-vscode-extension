@@ -5,6 +5,7 @@ import * as dns from 'dns';
 import * as fs from 'fs';
 import * as path from 'path';
 
+import { findAggregaWorkspaceAnchor } from '../../src/workspace';
 import { runCompiler, ScratchHome } from './cli';
 
 // The folders and states the checks run against, each built fresh for a scenario
@@ -301,6 +302,87 @@ export function placeOwnCatalogs(docsCheckoutParent: string, dest: string, catal
       evidence: { files, releases },
     },
   };
+}
+
+// MYSQL_EXAMPLE is the documentation example with two Releases and no default,
+// by its path under the documentation checkout, and the line its configuration
+// names the standard library with, by its place beside that checkout.
+export const MYSQL_EXAMPLE = path.join('aggrega-docs', 'language-reference', 'examples', 'mysql-innodb-cluster');
+export const MYSQL_CATALOG_LINE = '../../../../aggrega-hub/aggrega-catalog';
+
+// DocsExample is a documentation example copied from the sibling checkout, with
+// the Releases it holds.
+export interface DocsExample {
+  folder: string;
+  releases: string[];
+  proof: FixtureProof;
+}
+
+// placeDocsExample copies a documentation example from the sibling checkout,
+// which it reads and never writes, as a fresh checkout holds it: its own build
+// output, caches and Release lockfiles are left behind. The one line of its
+// configuration naming the standard library by its place beside the
+// documentation checkout (`catalogLine`, as written in the example) is written
+// as the catalog input instead, and the copy is refused where that line does not
+// stand there exactly once — so the copy never reads a catalog other than the one
+// the report names.
+export function placeDocsExample(docsCheckoutParent: string, example: string, dest: string, catalog: string, catalogLine: string): DocsExample {
+  const fixture = `${path.basename(example)} example`;
+  const source = path.join(docsCheckoutParent, example);
+  if (!fs.existsSync(source)) { throw new FixtureError(fixture, `the documentation example is not at ${source}`); }
+  const skip = (rel: string): boolean => /^(dist|\.aggrega|\.trace)(\/|$)/.test(rel) || /\.lock$/.test(rel);
+  const files = copyTree(source, dest, skip);
+  const config = path.join(dest, FIXTURE_CONFIG);
+  const text = fs.readFileSync(config, 'utf8');
+  const line = `    - ${catalogLine}\n`;
+  if (occurrences(text, line) !== 1) {
+    throw new FixtureError(fixture, `${FIXTURE_CONFIG} does not list "${catalogLine}" as a catalog directory once`);
+  }
+  fs.writeFileSync(config, text.replace(line, `    - ${catalog}\n`));
+  const readBack = fs.readFileSync(config, 'utf8');
+  const releases = files.filter((f) => /^release[^/]*\.ya?ml$/.test(f)).sort();
+  if (!readBack.includes(`    - ${catalog}\n`) || readBack.includes(catalogLine) || releases.length === 0) {
+    throw new FixtureError(fixture, `the copy did not read back as written: the catalog input ${readBack.includes(`    - ${catalog}\n`) ? 'named' : 'not named'}, the relative line ${readBack.includes(catalogLine) ? 'still there' : 'gone'}, ${releases.length} Releases`);
+  }
+  return {
+    folder: dest,
+    releases,
+    proof: { fixture, built: true, proof: `${files.length} files of ${example} copied to ${dest}, with no dist/, .aggrega/, .trace/ or lockfile; ${FIXTURE_CONFIG} names ${catalog} where the example names ${catalogLine}; Releases ${releases.join(', ')}`, evidence: { files } },
+  };
+}
+
+// placeUnanchored makes an empty folder that no workspace marker reaches: none
+// in it and none above it, read back with the extension's own discovery, which
+// walks up from the folder by the rule the compiler walks by.
+export async function placeUnanchored(dest: string): Promise<FixtureProof> {
+  const fixture = `unanchored folder ${path.basename(dest)}`;
+  fs.mkdirSync(dest, { recursive: true });
+  const held = fs.readdirSync(dest);
+  const anchor = await findAggregaWorkspaceAnchor(dest);
+  if (held.length > 0 || anchor !== null) {
+    throw new FixtureError(fixture, `${dest} holds ${JSON.stringify(held)} and discovery from it finds ${anchor ?? 'nothing'}`);
+  }
+  return { fixture, built: true, proof: `${dest} is empty, and discovery walking up from it finds no workspace marker` };
+}
+
+// WORKSPACE_ANCHOR_ONLY is the smallest configuration that marks a root: a
+// workspace block and nothing in it.
+export const WORKSPACE_ANCHOR_ONLY = 'workspace: {}\n';
+
+// placeEmptyBeneathWorkspace makes a root carrying the smallest configuration
+// that marks it and an empty folder `beneath` it, and reads back that discovery
+// from the folder finds the root's configuration.
+export async function placeEmptyBeneathWorkspace(root: string, beneath: string): Promise<{ folder: string; proof: FixtureProof }> {
+  const fixture = `empty folder beneath a workspace at ${path.basename(root)}`;
+  const folder = path.join(root, beneath);
+  fs.mkdirSync(folder, { recursive: true });
+  const marker = path.join(root, FIXTURE_CONFIG);
+  fs.writeFileSync(marker, WORKSPACE_ANCHOR_ONLY);
+  const anchor = await findAggregaWorkspaceAnchor(folder);
+  if (anchor !== marker || fs.readdirSync(folder).length > 0) {
+    throw new FixtureError(fixture, `discovery from ${folder} finds ${anchor ?? 'nothing'}, not ${marker}, or the folder is not empty`);
+  }
+  return { folder, proof: { fixture, built: true, proof: `${marker} holds "${WORKSPACE_ANCHOR_ONLY.trim()}"; ${folder} is empty, and discovery walking up from it finds ${marker}` } };
 }
 
 // UNREACHABLE_HOST is a registry host under the domain reserved for names that

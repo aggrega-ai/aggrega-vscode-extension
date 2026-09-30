@@ -123,7 +123,7 @@ function menuState(doc: WebviewDocument): Promise<MenuState> {
 
 // continueHere answers the dialog the extension raises when the Aggrega
 // workspace is a folder above the one opened, if it is raised, and returns it.
-async function continueHere(ctx: SuiteContext): Promise<{ message: string; detail: string; buttons: string[] } | null> {
+export async function continueHere(ctx: SuiteContext): Promise<{ message: string; detail: string; buttons: string[] } | null> {
   const d = await until('the workspace-above dialog', 20000, () => dialog(ctx.d), (v) => v !== null).catch(() => null);
   if (d !== null && d.buttons.includes('Continue here')) { await pressDialogButton(ctx.d, 'Continue here'); }
   return d;

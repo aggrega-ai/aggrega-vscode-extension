@@ -167,6 +167,25 @@ export async function populateRegistry(opts: {
   };
 }
 
+// registerAsDefault registers the scratch registry in the scenario's global
+// configuration, with no trust fetched, and names it the default registry there,
+// so an operation that names no registry reaches it rather than the hub. Every
+// step but the one naming the default is the compiler's own command, and the
+// compiler's own listing is what shows it took.
+export async function registerAsDefault(opts: { binary: string; registry: ScratchRegistry; folder: string; home: ScratchHome; log: string }): Promise<FixtureProof> {
+  const fixture = 'scratch registry as the default';
+  const add = await runCompiler(opts.binary, ['registry', 'add', opts.registry.host, '--fetch-trust=false'], { cwd: opts.folder, home: opts.home, boundMs: 60000, log: opts.log });
+  if (add.status !== 0) { throw new FixtureError(fixture, `\`aggrega registry add ${opts.registry.host}\` exited ${add.status ?? add.signal}: ${(add.stderr || add.stdout).trim().split('\n').slice(-2).join(' | ')}`); }
+  const global = path.join(opts.home.home, '.config', 'aggrega', 'config.yaml');
+  const text = fs.readFileSync(global, 'utf8');
+  if (/^default_registry:/m.test(text)) { throw new FixtureError(fixture, `${global} already names a default registry`); }
+  fs.writeFileSync(global, `${text}${text.endsWith('\n') ? '' : '\n'}default_registry: ${opts.registry.host}\n`);
+  const list = await runCompiler(opts.binary, ['registry', 'list'], { cwd: opts.folder, home: opts.home, boundMs: 60000, log: opts.log });
+  const row = list.stdout.split('\n').find((l) => l.startsWith(`${opts.registry.host} `)) ?? '';
+  if (list.status !== 0 || !/\*\s*$/.test(row)) { throw new FixtureError(fixture, `\`aggrega registry list\` does not mark ${opts.registry.host} as the default: ${JSON.stringify(list.stdout.slice(0, 300))}`); }
+  return { fixture, built: true, proof: `${opts.registry.host} registered in ${global} with no trust fetched and named its default_registry; \`aggrega registry list\` reads ${JSON.stringify(row.trim())}` };
+}
+
 // StubRegistries is the pair of registries the stub process serves
 // (stub-registries.ts): one whose repository listing never ends, and a
 // well-behaved one beside it.

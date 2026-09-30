@@ -78,7 +78,7 @@ const BINARY_PATH_SETTING = 'aggrega.server.binaryPath';
 // only where another setting comes after it. Afterwards every editor is closed,
 // or, where `close` says so, only the settings file's own, so a page left open
 // beside it stays open.
-async function setBinaryPath(ctx: SuiteContext, from: string, to: string, close: 'all' | 'its-own' = 'all'): Promise<void> {
+export async function setBinaryPath(ctx: SuiteContext, from: string, to: string, close: 'all' | 'its-own' = 'all'): Promise<void> {
   const userSettings = path.join(ctx.s.root.userData, 'User', 'settings.json');
   const doc = await open(ctx, userSettings);
   const naming = `"${BINARY_PATH_SETTING}": ${JSON.stringify(from)}`;

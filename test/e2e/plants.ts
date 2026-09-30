@@ -61,6 +61,12 @@ const CONTEXT_ROW_LABEL = {
 
 const REFRESH_GRAPH = '        refreshGraphView();\n';
 
+// The workspace catalog panel's view and its row model, and the language-server
+// item's model.
+const CATALOG_VIEW = 'out/src/workspace-catalog-view.js';
+const CATALOG_RUN = 'out/src/workspace-catalog-run.js';
+const DAEMON_STATUS = 'out/src/daemon-status.js';
+
 // The compiled lines composing a build request from the Release selected.
 const BUILD_DIALS = 'out/src/build-dials.js';
 const BUILD_RELEASE_PARAM = '    const params = {\n        release,\n        [exports.AUTO_PULL_DIAL]: on.includes(exports.AUTO_PULL_DIAL),';
@@ -721,6 +727,233 @@ export const PLANTS: readonly Plant[] = [
   },
   {
     name: 'saved-after-the-edit-top-level', scenario: 'gateway-top-level-attach', checks: ['attach.nothing-is-saved-and-the-folder-is-as-it-started'], moves: 'red', target: 'extension', ...SAVED_AFTER_EDIT,
+  },
+  // ---- the gateway folder as the editor comes up and the server comes and goes ----
+  { name: 'context-row-renamed-readiness', scenario: 'gateway-readiness', checks: ['commands-panel.context-rows-name-the-opened-folder'], moves: 'red', target: 'extension', ...CONTEXT_ROW_LABEL },
+  {
+    name: 'catalog-not-asked-when-answerable', scenario: 'gateway-readiness', checks: ['readiness.cold-open-fills-every-panel-with-no-press'], moves: 'red', target: 'extension',
+    file: CATALOG_VIEW, find: '    deps.onReady(() => catalog.refresh());', replace: '    void 0;',
+    says: 'the Catalog panel does not ask again when the compiler becomes answerable, so it keeps the row it drew before an answer',
+  },
+  {
+    name: 'catalog-origin-note-left-empty', scenario: 'gateway-readiness', checks: ['catalog-view.catalog-resolved-entity-is-marked-and-opens-nothing'], moves: 'red', target: 'extension',
+    file: CATALOG_RUN, find: "    const originLabel = entity.origin === exports.ENTITY_ORIGIN_CATALOG ? exports.CATALOG_ORIGIN_LABEL : '';", replace: "    const originLabel = '';",
+    says: 'an entity resolved from a configured catalog directory carries no note saying where it came from',
+  },
+  {
+    name: 'catalog-refresh-bound-to-nothing', scenario: 'gateway-readiness', checks: ['list-panels.refresh-asks-again-and-leaves-the-content-as-it-was'], moves: 'red', target: 'extension',
+    file: CATALOG_VIEW, find: "vscode.commands.registerCommand('aggrega.workspaceCatalog.refresh', () => catalog.refresh())", replace: "vscode.commands.registerCommand('aggrega.workspaceCatalog.refresh', () => undefined)",
+    says: 'the Catalog panel\'s Refresh runs nothing',
+  },
+  {
+    name: 'click-offers-start-whatever-the-standing', scenario: 'gateway-readiness', checks: ['status-bar.lifecycle-item-reads-running-beside-the-release-and-offers-a-restart'], moves: 'red', target: 'extension',
+    file: DAEMON_STATUS, find: "    return standing === 'notRunning' ? 'start' : 'restart';", replace: "    return 'start';",
+    says: 'the language-server item offers a start whatever the server\'s standing, a running server included',
+  },
+  {
+    name: 'open-graph-not-redrawn-when-the-server-returns', scenario: 'gateway-readiness', checks: ['readiness.restart-refills-every-panel-and-redraws-the-open-graph'], moves: 'red', target: 'extension',
+    file: GRAPH_VIEW, find: '    deps.onReady(refresh);', replace: '    void 0;',
+    says: 'an open topology graph is not drawn again when the language server becomes answerable again',
+  },
+  // ---- the gateway folder, the cache operations ----
+  { name: 'context-row-renamed-cache', scenario: 'gateway-cache', checks: ['commands-panel.context-rows-name-the-opened-folder'], moves: 'red', target: 'extension', ...CONTEXT_ROW_LABEL },
+  {
+    name: 'cache-list-placeholder-reworded', scenario: 'gateway-cache', checks: ['cache.palette-asks-which-operation-as-a-list'], moves: 'red', target: 'extension',
+    file: OPERATIONS, find: "{ placeHolder: 'Aggrega: choose a cache operation' }", replace: "{ placeHolder: 'Aggrega: pick one' }",
+    says: 'the list of cache operations the palette opens is headed with other words',
+  },
+  {
+    name: 'report-counts-one-entry-more', scenario: 'gateway-cache', checks: ['cache.status-reports-the-compilers-figures-on-the-channel-alone'], moves: 'red', target: 'extension',
+    file: OPERATIONS, find: "return `listed ${countOf(result.totalCount, 'entry', 'entries')} holding ${result.totalSizeText}.`;", replace: "return `listed ${countOf(result.totalCount + 1, 'entry', 'entries')} holding ${result.totalSizeText}.`;",
+    says: 'the cache report\'s closing line counts one entry more than the answer',
+  },
+  {
+    name: 'entry-size-printed-in-bytes', scenario: 'gateway-cache', checks: ['cache.sizes-are-written-in-the-units-a-cap-is-read-in'], moves: 'red', target: 'extension',
+    file: OPERATIONS, find: 'out.appendLine(`    ${element.label}  ${element.sizeText}${note}`);', replace: 'out.appendLine(`    ${element.label}  ${element.size} bytes${note}`);',
+    says: 'each entry of the cache report prints its size as its byte count',
+  },
+  {
+    name: 'dismissed-prompt-taken-as-blank', scenario: 'gateway-cache', checks: ['cache.dismissed-cap-prompt-runs-nothing'], moves: 'red', target: 'extension',
+    file: OPERATIONS, find: '        if (answer === undefined) {\n            return;\n        }\n        maxSize = answer;', replace: "        maxSize = answer ?? '';",
+    says: 'dismissing the size cap prompt is taken as a blank answer, so the trim goes on to its confirmation',
+  },
+  {
+    name: 'refusal-cut-to-its-first-clause', scenario: 'gateway-cache', checks: ['cache.unreadable-cap-comes-back-in-the-compilers-words'], moves: 'red', target: 'extension',
+    file: 'out/src/error-surfaces.js', find: '        return `code=${err.code} ${err.message}`;', replace: "        return `code=${err.code} ${err.message.split(':')[0]}`;",
+    says: 'a language-server refusal reaches the reader cut at its first colon, dropping the part saying what a size cap looks like',
+  },
+  {
+    name: 'total-size-printed-in-words', scenario: 'gateway-cache', checks: ['cache.a-size-the-report-shows-is-accepted-as-the-cap'], moves: 'red', target: 'extension',
+    file: OPERATIONS, find: 'holding ${result.totalSizeText}.`;', replace: "holding ${result.totalSizeText.replace('iB', 'ibibytes')}.`;",
+    says: 'the report\'s total size is printed with its unit spelled out, a figure the trim does not read',
+  },
+  {
+    name: 'within-cap-reported-bare', scenario: 'gateway-cache', checks: ['cache.trim-to-a-cap-trims-or-says-it-was-within'], moves: 'red', target: 'extension',
+    file: OPERATIONS, find: 'return `removed nothing: the cache held ${result.totalBeforeText}, already within the ${result.capBytesText} cap.`;', replace: "return 'removed nothing.';",
+    says: 'a trim already within its cap ends without saying what the cache held or what the cap was',
+  },
+  {
+    name: 'kept-line-left-out', scenario: 'gateway-cache', checks: ['cache.prune-ends-in-what-it-removed-and-kept'], moves: 'red', target: 'extension',
+    file: OPERATIONS, find: "            out.appendLine(`  kept, still referenced: ${countOf(result.retainedCount, 'entry', 'entries')}`);", replace: '',
+    says: 'the prune writes nothing about the entries it kept as still referenced',
+  },
+  {
+    name: 'declined-taken-as-consent', scenario: 'gateway-cache', checks: ['cache.declined-clear-sends-nothing-and-says-so'], moves: 'red', target: 'extension',
+    file: OPERATIONS, find: '        if (consented !== confirmation.confirmLabel) {', replace: '        if (false) {',
+    says: 'a declined cache confirmation is taken as consent, so the operation runs',
+  },
+  {
+    name: 'wipe-counts-one-cache-more', scenario: 'gateway-cache', checks: ['cache.clear-completes-and-says-what-it-emptied'], moves: 'red', target: 'extension',
+    file: OPERATIONS, find: "return `emptied ${countOf(cleared.length, 'cache', 'caches')}", replace: "return `emptied ${countOf(cleared.length + 1, 'cache', 'caches')}",
+    says: 'the wipe\'s notification counts one cache more than it emptied',
+  },
+  {
+    name: 'trim-confirmation-names-both-scopes', scenario: 'gateway-cache', checks: ['cache.each-removal-confirms-first-naming-the-caches-it-reaches'], moves: 'red', target: 'extension',
+    file: 'out/src/operation-groups.js',
+    find: "scope: `This reaches ${THE_COMPILED_MODULE_CACHE}. Nothing under this workspace's own cache directory is touched. What is removed is rebuilt on the next build that needs it.`,",
+    replace: 'scope: `This reaches ${THIS_WORKSPACE_CACHES}, and ${THIS_MACHINE_CACHES}. What is removed is rebuilt on the next build that needs it.`,',
+    says: 'the trim\'s confirmation names this workspace\'s caches as well as the shared one, as the other two removals do',
+  },
+  {
+    name: 'cache-behind-a-cancellable-progress', scenario: 'gateway-cache', checks: ['cache.operations-write-no-dollar-line-and-draw-no-progress-or-cancel'], moves: 'red', target: 'extension',
+    file: OPERATIONS, find: '        const detail = await performCacheOperation(deps, operation, maxSize);',
+    replace: "        const detail = await (0, progress_1.withCancellableProgress)('Aggrega: running a cache operation', async () => { await new Promise((r) => setTimeout(r, 1500)); return performCacheOperation(deps, operation, maxSize); });",
+    says: 'every cache operation runs behind a progress notification carrying a Cancel button',
+  },
+  {
+    name: 'workspace-line-names-the-parent', scenario: 'gateway-cache', checks: ['cache.operations-reach-only-this-scenarios-caches'], moves: 'red', target: 'extension',
+    file: OPERATIONS, find: '        out.appendLine(`  Workspace: ${scope.workspaceRoot}`);', replace: "        out.appendLine(`  Workspace: ${require('path').dirname(scope.workspaceRoot)}`);",
+    says: 'each cache answer\'s "Workspace:" line names the folder above the workspace root',
+  },
+  // ---- the folder that is a workspace root and holds nothing else ----
+  {
+    name: 'empty-index-read-as-a-stopped-server', scenario: 'empty-workspace', checks: ['catalog-view.empty-workspace-reads-no-entities'], moves: 'red', target: 'extension',
+    file: CATALOG_RUN, find: "        return [{ kind: 'message', label: exports.EMPTY_LABEL }];", replace: "        return [{ kind: 'message', label: exports.SERVER_STOPPED_LABEL }];",
+    says: 'an empty entity index is drawn as a language server that is not running',
+  },
+  {
+    name: 'empty-registry-list-read-as-failed', scenario: 'empty-workspace', checks: ['list-panels.empty-answers-read-as-answers'], moves: 'red', target: 'extension',
+    file: 'out/src/registries-run.js', find: "        return [{ kind: 'message', label: exports.EMPTY_LABEL }];", replace: "        return [{ kind: 'message', label: exports.FAILURE_LABEL }];",
+    says: 'an empty registry list is drawn as a listing that failed',
+  },
+  {
+    name: 'stopped-server-read-as-empty', scenario: 'empty-workspace', checks: ['list-panels.stopped-server-reads-apart-from-an-empty-answer'], moves: 'red', target: 'extension',
+    file: CATALOG_RUN, find: "        return [{ kind: 'message', label: exports.SERVER_STOPPED_LABEL }];", replace: "        return [{ kind: 'message', label: exports.EMPTY_LABEL }];",
+    says: 'a language server that is not running is drawn as an empty workspace',
+  },
+  {
+    name: 'not-running-drawn-without-alarm', scenario: 'empty-workspace', checks: ['status-bar.lifecycle-item-reads-not-running-in-red-and-says-why'], moves: 'red', target: 'extension',
+    file: DAEMON_STATUS, find: '    notRunning: true,\n};', replace: '    notRunning: false,\n};',
+    says: 'the not-running reading is drawn without the error colour',
+  },
+  {
+    name: 'plugins-listed-only-while-running', scenario: 'empty-workspace', checks: ['plugins-panel.answers-with-the-language-server-stopped'], moves: 'red', target: 'extension',
+    file: EXTENSION,
+    find: '    (0, plugins_view_1.activatePluginsView)(context, {\n        getWorkspaceRoot: () => workspaceRootForCommands,',
+    replace: '    (0, plugins_view_1.activatePluginsView)(context, {\n        getWorkspaceRoot: () => (isLanguageServerRunning() ? workspaceRootForCommands : null),',
+    says: 'the Plugins panel is handed a workspace only while the language server is running, so its listing is asked for only then',
+  },
+  {
+    name: 'alarm-never-cleared', scenario: 'empty-workspace', checks: ['status-bar.lifecycle-item-starts-the-server-and-drops-the-red'], moves: 'red', target: 'extension',
+    file: DAEMON_STATUS,
+    find: '        item.backgroundColor = exports.DAEMON_STANDING_IS_ALARMING[standing]\n            ? deps.alarmBackground()\n            : undefined;',
+    replace: '        item.backgroundColor = exports.DAEMON_STANDING_IS_ALARMING[standing]\n            ? deps.alarmBackground()\n            : item.backgroundColor;',
+    says: 'the error colour is set on the way into the not-running reading and never cleared',
+  },
+  // ---- a folder no workspace marker reaches ----
+  {
+    name: 'restart-hidden-while-nothing-answers', scenario: 'no-workspace-first-day', checks: ['palette.restart-command-is-there-with-no-workspace'], moves: 'red', target: 'extension',
+    file: 'package.json',
+    find: '      "commandPalette": [\n        {\n          "command": "aggrega.getStarted.open",',
+    replace: '      "commandPalette": [\n        {\n          "command": "aggrega.server.restart",\n          "when": "aggrega.compilerAnswerable"\n        },\n        {\n          "command": "aggrega.getStarted.open",',
+    says: 'the restart command is kept out of the palette while nothing is answerable',
+  },
+  {
+    name: 'restart-silent-with-nothing-anchored', scenario: 'no-workspace-first-day', checks: ['language-server.restart-with-no-workspace-says-there-is-none'], moves: 'red', target: 'extension',
+    file: EXTENSION,
+    find: '    if (currentAnchored.length === 0) {\n        void vscode.window.showInformationMessage(workspace_1.NO_ANCHORED_WORKSPACE_MESSAGE);\n    }',
+    replace: '    if (currentAnchored.length === 0) {\n    }',
+    says: 'the restart command returns without a word where nothing is anchored',
+  },
+  {
+    name: 'toggle-unavailable-while-nothing-answers', scenario: 'no-workspace-first-day', checks: ['palette.build-analysis-toggle-works-with-no-server'], moves: 'red', target: 'extension',
+    file: 'package.json',
+    find: '        "command": "aggrega.server.toggleBuildOnInspect",\n        "title": "Aggrega: Toggle the build\'s analysis while inspecting"',
+    replace: '        "command": "aggrega.server.toggleBuildOnInspect",\n        "title": "Aggrega: Toggle the build\'s analysis while inspecting",\n        "enablement": "aggrega.compilerAnswerable"',
+    says: 'the build-analysis toggle is made unavailable while nothing is answerable',
+  },
+  {
+    name: 'item-says-no-root-as-if-anchored', scenario: 'no-workspace-first-day', checks: ['status-bar.lifecycle-item-says-there-is-nothing-to-attach-to'], moves: 'red', target: 'extension',
+    file: DAEMON_STATUS,
+    find: "                : 'No folder in this window is one Aggrega recognises as a workspace, so there is nothing for the language server to attach to. Click to look again.';",
+    replace: "                : 'The Aggrega language server is not running, so the operations that ask it a question are unavailable. Click to start it.';",
+    says: 'the item\'s hover in a window no workspace marker reaches reads as it does in an anchored one',
+  },
+  {
+    name: 'authoring-release-writes-where-nothing-is-anchored', scenario: 'no-workspace-first-day', checks: ['workspace-config.authoring-release-with-no-workspace-says-so-and-writes-nothing'], moves: 'red', target: 'extension',
+    file: EXTENSION,
+    find: '        if (!workspaceRootForCommands) {\n            void vscode.window.showInformationMessage(workspace_1.NO_ANCHORED_WORKSPACE_MESSAGE);\n            return;\n        }\n        await (0, release_actions_1.openAuthoringReleaseConfig)(workspaceRootForCommands, configurationWatch.ownWrite);',
+    replace: '        if (!workspaceRootForCommands) {\n            await (0, release_actions_1.openAuthoringReleaseConfig)(vscode.workspace.workspaceFolders[0].uri.fsPath, configurationWatch.ownWrite);\n            return;\n        }\n        await (0, release_actions_1.openAuthoringReleaseConfig)(workspaceRootForCommands, configurationWatch.ownWrite);',
+    says: 'with nothing anchored, the Release configuration command writes a configuration into the folder opened',
+  },
+  {
+    name: 'anchor-file-without-a-workspace-key', scenario: 'no-workspace-first-day',
+    checks: ['welcome-page.create-workspace-configuration-anchors-the-folder', 'welcome-page.created-configuration-still-anchors-after-a-reopen'], moves: 'red', target: 'extension',
+    file: 'out/src/workspace.js', find: '    `workspace: {}\\n`;', replace: '    `settings: {}\\n`;',
+    says: 'the configuration the welcome page\'s control writes carries no workspace key, so it anchors nothing',
+  },
+  {
+    name: 'existing-configuration-overwritten', scenario: 'no-workspace-first-day', checks: ['welcome-page.create-workspace-configuration-again-opens-it-unchanged'], moves: 'red', target: 'extension',
+    file: 'out/src/get-started.js', find: "await fs.writeFile(target, workspace_1.WORKSPACE_ANCHOR_CONFIG, { flag: 'wx' });", replace: "await fs.writeFile(target, workspace_1.WORKSPACE_ANCHOR_CONFIG, { flag: 'w' });",
+    says: 'the control overwrites a configuration that is already there',
+  },
+  // ---- an empty folder beneath a workspace root ----
+  {
+    name: 'authoring-release-opens-the-folders-own', scenario: 'workspace-above-authoring-release', checks: ['workspace-config.authoring-release-opens-the-roots-configuration'], moves: 'red', target: 'extension',
+    file: EXTENSION,
+    find: '        await (0, release_actions_1.openAuthoringReleaseConfig)(workspaceRootForCommands, configurationWatch.ownWrite);',
+    replace: '        await (0, release_actions_1.openAuthoringReleaseConfig)(vscode.workspace.workspaceFolders[0].uri.fsPath, configurationWatch.ownWrite);',
+    says: 'the Release configuration command opens the configuration of the folder opened rather than the workspace root\'s',
+  },
+  // ---- the gateway folder, a draft and a publication ----
+  { name: 'context-row-renamed-endings', scenario: 'gateway-endings', checks: ['commands-panel.context-rows-name-the-opened-folder'], moves: 'red', target: 'extension', ...CONTEXT_ROW_LABEL },
+  {
+    name: 'draft-saved-into-the-folder', scenario: 'gateway-endings', checks: ['draft-entity.ends-with-the-draft-open-unsaved-and-nothing-written'], moves: 'red', target: 'extension',
+    file: OPERATIONS, find: "        await (0, open_document_1.openDocument)(result.skeleton, 'yaml');",
+    replace: "        require('fs').writeFileSync(require('path').join(deps.getWorkspaceRoot(), 'drafted.yaml'), result.skeleton);\n        await (0, open_document_1.openDocument)(result.skeleton, 'yaml');",
+    says: 'a draft is written into the folder before it is shown',
+  },
+  {
+    name: 'reach-left-out-of-a-publication', scenario: 'gateway-endings', checks: ['publication.ends-naming-what-others-now-resolve'], moves: 'red', target: 'extension',
+    file: 'out/src/publication-request.js',
+    find: '        detail: `published ${result.reference}:${result.tag} as ${result.digest}${signature}.`\n            + ` ${reachPhrase(result.reach)}`,',
+    replace: '        detail: `published ${result.reference}:${result.tag} as ${result.digest}${signature}.`,',
+    says: 'a publication ends without the sentence saying who now resolves it',
+  },
+  {
+    name: 'already-published-read-as-a-publication', scenario: 'gateway-endings', checks: ['publication.identical-bytes-again-publish-nothing'], moves: 'red', target: 'extension',
+    file: 'out/src/publication-request.js', find: '    if (result.alreadyPublished) {\n        return {', replace: '    if (false) {\n        return {',
+    says: 'an answer that found the same bytes already published is read as a publication',
+  },
+  // ---- a documentation example with two Releases, watched and stopped ----
+  { name: 'context-row-renamed-watch-and-stop', scenario: 'mysql-watch-and-stop', checks: ['commands-panel.context-rows-name-the-folder-and-no-release'], moves: 'red', target: 'extension', ...CONTEXT_ROW_LABEL },
+  {
+    name: 'selection-raises-a-notification', scenario: 'mysql-watch-and-stop', checks: ['release-selection.choosing-a-release-updates-the-indicator-and-raises-no-notification'], moves: 'red', target: 'extension',
+    file: EXTENSION, find: '        outputChannel?.appendLine(`selected Release: ${chosen}`);',
+    replace: '        outputChannel?.appendLine(`selected Release: ${chosen}`);\n        void vscode.window.showInformationMessage(`Aggrega: now working on ${chosen}.`);',
+    says: 'choosing a Release raises a notification naming it',
+  },
+  {
+    name: 'stop-not-sent-to-the-server', scenario: 'mysql-watch-and-stop', checks: ['operations.build-can-be-watched-and-stopped'], moves: 'red', target: 'extension',
+    file: DAEMON, find: '            this.writeCancelRequest(id);', replace: '',
+    says: 'a stopped request is abandoned on this side without the language server being told, so the build goes on',
+  },
+  {
+    name: 'pull-not-ended-on-a-stop', scenario: 'mysql-watch-and-stop', checks: ['operations.pull-can-be-watched-and-stopped'], moves: 'red', target: 'extension',
+    file: 'out/src/cli-run.js',
+    find: "            if (child.exitCode === null && child.signalCode === null) {\n                child.kill('SIGTERM');",
+    replace: "            if (false) {\n                child.kill('SIGTERM');",
+    says: 'a stopped command is reported stopped without the process being ended, so it runs on',
   },
 ];
 

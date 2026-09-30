@@ -53,11 +53,15 @@ const DISPLAY_VARIABLES = ['DISPLAY', 'WAYLAND_DISPLAY'];
 // prepared in, and the settings it changes, each named in its report. beforeLaunch
 // runs once the extension has been copied into the scratch root and before the
 // editor starts, so an edit made to the copy there is what the editor loads.
+// observers are evaluated in the workbench as soon as it is reachable, beside the
+// status and notification observers, for a scenario whose checks read what the
+// editor drew while the extension was still starting.
 export interface BringUpOptions {
   root?: ScenarioRoot;
   folder?: string;
   settings?: Record<string, unknown>;
   beforeLaunch?: (root: ScenarioRoot) => void;
+  observers?: readonly string[];
 }
 
 // ScenarioEnd is what tearing a launch down reports: the teardown itself and what
@@ -113,7 +117,10 @@ export async function bringUp(name: string, inputs: Inputs, runDir: string, driv
     // The observers go in as soon as the workbench is reachable, so a
     // notification or a status reading drawn while the extension starts is
     // recorded rather than missed.
-    if (driver !== null) { await observeWorkbench(driver); }
+    if (driver !== null) {
+      await observeWorkbench(driver);
+      for (const o of opts.observers ?? []) { await driver.workbench(o); }
+    }
     hello = await probe.waitHello(60000);
   } catch (err) {
     // A launch that never became drivable is still stopped by identity.
@@ -154,6 +161,51 @@ export async function bringUp(name: string, inputs: Inputs, runDir: string, driv
       if (electronClose) { await electronClose(); }
     },
   };
+}
+
+// Relaunched is what closing the editor and starting it again took.
+export interface Relaunched {
+  // closed is the close: how long the editor took to leave, and what it left
+  // alive, which is nothing where the close was clean.
+  closed: TeardownReport;
+  bringUpMs: number;
+}
+
+// relaunch closes the editor a scenario holds, as a person closes the window,
+// and starts it again on the same profile, folder and extension copy, as a
+// person opens it again: whatever the editor keeps between two starts — which
+// views were revealed, the settings, what a window remembers — is kept. Both
+// launches are recorded in the scenario's one process table and sampled by its
+// one resource reading, so the report covers them together and the scenario's
+// teardown stops the second.
+//
+// 🔴 THE OBSERVERS GO IN AS SOON AS THE NEW WORKBENCH IS REACHABLE, AND BEFORE
+// THE EXTENSION HAS DRAWN ANYTHING. A reading that lasts only while the editor
+// comes up is exactly what a reopened window is walked for, so `observers` are
+// evaluated in the workbench beside the status and notification observers, and
+// the extension host is still starting when they are.
+export async function relaunch(s: Scenario, inputs: Inputs, observers: readonly string[] = []): Promise<Relaunched> {
+  const closed = await s.table.teardown({
+    close: async () => {
+      await s.probe.request('command.run', { command: 'workbench.action.quit' }, 3000).catch(() => undefined);
+    },
+    closeBoundMs: 8000,
+    termBoundMs: 3000,
+    killBoundMs: 2000,
+  });
+  await s.close();
+  const t0 = Date.now();
+  const launch = await launchEditor(s.root, inputs, { folder: s.folder, screen: SCREEN }, 60000, s.table);
+  const driver = await connectOverDevTools(launch.debugPort, 30000);
+  await observeWorkbench(driver);
+  for (const o of observers) { await driver.workbench(o); }
+  const probe = new ProbeClient(launch.probePort);
+  s.hello = await probe.waitHello(60000);
+  s.probe = probe;
+  s.driver = driver;
+  s.close = async () => { await driver.detach().catch(() => undefined); };
+  s.table.snapshot();
+  return { closed, bringUpMs: Date.now() - t0 };
 }
 
 export async function tearDown(s: Scenario): Promise<ScenarioEnd> {

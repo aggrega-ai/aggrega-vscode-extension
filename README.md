@@ -224,9 +224,9 @@ That indicator exists because a greyed-out command explains nothing. No editor s
 tooltip on a disabled control, so a command you cannot run tells you only that you cannot run it.
 The indicator is where the reason is written down, and it is also where you act on it.
 
-**A command that cannot run is greyed rather than hidden.** **Aggrega: Open status bar menu** is
-the one in that position: everything it offers is an action on a running language server. It comes
-back the moment one is answering.
+**Aggrega: Open status bar menu** is left out of the command index while no language server is
+answering: everything it offers is an action on a running language server, and your editor does not
+list a command that cannot run there. It comes back the moment one is answering.
 
 **A command that works without one is not greyed**, even though it concerns the server.
 **Aggrega: Toggle the build's analysis while inspecting** writes a preference, and the server reads
@@ -443,6 +443,39 @@ the topology graph panel:
 Nothing these checks attach is saved: each changed document is closed without
 saving, and each scenario that attaches ends by checking that every file of the
 folder it opened reads byte for byte as it did when the scenario started.
+
+Others follow what a reader meets as the editor comes up and as the language
+server comes and goes, and what each operation ends in:
+
+- `gateway-readiness` closes the editor and opens it again on the same folder,
+  and checks that every panel fills with nothing pressed; that a restart refills
+  them and draws an open topology graph again at the zoom it had; that each
+  list panel's Refresh asks again; how an entity resolved from a configured
+  catalog directory is marked, and that pressing it opens nothing; and the
+  status bar's reading of the language server beside the Release it is asked
+  about.
+- `empty-workspace` opens a folder that is a workspace root and holds nothing
+  else, and checks that each panel's empty answer reads apart from the row it
+  draws with the language server stopped — stopped once by pointing
+  `aggrega.server.binaryPath` at a file that does not exist, and once by ending
+  the server more often than its respawn bound allows — and what the status
+  bar's language-server item says and offers in that state.
+- `no-workspace-first-day` opens a folder no workspace marker reaches: the
+  commands that must answer with nothing to attach to, whether the one that
+  cannot run without a server is listed as unavailable in the command palette,
+  and the welcome page's control that creates a workspace
+  configuration, checked again after the editor is closed and opened again.
+  `workspace-above-authoring-release` opens a folder beneath a workspace root
+  and checks which configuration file the Release configuration command opens.
+- `gateway-cache` runs the four cache operations from the Commands panel and
+  checks each confirmation, each ending, and that every one of them reached only
+  the scenario's own caches, under the home directory the runner gave it. The
+  compiled-module store under the home directory of whoever runs the suite is
+  listed before and after, and never written.
+- `gateway-endings` drafts a document and publishes an entity to the suite's own
+  registry, twice; `mysql-watch-and-stop` chooses a Release, then stops a build
+  and a pull part-way and reads the language server's CPU time and the processes
+  the extension started, to see that the compiler stopped as well as the editor.
 
 The report also gives each scenario's bring-up, wall clock and teardown, each
 check's elapsed time, the peak memory and the CPU time of the editor's processes
