@@ -66,10 +66,12 @@ function loadModel(): CandidatesModel {
 
 // answer wraps a candidate list in the envelope the language server's
 // attach-candidates result carries, so the fixtures below are shaped like the
-// real payload.
+// real payload. Its label source is the one the server reports for the question
+// the panel asks — a node of the drawn graph and the Release that graph was
+// built from.
 function answer(
   candidates: Array<Record<string, unknown>>,
-  labelSource = 'supplied',
+  labelSource = 'resolved',
   nodeLabels: Record<string, string> = {},
 ): unknown {
   return { node: '', nodeLabels, labelSource, candidates };
@@ -158,8 +160,21 @@ describe('the candidate projection', () => {
       assert.doesNotMatch(note, /cannot attach/i);
       // The wire words for the label sets are matched on, never shown.
       assert.doesNotMatch(note, /labelSource|supplied|resolved/);
+      // A word for how the build arrives at a node's labels is one the panel
+      // teaches nowhere, so no sentence reaches for it.
+      assert.doesNotMatch(note, /finali[sz]ed/i);
     }
-    assert.match(resolved, /finalised/);
+
+    // The set the panel's answer is computed over is the set the caption above
+    // the list names, so its sentence names it in the caption's words — and no
+    // other sentence does, because none of the other sets is that node's.
+    const onThisNode = 'the labels on this node';
+    assert.ok(model.CANDIDATES_CAPTION.includes(onThisNode), 'the caption names the labels on this node');
+    assert.strictEqual(resolved, `No Feature's declared applicability matches ${onThisNode}.`);
+    for (const note of [supplied, declared, unstated]) {
+      assert.doesNotMatch(note, /on this node/);
+    }
+    assert.match(supplied, /sent with the request/);
     assert.match(declared, /that document declares/);
   });
 

@@ -742,9 +742,11 @@ export const PLANTS: readonly Plant[] = [
   // ---- the folder whose one Feature applies to nothing it deploys ----
   { name: 'context-row-renamed-probes', scenario: 'probes-nothing-may-attach', checks: ['commands-panel.context-rows-name-the-opened-folder'], moves: 'red', target: 'extension', ...CONTEXT_ROW_LABEL },
   {
-    name: 'node-labels-read-as-the-labels-on-this-node', scenario: 'probes-nothing-may-attach', checks: ['may-attach.nothing-matching-reads-as-an-empty-state'], moves: 'green', target: 'extension',
-    file: CANDIDATES_MODEL, find: '    if (labelSource === LABELS_SUPPLIED) {', replace: '    if (labelSource === LABELS_SUPPLIED || labelSource === LABELS_RESOLVED) {',
-    says: 'an empty answer computed over a node\'s finalised labels reads as the sentence for the labels on this node',
+    name: 'empty-answer-worded-as-finalised-labels', scenario: 'probes-nothing-may-attach', checks: ['may-attach.nothing-matching-reads-as-an-empty-state'], moves: 'red', target: 'extension',
+    file: CANDIDATES_MODEL,
+    find: "      return 'No Feature\\'s declared applicability matches the labels on this node.';",
+    replace: "      return 'No Feature\\'s declared applicability matches this node\\'s finalised labels.';",
+    says: 'an empty answer computed over a node of the drawn graph reads that nothing matches "this node\'s finalised labels", naming the set the caption calls the labels on this node in words of its own',
   },
   // ---- the gateway folder, a component at the top level ----
   { name: 'context-row-renamed-top-level-attach', scenario: 'gateway-top-level-attach', checks: ['commands-panel.context-rows-name-the-opened-folder'], moves: 'red', target: 'extension', ...CONTEXT_ROW_LABEL },

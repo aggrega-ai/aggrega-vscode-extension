@@ -82,12 +82,18 @@
   // that no Feature's DECLARED APPLICABILITY matched one particular label set,
   // and the three differ in which label set that was — so each says which,
   // and none of them generalises past it.
+  //
+  // The answer the panel asks for is computed over a node of a compiled graph,
+  // and its label set is the labels that node carries on the graph the panel
+  // drew — the set the caption above the list calls the labels on this node.
+  // So that sentence is worded in the caption's words: one set named two ways,
+  // one line above the other, would read as two different sets.
   function emptyNote(labelSource) {
-    if (labelSource === LABELS_SUPPLIED) {
+    if (labelSource === LABELS_RESOLVED) {
       return 'No Feature\'s declared applicability matches the labels on this node.';
     }
-    if (labelSource === LABELS_RESOLVED) {
-      return 'No Feature\'s declared applicability matches this node\'s finalised labels.';
+    if (labelSource === LABELS_SUPPLIED) {
+      return 'No Feature\'s declared applicability matches the labels sent with the request.';
     }
     if (labelSource === LABELS_DECLARED) {
       return 'No Feature\'s declared applicability matches the labels that document declares.';

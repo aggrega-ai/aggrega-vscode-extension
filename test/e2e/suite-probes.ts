@@ -32,7 +32,7 @@ export async function probesChecks(ctx: SuiteContext, reference: string): Promis
   await contextRowsCheck(ctx);
   await c.run('may-attach.nothing-matching-reads-as-an-empty-state', {
     expected: `pressing each of ${NODES.join(' and ')}, for which the language server's own answer over a reference copy names no Feature, draws under "${MAY_ATTACH_TITLE}" exactly "${NOTHING_MATCHES}" once the answer arrives — not a blank, not the waiting sentence left standing, no words claiming that nothing can attach, and none of the sentences mentioning ${OTHER_EMPTY_WORDS.map((w) => `"${w}"`).join(', ')}`,
-    plant: 'green under the correction: in the scratch copy, media/candidates-model.js made to answer an empty list computed over a node\'s labels with the sentence for the labels on this node',
+    plant: 'in the scratch copy, media/candidates-model.js made to word an empty answer computed over a node of the drawn graph as matching "this node\'s finalised labels"',
   }, async () => {
     const doc = await showGraph(ctx);
     const seen: string[] = [];
