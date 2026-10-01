@@ -21,6 +21,10 @@ import { BENEATH_CHECKS, beneathChecks } from './suite-beneath';
 import { DISCOVERY_CHECKS, DISCOVERY_FIRST, DISCOVERY_LAYOUTS, discoveryChecks } from './suite-discovery';
 import { FOLDER_ADDS_CHECKS, FOLDER_ADDS_FIRST, FOLDER_ADDS_LAYOUTS, folderAddsChecks, NOT_A_FOLDER } from './suite-folder-adds';
 import { CACHE_CHECKS, cacheChecks } from './suite-cache';
+import { COMMANDS_PANEL_CHECKS, commandsPanelChecks } from './suite-commands-panel';
+import { DOCKED_CONFIGURATION_CHECKS, dockedConfigurationChecks } from './suite-docked-configuration';
+import { DOCKED_MENUS_CHECKS, dockedMenusChecks } from './suite-docked-menus';
+import { NO_RELEASE_CHECKS, noReleaseChecks } from './suite-no-release';
 import { EMPTY_WORKSPACE_CHECKS, emptyWorkspaceChecks } from './suite-empty-workspace';
 import { ENDINGS_CHECKS, endingsChecks, WATCH_AND_STOP_CHECKS, watchAndStopChecks } from './suite-endings';
 import { AUTHORING_RELEASE_CHECKS, authoringReleaseChecks, NO_WORKSPACE_CHECKS, noWorkspaceChecks } from './suite-first-day';
@@ -78,6 +82,10 @@ export const SCENARIO_CHECKS: Readonly<Record<string, readonly string[]>> = {
   'welcome-page-empty-folder': WELCOME_EMPTY_FOLDER_CHECKS,
   'welcome-page-configured-workspace': WELCOME_CONFIGURED_CHECKS,
   'welcome-page-mixed-workspace': WELCOME_MIXED_CHECKS,
+  'gateway-commands-panel': COMMANDS_PANEL_CHECKS,
+  'mysql-commands-panel-no-release': NO_RELEASE_CHECKS,
+  'gateway-docked-menus': DOCKED_MENUS_CHECKS,
+  'gateway-docked-configuration': DOCKED_CONFIGURATION_CHECKS,
 };
 
 // ScenarioResult is one scenario as the report states it.
@@ -504,6 +512,61 @@ function plans(inputs: Inputs): ScenarioPlan[] {
         return { folder, fixtures: [placeFolder(inputs.extension.dir, 'two-releases', folder, inputs.catalog.dir)] };
       },
       body: (ctx) => welcomeMixedChecks(ctx),
+    },
+    {
+      name: 'gateway-commands-panel',
+      checks: COMMANDS_PANEL_CHECKS,
+      prepare: async (root, home, log) => {
+        const folder = path.join(root.dir, 'workspace', 'gateway');
+        const notABinary = path.join(root.dir, 'not-a-compiler', 'aggrega');
+        const release = 'release-compose.yaml';
+        const fixtures = [
+          placeFolder(inputs.extension.dir, 'gateway', folder, inputs.catalog.dir),
+          await writeLockfile(bin, folder, release, home, log),
+          proveNothingAbove(folder),
+          placeNotABinary(notABinary),
+        ];
+        return { folder, fixtures, extra: { notABinary, release } };
+      },
+      body: (ctx, p) => commandsPanelChecks(ctx, p.extra?.notABinary as string, p.extra?.release as string),
+    },
+    {
+      name: 'mysql-commands-panel-no-release',
+      checks: NO_RELEASE_CHECKS,
+      prepare: async (root) => {
+        const docs = path.resolve(REPO_ROOT, '..');
+        const layout = placeDocsExample(docs, MYSQL_EXAMPLE, path.join(root.dir, 'workspace', 'mysql-innodb-cluster'), inputs.catalog.dir, MYSQL_CATALOG_LINE);
+        return { folder: layout.folder, fixtures: [layout.proof, proveNothingAbove(layout.folder)], extra: { releases: layout.releases } };
+      },
+      body: (ctx, p) => noReleaseChecks(ctx, p.extra?.releases as string[]),
+    },
+    {
+      name: 'gateway-docked-menus',
+      checks: DOCKED_MENUS_CHECKS,
+      prepare: async (root, home, log) => {
+        const folder = path.join(root.dir, 'workspace', 'gateway');
+        const fixtures = [
+          placeFolder(inputs.extension.dir, 'gateway', folder, inputs.catalog.dir),
+          await writeLockfile(bin, folder, 'release-compose.yaml', home, log),
+          proveNothingAbove(folder),
+        ];
+        return { folder, fixtures };
+      },
+      body: (ctx) => dockedMenusChecks(ctx),
+    },
+    {
+      name: 'gateway-docked-configuration',
+      checks: DOCKED_CONFIGURATION_CHECKS,
+      prepare: async (root, home, log) => {
+        const folder = path.join(root.dir, 'workspace', 'gateway');
+        const fixtures = [
+          placeFolder(inputs.extension.dir, 'gateway', folder, inputs.catalog.dir),
+          await writeLockfile(bin, folder, 'release-compose.yaml', home, log),
+          proveNothingAbove(folder),
+        ];
+        return { folder, fixtures };
+      },
+      body: (ctx) => dockedConfigurationChecks(ctx),
     },
   ];
 }

@@ -37,12 +37,14 @@ export const GATEWAY_CHECKS = [
   'problems.lockfile-drift-clears-after-pull',
   'problems.render-advisory-does-not-return-without-the-graph',
   'problems.which-trigger-moved-the-build-layer',
-  'language-server.retired-setting-key-is-inert',
+  'language-server.undeclared-setting-key-is-inert',
 ] as const;
 
 const RELEASE = 'release-compose.yaml';
 const BUILD_ON_INSPECT = 'aggrega.server.buildOnInspect';
-const RETIRED_KEY = 'aggrega.server.renderDiagnostics';
+// UNDECLARED_KEY is a setting key under the extension's own section that the
+// manifest declares no property for, set by hand the way a person types one.
+const UNDECLARED_KEY = 'aggrega.server.renderDiagnostics';
 const INSPECTION_FLAG = '--build-on-inspect';
 
 // TOGGLE_ON_NOTICE is the sentence the toggle raises when it turns the analysis
@@ -354,19 +356,19 @@ export async function gatewayChecks(ctx: SuiteContext, referenceFolder: string):
     question: 'The runner recorded whether the render advisory moved on an unsaved edit, and on a save with no graph panel open. Does either contradict the reading that only a compile of the Release moves the build layer?',
   }, async () => ({ screenshot: null, drawnText: observations.join('; ') || 'nothing was observed: the checks before it did not run' }));
 
-  // ---- the retired setting ----
-  await c.run('language-server.retired-setting-key-is-inert', {
-    expected: `${RETIRED_KEY} set to true in the user settings reaches nothing: after a restart the server's command line is the one the current settings compose, with no flag of the retired key; the manifest declares no such property; and the compiled extension names it nowhere`,
-    plant: `in the scratch copy, out/src/daemon.js made to append --render-diagnostics when ${RETIRED_KEY} is set`,
+  // ---- a setting key the manifest does not declare ----
+  await c.run('language-server.undeclared-setting-key-is-inert', {
+    expected: `${UNDECLARED_KEY} set to true in the user settings reaches nothing: after a restart the server's command line is the one the current settings compose, with no flag of that key; the manifest declares no such property; and the compiled extension names it nowhere`,
+    plant: `in the scratch copy, out/src/daemon.js made to append --render-diagnostics when ${UNDECLARED_KEY} is set`,
   }, async () => {
     const doc = await open(ctx, userSettings);
     need((doc.text ?? '').startsWith('{\n'), 'the user settings file does not open with a brace on its own line');
-    await ctx.probe.request('document.edit', { path: userSettings, start: { line: 1, character: 0 }, text: `  "${RETIRED_KEY}": true,\n` });
+    await ctx.probe.request('document.edit', { path: userSettings, start: { line: 1, character: 0 }, text: `  "${UNDECLARED_KEY}": true,\n` });
     await save(ctx, userSettings);
-    const read = await until('the editor reading the retired key', 10000, () => settingValue(ctx, RETIRED_KEY), (v) => v.globalValue === true);
+    const read = await until('the editor reading the undeclared key', 10000, () => settingValue(ctx, UNDECLARED_KEY), (v) => v.globalValue === true);
     const onNow = (await settingValue(ctx, BUILD_ON_INSPECT)).value === true;
     const srv = await restartAndWait(ctx);
-    const declared = RETIRED_KEY in ctx.manifest.contributes.configuration.properties;
+    const declared = UNDECLARED_KEY in ctx.manifest.contributes.configuration.properties;
     const compiled = walkJs(path.join(ctx.s.root.extensionCopy, 'out', 'src'));
     const naming = compiled.filter((f) => fs.readFileSync(f, 'utf8').includes('renderDiagnostics'));
     const control = compiled.filter((f) => fs.readFileSync(f, 'utf8').includes('buildOnInspect'));
@@ -376,7 +378,7 @@ export async function gatewayChecks(ctx: SuiteContext, referenceFolder: string):
     await save(ctx, userSettings);
     await closeAllEditors(ctx);
     const passed = srv.cmd === commandLineFor(bin, onNow) && !srv.cmd.includes('render') && !declared && naming.length === 0 && control.length > 0;
-    return { passed, seen: `the editor read ${RETIRED_KEY} = ${JSON.stringify(read.globalValue)}; after the restart "${srv.cmd}"; declared in the manifest ${declared}; compiled files naming it ${naming.length}, and ${control.length} naming buildOnInspect (the search's control)` };
+    return { passed, seen: `the editor read ${UNDECLARED_KEY} = ${JSON.stringify(read.globalValue)}; after the restart "${srv.cmd}"; declared in the manifest ${declared}; compiled files naming it ${naming.length}, and ${control.length} naming buildOnInspect (the search's control)` };
   });
 }
 

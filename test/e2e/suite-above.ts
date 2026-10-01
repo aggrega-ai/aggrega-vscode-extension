@@ -739,7 +739,7 @@ function drawnNotices(ctx: SuiteContext): Promise<DrawnNotice[]> {
 }
 
 // dragSash resizes the side bar by dragging the sash at its edge by `dx`.
-async function dragSash(ctx: SuiteContext, dx: number): Promise<void> {
+export async function dragSash(ctx: SuiteContext, dx: number): Promise<void> {
   const sash = await ctx.d.workbench<{ x: number; y: number } | null>(`(() => {
     const sb = document.getElementById('workbench.parts.sidebar').getBoundingClientRect();
     const s = [...document.querySelectorAll('.monaco-sash.vertical')].map((e) => e.getBoundingClientRect()).find((r) => r.height > 100 && Math.abs((r.x + r.width / 2) - sb.right) < 6);

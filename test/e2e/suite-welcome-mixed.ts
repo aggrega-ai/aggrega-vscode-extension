@@ -52,7 +52,7 @@ const DESCRIBED_STANDINGS = 'marking each one already met, and marking it to do 
 // The themes the outline is captured in: the baseline's, which is a dark one, then a
 // light one and a high-contrast one, each by the name this editor build spells it
 // with, and the class the page's body carries in it.
-const THEMES: readonly { name: string; bodyClass: string }[] = [
+export const THEMES: readonly { name: string; bodyClass: string }[] = [
   { name: String(BASELINE_SETTINGS['workbench.colorTheme']), bodyClass: 'vscode-dark' },
   { name: 'Light Modern', bodyClass: 'vscode-light' },
   { name: 'Default High Contrast', bodyClass: 'vscode-high-contrast' },
@@ -63,14 +63,19 @@ const SETTLE_MS = 3000;
 const MET_HERE: readonly StepId[] = ['workspace', 'compiler'];
 const UNMET_HERE: readonly StepId[] = ['release', 'registry'];
 
-// setTheme writes the colour theme into the user settings file, as a person edits
-// it by hand, and waits for the page to be drawn in it.
-async function setTheme(ctx: SuiteContext, from: string, to: { name: string; bodyClass: string }): Promise<boolean> {
+// writeColourTheme writes the colour theme into the user settings file, as a
+// person edits it by hand, replacing the one line naming the theme `from`.
+export function writeColourTheme(ctx: SuiteContext, from: string, to: string): void {
   const file = path.join(ctx.s.root.userData, 'User', 'settings.json');
   const text = fs.readFileSync(file, 'utf8');
   const line = `"workbench.colorTheme": ${JSON.stringify(from)}`;
   need(text.split(line).length === 2, `the user settings name the colour theme ${JSON.stringify(from)} ${text.split(line).length - 1} times, not once`);
-  fs.writeFileSync(file, text.replace(line, `"workbench.colorTheme": ${JSON.stringify(to.name)}`));
+  fs.writeFileSync(file, text.replace(line, `"workbench.colorTheme": ${JSON.stringify(to)}`));
+}
+
+// setTheme writes the colour theme and waits for the page to be drawn in it.
+async function setTheme(ctx: SuiteContext, from: string, to: { name: string; bodyClass: string }): Promise<boolean> {
+  writeColourTheme(ctx, from, to.name);
   const doc = await welcomePage(ctx);
   return until(`the page drawn in ${to.name}`, 15000, () => doc.evaluate<string>('document.body.className'), (c) => c.split(/\s+/).includes(to.bodyClass)).then(() => true, () => false);
 }

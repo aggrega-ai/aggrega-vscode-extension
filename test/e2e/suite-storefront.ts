@@ -8,6 +8,7 @@ import { RESTART_COMMAND, RESTART_SERVER_ACTION } from '../../src/daemon-status'
 import { buildValidateParams } from '../../src/validate-request';
 import { need } from './checks';
 import { runCompiler } from './cli';
+import { COMMANDS_PANEL_LABELS } from './commands-panel';
 import { UNREACHABLE_HOST } from './fixtures';
 import { referenceAnswer } from './reference';
 import { CACHE_MISS_CHECKS, cacheMissChecks } from './suite-cache-miss';
@@ -84,7 +85,7 @@ const RESET_ROW = 'Reset search filter';
 const UNSET_READINGS = ['any', 'any', 'any', 'any', 'any', 'no cap'];
 const NOTHING_SET = 'nothing is set';
 const SEARCH_ROW = 'Search';
-const SEARCH_TITLE = 'Aggrega: search published catalog';
+export const SEARCH_TITLE = 'Aggrega: search published catalog';
 const SEARCH_PLACEHOLDER = 'Narrow the search, then choose Search';
 
 // The rows at the head of the Catalog panel, by the words each reads, in the
@@ -97,17 +98,14 @@ const CATALOG_HEAD = ['Search catalog', 'Draft entity'];
 export const REGISTRIES_HEAD = ['Add registry', 'Update index'];
 const PLUGINS_HEAD = ['Add plugin', 'Generate entities'];
 const NO_REGISTRIES_ROW = 'No registries configured.';
-const DRAFT_PLACEHOLDER = 'Aggrega: choose the kind of entity to draft';
+export const DRAFT_PLACEHOLDER = 'Aggrega: choose the kind of entity to draft';
 const ADD_REGISTRY_TITLE = 'Aggrega: add a registry';
 export const INDEX_BUILD_OPENING = 'Index build for every configured registry.';
 
-// The Commands panel's buttons in the order it draws them, and the stops its
-// arrow keys walk from Validate — the Build options chevron beside Build among
-// them — held as written. None of the operations heading a list panel is among
-// either, by label or by command.
-const COMMANDS_PANEL_LABELS = [
-  'Validate', 'Lint', 'Build', 'Preview', 'Graph', 'Pull', 'Import', 'Inspect', 'Push', 'Sign', 'Deprecate', 'Show config', 'Cache…',
-];
+// The stops the Commands panel's arrow keys walk from Validate — the Build options
+// chevron beside Build among them — held as written, beside the buttons in the
+// order it draws them (COMMANDS_PANEL_LABELS, commands-panel.ts). None of the
+// operations heading a list panel is among either, by label or by command.
 const COMMANDS_PANEL_WALK = [
   'aggrega.op.validate', 'aggrega.op.lint', 'aggrega.op.build', 'caret:build', 'aggrega.op.preview', 'aggrega.graph.show', 'aggrega.op.pull',
   'aggrega.op.import', 'aggrega.op.inspect', 'aggrega.op.push', 'aggrega.op.sign', 'aggrega.op.deprecate', 'aggrega.config.open', 'aggrega.op.cache',

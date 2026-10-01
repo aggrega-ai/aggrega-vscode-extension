@@ -41,7 +41,7 @@ const FOLLOW_TOLERANCE_PX = 12;
 // so the host reaches the panel's document and answers for it. Every read is
 // bounded, so a read that goes unanswered fails the check that made it rather
 // than holding the scenario.
-interface ConfigPanel {
+export interface ConfigPanel {
   // read evaluates `body`, an expression over `d`, the panel's document.
   read<T>(body: string): Promise<T>;
   // box is an element's rectangle in the window's coordinates.
@@ -51,7 +51,7 @@ interface ConfigPanel {
 const HOSTED = `((document.getElementById('active-frame') || {}).contentDocument || null)`;
 const READ_BOUND_MS = 5000;
 
-async function configPanel(ctx: SuiteContext, shape: 'table' | 'expanded'): Promise<ConfigPanel> {
+export async function configPanel(ctx: SuiteContext, shape: 'table' | 'expanded'): Promise<ConfigPanel> {
   const drawn = shape === 'table'
     ? `(!!d && !!d.querySelector('table.config-table') && !!d.querySelector('a.config-switch-control'))`
     : `(!!d && !d.querySelector('table.config-table') && d.querySelectorAll('dl.config-row').length > 0)`;

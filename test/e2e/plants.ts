@@ -180,10 +180,10 @@ export const PLANTS: readonly Plant[] = [
     says: 'the selection answers no lockfile for the selected Release although the language server named one, so a pull writing that lockfile is followed by nothing',
   },
   {
-    name: 'retired-key-reaches-the-server', scenario: 'gateway', checks: ['language-server.retired-setting-key-is-inert'], moves: 'red', target: 'extension',
+    name: 'undeclared-key-reaches-the-server', scenario: 'gateway', checks: ['language-server.undeclared-setting-key-is-inert'], moves: 'red', target: 'extension',
     file: DAEMON, find: "    const args = ['serve'];",
     replace: "    const args = ['serve', ...(require('vscode').workspace.getConfiguration('aggrega.server').get('renderDiagnostics') ? ['--render-diagnostics'] : [])];",
-    says: 'the retired key, when set, adds --render-diagnostics to the language server\'s command line',
+    says: 'the undeclared key, when set, adds --render-diagnostics to the language server\'s command line',
   },
   // ---- the storefront folder ----
   { name: 'context-row-renamed-storefront', scenario: 'storefront', checks: ['commands-panel.context-rows-name-the-opened-folder'], moves: 'red', target: 'extension', ...CONTEXT_ROW_LABEL },
@@ -1569,6 +1569,211 @@ export const PLANTS: readonly Plant[] = [
     name: 'reopened-page-keeps-the-old-arrangement', scenario: 'welcome-page-mixed-workspace', checks: ['welcome-page.reopened-page-arranges-afresh'], moves: 'red', target: 'extension',
     file: 'out/src/get-started.js', find: '        collapsed = (0, welcome_render_1.initiallyCollapsedStepIds)(read.steps);', replace: '        collapsed = collapsed.length > 0 ? collapsed : (0, welcome_render_1.initiallyCollapsedStepIds)(read.steps);',
     says: 'a page opened again keeps the arrangement the page before it was left in',
+  },
+
+  // ---- the gateway folder: the Commands panel and the panels beside it ----
+  { name: 'context-row-renamed-commands-panel', scenario: 'gateway-commands-panel', checks: ['commands-panel.context-rows-name-the-opened-folder'], moves: 'red', target: 'extension', ...CONTEXT_ROW_LABEL },
+  {
+    name: 'catalog-search-on-the-catalog-title-bar', scenario: 'gateway-commands-panel', checks: ['side-bar.panels-in-order-each-list-title-bar-holding-only-its-refresh'], moves: 'red', target: 'extension',
+    file: 'package.json',
+    find: '          "command": "aggrega.workspaceCatalog.refresh",\n          "when": "view == aggrega.workspaceCatalog",\n          "group": "navigation"\n        }\n      ],',
+    replace: '          "command": "aggrega.workspaceCatalog.refresh",\n          "when": "view == aggrega.workspaceCatalog",\n          "group": "navigation"\n        },\n        {\n          "command": "aggrega.catalog.searchPublished",\n          "when": "view == aggrega.workspaceCatalog",\n          "group": "navigation"\n        }\n      ],',
+    says: 'the published-catalog search is put on the Catalog panel\'s title bar beside its refresh',
+  },
+  {
+    name: 'cog-off-the-commands-title-bar', scenario: 'gateway-commands-panel', checks: ['commands-panel.title-bar-draws-the-house-and-the-cog-at-rest'], moves: 'red', target: 'extension',
+    file: 'package.json',
+    find: '        {\n          "command": "aggrega.settings.open",\n          "when": "view == aggrega.operations",\n          "group": "navigation"\n        },\n',
+    replace: '',
+    says: 'the cog is taken off the Commands panel\'s title bar',
+  },
+  {
+    name: 'settings-opened-unnarrowed', scenario: 'gateway-commands-panel', checks: ['commands-panel.cog-opens-the-editors-settings-narrowed-to-this-extension'], moves: 'red', target: 'extension',
+    file: 'out/src/settings.js', find: '    return `@ext:${extensionId}`;', replace: "    return '';",
+    says: 'the cog opens the editor\'s settings with an empty filter, so they are not narrowed to this extension',
+  },
+  {
+    name: 'other-shape-by-default', scenario: 'gateway-commands-panel', checks: ['commands-panel.default-shape-is-one-flow-with-no-group-titles'], moves: 'red', target: 'extension',
+    file: 'package.json', find: '          "default": "buttons",\n          "description": "How the Commands panel draws its groups.', replace: '          "default": "sections",\n          "description": "How the Commands panel draws its groups.',
+    says: 'the shape setting is declared with the section shape as its default',
+  },
+  {
+    name: 'show-config-labelled-as-asking', scenario: 'gateway-commands-panel', checks: ['commands-panel.groups-in-order-labels-named-and-explained-on-the-hover'], moves: 'red', target: 'extension',
+    file: 'out/src/operation-groups.js',
+    find: "                label: 'Show config',\n                detail: 'Every setting the schema declares, with the value in force and where it came from',",
+    replace: "                label: 'Show config…',\n                detail: 'Open the configuration panel',",
+    says: 'Show config\'s label carries a trailing ellipsis and its hover an explanation other than the one declared for it',
+  },
+  {
+    name: 'show-config-runs-the-seeding', scenario: 'gateway-commands-panel', checks: ['commands-panel.offers-no-seeding-entry-the-welcome-page-carries'], moves: 'red', target: 'extension',
+    file: 'out/src/operation-groups.js', find: "                command: 'aggrega.config.open',", replace: "                command: 'aggrega.getStarted.createWorkspace',",
+    says: 'the Configuration group\'s Show config runs the seeding of a workspace configuration the welcome page offers',
+  },
+  {
+    name: 'import-icon-given-a-glyph', scenario: 'gateway-commands-panel', checks: ['commands-panel.icons-drawn-from-the-font-the-extension-ships'], moves: 'green', target: 'extension',
+    file: 'media/vendor/codicon.css', find: '.codicon-sign-in:before { content: "\\ea6f" }', replace: '.codicon-sign-in:before { content: "\\ea6f" }\n.codicon-arrow-into:before { content: "\\ea6f" }',
+    says: 'the icon font\'s stylesheet draws Import\'s declared icon with a glyph the font carries, the one it draws for signing in',
+  },
+  {
+    name: 'row-label-gives-way', scenario: 'gateway-commands-panel', checks: ['commands-panel.flow-wraps-at-every-width-cutting-nothing-short'], moves: 'green', target: 'extension',
+    file: 'media/operations.css', find: '.selector-label {\n  flex: 0 0 auto;\n  font-weight: 600;\n}',
+    replace: '.selector-label {\n  flex: 0 1 auto;\n  min-width: 0;\n  overflow: hidden;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-weight: 600;\n}',
+    says: 'a row\'s label gives way where the panel is too narrow for it, cut short with an ellipsis, rather than reaching past the panel\'s edge',
+  },
+  {
+    name: 'mark-after-each-group-in-the-flow', scenario: 'gateway-commands-panel', checks: ['commands-panel.nothing-drawn-between-groups-at-any-width'], moves: 'red', target: 'extension',
+    file: RENDER,
+    find: '            pieces.push(operationEntryHtml(op, group.id, body, rovingKey));\n        }\n    }',
+    replace: '            pieces.push(operationEntryHtml(op, group.id, body, rovingKey));\n        }\n        pieces.push(\'<span class="group-mark" aria-hidden="true">·</span>\');\n    }',
+    says: 'the flow draws a mark after each group\'s last button',
+  },
+  {
+    name: 'every-operation-a-tab-stop', scenario: 'gateway-commands-panel', checks: ['commands-panel.tab-reaches-each-row-control-then-the-operations-once'], moves: 'red', target: 'extension',
+    file: RENDER, find: "    const tabindex = focused ? '0' : '-1';", replace: "    const tabindex = '0';",
+    says: 'every operation\'s button is a tab stop of its own',
+  },
+  {
+    name: 'pull-without-its-release', scenario: 'gateway-commands-panel', checks: ['commands-panel.every-entry-runs-or-asks-and-none-fails-on-its-arguments'], moves: 'red', target: 'extension',
+    file: OPERATIONS, find: '(0, operation_groups_1.releaseScopedArgs)(verb, release), `resolved the dependencies', replace: '[verb], `resolved the dependencies',
+    says: 'Pull runs the command line with the Release left out of its arguments',
+  },
+  {
+    name: 'escape-runs-a-cache-listing', scenario: 'gateway-commands-panel', checks: ['commands-panel.asking-entries-ask-for-their-subject-and-backing-out-runs-nothing'], moves: 'red', target: 'extension',
+    file: PANEL_SCRIPT, find: "    if (event.key === 'Escape') { closeMenu(); return true; }",
+    replace: "    if (event.key === 'Escape') { closeMenu(); vscode.postMessage({ type: 'run', command: 'aggrega.op.cache', option: 'status' }); return true; }",
+    says: 'Escape on an open menu closes it and runs the cache listing as well',
+  },
+  {
+    name: 'inspect-menu-runs-the-compiler', scenario: 'gateway-commands-panel', checks: ['commands-panel.reading-entries-start-no-compiler-process'], moves: 'red', target: 'extension',
+    file: OPERATIONS, find: '    inspect: (deps, remember) => subjectChoices(deps, operation_groups_1.inspectableSubjects, remember),',
+    replace: "    inspect: (deps, remember) => { require('child_process').spawn(vscode.workspace.getConfiguration('aggrega.server').get('binaryPath'), ['validate', '--offline'], { cwd: vscode.workspace.workspaceFolders[0].uri.fsPath, stdio: 'ignore' }); return subjectChoices(deps, operation_groups_1.inspectableSubjects, remember); },",
+    says: 'the Inspect menu, as it reads its choices, also runs the compiler as a command over the workspace\'s catalog',
+  },
+  {
+    name: 'sections-drawn-without-their-first-operation', scenario: 'gateway-commands-panel', checks: ['commands-panel.sections-shape-keeps-the-groups-and-restarts-nothing'], moves: 'red', target: 'extension',
+    file: RENDER, find: '    const controls = group.operations\n        .map(', replace: '    const controls = group.operations.slice(1)\n        .map(',
+    says: 'each section is drawn without its group\'s first operation',
+  },
+  {
+    name: 'sections-value-undescribed', scenario: 'gateway-commands-panel', checks: ['settings.layout-values-carry-their-descriptions'], moves: 'red', target: 'extension',
+    file: 'package.json', find: '            "Each group is a section you open, under its own title, so the panel shows as much as you keep open."', replace: '            ""',
+    says: 'the section shape\'s value is declared with an empty description',
+  },
+  {
+    name: 'no-rule-above-publish', scenario: 'gateway-commands-panel', checks: ['commands-panel.sections-carry-group-titles-and-a-rule-above-publish'], moves: 'red', target: 'extension',
+    file: 'media/operations.css', find: '.groups-sections .group-separated {\n  border-top: 1px solid', replace: '.groups-sections .group-separated {\n  border-top: 0px solid',
+    says: 'the rule above the publish section is drawn no width',
+  },
+  {
+    name: 'chevron-left-as-drawn', scenario: 'gateway-commands-panel', checks: ['commands-panel.section-chevrons-turn-as-they-open'], moves: 'red', target: 'extension',
+    file: PANEL_SCRIPT, find: "        chevron.classList.toggle('codicon-chevron-down', open);\n        chevron.classList.toggle('codicon-chevron-right', !open);\n", replace: '',
+    says: 'a section\'s chevron is left as it was drawn when the section opens or closes',
+  },
+  {
+    name: 'arrows-pass-over-closed-sections', scenario: 'gateway-commands-panel', checks: ['commands-panel.keyboard-in-sections-opens-and-closes-with-the-arrows'], moves: 'green', target: 'extension',
+    file: PANEL_SCRIPT, find: "      container.querySelectorAll('[data-focus-key]:not([disabled])'),\n    );",
+    replace: "      container.querySelectorAll('[data-focus-key]:not([disabled])'),\n    ).filter((control) => !control.closest('[hidden]'));",
+    says: 'the arrow keys move between the controls a reader can see, passing over those inside a closed section',
+  },
+  {
+    name: 'rows-put-away-with-a-section', scenario: 'gateway-commands-panel', checks: ['commands-panel.context-rows-stay-with-every-section-closed'], moves: 'red', target: 'extension',
+    file: PANEL_SCRIPT, find: '      body.hidden = !open;\n    }', replace: "      body.hidden = !open;\n      const rows = document.querySelector('.selectors');\n      if (rows) { rows.style.display = open ? '' : 'none'; }\n    }",
+    says: 'the three rows are put away whenever a section closes',
+  },
+  {
+    name: 'high-contrast-button-unbordered', scenario: 'gateway-commands-panel', checks: ['commands-panel.follows-the-theme-and-borders-every-control-in-high-contrast'], moves: 'red', target: 'extension',
+    file: 'media/operations.css', find: 'body.vscode-high-contrast .op,\n', replace: '',
+    says: 'an operation\'s button is given no border of its own in the dark high-contrast theme',
+  },
+  {
+    name: 'shape-a-workspace-may-set', scenario: 'gateway-commands-panel', checks: ['settings.preference-is-the-users-and-a-workspace-value-is-ignored'], moves: 'red', target: 'extension',
+    file: 'package.json', find: 'never which operations exist or what they do. Changing it redraws the open panel; nothing restarts.",\n          "scope": "machine"',
+    replace: 'never which operations exist or what they do. Changing it redraws the open panel; nothing restarts.",\n          "scope": "window"',
+    says: 'the shape setting is declared with a scope a workspace may set',
+  },
+  {
+    name: 'binary-path-says-machine-wide', scenario: 'gateway-commands-panel', checks: ['settings.binary-path-description-names-the-two-files'], moves: 'red', target: 'extension',
+    file: 'package.json', find: '`~/.config/aggrega/config.yaml`, the global file on your machine,', replace: '`~/.config/aggrega/config.yaml`, the machine-wide file,',
+    says: 'the binary path\'s description calls the file on the machine the machine-wide file',
+  },
+  {
+    name: 'validate-answers-in-other-words', scenario: 'gateway-commands-panel', checks: ['commands-panel.server-only-operations-stay-enabled-with-the-server-stopped'], moves: 'red', target: 'extension',
+    file: EXTENSION, find: "        void vscode.window.showWarningMessage('Aggrega: the language server is not running.');", replace: "        void vscode.window.showWarningMessage('Aggrega: nothing to validate against.');",
+    says: 'Validate answers in other words when the language server is not running',
+  },
+
+  // ---- a documentation example naming no default Release ----
+  {
+    name: 'unavailable-operation-left-out', scenario: 'mysql-commands-panel-no-release', checks: ['commands-panel.release-operations-greyed-in-place-with-their-reason'], moves: 'red', target: 'extension',
+    file: RENDER, find: '            pieces.push(operationEntryHtml(op, group.id, body, rovingKey));',
+    replace: '            if ((body.unavailable[op.id] ?? null) === null) { pieces.push(operationEntryHtml(op, group.id, body, rovingKey)); }',
+    says: 'an operation that cannot run is left out of the flow rather than greyed in it',
+  },
+  {
+    name: 'arrows-count-greyed-controls', scenario: 'mysql-commands-panel-no-release', checks: ['commands-panel.arrows-skip-greyed-controls'], moves: 'red', target: 'extension',
+    file: PANEL_SCRIPT, find: "      container.querySelectorAll('[data-focus-key]:not([disabled])'),", replace: "      container.querySelectorAll('[data-focus-key]'),",
+    says: 'the arrow keys count a greyed control among the ones they move between',
+  },
+  {
+    name: 'release-choice-restarts-the-server', scenario: 'mysql-commands-panel-no-release', checks: ['commands-panel.choosing-a-release-enables-them-without-a-restart'], moves: 'red', target: 'extension',
+    file: 'out/src/release-selection.js', find: '        lockfile = entry.lockfile;\n        announce();\n    };',
+    replace: "        lockfile = entry.lockfile;\n        announce();\n        void require('vscode').commands.executeCommand('aggrega.server.restart');\n    };",
+    says: 'choosing a Release restarts the language server',
+  },
+
+  // ---- the gateway folder: the menus a Commands panel button opens ----
+  {
+    name: 'menus-at-the-left-margin', scenario: 'gateway-docked-menus', checks: ['commands-panel.menu-hangs-from-its-buttons-left-edge-where-there-is-room'], moves: 'red', target: 'extension',
+    file: PANEL_SCRIPT, find: '    const from = holdsDials(menu) ? at.right - width : at.left;', replace: '    const from = 0;',
+    says: 'every menu is placed at the panel\'s left margin whatever its button',
+  },
+  {
+    name: 'menu-left-past-the-edge', scenario: 'gateway-docked-menus', checks: ['commands-panel.menus-open-against-their-button-docked-a-few-hundred-pixels-wide'], moves: 'red', target: 'extension',
+    file: PANEL_SCRIPT, find: '    const left = Math.max(0, Math.min(from, window.innerWidth - width));', replace: '    const left = from;',
+    says: 'a menu is left where its button\'s left edge puts it, past the panel\'s right edge where it is wider than the room',
+  },
+  {
+    name: 'closing-menu-leaves-its-button-held', scenario: 'gateway-docked-menus', checks: ['commands-panel.held-button-marked-alone-and-cleared-by-every-close'], moves: 'red', target: 'extension',
+    file: PANEL_SCRIPT, find: "    if (control) {\n      control.setAttribute('aria-expanded', 'false');\n      control.focus();\n    }", replace: '    if (control) {\n      control.focus();\n    }',
+    says: 'a menu closing leaves its button drawn held',
+  },
+  {
+    name: 'held-border-wider', scenario: 'gateway-docked-menus', checks: ['commands-panel.opening-a-menu-moves-nothing'], moves: 'red', target: 'extension',
+    file: 'media/operations.css', find: '.op[aria-expanded="true"],\n.op-caret[aria-expanded="true"] {\n  border-color: var(--vscode-focusBorder);',
+    replace: '.op[aria-expanded="true"],\n.op-caret[aria-expanded="true"] {\n  border: 3px solid var(--vscode-focusBorder);',
+    says: 'the held button\'s border is drawn wider than the one every button keeps',
+  },
+  {
+    name: 'section-held-row-on-no-ground', scenario: 'gateway-docked-menus', checks: ['commands-panel.held-row-marked-in-the-section-shape'], moves: 'red', target: 'extension',
+    file: 'media/operations.css', find: '.groups-sections .op-caret[aria-expanded="true"] {\n  background: var(--vscode-list-hoverBackground);', replace: '.groups-sections .op-caret[aria-expanded="true"] {\n  background: none;',
+    says: 'the held row is drawn on no ground of its own in the section shape',
+  },
+
+  // ---- the gateway folder: the configuration table as narrow as a docked panel ----
+  {
+    name: 'setting-column-scrolls-away', scenario: 'gateway-docked-configuration', checks: ['config-panel.setting-column-stays-at-the-left-edge-scrolling-fully-right'], moves: 'red', target: 'extension',
+    file: 'media/config.css', find: '  position: sticky;\n  left: 0;', replace: '  position: relative;\n  left: 0;',
+    says: 'the Setting column scrolls away with the rest of its row',
+  },
+  {
+    name: 'setting-column-paints-no-ground', scenario: 'gateway-docked-configuration', checks: ['config-panel.setting-column-is-solid-over-the-row-passing-under-it'], moves: 'red', target: 'extension',
+    file: 'media/config.css', find: '  overflow-wrap: anywhere;\n  background: var(--vscode-editor-background);\n}', replace: '  overflow-wrap: anywhere;\n}',
+    says: 'the Setting column\'s cells paint no ground of their own',
+  },
+  {
+    name: 'corner-beneath-the-headings', scenario: 'gateway-docked-configuration', checks: ['config-panel.header-and-corner-hold-scrolling-right-and-down'], moves: 'red', target: 'extension',
+    file: 'media/config.css', find: '.config-table th:first-child {\n  z-index: 3;', replace: '.config-table th:first-child {\n  z-index: 1;',
+    says: 'the corner is drawn beneath the headings beside it',
+  },
+  {
+    name: 'description-at-a-fixed-measure', scenario: 'gateway-docked-configuration', checks: ['config-panel.description-fully-visible-beside-the-setting-column'], moves: 'red', target: 'extension',
+    file: 'media/config.css', find: '  width: min(24rem, calc(100vw - var(--config-key-measure) - 2rem));', replace: '  width: 24rem;',
+    says: 'a setting\'s description is held to a fixed measure wider than a docked panel',
+  },
+  {
+    name: 'table-squeezed-to-its-width', scenario: 'gateway-docked-configuration', checks: ['config-panel.table-scrolls-sideways-docked-and-fits-an-editor-pane'], moves: 'red', target: 'extension',
+    file: 'media/config.css', find: '.config-table {\n  width: 100%;\n  border-collapse: collapse;', replace: '.config-table {\n  width: 100%;\n  table-layout: fixed;\n  border-collapse: collapse;',
+    says: 'the table is laid out to the width it is given, squeezing its columns',
   },
 ];
 

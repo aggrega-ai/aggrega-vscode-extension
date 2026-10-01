@@ -516,6 +516,38 @@ say so:
   told about that folder, which silences that folder alone, and the two ways to
   open the workspace itself.
 
+Another group reads the Commands panel and the panels beside it:
+
+- `gateway-commands-panel` checks the order the container's panels read in and
+  what each title bar holds, the house and the cog and the settings screen the
+  cog opens; the panel's default shape, its groups, labels and hovers, its icons,
+  and how the flow wraps — with nothing drawn between one group and the next — as
+  the side bar is dragged narrower and wider; the tab stops and the arrow keys in
+  both shapes; every entry pressed, the ones that ask for a subject backed out of,
+  and the ones that only read starting no compiler process; the section shape
+  chosen on the settings screen, with its titles, the rule above the publish
+  group, its chevrons and the three rows with every section closed; the light,
+  dark and high-contrast themes; the shape setting kept in the user settings
+  rather than a workspace's; the binary path's description; and, with the
+  language server stopped, which entries stay enabled.
+- `mysql-commands-panel-no-release` opens a documentation example holding two
+  Releases and naming no default: the operations that act on a Release drawn in
+  place and greyed with their reason, the arrow keys passing over them, a Release
+  chosen bringing them back with nothing restarted, and where the focus stands
+  once the panel is drawn again.
+- `gateway-docked-menus` opens the menus the Commands panel's buttons offer
+  beside themselves, in a side bar wide enough for a menu to hang from its button
+  and with the container moved to the secondary side bar a few hundred pixels
+  wide: where each menu stands against its button, the mark the button carries
+  while its menu stands, every way that mark clears, that opening a menu moves no
+  button, and the same in the section shape.
+- `gateway-docked-configuration` opens the configuration panel's table in an
+  editor group as narrow as a side panel: the setting column held at the left
+  edge as the rest of each row scrolls under it and solid while it does, the
+  corner holding in both directions, a setting's description brought fully into
+  view beside the held column, and the table scrolling sideways at that width
+  while it fits the editor area's own width.
+
 A last group reads the welcome page as a reader meets it, step by step:
 
 - `welcome-page-empty-folder` starts on a fresh profile, on a machine with no
