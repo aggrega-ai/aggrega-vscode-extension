@@ -438,13 +438,43 @@ panel:
   graph panel's own message channel naming a node the drawing does not carry,
   which is a request no press in the panel makes.
 - `probes-nothing-may-attach` opens a folder whose only Feature applies to
-  nothing it deploys, and checks what the list reads when nothing matches.
+  nothing it deploys and which declares no grouping: how the drawing titles the
+  two boxes holding nodes nobody grouped, and what the list reads when nothing
+  matches.
 - `gateway-top-level-attach` attaches a Feature to a component declared at the
   top level of its Aggregate.
 
 Nothing these checks attach is saved: each changed document is closed without
 saving, and each scenario that attaches ends by checking that every file of the
 folder it opened reads byte for byte as it did when the scenario started.
+
+Others read the drawing itself, and when it is drawn again:
+
+- `storefront-graph-drawing` measures the storefront's first drawing — the
+  whole topology framed to the panel, no two labels drawn over one another,
+  each component name inside its card, the Release's boundaries and the
+  Aggregate's subsystems drawn as declared, the imported module's component in
+  its boundary, and each edge running between the boxes of its two ends and
+  through no other — and the legend: where it stands, what it says, and whether
+  its rows are drawn whole. It then edits and saves its own copy of the folder:
+  typing moving the Problems panel and not the drawing; a save, and a write from
+  outside the editor, each drawing the graph again with nothing pressed; the
+  reader's zoom and selection kept through a redraw nobody pressed for, while a
+  press frames the whole topology again; a redraw the compiler refuses dimming
+  the drawing and saying it is out of date the same way whether a save or a
+  press reached it, and a panel that never drew saying only what went wrong;
+  and a redraw landing while the panel is behind another tab.
+- `storefront-graph-idle` turns the build's analysis on and misspells one of the
+  storefront's sockets by a character, so every compile files an advisory, then
+  shows the graph once and watches it for a minute with nothing touched: it is
+  not drawn again, and the language server spends less than half the CPU time
+  over the minute that the one compile drawing it spent. Putting the spelling
+  right and saving then draws it again, spending at least that half, and takes
+  the advisory away within half a minute of the save.
+- `fleet-graph-first-fit` opens a folder of a few dozen components and checks
+  that the first drawing shows the whole shape fitted to the panel, however
+  small that makes its names, and leaves whether that trade reads right for a
+  person to judge.
 
 Others follow what a reader meets as the editor comes up and as the language
 server comes and goes, and what each operation ends in:

@@ -33,6 +33,7 @@ import { populateRegistry, registerAsDefault, ScratchRegistry, startRegistry, st
 import { bringUp, DisplayReading, Scenario, ScenarioEnd, tearDown } from './scenario';
 import { makeContext, SuiteContext } from './suite-context';
 import { gatewayChecks, GATEWAY_CHECKS } from './suite-gateway';
+import { FLEET_CHECKS, fleetChecks, GRAPH_DRAWING_CHECKS, graphDrawingChecks, GRAPH_IDLE_CHECKS, GRAPH_IDLE_SETTINGS, graphIdleChecks } from './suite-graph-drawing';
 import { GRAPH_PANEL_CHECKS, graphPanelChecks } from './suite-graph-panel';
 import { KILLED_CHECKS, KILLED_SETTINGS, killedChecks } from './suite-killed';
 import { LEVELS_CHECKS, levelsChecks } from './suite-levels';
@@ -66,6 +67,9 @@ export const SCENARIO_CHECKS: Readonly<Record<string, readonly string[]>> = {
   'storefront-graph-panel': GRAPH_PANEL_CHECKS,
   'probes-nothing-may-attach': PROBES_CHECKS,
   'gateway-top-level-attach': TOP_LEVEL_ATTACH_CHECKS,
+  'storefront-graph-drawing': GRAPH_DRAWING_CHECKS,
+  'storefront-graph-idle': GRAPH_IDLE_CHECKS,
+  'fleet-graph-first-fit': FLEET_CHECKS,
   'gateway-readiness': READINESS_CHECKS,
   'gateway-cache': CACHE_CHECKS,
   'empty-workspace': EMPTY_WORKSPACE_CHECKS,
@@ -285,6 +289,52 @@ function plans(inputs: Inputs): ScenarioPlan[] {
         return { folder, fixtures, extra: { reference, snapshot: readTree(folder) } };
       },
       body: (ctx, p) => topLevelAttachChecks(ctx, p.extra?.reference as string, p.extra?.snapshot as Tree),
+    },
+    {
+      name: 'storefront-graph-drawing',
+      checks: GRAPH_DRAWING_CHECKS,
+      prepare: async (root, home, log) => {
+        const folder = path.join(root.dir, 'workspace', 'storefront');
+        const reference = path.join(root.dir, 'reference', 'storefront');
+        const fixtures = [
+          placeFolder(inputs.extension.dir, 'storefront', folder, inputs.catalog.dir),
+          await writeLockfile(bin, folder, 'release-compose.yaml', home, log),
+          placeFolder(inputs.extension.dir, 'storefront', reference, inputs.catalog.dir),
+          await writeLockfile(bin, reference, 'release-compose.yaml', home, log),
+          proveNothingAbove(folder),
+        ];
+        return { folder, fixtures, extra: { reference } };
+      },
+      body: (ctx, p) => graphDrawingChecks(ctx, p.extra?.reference as string),
+    },
+    {
+      name: 'storefront-graph-idle',
+      checks: GRAPH_IDLE_CHECKS,
+      settings: GRAPH_IDLE_SETTINGS,
+      prepare: async (root, home, log) => {
+        const folder = path.join(root.dir, 'workspace', 'storefront');
+        const fixtures = [
+          placeFolder(inputs.extension.dir, 'storefront', folder, inputs.catalog.dir),
+          await writeLockfile(bin, folder, 'release-compose.yaml', home, log),
+          proveNothingAbove(folder),
+        ];
+        return { folder, fixtures };
+      },
+      body: (ctx) => graphIdleChecks(ctx),
+    },
+    {
+      name: 'fleet-graph-first-fit',
+      checks: FLEET_CHECKS,
+      prepare: async (root, home, log) => {
+        const folder = path.join(root.dir, 'workspace', 'fleet');
+        const fixtures = [
+          placeFolder(inputs.extension.dir, 'fleet', folder, inputs.catalog.dir),
+          await writeLockfile(bin, folder, 'release-compose.yaml', home, log),
+          proveNothingAbove(folder),
+        ];
+        return { folder, fixtures };
+      },
+      body: (ctx) => fleetChecks(ctx),
     },
     {
       name: 'gateway-readiness',

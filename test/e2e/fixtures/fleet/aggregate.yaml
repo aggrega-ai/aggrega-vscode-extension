@@ -1,0 +1,199 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Cognitio S.r.l.
+
+apiVersion: aggrega.ai/v1alpha1
+kind: Aggregate
+metadata:
+  name: fleet
+  version: 1.0.0
+  description: >
+    Thirty-two components compiled to a Docker Compose stack: four NGINX
+    gateways, each in front of one of eight Adminer consoles, each console
+    reaching one of eight PostgreSQL databases, beside eight Memcached caches
+    and four Valkey session stores. It is sized to be read as a whole shape
+    rather than node by node.
+spec:
+  subsystems:
+    entry:
+      description: The gateways a visitor reaches.
+      components:
+        gateway-1:
+          type: core/gateway/nginx
+          uses:
+            upstream:
+              console-1:
+                target: console-1
+                inject:
+                  env:
+                    - in: NGINX_UPSTREAM_HOST
+                      from: host
+                    - in: NGINX_UPSTREAM_PORT
+                      from: port
+        gateway-2:
+          type: core/gateway/nginx
+          uses:
+            upstream:
+              console-2:
+                target: console-2
+                inject:
+                  env:
+                    - in: NGINX_UPSTREAM_HOST
+                      from: host
+                    - in: NGINX_UPSTREAM_PORT
+                      from: port
+        gateway-3:
+          type: core/gateway/nginx
+          uses:
+            upstream:
+              console-3:
+                target: console-3
+                inject:
+                  env:
+                    - in: NGINX_UPSTREAM_HOST
+                      from: host
+                    - in: NGINX_UPSTREAM_PORT
+                      from: port
+        gateway-4:
+          type: core/gateway/nginx
+          uses:
+            upstream:
+              console-4:
+                target: console-4
+                inject:
+                  env:
+                    - in: NGINX_UPSTREAM_HOST
+                      from: host
+                    - in: NGINX_UPSTREAM_PORT
+                      from: port
+    consoles:
+      description: One console per database.
+      components:
+        console-1:
+          type: core/devtool/adminer
+          uses:
+            databases:
+              db-1:
+                target: db-1
+                inject:
+                  env:
+                    - in: ADMINER_DEFAULT_SERVER
+                      from: host
+        console-2:
+          type: core/devtool/adminer
+          uses:
+            databases:
+              db-2:
+                target: db-2
+                inject:
+                  env:
+                    - in: ADMINER_DEFAULT_SERVER
+                      from: host
+        console-3:
+          type: core/devtool/adminer
+          uses:
+            databases:
+              db-3:
+                target: db-3
+                inject:
+                  env:
+                    - in: ADMINER_DEFAULT_SERVER
+                      from: host
+        console-4:
+          type: core/devtool/adminer
+          uses:
+            databases:
+              db-4:
+                target: db-4
+                inject:
+                  env:
+                    - in: ADMINER_DEFAULT_SERVER
+                      from: host
+        console-5:
+          type: core/devtool/adminer
+          uses:
+            databases:
+              db-5:
+                target: db-5
+                inject:
+                  env:
+                    - in: ADMINER_DEFAULT_SERVER
+                      from: host
+        console-6:
+          type: core/devtool/adminer
+          uses:
+            databases:
+              db-6:
+                target: db-6
+                inject:
+                  env:
+                    - in: ADMINER_DEFAULT_SERVER
+                      from: host
+        console-7:
+          type: core/devtool/adminer
+          uses:
+            databases:
+              db-7:
+                target: db-7
+                inject:
+                  env:
+                    - in: ADMINER_DEFAULT_SERVER
+                      from: host
+        console-8:
+          type: core/devtool/adminer
+          uses:
+            databases:
+              db-8:
+                target: db-8
+                inject:
+                  env:
+                    - in: ADMINER_DEFAULT_SERVER
+                      from: host
+    data:
+      description: The databases and the caches beside them.
+      subsystems:
+        databases:
+          components:
+            db-1:
+              type: core/datastore/postgres
+            db-2:
+              type: core/datastore/postgres
+            db-3:
+              type: core/datastore/postgres
+            db-4:
+              type: core/datastore/postgres
+            db-5:
+              type: core/datastore/postgres
+            db-6:
+              type: core/datastore/postgres
+            db-7:
+              type: core/datastore/postgres
+            db-8:
+              type: core/datastore/postgres
+        caches:
+          components:
+            cache-1:
+              type: core/datastore/memcached
+            cache-2:
+              type: core/datastore/memcached
+            cache-3:
+              type: core/datastore/memcached
+            cache-4:
+              type: core/datastore/memcached
+            cache-5:
+              type: core/datastore/memcached
+            cache-6:
+              type: core/datastore/memcached
+            cache-7:
+              type: core/datastore/memcached
+            cache-8:
+              type: core/datastore/memcached
+        sessions:
+          components:
+            session-1:
+              type: core/datastore/valkey
+            session-2:
+              type: core/datastore/valkey
+            session-3:
+              type: core/datastore/valkey
+            session-4:
+              type: core/datastore/valkey

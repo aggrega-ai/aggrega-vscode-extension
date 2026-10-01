@@ -1,0 +1,75 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Cognitio S.r.l.
+
+apiVersion: aggrega.ai/v1alpha1
+kind: Release
+metadata:
+  name: fleet-local
+  environment: development
+  version: 1.0.0
+spec:
+  aggregate: ./aggregate.yaml
+  manifest: ./manifest-compose.yaml
+  boundaries:
+    public:
+      directory: public
+      components:
+        gateway-1:
+          infra:
+            port: 8101
+        gateway-2:
+          infra:
+            port: 8102
+        gateway-3:
+          infra:
+            port: 8103
+        gateway-4:
+          infra:
+            port: 8104
+    internal:
+      directory: internal
+      components:
+        console-1:
+          infra:
+            port: 8201
+        console-2:
+          infra:
+            port: 8202
+        console-3:
+          infra:
+            port: 8203
+        console-4:
+          infra:
+            port: 8204
+        console-5:
+          infra:
+            port: 8205
+        console-6:
+          infra:
+            port: 8206
+        console-7:
+          infra:
+            port: 8207
+        console-8:
+          infra:
+            port: 8208
+        db-1: {}
+        db-2: {}
+        db-3: {}
+        db-4: {}
+        db-5: {}
+        db-6: {}
+        db-7: {}
+        db-8: {}
+        cache-1: {}
+        cache-2: {}
+        cache-3: {}
+        cache-4: {}
+        cache-5: {}
+        cache-6: {}
+        cache-7: {}
+        cache-8: {}
+        session-1: {}
+        session-2: {}
+        session-3: {}
+        session-4: {}

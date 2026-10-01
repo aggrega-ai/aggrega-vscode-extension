@@ -2,7 +2,7 @@
 // Copyright 2026 Cognitio S.r.l.
 
 import { need } from './checks';
-import { WebviewDocument } from './drivers';
+import { UiDriver, WebviewDocument } from './drivers';
 import { run, SuiteContext } from './suite-context';
 import { commandsPanel, documentWith, evaluateWithin, pressOperation, sleep, until } from './workbench';
 
@@ -376,7 +376,22 @@ export async function revealGraphTab(ctx: SuiteContext): Promise<void> {
   })()`), (v) => v !== null);
   if (at === null) { throw new Error('unreachable: the graph panel\'s tab'); }
   await ctx.d.click(at);
-  await until('the graph panel\'s tab in front', 10000, () => ctx.d.workbench<string>(`(((document.querySelector('.tabs-container .tab.active .label-name') || {}).innerText) || '').trim()`), (l) => l.startsWith('Aggrega Graph'));
+  await until('the graph panel\'s tab in front', 10000, () => frontTabLabel(ctx.d), isGraphTab);
+}
+
+// frontTabLabel is the label of the tab in front of its group, as the workbench
+// draws it, and isGraphTab whether a label is the graph panel's.
+export function frontTabLabel(d: UiDriver): Promise<string> {
+  return d.workbench<string>(`(((document.querySelector('.tabs-container .tab.active .label-name') || {}).innerText) || '').trim()`);
+}
+
+export const isGraphTab = (label: string): boolean => label.startsWith('Aggrega Graph');
+
+// graphTabInFront reports whether the graph panel's tab is the one in front —
+// the reading revealGraphTab ends on, for a check that puts the panel behind
+// another tab and has to know it is still there.
+export async function graphTabInFront(d: UiDriver): Promise<boolean> {
+  return isGraphTab(await frontTabLabel(d));
 }
 
 // postFromPanel posts a message into the channel the graph panel's own

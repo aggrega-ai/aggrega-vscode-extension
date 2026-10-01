@@ -66,9 +66,9 @@ const SENSITIVE_KEY = 'aggrega.graph.showSensitiveValues';
 // The nodes the checks press, the attachment the storefront authors, its two
 // leaves, and the Feature the folder's own catalog declares.
 const ORDERS = 'orders';
-const ADMIN = 'admin';
-const CACHE = 'cache';
-const GATEWAY = 'gateway';
+export const ADMIN = 'admin';
+export const CACHE = 'cache';
+export const GATEWAY = 'gateway';
 const STORE = 'sessions.store';
 const PASSWORD = 'password';
 const KEY_LEAF = 'values.key';
@@ -97,7 +97,7 @@ const CANNOT_LIST = 'Cannot list what may attach: ';
 const CANNOT_ATTACH = 'Cannot attach: ';
 const NOT_RUNNING_REASON = 'the Aggrega language server is not running';
 const DEFAULT_INDENT_NOTE = ' The document exhibits no nesting to measure, so a default indentation was used.';
-const staleDrawing = (release: string): string => `${release}: the topology could not be rebuilt, so the graph on screen is out of date.`;
+export const staleDrawing = (release: string): string => `${release}: the topology could not be rebuilt, so the graph on screen is out of date.`;
 const notOnTheGraph = (node: string): string => `${node} is not on the graph this panel drew.`;
 
 // A control, or words, offering to connect one component to another.
@@ -186,7 +186,7 @@ async function insertionAnswer(ctx: SuiteContext, reference: string, at: Located
 
 // ---- documents ------------------------------------------------------------
 
-function yamlOf(text: string): unknown {
+export function yamlOf(text: string): unknown {
   return loadAll(text)[0];
 }
 

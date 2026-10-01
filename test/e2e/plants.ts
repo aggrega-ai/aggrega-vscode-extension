@@ -93,10 +93,14 @@ const headRowBoundToNothing = (id: string): { file: string; find: string; replac
   replace: HEAD_ROW_PRESS.replace('reason === null ?', `reason === null && action.id !== '${id}' ?`),
 });
 
-// The topology graph panel: its drawing, the projection of what is attached and
-// of what may attach, the side that serves its requests, and the edit an attach
+// The topology graph panel: its drawing, its style and the layout model it draws
+// from, the projection of what is attached and of what may attach, the side that
+// serves its requests and reports a failed drawing, and the edit an attach
 // composes.
 const GRAPH_SCRIPT = 'media/graph.js';
+const GRAPH_MODEL = 'media/graph-model.js';
+const GRAPH_STYLE = 'media/graph.css';
+const GRAPH_FAILURE = 'out/src/graph-failure.js';
 const ATTACHMENTS_MODEL = 'media/attachments-model.js';
 const CANDIDATES_MODEL = 'media/candidates-model.js';
 const GRAPH_VIEW = 'out/src/graph-view.js';
@@ -765,7 +769,7 @@ export const PLANTS: readonly Plant[] = [
   {
     name: 'graph-failure-written-as-a-string', scenario: 'storefront-graph-panel',
     checks: ['graph.failed-render-names-its-reason-in-the-panel-and-the-channel', 'graph.failed-render-with-the-server-stopped-names-the-extensions-reason'], moves: 'red', target: 'extension',
-    file: 'out/src/graph-failure.js', find: '    sinks.logLine(`irGraph failed for ${release}: ${message}`);', replace: '    sinks.logLine(`irGraph failed for ${release}: ${String(err)}`);',
+    file: GRAPH_FAILURE, find: '    sinks.logLine(`irGraph failed for ${release}: ${message}`);', replace: '    sinks.logLine(`irGraph failed for ${release}: ${String(err)}`);',
     says: 'a failed drawing is written to the channel as the thrown value rendered as a string, which reads "[object Object]" for a refusal the language server answered',
   },
   {
@@ -790,6 +794,13 @@ export const PLANTS: readonly Plant[] = [
   // ---- the folder whose one Feature applies to nothing it deploys ----
   { name: 'context-row-renamed-probes', scenario: 'probes-nothing-may-attach', checks: ['commands-panel.context-rows-name-the-opened-folder'], moves: 'red', target: 'extension', ...CONTEXT_ROW_LABEL },
   {
+    name: 'undeclared-grouping-read-as-none-declared', scenario: 'probes-nothing-may-attach', checks: ['graph.undeclared-groupings-titled-by-kind-in-words'], moves: 'green', target: 'extension',
+    file: GRAPH_MODEL,
+    find: '      const bKey = n.boundary_path || UNGROUPED;\n      const sKey = n.subsystem_path || UNGROUPED;',
+    replace: "      const bKey = n.boundary_path && n.boundary_path !== 'default' ? n.boundary_path : UNGROUPED;\n      const sKey = n.subsystem_path && n.subsystem_path !== 'default' ? n.subsystem_path : UNGROUPED;",
+    says: 'the drawing reads a grouping the compiler names "default" as one nobody declared, as it reads one the compiler names not at all',
+  },
+  {
     name: 'empty-answer-worded-as-finalised-labels', scenario: 'probes-nothing-may-attach', checks: ['may-attach.nothing-matching-reads-as-an-empty-state'], moves: 'red', target: 'extension',
     file: CANDIDATES_MODEL,
     find: "      return 'No Feature\\'s declared applicability matches the labels on this node.';",
@@ -803,6 +814,150 @@ export const PLANTS: readonly Plant[] = [
   },
   {
     name: 'saved-after-the-edit-top-level', scenario: 'gateway-top-level-attach', checks: ['attach.nothing-is-saved-and-the-folder-is-as-it-started'], moves: 'red', target: 'extension', ...SAVED_AFTER_EDIT,
+  },
+  // ---- the storefront folder's drawing, its legend, and when it is drawn again ----
+  { name: 'context-row-renamed-graph-drawing', scenario: 'storefront-graph-drawing', checks: ['commands-panel.context-rows-name-the-opened-folder'], moves: 'red', target: 'extension', ...CONTEXT_ROW_LABEL },
+  {
+    name: 'frame-pushed-right', scenario: 'storefront-graph-drawing', checks: ['graph.first-opening-frames-the-whole-topology'], moves: 'red', target: 'extension',
+    file: GRAPH_SCRIPT, find: '    view.x = (box.width - w * view.scale) / 2;', replace: '    view.x = box.width - (w * view.scale) / 4;',
+    says: 'a drawing is framed pushed to the right of the panel, most of it past the edge',
+  },
+  {
+    name: 'container-title-across-its-middle', scenario: 'storefront-graph-drawing', checks: ['graph.no-two-labels-overlap'], moves: 'red', target: 'extension',
+    file: GRAPH_SCRIPT, find: "    title.setAttribute('y', box.y + 16);", replace: "    title.setAttribute('y', box.y + box.height / 2);",
+    says: 'each container\'s title is written across the middle of its box, over what the box holds',
+  },
+  {
+    name: 'card-sized-to-its-id', scenario: 'storefront-graph-drawing', checks: ['graph.component-names-drawn-whole-inside-their-cards'], moves: 'red', target: 'extension',
+    file: GRAPH_MODEL, find: '    return Math.max(MIN_NODE_W, Math.ceil(Math.max(idWidth, subWidth)) + NODE_PAD_X);', replace: '    return Math.max(MIN_NODE_W, Math.ceil(idWidth) + NODE_PAD_X);',
+    says: 'a card is sized against its id alone, so a component name longer than the card runs past its border',
+  },
+  {
+    name: 'boundary-set-aside', scenario: 'storefront-graph-drawing', checks: ['graph.release-boundaries-drawn-holding-what-they-place'], moves: 'red', target: 'extension',
+    file: GRAPH_MODEL, find: '      const bKey = n.boundary_path || UNGROUPED;', replace: '      const bKey = UNGROUPED;',
+    says: 'the drawing sets aside the boundary the compiler sends for each node, so every node lands in one box',
+  },
+  {
+    name: 'boxes-placed-unresolved', scenario: 'storefront-graph-drawing',
+    checks: ['graph.imported-module-component-drawn-in-its-boundary', 'graph.edge-between-boundaries-runs-from-one-card-to-the-other'], moves: 'red', target: 'extension',
+    file: GRAPH_MODEL, find: '        const x = offX + (child.x || 0);', replace: '        const x = child.x || 0;',
+    says: 'each box is placed by its position inside its container, unresolved against where the container itself sits',
+  },
+  {
+    name: 'edge-offset-twice', scenario: 'storefront-graph-drawing', checks: ['graph.edge-inside-a-subsystem-stays-inside-it'], moves: 'red', target: 'extension',
+    file: GRAPH_MODEL, find: '        .map((p) => ({ x: p.x + o.x, y: p.y + o.y })));', replace: '        .map((p) => ({ x: p.x + 2 * o.x, y: p.y + 2 * o.y })));',
+    says: 'an edge\'s geometry is offset twice by the origin of the container it is stated against, so an edge inside a subsystem is drawn out of it',
+  },
+  {
+    name: 'container-box-drawn-a-width-left', scenario: 'storefront-graph-drawing', checks: ['graph.no-edge-crosses-a-container-it-has-no-end-in'], moves: 'red', target: 'extension',
+    file: GRAPH_SCRIPT,
+    find: "    rect.setAttribute('x', box.x);\n    rect.setAttribute('y', box.y);\n    rect.setAttribute('width', box.width);\n    rect.setAttribute('height', box.height);\n    rect.setAttribute('rx', '6');",
+    replace: "    rect.setAttribute('x', box.x - box.width);\n    rect.setAttribute('y', box.y);\n    rect.setAttribute('width', box.width);\n    rect.setAttribute('height', box.height);\n    rect.setAttribute('rx', '6');",
+    says: 'each container\'s box is drawn one width to the left of where it is laid out, so edges run through boxes they have no end in',
+  },
+  {
+    name: 'legend-at-the-upper-right', scenario: 'storefront-graph-drawing', checks: ['legend.lower-left-names-the-groupings-and-the-type-bar-and-bounds-the-colours'], moves: 'red', target: 'extension',
+    file: GRAPH_STYLE, find: '  left: 8px;\n  bottom: 8px;', replace: '  right: 8px;\n  top: 8px;',
+    says: 'the legend is drawn at the upper right of the panel',
+  },
+  {
+    name: 'legend-note-cut-short', scenario: 'storefront-graph-drawing', checks: ['legend.lower-left-names-the-groupings-and-the-type-bar-and-bounds-the-colours'], moves: 'red', target: 'extension',
+    file: GRAPH_MODEL, find: "    + 'met. They group nodes within this graph only: the same colour in another '\n    + 'graph is not the same type.';", replace: "    + 'met.';",
+    says: 'the legend\'s note drops the sentence bounding a type colour to the graph it is drawn in',
+  },
+  {
+    name: 'boundary-row-worded-by-position', scenario: 'storefront-graph-drawing', checks: ['legend.grouping-rows-name-the-declaring-document-and-are-drawn-whole'], moves: 'red', target: 'extension',
+    file: GRAPH_MODEL, find: "    { swatch: 'boundary', text: 'Boundary — a grouping the Release declares.' },", replace: "    { swatch: 'boundary', text: 'Boundary — the outer grouping.' },",
+    says: 'the legend\'s boundary row says where the box sits rather than which document declares it',
+  },
+  {
+    name: 'legend-cut-off', scenario: 'storefront-graph-drawing', checks: ['legend.grouping-rows-name-the-declaring-document-and-are-drawn-whole'], moves: 'red', target: 'extension',
+    file: GRAPH_STYLE, find: '  max-width: min(320px, 40vw);', replace: '  max-width: 90px;\n  overflow: hidden;\n  white-space: nowrap;',
+    says: 'the legend is held to a width its rows run past, and what runs past is cut off',
+  },
+  {
+    name: 'graph-redrawn-on-typing', scenario: 'storefront-graph-drawing', checks: ['graph.typing-moves-the-problems-panel-and-not-the-drawing'], moves: 'red', target: 'extension',
+    file: EXTENSION, find: '    context.subscriptions.push(vscode.workspace.onDidChangeTextDocument(e => debouncedValidate(e.document)));',
+    replace: '    context.subscriptions.push(vscode.workspace.onDidChangeTextDocument(e => { debouncedValidate(e.document); refreshGraphView(); }));',
+    says: 'an open graph is drawn again on every change of a document\'s text, saved or not',
+  },
+  {
+    name: 'graph-not-redrawn-on-disk-change-graph-drawing', scenario: 'storefront-graph-drawing',
+    checks: ['graph.typing-moves-the-problems-panel-and-not-the-drawing', 'graph.save-redraws-the-drawing-with-no-press', 'graph.write-from-outside-the-editor-redraws-the-drawing'], moves: 'red', target: 'extension',
+    file: EXTENSION, find: REFRESH_GRAPH, replace: '',
+    says: 'an open graph is not drawn again when a document changes on disk',
+  },
+  {
+    name: 'every-drawing-framed-afresh', scenario: 'storefront-graph-drawing',
+    checks: ['graph.redraw-after-a-save-keeps-the-view-and-the-selection', 'graph.redraw-of-an-addition-keeps-the-view-and-draws-it-once', 'graph.redraw-behind-another-tab-keeps-the-view'], moves: 'red', target: 'extension',
+    file: GRAPH_SCRIPT, find: '    if (asked) { framed = false; }', replace: '    framed = false;',
+    says: 'every drawing is framed afresh, asked for or not, so a redraw nobody pressed for moves the reader\'s view',
+  },
+  {
+    name: 'selection-dropped-on-redraw', scenario: 'storefront-graph-drawing', checks: ['graph.redraw-after-a-save-keeps-the-view-and-the-selection'], moves: 'red', target: 'extension',
+    file: GRAPH_SCRIPT, find: '    if (wasSelected !== null && nodeGroups.has(wasSelected)) {', replace: '    if (false) {',
+    says: 'a redraw drops the selection, even of a node the new drawing still holds',
+  },
+  {
+    name: 'press-keeps-the-frame', scenario: 'storefront-graph-drawing', checks: ['graph.press-frames-the-whole-topology-afresh'], moves: 'red', target: 'extension',
+    file: GRAPH_SCRIPT, find: '    if (asked) { framed = false; }', replace: '    if (false) { framed = false; }',
+    says: 'a drawing once framed is never framed afresh, so a press on Graph leaves the reader where they were',
+  },
+  {
+    name: 'failed-redraw-not-dimmed', scenario: 'storefront-graph-drawing', checks: ['graph.failed-redraw-after-a-save-dims-the-drawing-and-says-so'], moves: 'red', target: 'extension',
+    file: GRAPH_SCRIPT, find: "    canvas.classList.toggle('out-of-date', stale);", replace: "    canvas.classList.toggle('out-of-date', false);",
+    says: 'a drawing the compiler could not rebuild is left undimmed under the notice',
+  },
+  {
+    name: 'panel-sent-the-thrown-value', scenario: 'storefront-graph-drawing', checks: ['graph.failed-redraw-after-a-save-dims-the-drawing-and-says-so'], moves: 'red', target: 'extension',
+    file: GRAPH_FAILURE, find: '    sinks.notifyPanel(message);', replace: '    sinks.notifyPanel(String(err));',
+    says: 'a failed drawing is reported to the panel as the thrown value rendered as a string, which reads "[object Object]" for a refusal the language server answered',
+  },
+  {
+    name: 'press-puts-up-no-notice', scenario: 'storefront-graph-drawing', checks: ['graph.press-on-the-same-fault-ends-in-the-same-presentation'], moves: 'red', target: 'extension',
+    file: GRAPH_SCRIPT, find: '      setStatus(`Laying out ${msg.release}…`, false);', replace: '      void 0;',
+    says: 'nothing is put up at the panel\'s top while a drawing the reader pressed for is laid out',
+  },
+  {
+    name: 'pressed-failure-sent-without-its-release', scenario: 'storefront-graph-drawing', checks: ['graph.press-on-the-same-fault-ends-in-the-same-presentation'], moves: 'red', target: 'extension',
+    file: GRAPH_VIEW, find: "                void panel.webview.postMessage({ type: 'error', release, message });", replace: "                void panel.webview.postMessage({ type: 'error', release: opts.quiet ? release : '', message });",
+    says: 'a failure the reader pressed for reaches the panel without the Release it is about, so its notice reads otherwise than a save\'s for the same fault',
+  },
+  {
+    name: 'dimming-left-on', scenario: 'storefront-graph-drawing', checks: ['graph.good-redraw-lifts-the-dimming'], moves: 'red', target: 'extension',
+    file: GRAPH_SCRIPT, find: "    canvas.classList.remove('out-of-date');", replace: '    void 0;',
+    says: 'a drawing rebuilt after a failure keeps the dimming the failure put on it',
+  },
+  {
+    name: 'canvas-read-as-drawn', scenario: 'storefront-graph-drawing', checks: ['graph.failure-with-nothing-drawn-claims-no-drawing-out-of-date'], moves: 'red', target: 'extension',
+    file: GRAPH_SCRIPT, find: '    return canvas.firstChild !== null;', replace: '    return true;',
+    says: 'the canvas is read as holding a drawing whether or not it does, so a panel that drew nothing says its drawing is out of date',
+  },
+  {
+    name: 'off-screen-frame-of-its-own-choosing', scenario: 'storefront-graph-drawing', checks: ['graph.first-drawing-behind-another-tab-framed-on-return'], moves: 'red', target: 'extension',
+    file: GRAPH_SCRIPT, find: '      const box = readableBox();', replace: '      const box = readableBox() || { width: 300, height: 150 };',
+    says: 'a drawing that arrives while the panel is off screen is framed against a size of the panel\'s own choosing',
+  },
+  // ---- the storefront folder at rest, with the build's analysis on ----
+  { name: 'context-row-renamed-graph-idle', scenario: 'storefront-graph-idle', checks: ['commands-panel.context-rows-name-the-opened-folder'], moves: 'red', target: 'extension', ...CONTEXT_ROW_LABEL },
+  {
+    name: 'graph-redrawn-on-every-push', scenario: 'storefront-graph-idle', checks: ['graph.open-panel-compiles-once-then-rests'], moves: 'red', target: 'extension',
+    file: EXTENSION, find: '        (0, diagnostics_1.publishDiagnostics)(diagnosticCollections, uri, params.diagnostics ?? []);',
+    replace: '        (0, diagnostics_1.publishDiagnostics)(diagnosticCollections, uri, params.diagnostics ?? []);\n        refreshGraphView();',
+    says: 'an open graph is drawn again on every set of findings the compiler pushes, so the panel\'s own request asks for the next one',
+  },
+  {
+    name: 'graph-not-redrawn-on-disk-change-graph-idle', scenario: 'storefront-graph-idle',
+    checks: ['graph.open-panel-compiles-once-then-rests', 'problems.misspelled-socket-leaves-once-it-is-put-right'], moves: 'red', target: 'extension',
+    file: EXTENSION, find: REFRESH_GRAPH, replace: '',
+    says: 'an open graph is not drawn again when a document changes on disk',
+  },
+  // ---- the folder of a few dozen nodes ----
+  { name: 'context-row-renamed-fleet', scenario: 'fleet-graph-first-fit', checks: ['commands-panel.context-rows-name-the-opened-folder'], moves: 'red', target: 'extension', ...CONTEXT_ROW_LABEL },
+  {
+    name: 'first-fit-held-to-a-smallest-zoom', scenario: 'fleet-graph-first-fit', checks: ['graph.large-topology-arrives-whole-in-its-first-drawing'], moves: 'red', target: 'extension',
+    file: GRAPH_SCRIPT, find: '    const scale = Math.min(box.width / (w + 40), box.height / (h + 40), 1.5);', replace: '    const scale = Math.max(0.75, Math.min(box.width / (w + 40), box.height / (h + 40), 1.5));',
+    says: 'a fit is held to a smallest zoom, so a topology too large for the panel at that zoom runs past its edges',
   },
   // ---- the gateway folder as the editor comes up and the server comes and goes ----
   { name: 'context-row-renamed-readiness', scenario: 'gateway-readiness', checks: ['commands-panel.context-rows-name-the-opened-folder'], moves: 'red', target: 'extension', ...CONTEXT_ROW_LABEL },

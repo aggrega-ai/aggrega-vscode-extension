@@ -1,0 +1,6 @@
+workspace:
+  # The standard library, whose directory the editor suite writes in place of
+  # the placeholder below when it copies this folder. Every component here is
+  # one of its entities, so the folder needs no catalog of its own.
+  catalog_dirs:
+    - <standard-library-catalog>

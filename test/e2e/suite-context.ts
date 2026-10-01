@@ -126,7 +126,12 @@ export interface Line { index: number; text: string }
 // once is refused, so an edit cannot land on a line nobody meant.
 export async function lineOf(ctx: SuiteContext, file: string, text: string): Promise<Line> {
   const doc = await open(ctx, file);
-  const lines = (doc.text ?? '').split('\n');
+  return lineIn(file, (doc.text ?? '').split('\n'), text);
+}
+
+// lineIn finds that line among the lines of `file` a caller already holds, and
+// names the file when it refuses.
+export function lineIn(file: string, lines: readonly string[], text: string): Line {
   const at = lines.map((l, i) => (l.trim() === text.trim() ? i : -1)).filter((i) => i !== -1);
   need(at.length === 1, `${path.basename(file)} holds the line "${text.trim()}" ${at.length} times, not once`);
   return { index: at[0], text: lines[at[0]] };
