@@ -516,6 +516,33 @@ say so:
   told about that folder, which silences that folder alone, and the two ways to
   open the workspace itself.
 
+A last group reads the welcome page as a reader meets it, step by step:
+
+- `welcome-page-empty-folder` starts on a fresh profile, on a machine with no
+  global configuration file, in a folder no workspace marker reaches: the page
+  arriving by itself in a tab of its own, each step's standing, value and ways
+  through, the checkbox and the versions at its foot, and that the editor's own
+  welcome page carries nothing of Aggrega's. It then presses each way through in
+  turn — creating the workspace configuration, drafting a Release, seeding a
+  registry it names, seeding the hub over a file that already exists, adding a
+  registry and backing out of an add, pointing at a second compiler, and taking
+  a folder beneath that already has a configuration — and turns the page's
+  opening on startup off and on again from the palette, the checkbox at its
+  foot and the settings screen, beside the house icon in the Commands panel
+  title bar, which changes no setting.
+- `welcome-page-configured-workspace` opens a workspace whose compiler, Release
+  and registry are all in place: every step met and folded on arrival, the
+  compiler step going back to **To do** when the compiler stops or will not
+  start and coming back with the compiler on your PATH, and the registry step
+  following a registry removed from the Registries panel with nothing pressed on
+  the page, and met again once the page adds it back.
+- `welcome-page-mixed-workspace` opens a workspace holding two Releases and no
+  registry: steps met folded beside steps still to do, the words each standing
+  is read in, the outline of every control in a dark, a light and a
+  high-contrast theme, a step's value set against its guidance, a step met while
+  open staying open, and the arrangement kept through a refresh and decided
+  again when the page is opened again.
+
 The folders these open are built inside the scratch directory, and before any of
 them is opened the runner reads every directory above it for anything that marks
 a workspace root, refusing the scenario where it finds one: a marker above them

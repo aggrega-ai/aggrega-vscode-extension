@@ -101,7 +101,13 @@ function commandLineFor(bin: string, on: boolean): string {
   return on ? `${bin} serve ${INSPECTION_FLAG}` : `${bin} serve`;
 }
 
-async function settingValue(ctx: SuiteContext, key: string): Promise<{ value: unknown; globalValue: unknown; workspaceValue: unknown }> {
+// manifestVersionOf is the version the manifest of the copy under test declares,
+// which no reading of a build is to show.
+export function manifestVersionOf(ctx: SuiteContext): string {
+  return (JSON.parse(fs.readFileSync(path.join(ctx.s.root.extensionCopy, 'package.json'), 'utf8')) as { version: string }).version;
+}
+
+export async function settingValue(ctx: SuiteContext, key: string): Promise<{ value: unknown; globalValue: unknown; workspaceValue: unknown }> {
   const r = await ctx.probe.request<{ value: unknown; inspect: { globalValue?: unknown; workspaceValue?: unknown } | null }>('configuration.inspect', { key });
   return { value: r.value, globalValue: r.inspect?.globalValue, workspaceValue: r.inspect?.workspaceValue };
 }
@@ -160,7 +166,7 @@ export async function gatewayChecks(ctx: SuiteContext, referenceFolder: string):
   const stamp = ctx.inputs.extension.buildStamp;
   const recipeNow = recipeAnswer(ctx.inputs.extension.dir);
   const now = 'failure' in recipeNow ? `unreadable: ${recipeNow.failure}` : recipeNow.version;
-  const manifestVersion = (JSON.parse(fs.readFileSync(path.join(ctx.s.root.extensionCopy, 'package.json'), 'utf8')) as { version: string }).version;
+  const manifestVersion = manifestVersionOf(ctx);
   await c.run('welcome-page.names-the-extension-build', {
     expected: `pressing the Commands panel's title action "${houseTitle}" (the manifest's title for aggrega.getStarted.open) opens the welcome page, whose foot reads "Extension ${stamp}": the build stamp of the copy under test, equal to what the compiler's build-provenance recipe answers for the extension's checkout now (${now}); never the manifest's version (${manifestVersion}) or "version not reported"`,
     plant: 'in the scratch copy of the extension, out/build-version.json rewritten to name another build',

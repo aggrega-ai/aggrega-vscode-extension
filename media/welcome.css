@@ -290,11 +290,10 @@ body {
    reader is scanning fastest, and it would do it on a page where every other
    section sets them a full step apart.
 
-   The reduction was right while a closed section really did put its heading
-   directly above these controls, and it stopped being right when the value came
-   to sit between them. It is recorded rather than merely deleted because the
-   hole it was closing is the obvious thing to notice and the value filling that
-   hole is not. */
+   A reduced gap would suit a closed section whose heading sat directly above
+   these controls; here the value sits between them, which is what makes a
+   reduction wrong. It is stated because the hole a reduction would close is the
+   obvious thing to notice and the value filling that hole is not. */
 .step-actions {
   display: flex;
   flex-wrap: wrap;

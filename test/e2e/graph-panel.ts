@@ -174,7 +174,7 @@ async function offsetOf(ctx: SuiteContext, doc: WebviewDocument): Promise<{ dx: 
 // putAwayNotifications hides the notifications the workbench draws over the
 // editor area, as a person puts them away to reach what is beneath: they stay in
 // the notification centre, and the record of every notification drawn is kept.
-async function putAwayNotifications(ctx: SuiteContext): Promise<void> {
+export async function putAwayNotifications(ctx: SuiteContext): Promise<void> {
   await run(ctx, 'notifications.hideToasts');
   await until('the notifications put away', 5000, () => ctx.d.workbench<number>(`[...document.querySelectorAll('.notification-toast-container, .notification-toast')].filter((e) => e.getBoundingClientRect().height > 0).length`), (n) => n === 0).catch(() => undefined);
 }
@@ -184,7 +184,7 @@ async function putAwayNotifications(ctx: SuiteContext): Promise<void> {
 // is null where the point reaches a panel's frame. A panel's document cannot
 // see what the workbench lays over it, so a point it finds clear may still be
 // covered there.
-async function coveredBy(ctx: SuiteContext, at: { x: number; y: number }): Promise<string | null> {
+export async function coveredBy(ctx: SuiteContext, at: { x: number; y: number }): Promise<string | null> {
   return ctx.d.workbench<string | null>(`((x, y) => {
     const e = document.elementFromPoint(x, y);
     if (e && e.tagName === 'IFRAME') { return null; }

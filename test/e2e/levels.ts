@@ -184,7 +184,7 @@ export function waitChooser(d: UiDriver, what: string, done: (c: Chooser) => boo
 
 // CHOOSER_SETTLE_MS is how long a chooser a row press opened is watched staying
 // drawn before it is taken as opened.
-const CHOOSER_SETTLE_MS = 400;
+export const CHOOSER_SETTLE_MS = 400;
 
 // rowChooser presses a row's choosing control and answers with the chooser it
 // opens, once that chooser has stayed drawn a moment.

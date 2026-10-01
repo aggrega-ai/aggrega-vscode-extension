@@ -62,7 +62,7 @@ const MENU_LISTED_MS = 10000;
 
 // paletteTitle is how the palette lists a command: the manifest's category, where
 // it declares one, then its title.
-function paletteTitle(ctx: SuiteContext, command: string): string {
+export function paletteTitle(ctx: SuiteContext, command: string): string {
   const c = ctx.manifest.contributes.commands.find((x) => x.command === command);
   if (!c) { throw new Error(`the manifest declares no command ${command}`); }
   return c.category ? `${c.category}: ${c.title}` : c.title;
@@ -86,7 +86,7 @@ async function paletteLook(ctx: SuiteContext, title: string): Promise<{ q: Quick
   return { q, rows };
 }
 
-async function closePalette(ctx: SuiteContext): Promise<void> {
+export async function closePalette(ctx: SuiteContext): Promise<void> {
   await ctx.d.press('Escape');
   await until('the palette closing', 5000, () => quickInput(ctx.d), (x) => x === null).catch(() => undefined);
 }

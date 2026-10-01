@@ -110,8 +110,8 @@ async function searchFor(ctx: SuiteContext, query: string): Promise<QuickInput |
 
 // The prompt Add registry asks for the host with, by its title, and the global
 // file as the destination picker names it, read from the list it is drawn from.
-const ADD_REGISTRY_TITLE = 'Aggrega: add a registry';
-const GLOBAL_DESTINATION = CONFIG_WRITE_DESTINATIONS.find((d) => d.value === 'global')?.label ?? '';
+export const ADD_REGISTRY_TITLE = 'Aggrega: add a registry';
+export const GLOBAL_DESTINATION = CONFIG_WRITE_DESTINATIONS.find((d) => d.value === 'global')?.label ?? '';
 
 // The trust clauses a registration's closing line carries for the two outcomes
 // the checks below reach, held as the words a reader is to meet, so a change of
@@ -138,7 +138,7 @@ const HUB = 'hub.aggrega.ai';
 const UNLISTENED_ONLINE = 'localhost:1';
 const UNLISTENED_OFFLINE = 'localhost:2';
 
-const globalConfiguration = (h: ScratchHome): string => path.join(h.home, '.config', 'aggrega', 'config.yaml');
+export const globalConfiguration = (h: ScratchHome): string => path.join(h.home, '.config', 'aggrega', 'config.yaml');
 
 // referenceHome is a home of its own for the server's reference answer to a
 // registration, holding a copy of the scenario's global configuration as it
@@ -313,7 +313,7 @@ interface RegistryEntry { host?: string; trusted_identities?: Array<{ identity?:
 
 // entryFor reads a configuration file's one document and the entry keyed under
 // `host` in it.
-function entryFor(text: string, host: string): RegistryEntry | null {
+export function entryFor(text: string, host: string): RegistryEntry | null {
   const [doc] = loadAll(text) as Array<{ registries?: RegistryEntry[] } | null>;
   return (doc?.registries ?? []).find((r) => r.host === host) ?? null;
 }

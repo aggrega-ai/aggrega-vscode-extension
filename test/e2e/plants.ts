@@ -1070,9 +1070,7 @@ export const PLANTS: readonly Plant[] = [
   },
   {
     name: 'release-create-settles-no-kind', scenario: 'two-releases-context-rows', checks: ['release-row.create-control-asks-only-for-the-name'], moves: 'red', target: 'extension',
-    file: 'out/src/get-started.js', find: "    await vscode.commands.executeCommand('aggrega.op.scaffold', undefined, selector_levels_1.SELECTOR_ROW_LABELS.release);",
-    replace: "    await vscode.commands.executeCommand('aggrega.op.scaffold', undefined, undefined);",
-    says: 'the Release row\'s create control opens the drafting flow with no kind settled, so it asks for a kind before the name',
+    ...draftingWithNoKindSettled(),
   },
   {
     name: 'choice-of-the-workspace-in-use-restarts', scenario: 'two-releases-context-rows', checks: ['context-rows.choosing-where-you-are-restarts-nothing'], moves: 'red', target: 'extension',
@@ -1207,8 +1205,7 @@ export const PLANTS: readonly Plant[] = [
   // ---- where the markers sit, relative to the folder opened ----
   {
     name: 'nothing-reachable-read-as-none-chosen', scenario: 'workspace-discovery-layouts', checks: ['workspace-row.nothing-reachable-reads-none-available-and-the-ways-out'], moves: 'red', target: 'extension',
-    file: 'out/src/selector-rows.js', find: '    if (anchoredRoot === null) {\n        if (candidates === 0) {', replace: '    if (anchoredRoot === null) {\n        if (candidates === -1) {',
-    says: 'a project reaching no Aggrega workspace is read as one holding several with none chosen',
+    ...nothingReachableReadAsNoneChosen(),
   },
   {
     name: 'release-row-asks-with-no-workspace', scenario: 'workspace-discovery-layouts', checks: ['release-row.no-workspace-in-use-answers-with-the-ways-out'], moves: 'red', target: 'extension',
@@ -1319,6 +1316,260 @@ export const PLANTS: readonly Plant[] = [
     file: EXTENSION, find: '{ modal: true, detail: notice.detail }', replace: '{ modal: false, detail: notice.detail }',
     says: 'the interruption is raised as a notification rather than a dialog',
   },
+  // ---- the welcome page, in an empty folder ----
+  {
+    name: 'welcome-page-off-by-default', scenario: 'welcome-page-empty-folder', checks: ['welcome-page.opens-by-itself-on-a-fresh-profile'], moves: 'red', target: 'extension',
+    file: 'package.json', find: '"default": true,', replace: '"default": false,',
+    says: 'the preference that opens the page on startup is declared off by default',
+  },
+  {
+    name: 'welcome-page-tab-titled-welcome', scenario: 'welcome-page-empty-folder', checks: ['welcome-page.is-a-tab-of-its-own'], moves: 'red', target: 'extension',
+    file: 'out/src/get-started-steps.js', find: "exports.WELCOME_PANEL_TITLE = 'Welcome to Aggrega';", replace: "exports.WELCOME_PANEL_TITLE = 'Welcome';",
+    says: 'the page\'s tab is titled "Welcome", which names nobody\'s page',
+  },
+  {
+    name: 'empty-folder-read-as-a-workspace-unchosen', scenario: 'welcome-page-empty-folder', checks: ['empty-folder.rows-read-no-workspace-and-no-server-runs'], moves: 'red', target: 'extension',
+    ...nothingReachableReadAsNoneChosen(),
+  },
+  {
+    name: 'compiler-step-offers-one-way-through', scenario: 'welcome-page-empty-folder', checks: ['welcome-page.every-step-offers-its-ways-through'], moves: 'red', target: 'extension',
+    file: 'out/src/get-started-steps.js', find: "            { label: 'Point at a compiler I have', command: exports.LOCATE_COMPILER_COMMAND },\n", replace: '',
+    says: 'the compiler step offers one way through, the way to point at a compiler of the reader\'s own left out',
+  },
+  {
+    name: 'foot-words-unbound', scenario: 'welcome-page-empty-folder', checks: ['welcome-page.foot-checkbox-reports-the-preference'], moves: 'red', target: 'extension',
+    file: 'out/src/welcome-render.js', find: '<label class="dismiss-label" for="${PANEL_SETTING_CONTROL_ID}">', replace: '<label class="dismiss-label">',
+    says: 'the words at the foot are drawn beside the checkbox without being bound to it as its label',
+  },
+  {
+    name: 'nothing-available-read-as-nothing-chosen', scenario: 'welcome-page-empty-folder',
+    checks: ['welcome-page.values-say-in-words-that-nothing-is-chosen', 'welcome-page.release-step-reads-none-available-with-no-release'], moves: 'red', target: 'extension',
+    file: 'out/src/get-started-steps.js', find: '    return candidates === 0 ? exports.VALUE_NONE_AVAILABLE : exports.VALUE_NONE_SELECTED;', replace: '    return candidates === 0 ? exports.VALUE_NONE_SELECTED : exports.VALUE_NONE_AVAILABLE;',
+    says: 'a level holding nothing is said to have nothing chosen, and one where nothing is chosen to hold nothing',
+  },
+  {
+    name: 'absent-version-drawn-as-a-value', scenario: 'welcome-page-empty-folder', checks: ['welcome-page.compiler-version-reads-not-reported-with-no-server'], moves: 'red', target: 'extension',
+    file: 'out/src/welcome-render.js', find: "    const valueClass = known ? 'version-value' : 'version-value version-value-absent';", replace: "    const valueClass = 'version-value';",
+    says: 'a version that was not reported is drawn in the same face as one that was',
+  },
+  {
+    name: 'workspace-step-names-its-row-by-its-label', scenario: 'welcome-page-empty-folder', checks: ['welcome-page.workspace-step-names-the-rows-it-points-at'], moves: 'green', target: 'extension',
+    file: 'out/src/get-started-steps.js', find: 'The **Workspace** row at the top of the Commands panel', replace: 'The **Aggrega workspace** row at the top of the Commands panel',
+    says: 'the workspace step names the row that says which folder was anchored by the label the row draws',
+  },
+  {
+    name: 'global-file-said-to-keep-credentials-out', scenario: 'welcome-page-empty-folder', checks: ['welcome-page.workspace-step-says-nothing-of-credentials'], moves: 'red', target: 'extension',
+    file: 'out/src/get-started-steps.js', find: 'It loads automatically when it is there, and nothing breaks when it is not.\',', replace: 'It loads automatically when it is there, and nothing breaks when it is not. It is there so credentials need not be committed.\',',
+    says: 'the workspace step says the global file is there so credentials need not be committed',
+  },
+  {
+    name: 'page-links-back-to-the-editors-welcome', scenario: 'welcome-page-empty-folder', checks: ['welcome-page.offers-no-way-back'], moves: 'red', target: 'extension',
+    file: 'out/src/welcome-render.js', find: '  <main class="welcome">', replace: '  <main class="welcome"><a class="welcome-back" href="#">Back to the editor\'s welcome page</a>',
+    says: 'the page opens with a link back to the editor\'s own welcome page',
+  },
+  {
+    name: 'walkthrough-contributed', scenario: 'welcome-page-empty-folder', checks: ['editor-welcome.carries-no-aggrega-entry'], moves: 'red', target: 'extension',
+    file: 'package.json', find: '  "contributes": {\n    "viewsContainers": {',
+    replace: '  "contributes": {\n    "walkthroughs": [\n      {\n        "id": "aggrega",\n        "title": "Aggrega",\n        "description": "Getting started with Aggrega",\n        "steps": [\n          { "id": "open", "title": "Open the welcome page", "description": "Open the welcome page.", "media": { "image": "media/aggrega.svg", "altText": "Aggrega" } }\n        ]\n      }\n    ],\n    "viewsContainers": {',
+    says: 'the extension contributes a walkthrough to the editor\'s own welcome page',
+  },
+  {
+    name: 'nothing-recognised-offered-as-an-empty-chooser', scenario: 'welcome-page-empty-folder', checks: ['welcome-page.use-a-folder-with-none-recognised-says-so'], moves: 'red', target: 'extension',
+    file: 'out/src/get-started.js',
+    find: "    if (candidates.length === 0) {\n        void vscode.window.showInformationMessage('Aggrega: no folder in this workspace carries anything",
+    replace: "    if (false) {\n        void vscode.window.showInformationMessage('Aggrega: no folder in this workspace carries anything",
+    says: 'a search that recognised nothing is offered as an empty chooser rather than answered in words',
+  },
+  {
+    name: 'created-configuration-carries-a-list', scenario: 'welcome-page-empty-folder', checks: ['welcome-page.create-writes-the-file-the-step-describes'], moves: 'red', target: 'extension',
+    file: 'out/src/workspace.js', find: '    `workspace: {}\\n`;', replace: '    `workspace:\\n  catalog_dirs: []\\n`;',
+    says: 'the configuration the control writes carries a list beneath its workspace key rather than the empty block the step names',
+  },
+  {
+    name: 'page-draft-settles-no-kind', scenario: 'welcome-page-empty-folder', checks: ['welcome-page.draft-a-release-asks-only-for-the-name'], moves: 'red', target: 'extension',
+    ...draftingWithNoKindSettled(),
+  },
+  {
+    name: 'seeding-registers-another-host', scenario: 'welcome-page-empty-folder', checks: ['welcome-page.seed-a-named-registry-writes-the-global-file'], moves: 'red', target: 'extension',
+    file: 'out/src/get-started.js', find: '    const outcome = await (0, config_seeding_1.runSeeding)(deps, host);', replace: "    const outcome = await (0, config_seeding_1.runSeeding)(deps, host === null ? null : 'localhost:1');",
+    says: 'seeding a registry the reader names registers another host than the one named',
+  },
+  {
+    name: 'refusal-words-dropped', scenario: 'welcome-page-empty-folder', checks: ['welcome-page.seeding-the-hub-over-a-file-is-refused-in-the-compilers-words'], moves: 'red', target: 'extension',
+    file: 'out/src/operation-outcome.js', find: '            return `${what} did not complete: ${outcome.message}`;', replace: '            return `${what} did not complete.`;',
+    says: 'a refusal ends in its subject alone, none of the compiler\'s words carried',
+  },
+  {
+    name: 'destinations-offered-project-first', scenario: 'welcome-page-empty-folder', checks: ['welcome-page.add-a-registry-merges-into-the-file'], moves: 'red', target: 'extension',
+    file: 'out/src/config-write-scope.js',
+    find: "    { value: 'global', label: destinationLabel('global') },\n    { value: 'workspace', label: destinationLabel('workspace') },",
+    replace: "    { value: 'workspace', label: destinationLabel('workspace') },\n    { value: 'global', label: destinationLabel('global') },",
+    says: 'the choice of file offers the project\'s own file first, so taking the first writes there',
+  },
+  {
+    name: 'page-unread-when-the-server-returns-after-an-add', scenario: 'welcome-page-empty-folder', checks: ['welcome-page.registry-step-follows-an-add-with-no-press'], moves: 'red', target: 'extension',
+    ...pageUnreadWhenTheServerReturns(),
+  },
+  {
+    name: 'destination-dismissed-read-as-global', scenario: 'welcome-page-empty-folder', checks: ['welcome-page.add-a-registry-backed-out-writes-nothing'], moves: 'red', target: 'extension',
+    file: 'out/src/registries-view.js',
+    find: '        const destination = await askWriteDestination(registry_configure_1.REGISTRATION_DESTINATION_PROMPT);\n        if (!destination) {\n            return;\n        }',
+    replace: "        const destination = (await askWriteDestination(registry_configure_1.REGISTRATION_DESTINATION_PROMPT)) ?? 'global';",
+    says: 'an Escape at the choice of file is read as the global file, so the registration goes ahead',
+  },
+  {
+    name: 'compiler-reading-names-the-manifest-version', scenario: 'welcome-page-empty-folder', checks: ['welcome-page.foot-names-both-versions-on-one-line'], moves: 'red', target: 'extension',
+    file: EXTENSION, find: '    return { extension: extensionVersion, compiler: reading.version };', replace: '    return { extension: extensionVersion, compiler: ext ? ext.packageJSON.version : null };',
+    says: 'the compiler reading at the foot is the extension\'s manifest number',
+  },
+  {
+    name: 'chosen-compiler-written-elsewhere', scenario: 'welcome-page-empty-folder', checks: ['welcome-page.point-at-a-compiler-writes-the-setting'], moves: 'red', target: 'extension',
+    file: 'out/src/get-started.js', find: '    await writeBinaryPath(chosen.fsPath);', replace: '    await writeBinaryPath(`${chosen.fsPath}-elsewhere`);',
+    says: 'the compiler chosen in the file dialog is written to the setting as another path',
+  },
+  {
+    name: 'compiler-read-from-the-setting', scenario: 'welcome-page-empty-folder', checks: ['welcome-page.compiler-version-follows-a-binary-change'], moves: 'red', target: 'extension',
+    file: EXTENSION, find: '    const running = daemon?.getLaunchedBinaryPath() ?? null;', replace: '    const running = (0, settings_vscode_1.getSettings)().binaryPath;',
+    says: 'the compiler reading asks the binary the setting names rather than the one the language server was started from',
+  },
+  {
+    name: 'stop-command-left-out-of-the-palette', scenario: 'welcome-page-empty-folder', checks: ['palette.stop-opening-says-how-to-bring-it-back'], moves: 'red', target: 'extension',
+    file: 'package.json', find: '      "commandPalette": [\n', replace: '      "commandPalette": [\n        {\n          "command": "aggrega.getStarted.dismiss",\n          "when": "false"\n        },\n',
+    says: 'the command that stops the page opening on startup is left out of the command palette',
+  },
+  {
+    name: 'page-opens-whatever-the-preference', scenario: 'welcome-page-empty-folder', checks: ['welcome-page.stays-closed-on-a-reopen-when-off'], moves: 'red', target: 'extension',
+    file: 'out/src/get-started.js', find: '        if (!opensWithEditor()) {\n            return;\n        }\n        const read = await reread();', replace: '        if (false) {\n            return;\n        }\n        const read = await reread();',
+    says: 'the page opens on startup whatever the preference says',
+  },
+  {
+    name: 'get-started-leaves-the-preference-off', scenario: 'welcome-page-empty-folder', checks: ['palette.get-started-brings-the-page-back-ticked'], moves: 'red', target: 'extension',
+    file: 'out/src/get-started.js', find: '    await setShown(true);\n    try {', replace: '    try {',
+    says: 'the palette\'s way back opens the page and leaves the preference off',
+  },
+  {
+    name: 'dismissal-says-nothing', scenario: 'welcome-page-empty-folder', checks: ['welcome-page.foot-checkbox-untick-says-how-to-bring-it-back'], moves: 'red', target: 'extension',
+    file: 'out/src/get-started.js', find: '    await setShown(false);\n    void vscode.window.showInformationMessage(get_started_steps_1.DISMISSED_CONFIRMATION);', replace: '    await setShown(false);',
+    says: 'turning the page off on startup raises no notification naming the way back',
+  },
+  {
+    name: 'page-revealed-keeping-the-focus', scenario: 'welcome-page-empty-folder', checks: ['welcome-page.foot-checkbox-toggles-from-the-keyboard'], moves: 'green', target: 'extension',
+    file: 'out/src/get-started.js', find: '            open.reveal(vscode.ViewColumn.Active);', replace: '            open.reveal(vscode.ViewColumn.Active, true);',
+    says: 'a page already open is brought forward leaving the focus where it is',
+  },
+  {
+    name: 'foot-deaf-to-the-preference', scenario: 'welcome-page-empty-folder', checks: ['welcome-page.foot-checkbox-follows-the-settings-screen'], moves: 'red', target: 'extension',
+    file: 'out/src/get-started.js', find: '        if (!event.affectsConfiguration(get_started_steps_1.WELCOME_SHOW_SETTING)) {', replace: '        if (true) {',
+    says: 'the foot is not drawn again when the preference moves',
+  },
+  {
+    name: 'foot-runs-the-command-for-the-other-state', scenario: 'welcome-page-empty-folder', checks: ['settings.screen-follows-the-foot-checkbox'], moves: 'red', target: 'extension',
+    file: 'out/src/welcome-render.js', find: 'panelSettingCommand)(opensWithEditor))', replace: 'panelSettingCommand)(!opensWithEditor))',
+    says: 'the checkbox at the foot runs the command for the state it is not in, so unticking it leaves the preference on',
+  },
+  {
+    name: 'house-turns-the-preference-on', scenario: 'welcome-page-empty-folder', checks: ['commands-panel.house-opens-the-page-and-leaves-the-preference'], moves: 'red', target: 'extension',
+    file: 'out/src/get-started.js', find: 'vscode.commands.registerCommand(get_started_steps_1.WELCOME_OPEN_COMMAND, () => void openPanel())', replace: 'vscode.commands.registerCommand(get_started_steps_1.WELCOME_OPEN_COMMAND, () => bringBack(openPanel))',
+    says: 'the house turns the preference back on as it opens the page',
+  },
+  {
+    name: 'house-reveals-nothing', scenario: 'welcome-page-empty-folder', checks: ['commands-panel.house-brings-the-open-page-to-the-front'], moves: 'red', target: 'extension',
+    file: 'out/src/get-started.js', find: '        if (reveal) {\n            open.reveal(vscode.ViewColumn.Active);\n        }', replace: '        if (false) {\n            open.reveal(vscode.ViewColumn.Active);\n        }',
+    says: 'an open page asked for again is refreshed and left behind the tab in front',
+  },
+  {
+    name: 'house-command-listed-in-the-palette', scenario: 'welcome-page-empty-folder', checks: ['palette.house-command-is-not-listed'], moves: 'red', target: 'extension',
+    file: 'package.json', find: '          "command": "aggrega.getStarted.open",\n          "when": "false"', replace: '          "command": "aggrega.getStarted.open",\n          "when": "true"',
+    says: 'the house\'s command is listed in the command palette',
+  },
+  {
+    name: 'folder-chosen-beneath-kept-as-already-open', scenario: 'welcome-page-empty-folder', checks: ['welcome-page.use-a-folder-takes-one-recognised-beneath'], moves: 'red', target: 'extension',
+    file: 'out/src/get-started.js', find: '    if (opened.has(choice.directory)) {', replace: '    if (true) {',
+    says: 'a folder chosen beneath the one open is treated as one the window already has open, so it is remembered and never added',
+  },
+  // ---- the welcome page, in a workspace configured beforehand ----
+  {
+    name: 'registry-met-only-by-two', scenario: 'welcome-page-configured-workspace', checks: ['welcome-page.configured-workspace-arrives-with-every-step-met'], moves: 'red', target: 'extension',
+    file: 'out/src/get-started-steps.js', find: '            return (facts.registries ?? []).length > 0;', replace: '            return (facts.registries ?? []).length > 1;',
+    says: 'the registry step is met only where two registries are named',
+  },
+  {
+    name: 'compiler-step-met-whatever-answers', scenario: 'welcome-page-configured-workspace', checks: ['welcome-page.compiler-step-goes-back-to-do-when-the-compiler-stops'], moves: 'red', target: 'extension',
+    file: 'out/src/get-started-steps.js', find: '            return facts.compilerAnswering;', replace: '            return true;',
+    says: 'the compiler step is met whether or not the compiler answers',
+  },
+  {
+    name: 'panel-arranged-with-nothing-folded', scenario: 'welcome-page-configured-workspace', checks: ['welcome-page.arrives-with-only-the-workspace-folded-when-the-compiler-will-not-start'], moves: 'red', target: 'extension',
+    file: 'out/src/welcome-render.js', find: '    return get_started_steps_1.STEP_IDS.filter((id) => readings[id].met);', replace: '    return [];',
+    says: 'a page is arranged with nothing folded, whatever is met when it is created',
+  },
+  {
+    name: 'way-back-names-nothing-on-the-path', scenario: 'welcome-page-configured-workspace', checks: ['welcome-page.compiler-step-comes-back-with-the-compiler-on-path'], moves: 'red', target: 'extension',
+    file: 'out/src/get-started.js', find: '    await writeBinaryPath(settings_1.DEFAULT_SETTINGS.binaryPath);', replace: "    await writeBinaryPath('aggrega-not-on-this-path');",
+    says: 'the compiler step\'s way back writes a name nothing on the PATH carries',
+  },
+  {
+    name: 'page-unread-when-the-server-returns-after-a-removal', scenario: 'welcome-page-configured-workspace', checks: ['welcome-page.registry-step-follows-a-removal-with-no-press'], moves: 'red', target: 'extension',
+    ...pageUnreadWhenTheServerReturns(),
+  },
+  {
+    name: 'add-registers-another-host', scenario: 'welcome-page-configured-workspace', checks: ['welcome-page.registry-step-comes-back-with-an-added-registry'], moves: 'red', target: 'extension',
+    file: 'out/src/registries-view.js', find: '        const first = await (0, registry_configure_1.runRegistryAdd)(deps, host, destination);', replace: "        const first = await (0, registry_configure_1.runRegistryAdd)(deps, 'localhost:9', destination);",
+    says: 'the add registers another host than the one given',
+  },
+  // ---- the welcome page, in a workspace where some steps are met ----
+  {
+    name: 'arrangement-inverted', scenario: 'welcome-page-mixed-workspace', checks: ['welcome-page.arrives-folded-on-what-is-met'], moves: 'red', target: 'extension',
+    file: 'out/src/welcome-render.js', find: '    return get_started_steps_1.STEP_IDS.filter((id) => readings[id].met);', replace: '    return get_started_steps_1.STEP_IDS.filter((id) => !readings[id].met);',
+    says: 'a page is arranged the wrong way round, the steps still to do folded and the met ones open',
+  },
+  {
+    name: 'unmet-standing-outstanding', scenario: 'welcome-page-mixed-workspace', checks: ['welcome-page.standings-read-met-and-to-do'], moves: 'red', target: 'extension',
+    file: 'out/src/welcome-render.js', find: "exports.UNMET_LABEL = 'To do';", replace: "exports.UNMET_LABEL = 'Outstanding';",
+    says: 'a step still to do stands as "Outstanding"',
+  },
+  {
+    name: 'description-names-a-lapse-outstanding', scenario: 'welcome-page-mixed-workspace', checks: ['settings.get-started-show-label-and-description'], moves: 'red', target: 'extension',
+    file: 'package.json', find: 'marking it to do again if it later lapses', replace: 'marking it outstanding again if it later lapses',
+    says: 'the setting\'s description names a step that lapses outstanding',
+  },
+  {
+    name: 'folded-step-puts-its-ways-through-away', scenario: 'welcome-page-mixed-workspace', checks: ['welcome-page.folded-step-keeps-its-ways-through-drawn-and-outlined'], moves: 'red', target: 'extension',
+    file: 'media/welcome.css', find: '.step-actions {\n  display: flex;', replace: '.step-prose[hidden] ~ .step-actions { display: none; }\n.step-actions {\n  display: flex;',
+    says: 'a folded step puts its ways through away with its explanation',
+  },
+  {
+    name: 'search-finds-no-recognised-folder', scenario: 'welcome-page-mixed-workspace', checks: ['welcome-page.folded-step-control-works'], moves: 'red', target: 'extension',
+    file: 'out/src/get-started.js', find: '    const candidates = await anchoredDirectories();\n    if (candidates.length === 0) {', replace: '    const candidates = [];\n    if (candidates.length === 0) {',
+    says: 'the search for folders Aggrega recognises finds none',
+  },
+  {
+    name: 'open-step-draws-its-value-twice', scenario: 'welcome-page-mixed-workspace', checks: ['welcome-page.each-step-names-what-it-stands-at'], moves: 'red', target: 'extension',
+    file: 'media/welcome.css', find: '.step-prose:not([hidden]) + .step-value-folded {\n  display: none;\n}', replace: '.step-prose:not([hidden]) + .step-value-folded {\n}',
+    says: 'an open step draws its value at both places, under the title as well as above its ways through',
+  },
+  {
+    name: 'value-set-as-the-text-around-it', scenario: 'welcome-page-mixed-workspace', checks: ['welcome-page.value-outranks-the-guidance'], moves: 'red', target: 'extension',
+    file: 'media/welcome.css', find: '  font-family: var(--vscode-editor-font-family, monospace);\n  font-size: 1.15rem;\n  font-weight: 600;', replace: '  font-family: var(--vscode-editor-font-family, monospace);\n  font-size: inherit;\n  font-weight: inherit;',
+    says: 'the value is set at the size and weight of the text around it',
+  },
+  {
+    name: 'arrangement-decided-again-on-every-refresh', scenario: 'welcome-page-mixed-workspace', checks: ['welcome-page.step-satisfied-while-open-stays-open'], moves: 'red', target: 'extension',
+    file: 'out/src/get-started.js',
+    find: "        panel?.webview.postMessage({ type: 'steps', html: (0, welcome_render_1.stepsHtml)(read, collapsed) });",
+    replace: "        panel?.webview.postMessage({ type: 'steps', html: (0, welcome_render_1.stepsHtml)(read, (0, welcome_render_1.initiallyCollapsedStepIds)(read)) });",
+    says: 'the arrangement is decided again from what is met each time the page is drawn again',
+  },
+  {
+    name: 'caret-press-not-recorded', scenario: 'welcome-page-mixed-workspace', checks: ['welcome-page.caret-pressed-survives-a-refresh'], moves: 'red', target: 'extension',
+    file: 'out/src/get-started.js', find: '                collapsed = (0, get_started_steps_1.readCollapsedSteps)(named.collapsed);', replace: '                (0, get_started_steps_1.readCollapsedSteps)(named.collapsed);',
+    says: 'a caret the reader pressed is not recorded, so the page is drawn again in the shape it opened in',
+  },
+  {
+    name: 'reopened-page-keeps-the-old-arrangement', scenario: 'welcome-page-mixed-workspace', checks: ['welcome-page.reopened-page-arranges-afresh'], moves: 'red', target: 'extension',
+    file: 'out/src/get-started.js', find: '        collapsed = (0, welcome_render_1.initiallyCollapsedStepIds)(read.steps);', replace: '        collapsed = collapsed.length > 0 ? collapsed : (0, welcome_render_1.initiallyCollapsedStepIds)(read.steps);',
+    says: 'a page opened again keeps the arrangement the page before it was left in',
+  },
 ];
 
 // The edits two scenarios' plants make alike, each named once. They are function
@@ -1344,6 +1595,28 @@ function workspaceRowDrawnUnmarked(): SharedEdit {
   return {
     file: 'out/src/selector-rows.js', find: '        warning: differs ? workspace_above_1.WORKSPACE_ABOVE_HEADLINE : null,', replace: '        warning: null,',
     says: 'the Aggrega workspace row is drawn without its mark where the workspace sits outside the folder opened',
+  };
+}
+
+function nothingReachableReadAsNoneChosen(): SharedEdit {
+  return {
+    file: 'out/src/selector-rows.js', find: '    if (anchoredRoot === null) {\n        if (candidates === 0) {', replace: '    if (anchoredRoot === null) {\n        if (candidates === -1) {',
+    says: 'a project reaching no Aggrega workspace is read as one holding several with none chosen',
+  };
+}
+
+function draftingWithNoKindSettled(): SharedEdit {
+  return {
+    file: 'out/src/get-started.js', find: "    await vscode.commands.executeCommand('aggrega.op.scaffold', undefined, selector_levels_1.SELECTOR_ROW_LABELS.release);",
+    replace: "    await vscode.commands.executeCommand('aggrega.op.scaffold', undefined, undefined);",
+    says: 'the drafting of a Release, from the Release row\'s create control and from the welcome page alike, opens with no kind settled, so it asks for a kind before the name',
+  };
+}
+
+function pageUnreadWhenTheServerReturns(): SharedEdit {
+  return {
+    file: 'out/src/get-started.js', find: '    deps.onReady(refresh);', replace: '    deps.onReady(() => undefined);',
+    says: 'the welcome page is not read again when the language server comes back up, so a change made elsewhere reaches it only when something on the page asks',
   };
 }
 

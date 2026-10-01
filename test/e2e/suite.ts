@@ -39,6 +39,10 @@ import { registryChecks, REGISTRY_CHECKS } from './suite-registry';
 import { storefrontChecks, STOREFRONT_CHECKS } from './suite-storefront';
 import { TOP_LEVEL_ATTACH_CHECKS, topLevelAttachChecks } from './suite-top-level-attach';
 import { TWO_WORKSPACES_CHECKS, twoWorkspacesChecks } from './suite-two-workspaces';
+import { CONFIGURED_HOST, WELCOME_CONFIGURED_CHECKS, welcomeConfiguredChecks } from './suite-welcome-configured';
+import { WELCOME_EMPTY_FOLDER_CHECKS, welcomeEmptyFolderChecks } from './suite-welcome-empty-folder';
+import { WELCOME_MIXED_CHECKS, welcomeMixedChecks } from './suite-welcome-mixed';
+import { placeNotABinary, placeSecondCompiler, registerWithNoTrust, SecondCompiler } from './welcome';
 
 // The suite: the checks of which build is under test, of the build-analysis
 // setting and the two diagnostic layers it separates, and of the capabilities
@@ -71,6 +75,9 @@ export const SCENARIO_CHECKS: Readonly<Record<string, readonly string[]>> = {
   'workspace-discovery-layouts': DISCOVERY_CHECKS,
   'release-beneath-a-workspace-root': BENEATH_CHECKS,
   'workspace-above-interruption': ABOVE_DIALOG_CHECKS,
+  'welcome-page-empty-folder': WELCOME_EMPTY_FOLDER_CHECKS,
+  'welcome-page-configured-workspace': WELCOME_CONFIGURED_CHECKS,
+  'welcome-page-mixed-workspace': WELCOME_MIXED_CHECKS,
 };
 
 // ScenarioResult is one scenario as the report states it.
@@ -315,7 +322,7 @@ function plans(inputs: Inputs): ScenarioPlan[] {
       name: 'no-workspace-first-day',
       checks: NO_WORKSPACE_CHECKS,
       prepare: async (root) => {
-        const folder = path.join(root.dir, 'pb-none');
+        const folder = path.join(root.dir, 'unanchored');
         return { folder, fixtures: [await placeUnanchored(folder)] };
       },
       body: (ctx) => noWorkspaceChecks(ctx),
@@ -324,7 +331,7 @@ function plans(inputs: Inputs): ScenarioPlan[] {
       name: 'workspace-above-authoring-release',
       checks: AUTHORING_RELEASE_CHECKS,
       prepare: async (root) => {
-        const top = path.join(root.dir, 'pb-above');
+        const top = path.join(root.dir, 'root-above-services');
         const layout = await placeEmptyBeneathWorkspace(top, path.join('services', 'docs'));
         return { folder: layout.folder, fixtures: [layout.proof], extra: { root: top } };
       },
@@ -447,6 +454,56 @@ function plans(inputs: Inputs): ScenarioPlan[] {
         return { folder: path.join(layouts, ABOVE_DIALOG_FIRST), fixtures, extra: { layouts } };
       },
       body: (ctx, p) => aboveDialogChecks(ctx, p.extra?.layouts as string),
+    },
+    {
+      name: 'welcome-page-empty-folder',
+      checks: WELCOME_EMPTY_FOLDER_CHECKS,
+      observers: LEVEL_OBSERVERS,
+      prepare: async (root, home, log) => {
+        const folder = path.join(root.dir, 'empty-folder');
+        const fixtures = [await placeUnanchored(folder), proveNothingAbove(folder)];
+        // A file outside the folder, opened beside the page to show the page takes
+        // nothing away from it.
+        const beside = path.join(root.dir, 'beside', 'notes.txt');
+        fs.mkdirSync(path.dirname(beside), { recursive: true });
+        fs.writeFileSync(beside, 'A file opened beside the welcome page.\n');
+        const second = await placeSecondCompiler(bin, path.join(root.dir, 'second-compiler'), home, log);
+        fixtures.push(second.proof);
+        const table = new ProcessTable(path.join(root.dir, 'registry-processes.json'));
+        const registry = await startRegistry(inputs.registryServer.path, path.join(root.dir, 'registry'), home, table)
+          .catch(async (err: unknown) => { await stopTable(table); throw err; });
+        fixtures.push(registry.proof);
+        return { folder, fixtures, extra: { registry, table, second, beside } };
+      },
+      body: (ctx, p) => welcomeEmptyFolderChecks(ctx, { registry: p.extra?.registry as ScratchRegistry, second: p.extra?.second as SecondCompiler, beside: p.extra?.beside as string }),
+      cleanup: async (p) => { if (p?.extra?.table) { await stopTable(p.extra.table as ProcessTable); } },
+    },
+    {
+      name: 'welcome-page-configured-workspace',
+      checks: WELCOME_CONFIGURED_CHECKS,
+      prepare: async (root, home, log) => {
+        const folder = path.join(root.dir, 'workspace', 'gateway');
+        const missing = path.join(root.dir, 'no-such-compiler', 'aggrega');
+        const notABinary = path.join(root.dir, 'not-a-compiler', 'aggrega');
+        const fixtures = [
+          placeFolder(inputs.extension.dir, 'gateway', folder, inputs.catalog.dir),
+          await writeLockfile(bin, folder, 'release-compose.yaml', home, log),
+          await registerWithNoTrust(bin, CONFIGURED_HOST, folder, home, log),
+          proveMissing(missing),
+          placeNotABinary(notABinary),
+        ];
+        return { folder, fixtures, extra: { missing, notABinary } };
+      },
+      body: (ctx, p) => welcomeConfiguredChecks(ctx, { missing: p.extra?.missing as string, notABinary: p.extra?.notABinary as string }),
+    },
+    {
+      name: 'welcome-page-mixed-workspace',
+      checks: WELCOME_MIXED_CHECKS,
+      prepare: async (root) => {
+        const folder = path.join(root.dir, 'workspace', 'two-releases');
+        return { folder, fixtures: [placeFolder(inputs.extension.dir, 'two-releases', folder, inputs.catalog.dir)] };
+      },
+      body: (ctx) => welcomeMixedChecks(ctx),
     },
   ];
 }
