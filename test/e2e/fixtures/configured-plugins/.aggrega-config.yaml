@@ -1,0 +1,17 @@
+workspace:
+  # The standard library, whose directory the editor suite writes in place of
+  # the placeholder below when it copies this folder. The folder holds no entity
+  # of its own: it exists for the plugin entries below, one the compiler can
+  # describe and one it cannot.
+  catalog_dirs:
+    - <standard-library-catalog>
+plugins:
+  # Resolves: the standard library's Helm provider entity, served by the guest
+  # built into the compiler, so the plugin listing reports it with its type.
+  providers:
+    - capability: helm
+      uri: provider/helm
+  # Resolves to nothing: no file of this name sits beside this one, so the
+  # listing reports the entry with the compiler's message and no type.
+  linter:
+    - uri: ./no-such-linter.wasm

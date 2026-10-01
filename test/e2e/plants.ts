@@ -358,11 +358,7 @@ export const PLANTS: readonly Plant[] = [
   {
     name: 'declaring-document-branch-removed', scenario: 'storefront',
     checks: ['inspect.catalog-row-refused-for-its-document-names-it-and-opens-it', 'inspect.commands-panel-refused-for-its-document-ends-as-the-row-does'],
-    moves: 'red', target: 'extension',
-    file: 'out/src/inspection-request.js',
-    find: '    if ((0, error_surfaces_1.isJsonRpcError)(err) && err.code === types_1.ERR_ENTITY_NOT_RESOLVABLE && err.data?.file) {',
-    replace: '    if (false) {',
-    says: 'an inspection refused because of the document declaring the entity ends as any failed operation does, "The inspection did not complete: code=1004 …" with its "Show output" button',
+    moves: 'red', target: 'extension', ...declaringDocumentBranchRemoved(),
   },
   {
     name: 'commands-panel-inspects-on-its-own', scenario: 'storefront', checks: ['inspect.commands-panel-refused-for-its-document-ends-as-the-row-does'], moves: 'red', target: 'extension',
@@ -1930,6 +1926,130 @@ export const PLANTS: readonly Plant[] = [
     file: 'media/config.css', find: '.config-table {\n  width: 100%;\n  border-collapse: collapse;', replace: '.config-table {\n  width: 100%;\n  table-layout: fixed;\n  border-collapse: collapse;',
     says: 'the table is laid out to the width it is given, squeezing its columns',
   },
+
+  // ---- the gateway folder: the operations of the Registries, Catalog and Plugins panels ----
+  { name: 'context-row-renamed-list-panel-operations', scenario: 'gateway-list-panel-operations', checks: ['commands-panel.context-rows-name-the-opened-folder'], moves: 'red', target: 'extension', ...CONTEXT_ROW_LABEL },
+  {
+    name: 'add-asks-no-file', scenario: 'gateway-list-panel-operations', checks: ['registries-panel.add-registry-asks-the-host-then-the-file-and-registers-once-both-are-answered'], moves: 'red', target: 'extension',
+    file: 'out/src/registries-view.js', find: '        const destination = await askWriteDestination(registry_configure_1.REGISTRATION_DESTINATION_PROMPT);', replace: "        const destination = 'global';",
+    says: 'Add registry asks no file once given the host, and writes to the global one',
+  },
+  {
+    name: 'registry-index-update-off-the-row', scenario: 'gateway-list-panel-operations', checks: ['registries-panel.registry-row-offers-only-its-own-operations-and-updates-its-index-from-the-row'], moves: 'red', target: 'extension',
+    file: 'package.json', find: '"when": "viewItem == aggrega.registry",\n          "group": "inline"', replace: '"when": "viewItem == aggrega.registry",\n          "group": "registry@0"',
+    says: 'the index update for one registry is bound to no row\'s inline slot, so a registry\'s row draws nothing at its end',
+  },
+  {
+    name: 'registry-row-offers-another-operation', scenario: 'gateway-list-panel-operations', checks: ['registries-panel.registry-row-offers-only-its-own-operations-and-updates-its-index-from-the-row'], moves: 'red', target: 'extension',
+    file: 'package.json',
+    find: '"command": "aggrega.registries.remove",\n          "when": "viewItem == aggrega.registry",\n          "group": "registry@3"\n        },',
+    replace: '"command": "aggrega.registries.remove",\n          "when": "viewItem == aggrega.registry",\n          "group": "registry@3"\n        },\n        {\n          "command": "aggrega.registries.refresh",\n          "when": "viewItem == aggrega.registry",\n          "group": "registry@4"\n        },',
+    says: 'a registry\'s row offers an operation beside its own, the re-reading of the whole list',
+  },
+  {
+    name: 'credential-removal-asks-a-file', scenario: 'gateway-list-panel-operations', checks: ['registries-panel.credential-removal-asks-no-file-and-consents-naming-the-shared-store'], moves: 'red', target: 'extension',
+    file: 'out/src/registries-view.js',
+    find: "    vscode.commands.registerCommand('aggrega.registries.logout', (node) => runOnRow(node, async (host) => {\n        const consented",
+    replace: "    vscode.commands.registerCommand('aggrega.registries.logout', (node) => runOnRow(node, async (host) => {\n        if (!(await askWriteDestination(registry_configure_1.REMOVAL_DESTINATION_PROMPT))) {\n            return;\n        }\n        const consented",
+    says: 'the credential removal asks first which configuration file to remove it from',
+  },
+  {
+    name: 'publication-goes-ahead-whatever-the-answer', scenario: 'gateway-list-panel-operations', checks: ['catalog-view.publication-confirms-naming-the-entity-and-a-decline-publishes-nothing'], moves: 'red', target: 'extension',
+    file: CATALOG_VIEW, find: "        if (consented !== 'Publish') {\n            return;\n        }", replace: '',
+    says: 'a row\'s publication goes ahead whatever the answer to its consent',
+  },
+  {
+    name: 'row-inspects-another-entity', scenario: 'gateway-list-panel-operations', checks: ['catalog-view.declared-entity-row-inspects-from-the-row'], moves: 'red', target: 'extension',
+    file: CATALOG_VIEW, find: '(node) => onName(node, (name) => (0, inspection_1.inspectEntity)(deps, name))', replace: "(node) => onName(node, () => (0, inspection_1.inspectEntity)(deps, 'scratch/unused'))",
+    says: 'a row\'s inspection asks for the folder\'s scratch Component whichever row was pressed',
+  },
+  {
+    name: 'kind-heading-offers-an-inspection', scenario: 'gateway-list-panel-operations', checks: ['catalog-view.no-entity-operation-on-the-head-or-a-kind-heading'], moves: 'red', target: 'extension',
+    file: CATALOG_VIEW, find: '            item.iconPath = new vscode.ThemeIcon(KIND_GROUP_ICON);\n            return item;',
+    replace: "            item.iconPath = new vscode.ThemeIcon(KIND_GROUP_ICON);\n            item.contextValue = 'aggrega.catalogEntity:inspect';\n            return item;",
+    says: 'a kind heading carries the value an entity row offering an inspection carries',
+  },
+  {
+    name: 'name-dismissed-still-searches', scenario: 'gateway-list-panel-operations', checks: ['plugins-panel.add-plugin-asks-type-then-its-one-answer-then-the-name-and-backing-out-attaches-nothing'], moves: 'red', target: 'extension',
+    file: 'out/src/plugins-view.js', find: '    if (!query) {\n        return null;\n    }\n    return { type, query, capability, role };', replace: "    return { type, query: query ?? '', capability, role };",
+    says: 'an Escape at the name a plugin is searched for is read as an empty name, so the search runs',
+  },
+  {
+    name: 'governance-roles-one-short', scenario: 'gateway-list-panel-operations', checks: ['plugins-panel.governance-roles-are-the-ones-the-compiler-declares'], moves: 'red', target: 'extension',
+    file: 'out/src/plugins-run.js', find: "exports.GOVERNANCE_ROLES = [\n    'annotation-transform',\n", replace: 'exports.GOVERNANCE_ROLES = [\n',
+    says: 'the governance roles offered leave out annotation-transform',
+  },
+  {
+    name: 'generation-goes-ahead-whatever-the-answer', scenario: 'gateway-list-panel-operations', checks: ['plugins-panel.generation-asks-scope-overlay-and-directory-and-writes-only-once-confirmed'], moves: 'red', target: 'extension',
+    file: 'out/src/plugins-view.js', find: "        if (consented !== 'Write') {\n            return;\n        }", replace: '',
+    says: 'generating Plugin entities goes ahead whatever the answer to its consent',
+  },
+  {
+    name: 'generation-leaves-the-plugins-unread', scenario: 'gateway-list-panel-operations', checks: ['plugins-panel.generation-reads-the-plugins-again'], moves: 'red', target: 'extension',
+    file: 'out/src/plugins-view.js', find: '        // assumed unchanged.\n        plugins.refresh();', replace: '        // assumed unchanged.',
+    says: 'a generation leaves the Plugins panel\'s listing unread',
+  },
+  {
+    name: 'removal-consent-says-every-project', scenario: 'gateway-list-panel-operations', checks: ['registries-panel.removal-asks-which-file-before-consent-and-names-what-each-reaches'], moves: 'red', target: 'extension',
+    file: REGISTRY_CONFIGURE, find: "    const consequence = destination === 'global'", replace: '    const consequence = true',
+    says: 'the registry removal\'s consent says every project resolving through the entry is affected, whichever file was chosen',
+  },
+  {
+    name: 'registry-head-rows-carry-a-registry-value', scenario: 'gateway-list-panel-operations', checks: ['registries-panel.no-row-operation-on-the-head-or-the-empty-answer'], moves: 'red', target: 'extension',
+    file: 'out/src/registries-view.js', find: "            return (0, panel_action_item_1.panelActionItem)(node.row);\n        }\n        if (node.kind === 'message') {",
+    replace: "            return Object.assign((0, panel_action_item_1.panelActionItem)(node.row), { contextValue: registries_run_1.REGISTRY_ROW_CONTEXT });\n        }\n        if (node.kind === 'message') {",
+    says: 'the rows at the head of the Registries panel carry the value a registry\'s row carries',
+  },
+  {
+    name: 'registry-message-rows-carry-a-registry-value', scenario: 'gateway-list-panel-operations',
+    checks: ['registries-panel.no-row-operation-on-the-head-or-the-empty-answer', 'list-panels.no-row-operation-on-the-rows-a-stopped-server-draws', 'list-panels.no-row-operation-on-the-rows-saying-no-workspace'],
+    moves: 'red', target: 'extension',
+    file: 'out/src/registries-view.js', find: "        if (node.kind === 'message') {\n            const item = new vscode.TreeItem(node.label, vscode.TreeItemCollapsibleState.None);",
+    replace: "        if (node.kind === 'message') {\n            const item = new vscode.TreeItem(node.label, vscode.TreeItemCollapsibleState.None);\n            item.contextValue = registries_run_1.REGISTRY_ROW_CONTEXT;",
+    says: 'a row saying why the Registries panel lists no registry carries the value a registry\'s row carries',
+  },
+
+  // ---- a documentation example: an Aggregate its catalog cannot resolve, inspected from its row ----
+  {
+    name: 'declaring-document-branch-removed-by-name', scenario: 'mysql-inspection-by-name', checks: ['inspect.declared-entity-the-catalog-cannot-resolve-says-why-and-what-to-change'],
+    moves: 'red', target: 'extension', ...declaringDocumentBranchRemoved(),
+  },
+  {
+    name: 'refusal-given-a-note-of-its-own', scenario: 'mysql-inspection-by-name', checks: ['inspect.declared-entity-the-catalog-cannot-resolve-says-why-and-what-to-change', 'inspect.no-note-where-the-workspace-lists-no-catalog-directory'], moves: 'red', target: 'extension',
+    file: 'out/src/inspection-request.js',
+    find: '        const line = `${name} cannot be inspected because of the document that declares it: ${err.message}`;',
+    replace: '        const line = `${name} cannot be inspected because of the document that declares it: ${err.message}; note: its catalog directories are listed elsewhere`;',
+    says: 'a refusal naming the declaring document is shown with a note of the extension\'s own after the compiler\'s sentence',
+  },
+
+  // ---- a folder holding two plugin entries: the removal, and the command palette ----
+  { name: 'context-row-renamed-configured-plugins', scenario: 'configured-plugins-removal', checks: ['commands-panel.context-rows-name-the-folder-holding-no-release'], moves: 'red', target: 'extension', ...CONTEXT_ROW_LABEL },
+  {
+    name: 'embedded-guest-offers-removal', scenario: 'configured-plugins-removal', checks: ['plugins-panel.removal-offered-only-on-a-configured-entry-the-compiler-describes'], moves: 'red', target: 'extension',
+    file: 'out/src/plugins-run.js', find: "    return node.group === 'configured' && node.row.type !== '' && node.row.reference !== ''", replace: "    return node.row.type !== '' && node.row.reference !== ''",
+    says: 'a guest built into the compiler carries the value a configured entry carries, so it offers the removal',
+  },
+  {
+    name: 'undescribed-entry-drawn-as-a-plugin', scenario: 'configured-plugins-removal', checks: ['plugins-panel.configured-rows-read-as-the-compilers-listing'], moves: 'red', target: 'extension',
+    file: 'out/src/plugins-run.js', find: '        icon: entry.error || noteworthy ? WARNING_ICON : ENTRY_ICON,', replace: '        icon: ENTRY_ICON,',
+    says: 'an entry nothing could describe is drawn with the icon of one it could',
+  },
+  {
+    name: 'socket-removal-said-to-write-the-global-file', scenario: 'configured-plugins-removal', checks: ['plugins-panel.removal-consents-naming-the-project-file-and-removes-only-once-given'], moves: 'red', target: 'extension',
+    file: 'out/src/plugins-run.js', find: '    return type === exports.PLUGIN_TYPE_CLI', replace: '    return type !== exports.PLUGIN_TYPE_CLI',
+    says: 'the removal of a plugin of any type but cli is said to write the global configuration',
+  },
+  {
+    name: 'plugin-removal-in-the-palette', scenario: 'configured-plugins-removal', checks: ['palette.offers-the-panel-operations-and-none-of-the-row-operations'], moves: 'red', target: 'extension',
+    file: 'package.json', find: '"command": "aggrega.plugins.remove",\n          "when": "false"', replace: '"command": "aggrega.plugins.remove",\n          "when": "true"',
+    says: 'the plugin removal is offered in the command palette',
+  },
+  {
+    name: 'failed-listing-row-offers-removal', scenario: 'configured-plugins-removal', checks: ['plugins-panel.no-removal-on-the-row-a-failed-listing-draws'], moves: 'red', target: 'extension',
+    file: 'out/src/plugins-view.js', find: "        if (node.kind === 'message') {\n            const item = new vscode.TreeItem(node.label, vscode.TreeItemCollapsibleState.None);",
+    replace: "        if (node.kind === 'message') {\n            const item = new vscode.TreeItem(node.label, vscode.TreeItemCollapsibleState.None);\n            item.contextValue = plugins_run_1.PLUGIN_CONFIG_ENTRY_ROW_CONTEXT;",
+    says: 'the row a failed plugin listing draws carries the value a configured entry carries',
+  },
 ];
 
 // The edits two scenarios' plants make alike, each named once. They are function
@@ -1970,6 +2090,15 @@ function draftingWithNoKindSettled(): SharedEdit {
     file: 'out/src/get-started.js', find: "    await vscode.commands.executeCommand('aggrega.op.scaffold', undefined, selector_levels_1.SELECTOR_ROW_LABELS.release);",
     replace: "    await vscode.commands.executeCommand('aggrega.op.scaffold', undefined, undefined);",
     says: 'the drafting of a Release, from the Release row\'s create control and from the welcome page alike, opens with no kind settled, so it asks for a kind before the name',
+  };
+}
+
+function declaringDocumentBranchRemoved(): SharedEdit {
+  return {
+    file: 'out/src/inspection-request.js',
+    find: '    if ((0, error_surfaces_1.isJsonRpcError)(err) && err.code === types_1.ERR_ENTITY_NOT_RESOLVABLE && err.data?.file) {',
+    replace: '    if (false) {',
+    says: 'an inspection refused because of the document declaring the entity ends as any failed operation does, "The inspection did not complete: code=1004 …" with its "Show output" button',
   };
 }
 

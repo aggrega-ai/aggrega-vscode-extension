@@ -34,24 +34,29 @@ const RELEASE = 'release-compose.yaml';
 
 // The words a reader is to meet are held here as written, so a change of wording
 // in the extension is a change these checks report rather than follow: the
-// sentence's opening, the button it offers, and the titles of the two waits an
-// inspection runs behind, which are progress rather than an ending.
-const LEAD = `${ENTITY} cannot be inspected because of the document that declares it: `;
-const OPEN_ACTION = 'Open document';
-const PROGRESS = [`Aggrega: inspecting ${ENTITY}`, 'Aggrega: reading the workspace entity index'];
+// sentence's opening for an inspection of a name, the button it offers, and the
+// titles of the waits an inspection runs behind, which are progress rather than
+// an ending.
+export const inspectionLead = (name: string): string => `${name} cannot be inspected because of the document that declares it: `;
+export const OPEN_ACTION = 'Open document';
+const inspectionProgress = (name: string): string[] => [`Aggrega: inspecting ${name}`, 'Aggrega: reading the workspace entity index'];
+const LEAD = inspectionLead(ENTITY);
 const CATALOG_FIRST_ROW = 'Search catalog';
 
-const isEnding = (t: Toast): boolean => !PROGRESS.some((p) => t.message.startsWith(p));
+const isEndingOf = (name: string) => (t: Toast): boolean => !inspectionProgress(name).some((p) => t.message.startsWith(p));
+const isEnding = isEndingOf(ENTITY);
 
 // Ending is how one inspection ended, as the reader met it.
-interface Ending { endings: Toast[]; channel: boolean; seen: string }
+export interface Ending { endings: Toast[]; channel: boolean; seen: string }
 
-// readEnding waits for the inspection's ending after `toastMark` and `mark`,
-// watches 2 s more for a second one, and reads whether the channel carries `want`.
-async function readEnding(ctx: SuiteContext, toastMark: number, mark: { file: string | null; length: number }, want: string): Promise<Ending> {
-  await waitToast(ctx.d, 'the inspection ending in a notification', toastMark, isEnding, 30000);
-  await holds(2000, async () => (await toastsSince(ctx.d, toastMark)).filter(isEnding), (ts) => ts.length <= 1);
-  const endings = (await toastsSince(ctx.d, toastMark)).filter(isEnding);
+// readEnding waits for the ending of the inspection of `name` after `toastMark`
+// and `mark`, watches 2 s more for a second one, and reads whether the channel
+// carries `want`.
+export async function readEnding(ctx: SuiteContext, toastMark: number, mark: { file: string | null; length: number }, want: string, name: string = ENTITY): Promise<Ending> {
+  const ends = isEndingOf(name);
+  await waitToast(ctx.d, 'the inspection ending in a notification', toastMark, ends, 30000);
+  await holds(2000, async () => (await toastsSince(ctx.d, toastMark)).filter(ends), (ts) => ts.length <= 1);
+  const endings = (await toastsSince(ctx.d, toastMark)).filter(ends);
   const channel = await ctx.out.waitFor('the channel carrying the sentence', mark, (t) => t.split('\n').includes(want), 10000).then(() => true, () => false);
   const shown = endings.map((t) => `${JSON.stringify(t.message.slice(0, 160))}${t.message.length > 160 ? '…' : ''} (${t.severity}, buttons ${JSON.stringify(t.buttons)})`);
   return { endings, channel, seen: `${endings.length} notification(s) ending it: ${shown.join('; ')}; the channel ${channel ? 'carries the same sentence' : 'does not carry the sentence'}` };
@@ -59,7 +64,7 @@ async function readEnding(ctx: SuiteContext, toastMark: number, mark: { file: st
 
 // endsAsWanted reads whether an ending is the one notification the checks
 // expect: the sentence exactly, raised as an error, offering the one button.
-function endsAsWanted(e: Ending, want: string): boolean {
+export function endsAsWanted(e: Ending, want: string): boolean {
   return e.endings.length === 1 && e.endings[0].message === want && e.endings[0].severity === 'error'
     && JSON.stringify(e.endings[0].buttons) === JSON.stringify([OPEN_ACTION]) && e.channel;
 }

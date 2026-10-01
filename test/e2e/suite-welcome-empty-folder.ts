@@ -87,14 +87,14 @@ export const WELCOME_EMPTY_FOLDER_CHECKS = [
   'welcome-page.use-a-folder-takes-one-recognised-beneath',
 ] as const;
 
-// The words a reader is to meet, held as the steps quote them.
-const ROW_NONE_AVAILABLE = 'none available';
+// The words a reader is to meet, held as written.
+export const ROW_NONE_AVAILABLE = 'none available';
 const SEEDING_REFUSED = `${SEEDING_SUBJECT} did not complete: `;
 const SHOW_OUTPUT = 'Show output';
 // HOST_PROMPT is the prompt for a host, which names the official hub as its
 // example; ADD_DESTINATIONS are the files it offers next, in the order the product
 // declares them, the global one first.
-const HOST_PROMPT = 'Host of the registry to register, such as hub.aggrega.ai';
+export const HOST_PROMPT = 'Host of the registry to register, such as hub.aggrega.ai';
 const ADD_DESTINATIONS: readonly string[] = CONFIG_WRITE_DESTINATIONS.map((d) => d.label);
 
 // SETTLE_MS is how long a reading is watched holding, or a window watched for

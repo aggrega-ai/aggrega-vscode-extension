@@ -56,8 +56,8 @@ const STARTING_AGAIN = 'starting the language server again';
 // extension's and are held here as written, for the reason the channel's words
 // above are; the version is the server's own, so it is never written here: the
 // checks read it from the server.
-type InPlaceAct = 'started' | 'restarted';
-const inPlaceOpening = (act: InPlaceAct): string => `Aggrega language server ${act}`;
+export type InPlaceAct = 'started' | 'restarted';
+export const inPlaceOpening = (act: InPlaceAct): string => `Aggrega language server ${act}`;
 const inPlaceSentence = (act: InPlaceAct, version: string): string => `${inPlaceOpening(act)}, version ${version}.`;
 
 // handshakeVersion is the version the language server reports about itself in its

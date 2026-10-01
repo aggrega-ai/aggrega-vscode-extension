@@ -48,6 +48,8 @@ import { CONFIGURED_HOST, WELCOME_CONFIGURED_CHECKS, welcomeConfiguredChecks } f
 import { WELCOME_EMPTY_FOLDER_CHECKS, welcomeEmptyFolderChecks } from './suite-welcome-empty-folder';
 import { WELCOME_MIXED_CHECKS, welcomeMixedChecks } from './suite-welcome-mixed';
 import { placeNotABinary, placeSecondCompiler, registerWithNoTrust, SecondCompiler } from './welcome';
+import { CONFIGURED_PLUGINS_CHECKS, configuredPluginsChecks } from './suite-configured-plugins';
+import { Generation, INSPECTION_BY_NAME_CHECKS, inspectionByNameChecks, LIST_PANEL_OPERATIONS_CHECKS, listPanelOperationsChecks, nameDefaultOnly, placeGeneration } from './suite-list-panels';
 
 // The suite: the checks of which build is under test, of the build-analysis
 // setting and the two diagnostic layers it separates, and of the capabilities
@@ -90,6 +92,9 @@ export const SCENARIO_CHECKS: Readonly<Record<string, readonly string[]>> = {
   'mysql-commands-panel-no-release': NO_RELEASE_CHECKS,
   'gateway-docked-menus': DOCKED_MENUS_CHECKS,
   'gateway-docked-configuration': DOCKED_CONFIGURATION_CHECKS,
+  'gateway-list-panel-operations': LIST_PANEL_OPERATIONS_CHECKS,
+  'mysql-inspection-by-name': INSPECTION_BY_NAME_CHECKS,
+  'configured-plugins-removal': CONFIGURED_PLUGINS_CHECKS,
 };
 
 // ScenarioResult is one scenario as the report states it.
@@ -617,6 +622,72 @@ function plans(inputs: Inputs): ScenarioPlan[] {
         return { folder, fixtures };
       },
       body: (ctx) => dockedConfigurationChecks(ctx),
+    },
+    {
+      name: 'gateway-list-panel-operations',
+      checks: LIST_PANEL_OPERATIONS_CHECKS,
+      observers: LEVEL_OBSERVERS,
+      prepare: async (root, home, log) => {
+        const folder = path.join(root.dir, 'workspace', 'gateway');
+        const reference = path.join(root.dir, 'reference', 'gateway');
+        const missing = path.join(root.dir, 'no-such-compiler', 'aggrega');
+        const unanchored = path.join(root.dir, 'unanchored');
+        const table = new ProcessTable(path.join(root.dir, 'registry-processes.json'));
+        const generation = placeGeneration(path.join(root.dir, 'generation'), path.join(root.dir, 'generation-reference'), inputs.catalog.dir);
+        const fixtures = [
+          placeFolder(inputs.extension.dir, 'gateway', folder, inputs.catalog.dir),
+          await writeLockfile(bin, folder, 'release-compose.yaml', home, log),
+          placeFolder(inputs.extension.dir, 'gateway', reference, inputs.catalog.dir),
+          await writeLockfile(bin, reference, 'release-compose.yaml', home, log),
+          proveNothingAbove(folder),
+          proveMissing(missing),
+          await placeUnanchored(unanchored),
+          generation.proof,
+        ];
+        const registry = await startRegistry(inputs.registryServer.path, path.join(root.dir, 'registry'), home, table)
+          .catch(async (err: unknown) => { await stopTable(table); throw err; });
+        fixtures.push(registry.proof);
+        try {
+          fixtures.push(await nameDefaultOnly(bin, registry, folder, home, log));
+          return { folder, fixtures, extra: { registry, reference, missing, unanchored, generation, table } };
+        } catch (err) {
+          await stopTable(table);
+          throw err;
+        }
+      },
+      body: (ctx, p) => listPanelOperationsChecks(ctx, {
+        registry: p.extra?.registry as ScratchRegistry, reference: p.extra?.reference as string, missing: p.extra?.missing as string, unanchored: p.extra?.unanchored as string, generation: p.extra?.generation as Generation,
+      }),
+      cleanup: async (p) => { if (p?.extra?.table) { await stopTable(p.extra.table as ProcessTable); } },
+    },
+    {
+      name: 'mysql-inspection-by-name',
+      checks: INSPECTION_BY_NAME_CHECKS,
+      prepare: async (root) => {
+        const docs = path.resolve(REPO_ROOT, '..');
+        const layout = placeDocsExample(docs, MYSQL_EXAMPLE, path.join(root.dir, 'workspace', 'mysql-innodb-cluster'), inputs.catalog.dir, MYSQL_CATALOG_LINE);
+        const reference = placeDocsExample(docs, MYSQL_EXAMPLE, path.join(root.dir, 'reference', 'mysql-innodb-cluster'), inputs.catalog.dir, MYSQL_CATALOG_LINE);
+        return { folder: layout.folder, fixtures: [layout.proof, reference.proof, proveNothingAbove(layout.folder)], extra: { reference: reference.folder } };
+      },
+      body: (ctx, p) => inspectionByNameChecks(ctx, p.extra?.reference as string),
+    },
+    {
+      name: 'configured-plugins-removal',
+      checks: CONFIGURED_PLUGINS_CHECKS,
+      observers: LEVEL_OBSERVERS,
+      prepare: async (root) => {
+        const folder = path.join(root.dir, 'workspace', 'configured-plugins');
+        const reference = path.join(root.dir, 'reference', 'configured-plugins');
+        const missing = path.join(root.dir, 'no-such-compiler', 'aggrega');
+        const fixtures = [
+          placeFolder(inputs.extension.dir, 'configured-plugins', folder, inputs.catalog.dir),
+          placeFolder(inputs.extension.dir, 'configured-plugins', reference, inputs.catalog.dir),
+          proveNothingAbove(folder),
+          proveMissing(missing),
+        ];
+        return { folder, fixtures, extra: { reference, missing } };
+      },
+      body: (ctx, p) => configuredPluginsChecks(ctx, { reference: p.extra?.reference as string, missing: p.extra?.missing as string }),
     },
   ];
 }

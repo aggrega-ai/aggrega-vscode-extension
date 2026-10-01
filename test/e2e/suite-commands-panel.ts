@@ -96,7 +96,7 @@ const DEPRECATE_PROMPT = 'Reference of the already-published artifact to depreca
 // answered only by its own question and never by one a row before it left open.
 // The words the suite already holds for the storefront and registry checks are
 // taken from there.
-const HEAD_ROW_QUESTIONS: Readonly<Record<PanelActionId, string | null>> = {
+export const HEAD_ROW_QUESTIONS: Readonly<Record<PanelActionId, string | null>> = {
   registryAdd: ADD_REGISTRY_TITLE,
   registryIndex: null,
   catalogSearch: SEARCH_TITLE,
@@ -251,7 +251,7 @@ function headRows(): { title: string; actions: readonly PanelActionDef[] }[] {
 // CompilerRuns watches, from before an action, the compiler being run as a command
 // by anything in the editor's process tree: every process recorded from then on
 // whose command line is the binary under test with anything but `serve`.
-class CompilerRuns {
+export class CompilerRuns {
   private readonly known: Set<string>;
   private readonly timer: NodeJS.Timeout;
   readonly seen: string[] = [];

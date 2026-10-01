@@ -578,6 +578,40 @@ Another group reads the Commands panel and the panels beside it:
   view beside the held column, and the table scrolling sideways at that width
   while it fits the editor area's own width.
 
+Another group acts on the Registries, Catalog and Plugins panels rather than
+reading them:
+
+- `gateway-list-panel-operations` opens the gateway folder with the suite's own
+  registry named as the default and no registry configured. It adds that
+  registry from the head of the Registries panel — backing out at the host and
+  again at the file it asks for — and acts on the registry's row: the operations
+  the row offers, the index updated from the row's own action, the stored
+  credential removed with no file asked, and the registry removed with the file
+  chosen named in its confirmation, each confirmation declined before it is
+  given. From the Catalog panel it inspects the folder's Recipe and publishes it
+  to that registry, a decline publishing nothing. From the Plugins panel it backs
+  out of every question adding a plugin asks, holds the governance roles offered
+  against the ones the language server's configuration schema declares, and
+  generates Plugin entities for one artifact — declined — and for every plugin
+  built into the compiler, comparing what is written with the compiler's own
+  generation. It then checks that no row operation is offered on a panel's head
+  rows, on the row saying no registry is configured, on the rows drawn with the
+  language server stopped, or on the rows drawn in a folder no workspace marker
+  reaches.
+- `mysql-inspection-by-name` inspects, from its Catalog row, the Aggregate a
+  documentation example declares at its root, where its catalog directories do
+  not reach it: one notification naming the document as the reason, in the
+  language server's own words, with the action that opens it — and, with the
+  folder's list of catalog directories emptied and the language server restarted,
+  the same ending without the note saying where local entities are read from.
+- `configured-plugins-removal` opens a folder whose configuration names a
+  plugin the compiler can describe and one it cannot: how each is drawn
+  beneath the configured heading; that removal is offered only on the one it
+  describes — not on a plugin built into the compiler, a heading, or the row a
+  failed listing draws; its confirmation declined and then given; and that the
+  command palette offers each list panel's head operations and refresh and none
+  of the operations bound to a row.
+
 A last group reads the welcome page as a reader meets it, step by step:
 
 - `welcome-page-empty-folder` starts on a fresh profile, on a machine with no

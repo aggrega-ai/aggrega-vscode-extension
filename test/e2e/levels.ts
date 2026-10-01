@@ -306,20 +306,27 @@ export async function pasteIntoChooser(d: UiDriver, text: string): Promise<void>
   })(${JSON.stringify(text)})`);
 }
 
+// enterIntoDialog enters `text` into the box of a dialog drawn as a list, and
+// answers with the dialog as last read. The dialog writes the folder it starts in
+// into its own box as it opens, and a path entered before that lands is
+// overwritten by it; so the path is entered again until the box holds it, up to
+// three times. `what` names the dialog in the wait.
+export async function enterIntoDialog(d: UiDriver, text: string, what: string): Promise<Chooser | null> {
+  let reading: Chooser | null = null;
+  for (let attempt = 1; attempt <= 3 && (reading === null || reading.value !== text); attempt++) {
+    await pasteIntoChooser(d, text);
+    reading = await until(`${what} reading ${text}`, 4000, () => chooser(d), (c) => c !== null && c.value === text).catch(() => chooser(d));
+  }
+  return reading;
+}
+
 // answerFolderDialog enters a folder into a folder dialog drawn as a list and
 // accepts it with the dialog's own button, as a person picks a folder there. It
 // refuses to press the button unless the dialog reads exactly that folder, and
 // answers with the dialog as it stood before the button was pressed.
 export async function answerFolderDialog(d: UiDriver, folder: string, accept: string): Promise<Chooser | null> {
   const want = `${folder}/`;
-  // The dialog writes the folder it starts in into its own box as it opens, and a
-  // path entered before that lands is overwritten by it; so the path is entered
-  // again until the box holds it.
-  let reading: Chooser | null = null;
-  for (let attempt = 1; attempt <= 3 && (reading === null || reading.value !== want); attempt++) {
-    await pasteIntoChooser(d, want);
-    reading = await until(`the folder dialog reading ${want}`, 4000, () => chooser(d), (c) => c !== null && c.value === want).catch(() => chooser(d));
-  }
+  const reading = await enterIntoDialog(d, want, 'the folder dialog');
   if (reading === null || reading.value !== want) {
     throw new Error(`the folder dialog reads ${JSON.stringify(reading?.value ?? null)}, not ${JSON.stringify(want)}, so its button would pick a folder nobody named`);
   }
@@ -437,6 +444,10 @@ export function dialogsSeen(d: UiDriver): Promise<DialogSeen[]> {
 // EDITOR_DONT_SAVE is the editor's own answer, on the question it asks before a
 // window leaves an untitled workspace, that keeps no file of that workspace.
 export const EDITOR_DONT_SAVE = 'Don\'t Save';
+
+// EDITOR_CANCEL is the editor's own button declining a modal dialog an extension
+// raises.
+export const EDITOR_CANCEL = 'Cancel';
 
 // answerWorkspaceSaveIfAsked answers the editor's own question about saving an
 // untitled workspace — which it asks as a window leaves one, whoever asked for

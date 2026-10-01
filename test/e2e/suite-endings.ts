@@ -9,7 +9,7 @@ import { readStat } from './processes';
 import { referenceAnswer } from './reference';
 import { ScratchRegistry } from './registry';
 import { closeAllEditors, open, ready, run, SuiteContext, theServer } from './suite-context';
-import { contextRowsCheck } from './suite-gateway';
+import { CONTEXT_ROW_LABELS, contextRowsCheck } from './suite-gateway';
 import {
   commandsPanel, notificationReadings, pickQuickInputRow, pressIn, pressOperation, pressPanelAction, pressToastButton, selectorRows, sleep, statusItems,
   stopWatchingNotification, Toast, toasts, toastsSince, holds, until, waitQuickInput, waitToast, watchNotification,
@@ -36,12 +36,11 @@ export const WATCH_AND_STOP_CHECKS = [
   'operations.pull-can-be-watched-and-stopped',
 ] as const;
 
-// The words a reader is to meet, held as the playbook quotes them.
+// The words a reader is to meet, held as written.
 const DRAFT_KIND_PLACEHOLDER = 'Aggrega: choose the kind of entity to draft';
 const DRAFT_NAME_TITLE = 'Aggrega: draft an entity';
 const DRAFTED_KIND = 'Component';
 const DRAFTED_NAME = 'drafts/example';
-const PUBLISHED = 'nginx-probed';
 const published = (ref: string, tag: string, digest: string, host: string): string => `The publication published ${ref}:${tag} as ${digest}. Anyone resolving from ${host} now sees it.`;
 const republished = (ref: string, tag: string, digest: string, host: string): string => `The publication found ${ref}:${tag} already published as ${digest} and published nothing. Anyone resolving from ${host} now sees it.`;
 const BUILD_STOPPED = 'The build stopped at your request.';
@@ -49,9 +48,16 @@ const PULL_STOPPED = 'The pull stopped at your request.';
 const buildProgress = (release: string): string => `Aggrega: building ${release}`;
 const pullProgress = (release: string): string => `Aggrega: pulling dependencies for ${release}`;
 
+// The entity a publication from the gateway folder publishes — the folder's own
+// Recipe — its repository in the registry it reaches, and the version it is
+// published under, which is the one the Recipe declares.
+export const PUBLISHED = 'nginx-probed';
+export const PUBLISHED_REPOSITORY = `recipe/compose/${PUBLISHED}`;
+export const PUBLISHED_TAG = '1.0.0';
+
 // registryDigest asks the registry itself which manifest a tag points at, as
 // anyone resolving from it would be told.
-async function registryDigest(host: string, repository: string, tag: string): Promise<string> {
+export async function registryDigest(host: string, repository: string, tag: string): Promise<string> {
   const res = await fetch(`http://${host}/v2/${repository}/manifests/${tag}`, {
     method: 'HEAD',
     headers: { accept: 'application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json' },
@@ -121,31 +127,30 @@ export async function endingsChecks(ctx: SuiteContext, reference: string, regist
   });
 
   // ---- a publication says what others now resolve ----
-  const repository = `recipe/compose/${PUBLISHED}`;
-  const ref = `${registry.host}/${repository}`;
+  const ref = `${registry.host}/${PUBLISHED_REPOSITORY}`;
   let first = '';
   await c.run('publication.ends-naming-what-others-now-resolve', {
-    expected: `Push on the Commands panel, with ${PUBLISHED} chosen from the menu it opens, publishes to the workspace's default registry (the suite's scratch registry at ${registry.host}) and ends in the notification "${published(ref, '1.0.0', '<digest>', registry.host)}", <digest> being what the registry itself answers the tag with afterwards`,
+    expected: `Push on the Commands panel, with ${PUBLISHED} chosen from the menu it opens, publishes to the workspace's default registry (the suite's scratch registry at ${registry.host}) and ends in the notification "${published(ref, PUBLISHED_TAG, '<digest>', registry.host)}", <digest> being what the registry itself answers the tag with afterwards`,
     plant: 'in the scratch copy, out/src/publication-request.js with the reach sentence left out of a publication\'s ending',
   }, async () => {
-    need((await registryDigest(registry.host, repository, '1.0.0')).startsWith('HTTP'), `the registry already holds ${ref}:1.0.0 before the push`);
+    need((await registryDigest(registry.host, PUBLISHED_REPOSITORY, PUBLISHED_TAG)).startsWith('HTTP'), `the registry already holds ${ref}:${PUBLISHED_TAG} before the push`);
     const mark = (await toasts(ctx.d)).length;
     await pushFromPanel(ctx, PUBLISHED);
     const told = await waitToast(ctx.d, 'the publication ending', mark, (t) => t.message.startsWith('The publication '), 60000).catch(() => null);
-    const digest = await registryDigest(registry.host, repository, '1.0.0');
+    const digest = await registryDigest(registry.host, PUBLISHED_REPOSITORY, PUBLISHED_TAG);
     first = digest;
-    return { passed: told !== null && digest.startsWith('sha256:') && told.message === published(ref, '1.0.0', digest, registry.host), seen: `${told === null ? 'no ending' : `"${told.message}" (${told.severity})`}; the registry answers ${ref}:1.0.0 with ${digest}` };
+    return { passed: told !== null && digest.startsWith('sha256:') && told.message === published(ref, PUBLISHED_TAG, digest, registry.host), seen: `${told === null ? 'no ending' : `"${told.message}" (${told.severity})`}; the registry answers ${ref}:${PUBLISHED_TAG} with ${digest}` };
   });
   await c.run('publication.identical-bytes-again-publish-nothing', {
-    expected: `the same entity pushed again ends in "${republished(ref, '1.0.0', '<digest>', registry.host)}" with the digest the first push landed, and the registry still answers the tag with it`,
+    expected: `the same entity pushed again ends in "${republished(ref, PUBLISHED_TAG, '<digest>', registry.host)}" with the digest the first push landed, and the registry still answers the tag with it`,
     plant: 'in the scratch copy, out/src/publication-request.js with an already-published answer read as a publication',
   }, async () => {
     need(first.startsWith('sha256:'), 'the first push landed nothing, so there are no identical bytes to push again');
     const mark = (await toasts(ctx.d)).length;
     await pushFromPanel(ctx, PUBLISHED);
     const told = await waitToast(ctx.d, 'the publication ending', mark, (t) => t.message.startsWith('The publication '), 60000).catch(() => null);
-    const digest = await registryDigest(registry.host, repository, '1.0.0');
-    return { passed: told !== null && told.message === republished(ref, '1.0.0', first, registry.host) && digest === first, seen: `${told === null ? 'no ending' : `"${told.message}"`}; the registry answers ${digest}` };
+    const digest = await registryDigest(registry.host, PUBLISHED_REPOSITORY, PUBLISHED_TAG);
+    return { passed: told !== null && told.message === republished(ref, PUBLISHED_TAG, first, registry.host) && digest === first, seen: `${told === null ? 'no ending' : `"${told.message}"`}; the registry answers ${digest}` };
   });
 }
 
@@ -170,22 +175,40 @@ async function settledAfter(pid: number, from: number, boundMs: number): Promise
   return null;
 }
 
-export async function watchAndStopChecks(ctx: SuiteContext, releases: readonly string[]): Promise<void> {
-  const c = ctx.checks;
-  const bin = ctx.inputs.compiler.path;
+// folderRowsCheck: the Project folder and Aggrega workspace rows name the folder
+// the window opened, and the Release row reads `release`, the reading of a folder
+// whose Release row names no file; `why` is the clause the expectation gives for
+// it naming none.
+//
+// 🔴 A DELIBERATE NEAR-DUPLICATE OF `contextRowsCheck` (suite-gateway.ts), which
+// reads a folder holding one Release named on its row and waits for all three rows
+// to read as wanted; this waits for the two naming the folder. That one is the first
+// check of every scenario opening such a folder, which is why it is not widened to
+// read this kind of folder as well.
+export async function folderRowsCheck(ctx: SuiteContext, name: string, why: string, release: string): Promise<void> {
   const base = path.basename(ctx.folder);
-  await ready(ctx);
-  const slow = 'release-single.yaml';
-
-  await c.run('commands-panel.context-rows-name-the-folder-and-no-release', {
-    expected: `the Project folder and Aggrega workspace rows name the folder opened ("${base}"), and with two Releases (${releases.join(', ')}) and no default named, the Release row reads "none selected"`,
+  await ctx.checks.run(name, {
+    expected: `the Project folder and Aggrega workspace rows name the folder opened ("${base}"), and ${why} the Release row reads "${release}"`,
     plant: 'in the scratch copy, out/src/selector-levels.js with the first context row\'s label changed',
   }, async () => {
     const doc = await commandsPanel(ctx.d);
-    const rows = await until('the rows naming the folder', 20000, () => selectorRows(doc), (r) => r.length >= 3 && r[0].value === base && r[1].value === base).catch(() => selectorRows(doc));
-    const labels = ['Project folder', 'Aggrega workspace', 'Release'];
-    return { passed: rows.length >= 3 && rows.slice(0, 3).every((r, i) => r.label === labels[i]) && rows[0].value === base && rows[1].value === base && rows[2].value === 'none selected', seen: rows.slice(0, 3).map((r) => `${r.label}: ${r.value}`).join(' | ') };
+    const read = await until('the rows naming the folder', 20000, () => selectorRows(doc), (r) => r.length >= 3 && r[0].value === base && r[1].value === base)
+      .then((rows) => ({ rows, within: true }), async () => ({ rows: await selectorRows(doc), within: false }));
+    const rows = read.rows;
+    return {
+      passed: rows.length >= 3 && rows.slice(0, 3).every((r, i) => r.label === CONTEXT_ROW_LABELS[i]) && rows[0].value === base && rows[1].value === base && rows[2].value === release,
+      seen: `${rows.slice(0, 3).map((r) => `${r.label}: ${r.value}`).join(' | ')}${read.within ? '' : ', the first two not naming the folder within 20000 ms'}`,
+    };
   });
+}
+
+export async function watchAndStopChecks(ctx: SuiteContext, releases: readonly string[]): Promise<void> {
+  const c = ctx.checks;
+  const bin = ctx.inputs.compiler.path;
+  await ready(ctx);
+  const slow = 'release-single.yaml';
+
+  await folderRowsCheck(ctx, 'commands-panel.context-rows-name-the-folder-and-no-release', `with two Releases (${releases.join(', ')}) and no default named,`, 'none selected');
 
   await c.run('release-selection.choosing-a-release-updates-the-indicator-and-raises-no-notification', {
     expected: `choosing ${slow} from the Release row's picker updates the Release row and the status bar's Release indicator to it, and raises no notification (watched for 3 s); in the same check a Validate pressed right after raises its ending, which shows the observation fires`,

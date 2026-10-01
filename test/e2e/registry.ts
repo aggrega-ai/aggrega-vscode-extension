@@ -167,6 +167,18 @@ export async function populateRegistry(opts: {
   };
 }
 
+// nameTheDefault names `host` the default registry in the global configuration
+// `global`, after whatever the file holds — a file not there is written with that
+// line alone — and answers null; where the file already names a default it writes
+// nothing and answers why.
+export function nameTheDefault(global: string, host: string): string | null {
+  const text = fs.existsSync(global) ? fs.readFileSync(global, 'utf8') : '';
+  if (/^default_registry:/m.test(text)) { return `${global} already names a default registry`; }
+  fs.mkdirSync(path.dirname(global), { recursive: true });
+  fs.writeFileSync(global, `${text}${text === '' || text.endsWith('\n') ? '' : '\n'}default_registry: ${host}\n`);
+  return null;
+}
+
 // registerAsDefault registers the scratch registry in the scenario's global
 // configuration, with no trust fetched, and names it the default registry there,
 // so an operation that names no registry reaches it rather than the hub. Every
@@ -177,9 +189,8 @@ export async function registerAsDefault(opts: { binary: string; registry: Scratc
   const add = await runCompiler(opts.binary, ['registry', 'add', opts.registry.host, '--fetch-trust=false'], { cwd: opts.folder, home: opts.home, boundMs: 60000, log: opts.log });
   if (add.status !== 0) { throw new FixtureError(fixture, `\`aggrega registry add ${opts.registry.host}\` exited ${add.status ?? add.signal}: ${(add.stderr || add.stdout).trim().split('\n').slice(-2).join(' | ')}`); }
   const global = path.join(opts.home.home, '.config', 'aggrega', 'config.yaml');
-  const text = fs.readFileSync(global, 'utf8');
-  if (/^default_registry:/m.test(text)) { throw new FixtureError(fixture, `${global} already names a default registry`); }
-  fs.writeFileSync(global, `${text}${text.endsWith('\n') ? '' : '\n'}default_registry: ${opts.registry.host}\n`);
+  const refused = nameTheDefault(global, opts.registry.host);
+  if (refused !== null) { throw new FixtureError(fixture, refused); }
   const list = await runCompiler(opts.binary, ['registry', 'list'], { cwd: opts.folder, home: opts.home, boundMs: 60000, log: opts.log });
   const row = list.stdout.split('\n').find((l) => l.startsWith(`${opts.registry.host} `)) ?? '';
   if (list.status !== 0 || !/\*\s*$/.test(row)) { throw new FixtureError(fixture, `\`aggrega registry list\` does not mark ${opts.registry.host} as the default: ${JSON.stringify(list.stdout.slice(0, 300))}`); }
