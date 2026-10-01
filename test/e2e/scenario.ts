@@ -31,6 +31,9 @@ export interface Scenario {
   hello: Hello;
   folder: string;
   settings: Record<string, unknown>;
+  // environment is what the scenario adds to the editor's environment, which a
+  // second launch of the same scenario is started with too.
+  environment: Readonly<Record<string, string>>;
   bringUpMs: number;
   display: DisplayReading;
   resources: ResourceSampler;
@@ -55,13 +58,15 @@ const DISPLAY_VARIABLES = ['DISPLAY', 'WAYLAND_DISPLAY'];
 // editor starts, so an edit made to the copy there is what the editor loads.
 // observers are evaluated in the workbench as soon as it is reachable, beside the
 // status and notification observers, for a scenario whose checks read what the
-// editor drew while the extension was still starting.
+// editor drew while the extension was still starting. environment is what the
+// scenario adds to the editor's environment.
 export interface BringUpOptions {
   root?: ScenarioRoot;
   folder?: string;
   settings?: Record<string, unknown>;
   beforeLaunch?: (root: ScenarioRoot) => void;
   observers?: readonly string[];
+  environment?: Readonly<Record<string, string>>;
 }
 
 // ScenarioEnd is what tearing a launch down reports: the teardown itself and what
@@ -82,6 +87,7 @@ export async function bringUp(name: string, inputs: Inputs, runDir: string, driv
   if (opts.beforeLaunch) { opts.beforeLaunch(root); }
   const settings = writeProfile(root, inputs, opts.settings ?? {});
   const folder = opts.folder ?? writeCalibrationFolder(path.join(root.dir, 'folder'), inputs.catalog.dir).folder;
+  const added = opts.environment ?? {};
   const shape: LaunchShape = { folder, screen: SCREEN };
   let table: ProcessTable;
   let probe: ProbeClient;
@@ -91,7 +97,7 @@ export async function bringUp(name: string, inputs: Inputs, runDir: string, driv
   let debugPort = 0;
   if (driverName === 'playwright-electron') {
     const probePort = await freePort();
-    const env = editorEnvironment(root, probePort);
+    const env = editorEnvironment(root, probePort, added);
     const args = editorArguments(root, shape);
     const launched = await launchWithElectron({ executable: inputs.editor.executable, args, env, cwd: root.home, log: path.join(root.logs, 'editor.log'), boundMs: 60000 });
     table = new ProcessTable(root.stateFile);
@@ -102,7 +108,7 @@ export async function bringUp(name: string, inputs: Inputs, runDir: string, driv
     electronClose = async () => { await launched.app.close().catch(() => undefined); };
     stated = { env, args, pid: launched.pid };
   } else {
-    const launch = await launchEditor(root, inputs, shape);
+    const launch = await launchEditor(root, inputs, shape, 60000, undefined, added);
     table = launch.table;
     probe = new ProbeClient(launch.probePort);
     stated = { env: launch.env, args: launch.args, pid: launch.pid };
@@ -154,7 +160,7 @@ export async function bringUp(name: string, inputs: Inputs, runDir: string, driv
     probe: hello,
   }, null, 2)}\n`);
   return {
-    name, root, table, probe, driver, hello, folder, settings, display, resources,
+    name, root, table, probe, driver, hello, folder, settings, environment: added, display, resources,
     bringUpMs: Date.now() - t0,
     close: async () => {
       await driver?.detach().catch(() => undefined);
@@ -195,7 +201,7 @@ export async function relaunch(s: Scenario, inputs: Inputs, observers: readonly 
   });
   await s.close();
   const t0 = Date.now();
-  const launch = await launchEditor(s.root, inputs, { folder: s.folder, screen: SCREEN }, 60000, s.table);
+  const launch = await launchEditor(s.root, inputs, { folder: s.folder, screen: SCREEN }, 60000, s.table, s.environment);
   const driver = await connectOverDevTools(launch.debugPort, 30000);
   await observeWorkbench(driver);
   for (const o of observers) { await driver.workbench(o); }

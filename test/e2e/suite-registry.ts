@@ -460,7 +460,7 @@ function notIndexedIn(ending: string): string[] {
   return m ? m[1].split(', ').filter((h) => h !== '') : [];
 }
 
-const sameSet = (a: readonly string[], b: readonly string[]): boolean => JSON.stringify([...a].sort()) === JSON.stringify([...b].sort());
+export const sameSet = (a: readonly string[], b: readonly string[]): boolean => JSON.stringify([...a].sort()) === JSON.stringify([...b].sort());
 
 // drawnThenGone says whether an observer's readings show the notification drawn
 // and, after that, gone.

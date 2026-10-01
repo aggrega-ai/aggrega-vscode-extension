@@ -106,6 +106,16 @@ const CANDIDATES_MODEL = 'media/candidates-model.js';
 const GRAPH_VIEW = 'out/src/graph-view.js';
 const ATTACHMENT_EDIT = 'out/src/attachment-edit.js';
 
+// The configuration panel: the side that asks the compiler and hosts the
+// document, the composition of the document, the join against the compiler's
+// report, and the walk of the schema; and the compiled lines a panel already open
+// is read again by when Show config is pressed.
+const CONFIG_VIEW = 'out/src/config-view.js';
+const CONFIG_RENDER = 'out/src/config-render.js';
+const CONFIG_MODEL = 'out/src/config-model.js';
+const CONFIG_SCHEMA = 'out/src/config-schema.js';
+const OPEN_PANEL_READ_AGAIN = '            await draw(panel);\n            return;\n        }\n        const created';
+
 // The compiled line that inserts an attach's entry into the document.
 const ENTRY_INSERT = '        edit.insert(uri, new vscode.Position(at.line, at.character), text);';
 
@@ -2049,6 +2059,108 @@ export const PLANTS: readonly Plant[] = [
     file: 'out/src/plugins-view.js', find: "        if (node.kind === 'message') {\n            const item = new vscode.TreeItem(node.label, vscode.TreeItemCollapsibleState.None);",
     replace: "        if (node.kind === 'message') {\n            const item = new vscode.TreeItem(node.label, vscode.TreeItemCollapsibleState.None);\n            item.contextValue = plugins_run_1.PLUGIN_CONFIG_ENTRY_ROW_CONTEXT;",
     says: 'the row a failed plugin listing draws carries the value a configured entry carries',
+  },
+
+  // ---- the gateway folder: the configuration panel as a reader meets it ----
+  {
+    name: 'configuration-panel-under-another-title', scenario: 'gateway-configuration-report', checks: ['config-panel.opens-as-a-table-in-its-own-tab'], moves: 'red', target: 'extension',
+    file: CONFIG_VIEW, find: "vscode.window.createWebviewPanel('aggrega.config', 'Aggrega configuration',", replace: "vscode.window.createWebviewPanel('aggrega.config', 'Aggrega settings',",
+    says: 'the configuration panel is created under the title "Aggrega settings"',
+  },
+  {
+    name: 'schema-walk-stops-short', scenario: 'gateway-configuration-report', checks: ['config-panel.every-setting-the-schema-declares-is-a-row'], moves: 'red', target: 'extension',
+    file: CONFIG_SCHEMA, find: '    for (const [name, declared] of Object.entries(node.properties ?? {})) {', replace: '    for (const [name, declared] of Object.entries(node.properties ?? {}).slice(0, -1)) {',
+    says: 'the walk of the configuration schema leaves out the last declaration at every level',
+  },
+  {
+    name: 'coverage-sentence-counts-one-more', scenario: 'gateway-configuration-report', checks: ['config-panel.coverage-sentence-counts-the-rows-and-what-the-report-names'], moves: 'red', target: 'extension',
+    file: CONFIG_RENDER, find: '    return `The configuration report attributes ${model.attributed} of the ${model.drawn} `', replace: '    return `The configuration report attributes ${model.attributed} of the ${model.drawn + 1} `',
+    says: 'the coverage sentence counts one setting more than the page shows',
+  },
+  {
+    name: 'entry-fields-in-a-group-left-out', scenario: 'gateway-configuration-report', checks: ['config-panel.nested-settings-and-entry-fields-are-drawn'], moves: 'red', target: 'extension',
+    file: CONFIG_SCHEMA, find: '    return [...walked.controls, ...walked.sections.flatMap(flatten)];', replace: '    return [...walked.controls];',
+    says: 'the fields an entry of a list declares inside a group of its own are left out of the fields its row names',
+  },
+  {
+    name: 'first-heading-reads-config-keyword', scenario: 'gateway-configuration-report', checks: ['config-panel.columns-read-in-order-ending-in-the-circle'], moves: 'red', target: 'extension',
+    file: CONFIG_RENDER, find: "const TABLE_COLUMNS = ['Setting',", replace: "const TABLE_COLUMNS = ['config keyword',",
+    says: 'the table\'s first heading reads "config keyword"',
+  },
+  {
+    name: 'built-in-default-read-as-set', scenario: 'gateway-configuration-report', checks: ['config-panel.set-is-empty-where-nothing-was-set'], moves: 'red', target: 'extension',
+    file: CONFIG_MODEL, find: "    if (kind === 'file' || kind === 'environment') {", replace: '    if (true) {',
+    says: 'a value the report attributes to the built-in defaults is drawn under Set as though the reader set it',
+  },
+  {
+    name: 'circle-hover-names-its-control', scenario: 'gateway-configuration-report', checks: ['config-panel.each-description-is-the-schemas-own-sentence'], moves: 'red', target: 'extension',
+    file: CONFIG_RENDER, find: '<summary aria-label="${named}" title="${described}">', replace: '<summary aria-label="${named}" title="${named}">',
+    says: 'each circle\'s hover reads the words naming its control instead of the setting\'s description',
+  },
+  {
+    name: 'shape-switch-after-the-settings', scenario: 'gateway-configuration-report', checks: ['config-panel.shape-switch-sits-below-the-summary-and-draws-each-setting-in-full'], moves: 'red', target: 'extension',
+    file: CONFIG_RENDER, find: '        presentationSwitchHtml(presentation),\n        ...settings,', replace: '        ...settings,\n        presentationSwitchHtml(presentation),',
+    says: 'the shape switch is drawn after the settings rather than below the summary box',
+  },
+  {
+    name: 'reach-note-labelled-machine-wide', scenario: 'gateway-configuration-report', checks: ['config-panel.reach-note-on-the-machine-wide-settings-alone'], moves: 'red', target: 'extension',
+    file: CONFIG_RENDER, find: '`Global: ${row.scope.evidence}`', replace: '`Machine-wide: ${row.scope.evidence}`',
+    says: 'the reach note opens with the label "Machine-wide:"',
+  },
+  {
+    name: 'every-word-of-a-label-capitalised', scenario: 'gateway-configuration-report', checks: ['config-panel.labels-are-each-key-in-words'], moves: 'red', target: 'extension',
+    file: CONFIG_SCHEMA, find: "    return [first.charAt(0).toUpperCase() + first.slice(1), ...rest].join(' ');", replace: "    return [first, ...rest].map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');",
+    says: 'every word of a setting\'s derived name is capitalised',
+  },
+  {
+    name: 'declared-default-drawn-bare', scenario: 'gateway-configuration-report', checks: ['config-panel.uncovered-settings-read-their-declared-default-and-no-source'], moves: 'red', target: 'extension',
+    file: CONFIG_RENDER, find: '            return `${renderDefault(effective.value)} (declared default)`;', replace: '            return renderDefault(effective.value);',
+    says: 'a declared default is drawn under Effective as a bare value, as though the compiler had reported it',
+  },
+  {
+    name: 'shape-forgotten-on-close', scenario: 'gateway-configuration-report', checks: ['config-panel.reopens-in-the-shape-it-was-left-in'], moves: 'red', target: 'extension',
+    file: CONFIG_VIEW, find: '        created.onDidDispose(() => {\n            panel = null;', replace: '        created.onDidDispose(() => {\n            void context.globalState.update(config_render_1.PRESENTATION_MEMENTO_KEY, undefined);\n            panel = null;',
+    says: 'closing the configuration panel forgets the shape it was left in',
+  },
+  {
+    name: 'toggle-drawn-beside-the-switch', scenario: 'gateway-configuration-report', checks: ['config-panel.reports-and-offers-nothing-to-edit'], moves: 'red', target: 'extension',
+    file: CONFIG_RENDER, find: '        + `${(0, html_1.escapeHtml)(label)}</a></p>`;', replace: '        + `${(0, html_1.escapeHtml)(label)}</a><input type="checkbox" aria-label="Edit the settings"></p>`;',
+    says: 'a checkbox is drawn beside the shape switch, as though a setting could be turned from the page',
+  },
+  {
+    name: 'open-panel-brought-forward-unread', scenario: 'gateway-configuration-report', checks: ['config-panel.pressed-again-reveals-the-open-panel-and-reads-again'], moves: 'red', target: 'extension',
+    file: CONFIG_VIEW, find: OPEN_PANEL_READ_AGAIN, replace: '            return;\n        }\n        const created',
+    says: 'a panel already open is brought to the front without being read again',
+  },
+  {
+    name: 'file-named-by-its-base-name', scenario: 'gateway-configuration-report', checks: ['config-panel.setting-in-the-folders-file-reads-in-every-column-of-both-shapes'], moves: 'red', target: 'extension',
+    file: CONFIG_MODEL,
+    find: "        case 'file':\n            return provenance.path;\n        case 'environment':\n            return `environment: ${provenance.variable}`;",
+    replace: "        case 'file':\n            return require('path').basename(provenance.path);\n        case 'environment':\n            return `environment: ${provenance.variable}`;",
+    says: 'the table\'s Source cell names a file by its base name alone',
+  },
+  {
+    name: 'failed-first-drawing-left-standing', scenario: 'gateway-configuration-report', checks: ['config-panel.with-the-server-stopped-leaves-no-panel-and-says-why'], moves: 'red', target: 'extension',
+    file: CONFIG_VIEW, find: '            created.dispose();\n            panel = null;', replace: '            panel = null;',
+    says: 'a panel whose first drawing failed is left standing, empty, rather than closed',
+  },
+  {
+    name: 'open-panel-told-when-it-cannot-be-read-again', scenario: 'gateway-configuration-report',
+    checks: ['config-panel.open-panel-with-the-server-stopped-is-told-why-from-the-commands-panel', 'config-panel.open-panel-with-the-server-stopped-is-told-why-from-the-palette'],
+    moves: 'green', target: 'extension',
+    file: CONFIG_VIEW, find: OPEN_PANEL_READ_AGAIN,
+    replace: '            try {\n                await draw(panel);\n            }\n            catch (err) {\n                void vscode.window.showErrorMessage(`The configuration surface could not be drawn: ${describe(err)}`);\n            }\n            return;\n        }\n        const created',
+    says: 'a panel already open that cannot be read again tells the reader so, in the words a first opening uses',
+  },
+  {
+    name: 'environment-variable-read-as-a-file', scenario: 'gateway-configuration-from-the-environment', checks: ['config-panel.setting-from-the-environment-names-the-variable-in-both-shapes'], moves: 'red', target: 'extension',
+    file: CONFIG_MODEL, find: "exports.ENV_SOURCE_PREFIX = 'env:';", replace: "exports.ENV_SOURCE_PREFIX = 'environment-variable:';",
+    says: 'the compiler\'s spelling of a value taken from an environment variable is not recognised, so the variable is drawn as a file',
+  },
+  {
+    name: 'file-list-drawn-whatever-contributed', scenario: 'nothing-configured-configuration-report', checks: ['config-panel.nothing-configured-reads-every-setting-at-its-default'], moves: 'red', target: 'extension',
+    file: CONFIG_RENDER, find: '    const layers = model.layers.length > 0\n', replace: '    const layers = true\n',
+    says: 'the summary box draws its list of files whether or not a file contributed, so it draws an empty one',
   },
 ];
 

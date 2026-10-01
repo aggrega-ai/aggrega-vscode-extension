@@ -34,7 +34,7 @@ import { bringUp, DisplayReading, Scenario, ScenarioEnd, tearDown } from './scen
 import { makeContext, SuiteContext } from './suite-context';
 import { gatewayChecks, GATEWAY_CHECKS } from './suite-gateway';
 import { FLEET_CHECKS, fleetChecks, GRAPH_DRAWING_CHECKS, graphDrawingChecks, GRAPH_IDLE_CHECKS, GRAPH_IDLE_SETTINGS, graphIdleChecks } from './suite-graph-drawing';
-import { GRAPH_PANEL_CHECKS, graphPanelChecks } from './suite-graph-panel';
+import { GRAPH_PANEL_CHECKS, graphPanelChecks, RELEASE } from './suite-graph-panel';
 import { KILLED_CHECKS, KILLED_SETTINGS, killedChecks } from './suite-killed';
 import { LEVELS_CHECKS, levelsChecks } from './suite-levels';
 import { OFFLINE_RELEASES, OWN_CATALOGS_CHECKS, ownCatalogsChecks } from './suite-own-catalogs';
@@ -50,6 +50,11 @@ import { WELCOME_MIXED_CHECKS, welcomeMixedChecks } from './suite-welcome-mixed'
 import { placeNotABinary, placeSecondCompiler, registerWithNoTrust, SecondCompiler } from './welcome';
 import { CONFIGURED_PLUGINS_CHECKS, configuredPluginsChecks } from './suite-configured-plugins';
 import { Generation, INSPECTION_BY_NAME_CHECKS, inspectionByNameChecks, LIST_PANEL_OPERATIONS_CHECKS, listPanelOperationsChecks, nameDefaultOnly, placeGeneration } from './suite-list-panels';
+import {
+  CONFIGURATION_FROM_THE_ENVIRONMENT_CHECKS, CONFIGURATION_REPORT_CHECKS, configurationFromTheEnvironmentChecks, configurationReportChecks, NOTHING_CONFIGURED_CHECKS,
+  nothingConfiguredChecks, OFFLINE, OFFLINE_IN_THE_ENVIRONMENT, proveNoGlobalFile, proveNothingSetIn,
+} from './suite-configuration-report';
+import { YML_RELEASE } from './suite-discovery';
 
 // The suite: the checks of which build is under test, of the build-analysis
 // setting and the two diagnostic layers it separates, and of the capabilities
@@ -95,6 +100,9 @@ export const SCENARIO_CHECKS: Readonly<Record<string, readonly string[]>> = {
   'gateway-list-panel-operations': LIST_PANEL_OPERATIONS_CHECKS,
   'mysql-inspection-by-name': INSPECTION_BY_NAME_CHECKS,
   'configured-plugins-removal': CONFIGURED_PLUGINS_CHECKS,
+  'gateway-configuration-report': CONFIGURATION_REPORT_CHECKS,
+  'gateway-configuration-from-the-environment': CONFIGURATION_FROM_THE_ENVIRONMENT_CHECKS,
+  'nothing-configured-configuration-report': NOTHING_CONFIGURED_CHECKS,
 };
 
 // ScenarioResult is one scenario as the report states it.
@@ -102,6 +110,7 @@ interface ScenarioResult {
   name: string;
   folder: string | null;
   settingsChanged: Record<string, unknown>;
+  environmentAdded: Readonly<Record<string, string>>;
   fixtures: FixtureProof[];
   results: CheckResult[];
   bringUpMs: number | null;
@@ -128,6 +137,9 @@ interface ScenarioPlan {
   // observers are installed in the workbench as soon as it is reachable, for a
   // scenario whose checks read what the editor drew while the extension started.
   observers?: readonly string[];
+  // environment is what the scenario adds to the editor's environment, for a
+  // scenario whose checks read what a variable set there does.
+  environment?: Readonly<Record<string, string>>;
   prepare: (root: ScenarioRoot, home: ScratchHome, log: string) => Promise<Prepared>;
   body: (ctx: SuiteContext, prepared: Prepared) => Promise<void>;
   // cleanup stops what the preparation started beside the editor.
@@ -689,6 +701,53 @@ function plans(inputs: Inputs): ScenarioPlan[] {
       },
       body: (ctx, p) => configuredPluginsChecks(ctx, { reference: p.extra?.reference as string, missing: p.extra?.missing as string }),
     },
+    {
+      name: 'gateway-configuration-report',
+      checks: CONFIGURATION_REPORT_CHECKS,
+      observers: LEVEL_OBSERVERS,
+      prepare: async (root, home, log) => {
+        const folder = path.join(root.dir, 'workspace', 'gateway');
+        const notABinary = path.join(root.dir, 'not-a-compiler', 'aggrega');
+        const fixtures = [
+          placeFolder(inputs.extension.dir, 'gateway', folder, inputs.catalog.dir),
+          await writeLockfile(bin, folder, RELEASE, home, log),
+          proveNothingAbove(folder),
+          proveNoGlobalFile(home),
+          proveNothingSetIn(folder, OFFLINE),
+          placeNotABinary(notABinary),
+        ];
+        return { folder, fixtures, extra: { notABinary } };
+      },
+      body: (ctx, p) => configurationReportChecks(ctx, p.extra?.notABinary as string),
+    },
+    {
+      name: 'gateway-configuration-from-the-environment',
+      checks: CONFIGURATION_FROM_THE_ENVIRONMENT_CHECKS,
+      environment: OFFLINE_IN_THE_ENVIRONMENT,
+      prepare: async (root, home, log) => {
+        const folder = path.join(root.dir, 'workspace', 'gateway');
+        const fixtures = [
+          placeFolder(inputs.extension.dir, 'gateway', folder, inputs.catalog.dir),
+          await writeLockfile(bin, folder, RELEASE, home, log),
+          proveNothingAbove(folder),
+          proveNoGlobalFile(home),
+          proveNothingSetIn(folder, OFFLINE),
+        ];
+        return { folder, fixtures };
+      },
+      body: (ctx) => configurationFromTheEnvironmentChecks(ctx),
+    },
+    {
+      name: 'nothing-configured-configuration-report',
+      checks: NOTHING_CONFIGURED_CHECKS,
+      prepare: async (root, home) => {
+        const layouts = path.join(root.dir, 'layouts');
+        const fixtures = await placeLayouts(layouts, [{ folder: YML_RELEASE.folder, files: YML_RELEASE.files ?? {} }]);
+        fixtures.push(proveNoGlobalFile(home));
+        return { folder: path.join(layouts, YML_RELEASE.folder), fixtures };
+      },
+      body: (ctx) => nothingConfiguredChecks(ctx),
+    },
   ];
 }
 
@@ -699,7 +758,7 @@ async function stopTable(table: ProcessTable): Promise<void> {
 
 async function runScenario(plan: ScenarioPlan, inputs: Inputs, runDir: string, driverName: string, plant: Plant | null): Promise<ScenarioResult> {
   const t0 = Date.now();
-  const result: ScenarioResult = { name: plan.name, folder: null, settingsChanged: plan.settings ?? {}, fixtures: [], results: [], bringUpMs: null, wallMs: 0, teardown: null, display: null };
+  const result: ScenarioResult = { name: plan.name, folder: null, settingsChanged: plan.settings ?? {}, environmentAdded: plan.environment ?? {}, fixtures: [], results: [], bringUpMs: null, wallMs: 0, teardown: null, display: null };
   const checks = new Checks(plan.name, plant === null ? undefined : plant.checks);
   const root = createScenarioRoot(runDir, plan.name);
   const home: ScratchHome = { home: root.home, tmp: root.tmp };
@@ -714,7 +773,7 @@ async function runScenario(plan: ScenarioPlan, inputs: Inputs, runDir: string, d
     const beforeLaunch = plant !== null && plant.target === 'extension'
       ? (r: ScenarioRoot): void => { result.planted = applyPlant(plant, r.extensionCopy); }
       : undefined;
-    s = await bringUp(plan.name, inputs, runDir, driverName, { root, folder: prepared.folder, settings: plan.settings, beforeLaunch, observers: plan.observers });
+    s = await bringUp(plan.name, inputs, runDir, driverName, { root, folder: prepared.folder, settings: plan.settings, beforeLaunch, observers: plan.observers, environment: plan.environment });
     result.bringUpMs = s.bringUpMs;
     result.display = s.display;
     await plan.body(makeContext(s, inputs, checks), prepared);
@@ -813,6 +872,7 @@ export async function runSuite(opts: { inputs: Inputs; runDir: string; driverNam
     summary.push(displayLine(s.display));
     if (s.teardown) { summary.push(useLine(s.teardown)); }
     if (Object.keys(s.settingsChanged).length > 0) { summary.push(`  settings this scenario changes: ${JSON.stringify(s.settingsChanged)}`); }
+    if (Object.keys(s.environmentAdded).length > 0) { summary.push(`  variables this scenario adds to the editor's environment: ${JSON.stringify(s.environmentAdded)}`); }
     for (const f of s.fixtures) { summary.push(`  fixture ${f.built ? 'built' : 'NOT BUILT'}: ${f.fixture} — ${f.proof}`); }
     if (s.planted) { summary.push(`  planted: ${s.planted}`); }
     if (s.stopped) { summary.push(`  stopped: ${s.stopped.split('\n')[0]}`); }

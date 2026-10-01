@@ -612,6 +612,35 @@ reading them:
   command palette offers each list panel's head operations and refresh and none
   of the operations bound to a row.
 
+Another group reads the configuration panel against what the language server
+serves:
+
+- `gateway-configuration-report` opens the panel in the gateway folder and holds
+  each row against the configuration schema the language server serves and its
+  own report of what is in force: every setting a row, nested and listed ones
+  included; the coverage sentence's counts; Set left empty wherever the reader
+  set nothing; the declared default and no source where the report says nothing;
+  the description behind each row's circle; the switch to each setting in full,
+  and the note there on the settings shared by every project on the machine
+  alone; the names derived from the keys; the shape the panel opens in again;
+  and that nothing on it edits a setting. It then puts a setting in force in the
+  folder's own file and checks both shapes name that file, and that pressing
+  Show config again brings the open panel forward reading the new value, which
+  it does not read with nothing pressed; and, with the language server stopped,
+  that pressing it says why — with the panel closed, leaving none standing, and
+  with it open, from the Commands panel and from the command palette. It leaves
+  for a person whether the flat table, its columns and headings, its plain
+  names, the coverage sentence and the place of that note read right, with
+  captures of the table in a dark, a light and a high-contrast theme.
+- `gateway-configuration-from-the-environment` starts the editor with
+  `AGGREGA_OFFLINE=true` in its environment — the report names a variable a
+  scenario adds there — and checks both shapes name that variable as the
+  setting's source.
+- `nothing-configured-configuration-report` opens a folder holding only a
+  Release, with no configuration file in it, above it or in the home
+  directory's configuration: the summary says no file contributed and draws no
+  list of files, and every setting reads at its default.
+
 A last group reads the welcome page as a reader meets it, step by step:
 
 - `welcome-page-empty-folder` starts on a fresh profile, on a machine with no

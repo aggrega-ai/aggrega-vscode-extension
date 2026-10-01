@@ -145,8 +145,18 @@ export function writeProfile(root: ScenarioRoot, inputs: Inputs, changes: Record
   return settings;
 }
 
-// editorEnvironment is the whole environment the editor is started with.
-export function editorEnvironment(root: ScenarioRoot, probePort: number): Record<string, string> {
+// editorEnvironment is the whole environment the editor is started with: the
+// variables below, and those a scenario adds, which its report names. A scenario
+// adds a variable of its own and never replaces one stated here, so a scenario
+// cannot quietly lose the isolation the rest of them give it.
+export function editorEnvironment(root: ScenarioRoot, probePort: number, added: Readonly<Record<string, string>> = {}): Record<string, string> {
+  const stated = statedEnvironment(root, probePort);
+  const replaced = Object.keys(added).filter((k) => Object.hasOwn(stated, k));
+  if (replaced.length > 0) { throw new Error(`a scenario adds variables to the editor's environment and replaces none, and this one names ${replaced.join(', ')}`); }
+  return { ...stated, ...added };
+}
+
+function statedEnvironment(root: ScenarioRoot, probePort: number): Record<string, string> {
   const user = os.userInfo().username;
   return {
     HOME: root.home,
@@ -233,15 +243,16 @@ export interface Launch {
   startedAt: number;
 }
 
-// launchEditor starts the editor under `env -i` with the stated environment,
-// records it as the root of its own session, and returns once the debugging
-// endpoint answers. Given a table, the editor is recorded in it beside what it
-// already holds — an editor started again on the same profile is one scenario's
-// second launch, and its processes are that scenario's as much as the first's.
-export async function launchEditor(root: ScenarioRoot, inputs: Inputs, shape: LaunchShape, boundMs = 60000, into?: ProcessTable): Promise<Launch> {
+// launchEditor starts the editor under `env -i` with the stated environment and
+// what the scenario adds to it, records it as the root of its own session, and
+// returns once the debugging endpoint answers. Given a table, the editor is
+// recorded in it beside what it already holds — an editor started again on the
+// same profile is one scenario's second launch, and its processes are that
+// scenario's as much as the first's.
+export async function launchEditor(root: ScenarioRoot, inputs: Inputs, shape: LaunchShape, boundMs = 60000, into?: ProcessTable, added: Readonly<Record<string, string>> = {}): Promise<Launch> {
   const debugPort = await freePort();
   const probePort = await freePort();
-  const env = editorEnvironment(root, probePort);
+  const env = editorEnvironment(root, probePort, added);
   const args = [...editorArguments(root, shape), `--remote-debugging-port=${debugPort}`];
   const log = fs.openSync(path.join(root.logs, 'editor.log'), 'a');
   const kv = Object.entries(env).map(([k, v]) => `${k}=${v}`);

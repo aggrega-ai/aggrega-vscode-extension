@@ -138,7 +138,7 @@ const GENERATION_DETAIL = 'Each entity is written at a path derived from its plu
 // The kind token the configuration panel asks the compiler's configuration schema
 // under. It is held as written: the module declaring it opens the editor's own
 // interface as it loads, which a check running outside the editor cannot.
-const CONFIG_SCHEMA_KIND = 'aggrega-config';
+export const CONFIG_SCHEMA_KIND = 'aggrega-config';
 
 // The entity a row publishes and inspects is the one the gateway folder's own
 // publication publishes (suite-endings.ts), the folder's Recipe, which its own

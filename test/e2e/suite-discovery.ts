@@ -52,10 +52,14 @@ const ONE_BELOW = 'one-below';
 // with the other layouts; `write` just before its folder is opened, since a
 // Release beneath a folder read earlier would otherwise be found by the look
 // inside that folder and change what its row reads.
-interface Spelling { folder: string; expect: string; says: string; files?: Readonly<Record<string, string>>; write?: Readonly<Record<string, string>> }
+export interface Spelling { folder: string; expect: string; says: string; files?: Readonly<Record<string, string>>; write?: Readonly<Record<string, string>> }
+
+// YML_RELEASE is the folder holding only a Release named with the .yml spelling,
+// which is also a folder holding nothing configured at all.
+export const YML_RELEASE: Spelling = { folder: 'yml-release', expect: 'yml-release', says: 'a Release named with the .yml spelling', files: { 'release.yml': 'kind: Release\n' } };
 
 export const SPELLINGS: readonly Spelling[] = [
-  { folder: 'yml-release', expect: 'yml-release', says: 'a Release named with the .yml spelling', files: { 'release.yml': 'kind: Release\n' } },
+  YML_RELEASE,
   { folder: 'quoted-key', expect: 'quoted-key', says: 'a workspace key written quoted', files: { [CONFIG_FILENAME]: '"workspace": {}\n' } },
   { folder: 'flow-key', expect: 'flow-key', says: 'a workspace key written in flow style', files: { [CONFIG_FILENAME]: '{workspace: {}}\n' } },
   { folder: 'block-text', expect: 'none available', says: 'a configuration that is one block of text, so no key', files: { [CONFIG_FILENAME]: '|\nworkspace: {}\n' } },

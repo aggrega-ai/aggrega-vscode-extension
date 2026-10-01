@@ -23,11 +23,11 @@ export const CONFIG_PANEL_CHECKS = [
 ] as const;
 
 // The words the panel draws that these checks find things by, held as written
-// so a change of wording is reported rather than followed: the seven labelled
+// so a change of wording is reported rather than followed: the labelled
 // headings in order, and the switch's words in each shape.
-const HEADINGS = ['Setting', 'Name', 'Set', 'Default', 'Effective', 'Takes', 'Source'];
-const TO_EXPANDED = 'Show each setting in full';
-const TO_TABLE = 'Show every setting in one table';
+export const HEADINGS = ['Setting', 'Name', 'Set', 'Default', 'Effective', 'Takes', 'Source'];
+export const TO_EXPANDED = 'Show each setting in full';
+export const TO_TABLE = 'Show every setting in one table';
 
 // How far a grip is dragged wider, and how close to it the column must follow.
 const WIDER_PX = 150;
@@ -48,7 +48,7 @@ export interface ConfigPanel {
   box(selector: string): Promise<Box | null>;
 }
 
-const HOSTED = `((document.getElementById('active-frame') || {}).contentDocument || null)`;
+export const HOSTED = `((document.getElementById('active-frame') || {}).contentDocument || null)`;
 const READ_BOUND_MS = 5000;
 
 export async function configPanel(ctx: SuiteContext, shape: 'table' | 'expanded'): Promise<ConfigPanel> {
