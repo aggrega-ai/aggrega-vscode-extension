@@ -1323,6 +1323,11 @@ export const PLANTS: readonly Plant[] = [
     file: 'out/src/selector-rows.js', find: '    const sole = candidates === 1 ?', replace: '    const sole = candidates >= 1 ?',
     says: 'the Project folder row\'s hover says only one Project folder is available whatever the count',
   },
+  {
+    name: 'welcome-page-left-behind-kept-open', scenario: 'two-workspaces-context-rows', checks: ['two-workspaces.switching-moves-the-welcome-page'], moves: 'red', target: 'extension',
+    file: 'out/src/get-started.js', find: '        closePagesLeftBehind(leftBehind, deps.output);\n', replace: '',
+    says: 'the welcome page drawn before the extensions restarted is left open beside the one drawn in its place',
+  },
   // ---- the Project folder row's opens and adds ----
   {
     name: 'add-entry-labelled-otherwise', scenario: 'project-folder-adds', checks: ['project-folder.chooser-offers-two-ways-to-reach-another'], moves: 'red', target: 'extension',
@@ -1405,18 +1410,23 @@ export const PLANTS: readonly Plant[] = [
     says: 'the look through what the folder holds never completes the workspaces on offer',
   },
   {
-    name: 'workspace-in-use-compared-by-marker', scenario: 'workspace-discovery-layouts', checks: ['workspace-discovery.choosing-the-workspace-below-moves-there'], moves: 'green', target: 'extension',
-    file: EXTENSION, find: '    if (daemon && activeAnchored?.folder.uri.fsPath === anchoring.openedFolder) {', replace: '    if (daemon && activeAnchored?.anchorPath === target.anchorPath) {',
-    says: 'the guard against restarting for the workspace already in use compares the markers of the two workspaces, so a second one reached from the same folder is told apart from the first',
+    name: 'workspace-in-use-compared-by-folder-alone', scenario: 'workspace-discovery-layouts', checks: ['workspace-discovery.choosing-the-workspace-below-moves-there'], moves: 'red', target: 'extension',
+    file: 'out/src/anchor-picker.js', find: '\n        && active.anchorPath === target.anchorPath;', replace: ';',
+    says: 'the guard against attaching again compares the opened folders alone, so a second workspace reached from the same folder reads as the one already in use',
   },
   {
     name: 'several-below-attach-to-the-first', scenario: 'workspace-discovery-layouts', checks: ['workspace-discovery.two-below-wait-for-a-choice'], moves: 'red', target: 'extension',
     ...severalReachedAttachToTheFirst(),
   },
   {
-    name: 'remembered-choice-kept-until-the-look-inside', scenario: 'workspace-discovery-layouts', checks: ['workspace-discovery.a-choice-below-survives-a-reload-unsaid', 'workspace-discovery.one-below-survives-a-reload-unsaid'], moves: 'green', target: 'extension',
-    file: EXTENSION, find: '    if (savedAnchor !== null && !anchored.some(a => a.anchorPath === savedAnchor)) {', replace: '    if (false) {',
-    says: 'a remembered choice is not dropped on the walk up from the folder alone, so the look inside it can find the workspace again',
+    name: 'remembered-choice-judged-on-the-walk-alone', scenario: 'workspace-discovery-layouts', checks: ['workspace-discovery.a-choice-below-survives-a-reload-unsaid', 'workspace-discovery.one-below-survives-a-reload-unsaid'], moves: 'red', target: 'extension',
+    file: 'out/src/workspace.js', find: '        if (relativeIfInside(folder.uri.fsPath, root) !== null && await findAggregaWorkspaceAnchor(root) === anchorPath) {', replace: '        if (false) {',
+    says: 'a remembered workspace is judged on the walk up from the folder alone, so one chosen below the folder is dropped on every start, and said to be',
+  },
+  {
+    name: 'remembered-choice-never-dropped', scenario: 'workspace-discovery-layouts', checks: ['workspace-discovery.a-remembered-workspace-whose-marker-is-gone-is-dropped-and-said'], moves: 'red', target: 'extension',
+    file: EXTENSION, find: '    if (savedAnchor !== null && remembered === null) {', replace: '    if (false) {',
+    says: 'a remembered choice is never dropped, so one whose marker is gone stays remembered and nothing is said',
   },
   {
     name: 'one-reached-asks-to-choose', scenario: 'workspace-discovery-layouts', checks: ['workspace-discovery.one-below-is-taken-without-a-press'], moves: 'red', target: 'extension',
@@ -1616,7 +1626,7 @@ export const PLANTS: readonly Plant[] = [
   },
   {
     name: 'page-opens-whatever-the-preference', scenario: 'welcome-page-empty-folder', checks: ['welcome-page.stays-closed-on-a-reopen-when-off'], moves: 'red', target: 'extension',
-    file: 'out/src/get-started.js', find: '        if (!opensWithEditor()) {\n            return;\n        }\n        const read = await reread();', replace: '        if (false) {\n            return;\n        }\n        const read = await reread();',
+    file: 'out/src/get-started.js', find: '        if (pagesLeftBehind().length === 0 && !opensWithEditor()) {\n            return;\n        }\n        const read = await reread();', replace: '        if (false) {\n            return;\n        }\n        const read = await reread();',
     says: 'the page opens on startup whatever the preference says',
   },
   {

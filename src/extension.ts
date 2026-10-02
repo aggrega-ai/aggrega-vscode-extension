@@ -150,9 +150,11 @@ import {
   ACTIVE_RELEASE_MARKER_GLOB,
   AnchoredFolder,
   NO_ANCHORED_WORKSPACE_MESSAGE,
+  dedupeByWorkspaceRoot,
   findAllAnchoredFolders,
   fromWorkspaceRelative,
   outputParentFor,
+  rememberedWorkspaceReached,
   windowAnchoring,
   workspacesReachedFromAll,
 } from './workspace';
@@ -186,6 +188,7 @@ import {
   anchorSwitchMessage,
   anchorsAvailableSentence,
   classifyActivation,
+  isAttachedTo,
   readSavedAnchor,
   rememberAnchorChoice,
 } from './anchor-picker';
@@ -973,20 +976,28 @@ async function reactivate(context: vscode.ExtensionContext): Promise<void> {
 
   const scope = await settleProjectFolder(context, folders);
 
-  // 🔴 THE IMMEDIATE ANSWER IS THE WALK'S, AND NOTHING HERE WAITS ON THE
-  // EDITOR'S FILE SEARCH. The walk reads a handful of directories on the way to
-  // the filesystem root; the search is a glob across everything the window
-  // holds. Blocking attachment on the second would make every start pay for a
-  // candidate list that only a panel reads, in a window where the answer is
-  // usually one. So the walk settles where the language server goes, and the
-  // fuller population is completed afterwards.
+  // 🔴 THE IMMEDIATE ANSWER IS THE WALK'S AND THE REMEMBERED WORKSPACE'S, AND
+  // NOTHING HERE WAITS ON THE EDITOR'S FILE SEARCH. The walk reads a handful of
+  // directories on the way to the filesystem root; the search is a glob across
+  // everything the window holds. Blocking attachment on the second would make
+  // every start pay for a candidate list that only a panel reads, in a window
+  // where the answer is usually one. So the walk settles where the language
+  // server goes, joined by the workspace this window last worked in wherever the
+  // folder still reaches it, and the fuller population is completed afterwards.
   const anchored = await findAllAnchoredFolders(scope);
-  currentAnchored = anchored;
 
+  // 🔴 A REMEMBERED CHOICE IS JUDGED AGAINST EVERYTHING THE FOLDER REACHES, the
+  // look inside it included, because that is the population it was chosen from:
+  // a workspace chosen below the folder is none the walk up finds, and judged
+  // against the walk alone it would be dropped, and said to be dropped, on every
+  // start. The question is put to the remembered marker itself, through
+  // discovery, so answering it needs no search.
   const savedAnchor = readSavedAnchor(context.workspaceState);
-  if (savedAnchor !== null && !anchored.some(a => a.anchorPath === savedAnchor)) {
-    // Stale saved choice — folder removed or marker deleted. Forget it
-    // so the multi-prompt branch can re-fire when appropriate.
+  const remembered = savedAnchor === null ? null : await rememberedWorkspaceReached(savedAnchor, scope);
+  if (savedAnchor !== null && remembered === null) {
+    // Stale saved choice — folder removed, marker deleted, or the marker no
+    // longer reached from the folders open. Forget it so the multi-prompt
+    // branch can re-fire when appropriate.
     await rememberAnchorChoice(context.workspaceState, null);
     // And say so. A remembered choice that quietly stops applying is
     // indistinguishable from one that was never remembered, and the reader
@@ -998,7 +1009,14 @@ async function reactivate(context: vscode.ExtensionContext): Promise<void> {
     );
   }
 
-  await applyActivationDecision(context, anchored);
+  // The remembered workspace joins the walk's answer, so the language server
+  // attaches to it straight away rather than to whatever the walk found and then
+  // moving, with a notice, once the search answers; where the walk found it too,
+  // the walk's entry stands.
+  const immediate = remembered === null ? anchored : dedupeByWorkspaceRoot([...anchored, remembered]);
+  currentAnchored = immediate;
+
+  await applyActivationDecision(context, immediate);
 
   // Every branch above settles what the workspace root and the language server
   // now are, including the branch where the server failed to start, so this is
@@ -1110,8 +1128,9 @@ async function settleProjectFolder(
 // applyActivationDecision drives the language server and the pending-choice
 // surfaces from one population of Aggrega workspaces.
 //
-// It is reached twice per re-evaluation — once with the walk's immediate answer
-// and once with the fuller population the search completes — and it is one
+// It is reached twice per re-evaluation — once with the immediate answer, the
+// walk's joined by the remembered workspace, and once with the fuller population
+// the search completes — and it is one
 // function rather than two so the two passes cannot come to dispatch the same
 // decision differently. The attaching branch returns early where the server is
 // already where it belongs, so the second pass costs nothing in the ordinary
@@ -1238,18 +1257,17 @@ async function ensureDaemonAt(
   // to "where are we" and every surface below has to say which it means.
   const anchoring = windowAnchoring(target);
 
-  // The guard compares OPENED FOLDERS, not roots, and deliberately. Two open
-  // folders under one marker climb to the same root, so comparing roots would
-  // make choosing the other one a no-op — leaving the Project folder row naming
-  // a folder the reader has just moved away from.
-  if (daemon && activeAnchored?.folder.uri.fsPath === anchoring.openedFolder) {
+  // The guard returns early only where the folder the workspace is reached from
+  // AND the workspace itself are both the ones already in use. isAttachedTo says
+  // what each half of that comparison catches that the other misses.
+  if (daemon && isAttachedTo(activeAnchored, target)) {
     return;
   }
 
   if (daemon) {
-    // The guard above has already established that this is a different folder, so
-    // the language server is about to be torn down and stood back up somewhere
-    // else. The reader is told before it happens rather than left to infer it from
+    // The guard above has already established that the folder or the workspace is
+    // a different one, so the language server is about to be torn down and stood
+    // back up somewhere else. The reader is told before it happens rather than left to infer it from
     // a status bar that changes: performing the restart and announcing it are
     // different things, and the surfaces they are looking at all resolve against
     // the folder that is moving.

@@ -620,7 +620,9 @@ export async function statusHover(ctx: SuiteContext, match: (i: StatusItem) => b
   return { item, hover: await hoverAt(ctx.d, item.centre) };
 }
 
-const WELCOME_WORKSPACE_VALUE = `(() => { const e = document.querySelector('section.step[data-step="workspace"] .step-value'); return e ? (e.innerText || '').trim() : null; })()`;
+// WELCOME_WORKSPACE_VALUE reads, in one welcome page's document, the text its
+// workspace step stands at, or null where the document draws no such step.
+export const WELCOME_WORKSPACE_VALUE = `(() => { const e = document.querySelector('section.step[data-step="workspace"] .step-value'); return e ? (e.innerText || '').trim() : null; })()`;
 
 // welcomeWorkspaceValues reads what the welcome page's workspace step stands at in
 // every welcome page drawn, opening one where none is. A window whose extensions

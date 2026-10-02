@@ -79,6 +79,27 @@ export const WELCOME_SHOW_SETTING = 'aggrega.getStarted.show';
 // that only said "Welcome" would not say whose.
 export const WELCOME_PANEL_TITLE = 'Welcome to Aggrega';
 
+// WELCOME_VIEW_TYPE is the type the panel is drawn under, which is what tells the
+// editor's tabs holding it apart from every other page.
+export const WELCOME_VIEW_TYPE = 'aggrega.welcome';
+
+// EDITOR_PAGE_TYPE_PREFIX is what the editor puts in front of the type an
+// extension draws a page under when it reports that page's tab back to it.
+const EDITOR_PAGE_TYPE_PREFIX = 'mainThreadWebview-';
+
+// isWelcomePageTab reports whether a tab's page type, as the editor reports it,
+// is the welcome panel's.
+//
+// 🔴 BOTH SPELLINGS ARE READ, AND NO LOOSER MATCH, BECAUSE THE PREFIX IS THE
+// EDITOR'S OWN. The editor reports a page's tab under the type it was drawn with
+// behind a prefix of its own, which is no part of the interface it publishes —
+// so the bare type is read as well, in case an editor stops adding one. A match
+// on the type's ending instead would also take another extension's page whose
+// type merely ends the same way, and a tab taken by mistake is a tab closed.
+export function isWelcomePageTab(viewType: string): boolean {
+  return viewType === WELCOME_VIEW_TYPE || viewType === `${EDITOR_PAGE_TYPE_PREFIX}${WELCOME_VIEW_TYPE}`;
+}
+
 // WELCOME_GREETING and WELCOME_DESCRIPTION are the words the panel opens with:
 // the greeting drawn as the panel's heading, then the product's own description
 // as its own paragraph beneath it.

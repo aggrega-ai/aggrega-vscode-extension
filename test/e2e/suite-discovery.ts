@@ -20,9 +20,10 @@ import { holds, NOT_RUNNING, pressToastButton, RUNNING, toasts, toastsSince, unt
 // somewhere different relative to the folder opened, each opened alone in turn:
 // none at all, where both rows still send the reader somewhere and the Aggrega
 // workspace row's create control makes the folder a root; one marker beneath
-// another; markers only below the folder opened, two and then one; and the
-// spellings that mark a root, each read on the row as the folder opens and again
-// after a reload.
+// another; markers only below the folder opened, two and then one, a choice of
+// one of them kept through a reload and dropped, and said to be, once its marker
+// is gone; and the spellings that mark a root, each read on the row as the folder
+// opens and again after a reload.
 
 export const DISCOVERY_CHECKS = [
   'workspace-row.nothing-reachable-reads-none-available-and-the-ways-out',
@@ -36,6 +37,7 @@ export const DISCOVERY_CHECKS = [
   'workspace-discovery.one-below-is-taken-without-a-press',
   'workspace-discovery.one-below-read-as-outside-the-folder',
   'workspace-discovery.one-below-survives-a-reload-unsaid',
+  'workspace-discovery.a-remembered-workspace-whose-marker-is-gone-is-dropped-and-said',
   'workspace-discovery.root-marker-spellings-read-as-roots',
 ] as const;
 
@@ -198,7 +200,7 @@ export async function discoveryChecks(ctx: SuiteContext, layouts: string): Promi
 
   await c.run('workspace-discovery.choosing-the-workspace-below-moves-there', {
     expected: `choosing "sub" in that chooser raises "${nowWorkingIn(nestSub)}", moves the language server to ${nestSub} and leaves the Aggrega workspace row naming "sub"`,
-    plant: 'red on the product as it stands; a correction in the scratch copy, out/src/extension.js with the guard against restarting for the workspace already in use comparing the markers of the two workspaces, turns it green',
+    plant: 'in the scratch copy, out/src/anchor-picker.js with the guard against attaching again comparing the opened folders alone, so a second workspace reached from the same folder reads as the one in use',
   }, async () => {
     const toastMark = (await toasts(ctx.d)).length;
     await rowChooser(ctx, 'workspace', { done: (x) => x.rows.some((r) => r.label === 'sub') });
@@ -234,8 +236,8 @@ export async function discoveryChecks(ctx: SuiteContext, layouts: string): Promi
   });
 
   await c.run('workspace-discovery.a-choice-below-survives-a-reload-unsaid', {
-    expected: `the window reloaded comes back working in ${belowA} as chosen, and says nothing: no notice that the remembered choice was dropped and no choice offered again, watched for ${WATCH_MS} ms once a language server works there`,
-    plant: 'red on the product as it stands; a correction in the scratch copy, out/src/extension.js with a remembered choice not dropped on the walk up from the folder alone, turns it green',
+    expected: `the window reloaded comes back working in ${belowA} as chosen, and says nothing: no notice that the remembered choice was dropped and no choice offered again, watched for ${WATCH_MS} ms once a language server works there; the same reading of the notifications reads the drop raised in workspace-discovery.a-remembered-workspace-whose-marker-is-gone-is-dropped-and-said, later in this scenario`,
+    plant: 'in the scratch copy, out/src/workspace.js with a remembered workspace judged on the walk up from the folder alone',
   }, async () => {
     await reloadWindow(ctx, ledger);
     await readyAnyway(ctx);
@@ -280,8 +282,8 @@ export async function discoveryChecks(ctx: SuiteContext, layouts: string): Promi
   });
 
   await c.run('workspace-discovery.one-below-survives-a-reload-unsaid', {
-    expected: `the window reloaded comes back working in ${insideSub} again, and says nothing: no notice that a remembered choice was dropped, watched for ${WATCH_MS} ms once a language server works there`,
-    plant: 'red on the product as it stands; a correction in the scratch copy, out/src/extension.js with a remembered choice not dropped on the walk up from the folder alone, turns it green',
+    expected: `the window reloaded comes back working in ${insideSub} again, and says nothing: no notice that a remembered choice was dropped, watched for ${WATCH_MS} ms once a language server works there; the same reading of the notifications reads the drop raised in workspace-discovery.a-remembered-workspace-whose-marker-is-gone-is-dropped-and-said, later in this scenario`,
+    plant: 'in the scratch copy, out/src/workspace.js with a remembered workspace judged on the walk up from the folder alone',
   }, async () => {
     await reloadWindow(ctx, ledger);
     await readyAnyway(ctx);
@@ -290,6 +292,34 @@ export async function discoveryChecks(ctx: SuiteContext, layouts: string): Promi
     const quiet = await holds(WATCH_MS, aggrega, (said) => !said.some((m) => /no longer marks|was dropped/.test(m)));
     const said = await aggrega();
     return { passed: srv !== null && quiet.held, seen: `the language server ${srv !== null ? `works in ${insideSub}` : `works in ${serversWorking(ctx)}`}; Aggrega notifications ${JSON.stringify(said)}${quiet.held ? `, none of them a drop for ${WATCH_MS} ms` : ''}` };
+  });
+
+  // The marker is moved aside rather than deleted, so the layout is whole again
+  // for anything that opens it afterwards.
+  const insideMarker = path.join(insideSub, CONFIG_FILENAME);
+  await c.run('workspace-discovery.a-remembered-workspace-whose-marker-is-gone-is-dropped-and-said', {
+    expected: `with ${insideMarker} moved aside, the window reloaded raises "${droppedAnchor(insideMarker)}", the Aggrega workspace row reads "none available", and no language server runs, watched for ${WATCH_MS} ms once the row reads so`,
+    plant: 'in the scratch copy, out/src/extension.js with a remembered choice never dropped, whether or not its marker still marks a workspace the folder reaches',
+  }, async () => {
+    need(fs.existsSync(insideMarker), `${insideMarker} is not there to move aside`);
+    const aside = `${insideMarker}.aside`;
+    fs.renameSync(insideMarker, aside);
+    try {
+      await reloadWindow(ctx, ledger);
+      await readyAnyway(ctx);
+      // Waited for by the reading the two reloads before it held an absence over,
+      // so this is the drop that reading is shown to see.
+      const told = await waitToast(ctx.d, 'a notice that the remembered choice was dropped', 0, (t) => /no longer marks|was dropped/.test(t.message), 20000).catch(() => null);
+      const rows = await waitRows(ctx, 'the Aggrega workspace row reading none available', (r) => r[1]?.value === 'none available', 20000);
+      const idle = await holds(WATCH_MS, async () => languageServers(ctx).length, (n) => n === 0);
+      const said = (await toasts(ctx.d)).map((t) => t.message).filter((m) => m.startsWith('Aggrega'));
+      return {
+        passed: told?.message === droppedAnchor(insideMarker) && rows[1]?.value === 'none available' && idle.held,
+        seen: `${told ? `"${told.message}"` : 'no notice of a drop within 20000 ms'}; Aggrega notifications ${JSON.stringify(said)}; the rows ${describeRows(rows)}; ${idle.held ? `no language server for ${WATCH_MS} ms` : `a language server working in ${serversWorking(ctx)}`}`,
+      };
+    } finally {
+      fs.renameSync(aside, insideMarker);
+    }
   });
 
   // Which root the compiler finds for each spelling is the compiler's own to

@@ -109,6 +109,28 @@ export function isSavedAnchorValid<F extends FolderLike>(
   return anchored.some(a => a.anchorPath === savedPath);
 }
 
+// isAttachedTo reports whether the language server attached through `active` is
+// already where `target` asks for it, so that attaching again would change
+// nothing.
+//
+// 🔴 IT COMPARES THE OPENED FOLDER AND THE MARKER, AND EACH HALF HAS A WINDOW OF
+// ITS OWN THAT THE OTHER CANNOT SEE. Two open folders beneath one marker reach the
+// same workspace, so comparing markers alone would read choosing the other folder
+// as done already: the server would stay attached from the folder the reader moved
+// away from, and the Aggrega workspace row's account of where the workspace sits,
+// and the interruption about a workspace above, would go on naming that folder.
+// One folder can reach two workspaces — its own, and one found inside it — so
+// comparing folders alone would read choosing the one inside as done already, and
+// the server would stay where it was with nothing said.
+export function isAttachedTo<F extends FolderLike>(
+  active: AnchoredFolder<F> | null,
+  target: AnchoredFolder<F>,
+): boolean {
+  return active !== null
+    && active.folder.uri.fsPath === target.folder.uri.fsPath
+    && active.anchorPath === target.anchorPath;
+}
+
 // classifyActivation returns the four-way decision used by the
 // extension activation path and the workspaceFolders change handler.
 // Both call sites share this function so one-workspace activation,

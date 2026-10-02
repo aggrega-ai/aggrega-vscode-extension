@@ -50,6 +50,27 @@ describe('activation does not wait on the editor\'s file search', () => {
       'the walk is no longer what settles the immediate answer',
     );
 
+    // 🔴 AND SO IS THE REMEMBERED WORKSPACE, ASKED OF ITS OWN MARKER WITH NO SEARCH
+    // HANDED TO IT. A remembered choice is judged against everything the folder
+    // reaches, the look inside included; were that judgement handed the editor's
+    // search, a start would wait on the glob this clause refuses, by another route.
+    assert.deepStrictEqual(
+      callArguments('src/extension.ts', 'rememberedWorkspaceReached'),
+      [['savedAnchor', 'scope']],
+      'the remembered workspace is judged with something other than its marker and the folders in '
+      + 'scope — a search among them would make every start wait on it',
+    );
+    assert.ok(
+      body.includes('await rememberedWorkspaceReached(savedAnchor, scope)'),
+      `the remembered workspace is not judged in the activation sequence; the body was:\n${body}`,
+    );
+    // The judgement is what decides the drop, so a choice made below the folder
+    // is not dropped and said to be dropped on every start.
+    assert.ok(
+      body.includes('if (savedAnchor !== null && remembered === null) {'),
+      `the remembered choice is dropped on something other than that judgement; the body was:\n${body}`,
+    );
+
     // 🔴 AND THE SEARCH IS NOT AWAITED. This is the whole clause: a start that
     // waited on a glob across everything the window holds would pay for a
     // candidate list only a panel reads, in a window where the answer is
@@ -116,6 +137,36 @@ describe('activation does not wait on the editor\'s file search', () => {
       `the ordinary window, which reaches one workspace by both routes, redraws every surface `
       + `to report a number none of them has changed; the body was:\n${body}`,
     );
+  });
+});
+
+describe('attaching returns early only where nothing would change', () => {
+  it('compares the opened folder and the workspace, through the one guard, and nothing else', () => {
+    const body = functionBody('src/extension.ts', 'async function ensureDaemonAt(');
+    // The needle on the block: the scanned body is the function's own.
+    assert.ok(
+      body.includes('const anchoring = windowAnchoring(target);'),
+      `the scanned body does not begin where the function does; it was:\n${body}`,
+    );
+    // 🔴 ONE CALL, WITH THE TWO ATTACHMENTS. isAttachedTo is where both halves of the
+    // comparison are, and they are driven there; this is what says the early return
+    // is that comparison rather than one written beside it.
+    assert.deepStrictEqual(
+      callArguments('src/extension.ts', 'isAttachedTo'),
+      [['activeAnchored', 'target']],
+      'the guard against attaching again is not the one comparison of the attachment in use and '
+      + 'the one asked for',
+    );
+    assert.ok(
+      body.includes('if (daemon && isAttachedTo(activeAnchored, target)) {'),
+      `attaching does not return early on that comparison; the body was:\n${body}`,
+    );
+    // And no half of it is made again here: a comparison of the folder or the
+    // marker in use written beside the guard is how one half would come to be
+    // judged twice and the other not at all.
+    for (const half of ['activeAnchored?.folder', 'activeAnchored?.anchorPath', 'activeAnchored.folder', 'activeAnchored.anchorPath']) {
+      assert.ok(!body.includes(half), `${half} is compared beside the guard; the body was:\n${body}`);
+    }
   });
 });
 

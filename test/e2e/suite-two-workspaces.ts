@@ -8,10 +8,11 @@ import { need } from './checks';
 import {
   addWithTheEditorsCommand, Chooser, chooser, closeChooser, describePending, describeRows, noChoicePending, nowWorkingFrom, nowWorkingIn, openFolders, PENDING_CHOICE_ACTION, pendingChoiceNotice,
   PLACEHOLDER, projectHover, reloadWindow, rowChooser, rowsNow, serverIn, serversWorking, statusHover, statusItem, takeChooserRow, ToastLedger, waitChooser, waitRows, welcomeWorkspaceValues,
-  WIDEN_ANOTHER, WIDEN_DETAIL, workspaceHover,
+  WELCOME_WORKSPACE_VALUE, WIDEN_ANOTHER, WIDEN_DETAIL, workspaceHover,
 } from './levels';
 import { languageServers, ready, SuiteContext, theServer } from './suite-context';
-import { holds, pressToastButton, RUNNING, toasts, toastsSince, until, waitStatus, waitToast } from './workbench';
+import { PAGE_TITLE, pageTabs, WELCOME_PAGE } from './welcome';
+import { evaluateWithin, holds, pressToastButton, RUNNING, toasts, toastsSince, until, waitStatus, waitToast } from './workbench';
 
 // The checks run in a window that reaches two Aggrega workspaces, each a folder
 // of its own: one opened alone, the other added with the editor's own command. No
@@ -42,6 +43,10 @@ const POSTGRES_RELEASES = ['release-bare.yaml', 'release-config.yaml'];
 const NO_SERVER_MS = 4000;
 const NO_OFFER_MS = 4000;
 
+// How long the welcome page is given, once a switch has moved the rows, to draw
+// the workspace switched to.
+const WELCOME_SETTLE_MS = 15000;
+
 // releasesOffered opens the Release row's chooser and answers with the Releases
 // it lists, by file.
 async function releasesOffered(ctx: SuiteContext): Promise<string[]> {
@@ -56,14 +61,66 @@ function workspaceChooser(ctx: SuiteContext): Promise<Chooser> {
   return rowChooser(ctx, 'workspace');
 }
 
+// DRAWN_BEFORE_ADD is the key every welcome page's document is marked under just
+// before the add, so a page read afterwards says whether it is a document drawn
+// before the extensions restarted or one drawn since.
+const DRAWN_BEFORE_ADD = '__twoWorkspacesDrawnBeforeAdd';
+
+// PagesDrawn is every welcome page the window holds as read at one moment: each
+// page's document, with what its workspace step stands at and whether it carries
+// the mark made before the add; the documents that gave no answer, which are not
+// read as no page, for the reason welcomePages (welcome.ts) gives; and the tabs
+// the editor draws for the page.
+interface PagesDrawn { pages: { value: string; drawnBeforeAdd: boolean }[]; unanswered: number; tabs: number }
+
+async function pagesDrawn(ctx: SuiteContext): Promise<PagesDrawn> {
+  const reading = `(${WELCOME_PAGE}) ? { value: ${WELCOME_WORKSPACE_VALUE} ?? '', drawnBeforeAdd: window[${JSON.stringify(DRAWN_BEFORE_ADD)}] === true } : null`;
+  const pages: PagesDrawn['pages'] = [];
+  let unanswered = 0;
+  for (const doc of await ctx.d.webviews()) {
+    try {
+      const page = await evaluateWithin<PagesDrawn['pages'][number] | null>(doc, reading, 2000);
+      if (page !== null) { pages.push(page); }
+    } catch {
+      unanswered++;
+    }
+  }
+  return { pages, unanswered, tabs: (await pageTabs(ctx)).length };
+}
+
+// markPagesBeforeAdd marks every welcome page's document the window holds, and
+// answers with how many it marked and how many documents gave no answer.
+async function markPagesBeforeAdd(ctx: SuiteContext): Promise<{ marked: number; unanswered: number }> {
+  let marked = 0;
+  let unanswered = 0;
+  for (const doc of await ctx.d.webviews()) {
+    try {
+      if (await evaluateWithin<boolean>(doc, `(${WELCOME_PAGE}) && (window[${JSON.stringify(DRAWN_BEFORE_ADD)}] = true)`, 2000)) { marked++; }
+    } catch {
+      unanswered++;
+    }
+  }
+  return { marked, unanswered };
+}
+
+// describePages words a reading of the welcome pages for a check's report.
+function describePages(p: PagesDrawn): string {
+  const pages = p.pages.map((x) => `${JSON.stringify(x.value)} (${x.drawnBeforeAdd ? 'the document drawn before the add' : 'a document drawn since'})`);
+  return `${p.tabs} tab(s) titled "${PAGE_TITLE}"; ${p.pages.length} page document(s)${pages.length > 0 ? `: ${pages.join(', ')}` : ''}${p.unanswered > 0 ? `; ${p.unanswered} document(s) gave no answer` : ''}`;
+}
+
 export async function twoWorkspacesChecks(ctx: SuiteContext, postgres: string): Promise<void> {
   const c = ctx.checks;
   const mysql = ctx.folder;
   const mysqlName = path.basename(mysql);
   const postgresName = path.basename(postgres);
   const ledger = new ToastLedger();
-  // The welcome pages drawn before the add, read beside the verdicts that follow.
+  // The welcome pages drawn before the add, how many of their documents were
+  // marked, and the pages the window holds once the add has come back, read
+  // beside the verdicts that follow.
   let welcomeBeforeAdd: string[] = [];
+  let markedBeforeAdd = { marked: 0, unanswered: 0 };
+  let pagesAfterAdd: PagesDrawn | null = null;
   // Whether the choice the add leaves to the reader was read, which is the
   // positive control for the reading of a choice offered again.
   let pendingSeen = false;
@@ -76,6 +133,7 @@ export async function twoWorkspacesChecks(ctx: SuiteContext, postgres: string): 
     const running = await theServer(ctx).then(() => true, () => false);
     need(running, 'no language server is running in the window on the one folder, so there is nothing for the add to be read against');
     welcomeBeforeAdd = await welcomeWorkspaceValues(ctx);
+    markedBeforeAdd = await markPagesBeforeAdd(ctx);
     const toastMark = (await toasts(ctx.d)).length;
     const change = await addWithTheEditorsCommand(ctx, ledger, postgres);
     const folders = await openFolders(ctx);
@@ -84,6 +142,7 @@ export async function twoWorkspacesChecks(ctx: SuiteContext, postgres: string): 
     const item = await until('the status bar offering the choice', 10000, () => statusItem(ctx, (i) => i.text === PENDING_CHOICE_ACTION), (v) => v !== undefined).catch(() => undefined);
     pendingSeen = notice !== null && item !== undefined;
     const noServer = await holds(NO_SERVER_MS, async () => languageServers(ctx).length, (n) => n === 0);
+    pagesAfterAdd = await pagesDrawn(ctx);
     const told = (await toastsSince(ctx.d, change.reloaded ? 0 : toastMark)).map((t) => t.message);
     return {
       passed: folders.length === 2 && rows[0]?.value === 'none selected' && rows[1]?.value === 'none selected' && noServer.held && item !== undefined && notice !== null && notice.buttons.includes(PENDING_CHOICE_ACTION),
@@ -148,14 +207,15 @@ export async function twoWorkspacesChecks(ctx: SuiteContext, postgres: string): 
   });
 
   await c.run('two-workspaces.switching-moves-the-welcome-page', {
-    expected: `after the switch to ${postgresName}, every welcome page the window draws names ${postgres} on its workspace step, none still naming ${mysql}`,
-    plant: `red on the product as it stands; green not yet shown: what corrects it is the welcome page drawn before an add restarted the extensions being closed or drawn again by the extensions that start after it, rather than left open naming the workspace it was drawn for`,
+    expected: `after the switch to ${postgresName}, the window draws exactly one welcome page — one tab titled "${PAGE_TITLE}" over one page document — and its workspace step names ${postgres}, read within ${WELCOME_SETTLE_MS} ms: the page drawn before the add, which the editor keeps in its tab when the extensions restart, is drawn again by the extension that starts after it rather than left open beside a second`,
+    plant: 'in the scratch copy, out/src/get-started.js with the welcome page drawn before the extensions restarted left open beside the one drawn in its place',
   }, async () => {
-    const welcome = await welcomeWorkspaceValues(ctx);
-    need(welcome.length > 0, 'no welcome page is drawn, and none could be opened, so there is no workspace step to read');
+    const one = (p: PagesDrawn): boolean => p.tabs === 1 && p.pages.length === 1 && p.unanswered === 0 && p.pages[0].value.includes(postgres);
+    const settled = await until('one welcome page naming the workspace switched to', WELCOME_SETTLE_MS, () => pagesDrawn(ctx), one)
+      .then((p) => ({ p, within: true }), async () => ({ p: await pagesDrawn(ctx), within: false }));
     return {
-      passed: welcome.every((v) => v.includes(postgres)),
-      seen: `before the add ${welcomeBeforeAdd.length} welcome page(s) were drawn, reading ${JSON.stringify(welcomeBeforeAdd)}; after the switch ${welcome.length}, reading ${JSON.stringify(welcome)}`,
+      passed: settled.within && one(settled.p),
+      seen: `before the add ${welcomeBeforeAdd.length} welcome page(s) were drawn, reading ${JSON.stringify(welcomeBeforeAdd)}, ${markedBeforeAdd.marked} document(s) marked; once the add came back, ${pagesAfterAdd === null ? 'not read' : describePages(pagesAfterAdd)}; after the switch${settled.within ? '' : `, still after ${WELCOME_SETTLE_MS} ms`}, ${describePages(settled.p)}`,
     };
   });
 

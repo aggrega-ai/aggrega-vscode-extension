@@ -46,6 +46,8 @@ import {
   WELCOME_PANEL_TITLE,
   WELCOME_SHOW_COMMAND,
   WELCOME_SHOW_SETTING,
+  WELCOME_VIEW_TYPE,
+  isWelcomePageTab,
   panelControlCommands,
   readCollapsedSteps,
   stepReadings,
@@ -260,6 +262,24 @@ export function activateGetStarted(
   // nothing to draw into.
   let panel: vscode.WebviewPanel | null = null;
 
+  // pagesLeftBehind answers with the tabs the editor holds a welcome page in that
+  // this extension did not draw — every such tab, while it has drawn none.
+  //
+  // 🔴 A PAGE OUTLIVES THE EXTENSION HOST THAT DREW IT. Where the editor restarts
+  // its extensions in place — the add that makes a window on one folder into a
+  // workspace, for one — it keeps every page in its tab, drawn as it last was, and
+  // nothing answers for it any more: its controls run nothing and it never follows
+  // the workspace again. The editor does not hand it to the extension that starts
+  // afterwards, a serializer included, so that extension finds it among the
+  // editor's tabs. Asked while a page of this extension's own is open, the answer
+  // would hold that page's tab too, so it is empty then.
+  const pagesLeftBehind = (): vscode.Tab[] => {
+    if (panel !== null) { return []; }
+    return vscode.window.tabGroups.all
+      .flatMap((group) => group.tabs)
+      .filter((tab) => tab.input instanceof vscode.TabInputWebview && isWelcomePageTab(tab.input.viewType));
+  };
+
   // 🔴 NO STANDINGS ARE HELD HERE, AND THE ABSENCE IS THE MECHANISM. Every path
   // that draws the panel or decides its arrangement reads the four conditions
   // for itself and uses the answer it got, so there is no shared field for a
@@ -393,12 +413,18 @@ export function activateGetStarted(
   //
   // This is the only place the arrangement is decided from a condition rather
   // than from the reader.
+  //
+  // 🔴 IT IS ALSO WHERE THE WINDOW IS KEPT TO ONE PAGE. A page left behind by the
+  // extensions restarting is replaced by this one, in the tab group it stood in:
+  // this page is drawn there first and the one left behind closed afterwards, so
+  // that group is not emptied and closed out from under the reader on the way.
   const createPanel = (read: PanelReading): void => {
     collapsed = initiallyCollapsedStepIds(read.steps);
+    const leftBehind = pagesLeftBehind();
     panel = vscode.window.createWebviewPanel(
-      'aggrega.welcome',
+      WELCOME_VIEW_TYPE,
       WELCOME_PANEL_TITLE,
-      vscode.ViewColumn.Active,
+      leftBehind[0]?.group.viewColumn ?? vscode.ViewColumn.Active,
       {
         enableScripts: true,
         retainContextWhenHidden: true,
@@ -442,6 +468,7 @@ export function activateGetStarted(
     // foot is drawn again now there is a panel for it; the steps are not, for
     // the reason followLifecycle gives.
     if (lifecycleMoves !== read.lifecycleAt) { followLifecycle(); }
+    closePagesLeftBehind(leftBehind, deps.output);
   };
 
   // reuseOpenPanel refreshes the panel that is already open, bringing it to the
@@ -498,14 +525,17 @@ export function activateGetStarted(
   // left arranged as it is — the same rule the reveal path follows, and through
   // the coalescer rather than around it, since there is a panel to draw into. A
   // reader who has said not to open it gets no panel and no reading, because
-  // nothing would draw the answer. Otherwise the panel is created from one
-  // reading taken here, which is the case the whole arrangement rule exists for.
+  // nothing would draw the answer — unless the extensions restarted under a page
+  // they had open. Otherwise the panel is created from one reading taken here,
+  // which is the case the whole arrangement rule exists for.
   const settle = async (): Promise<void> => {
     if (reuseOpenPanel(false)) { return; }
     // What the preference gates is whether the panel OPENS BY ITSELF, not
     // whether it exists — the command that brings it back is in the palette
-    // either way, which is what makes the dismissal safe to offer at all.
-    if (!opensWithEditor()) { return; }
+    // either way, which is what makes the dismissal safe to offer at all. A page
+    // left behind by the extensions restarting is one the reader already had
+    // open, so it is drawn again whatever the preference says.
+    if (pagesLeftBehind().length === 0 && !opensWithEditor()) { return; }
     const read = await reread();
     // A reader who asked for the page while this reading was being taken has
     // it already, arranged from their own reading; it is refreshed and left.
@@ -580,6 +610,23 @@ export function activateGetStarted(
     },
     followLifecycle,
   };
+}
+
+// closePagesLeftBehind closes the tabs of welcome pages an extension host that has
+// stopped drew, keeping the keyboard focus on the page drawn in their place, and
+// says in the output channel where the editor kept one.
+function closePagesLeftBehind(tabs: readonly vscode.Tab[], output: vscode.OutputChannel): void {
+  if (tabs.length === 0) { return; }
+  vscode.window.tabGroups.close(tabs, true).then(
+    (closed) => {
+      if (!closed) {
+        output.appendLine('get started: the editor kept open a welcome page drawn before the extensions restarted');
+      }
+    },
+    (err: unknown) => {
+      output.appendLine(`get started: could not close a welcome page drawn before the extensions restarted: ${describeError(err)}`);
+    },
+  );
 }
 
 // runPanelControl runs the command a press in the welcome panel names.

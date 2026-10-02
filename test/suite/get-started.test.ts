@@ -30,6 +30,8 @@ import {
   WELCOME_PANEL_TITLE,
   WELCOME_SHOW_COMMAND,
   WELCOME_SHOW_SETTING,
+  WELCOME_VIEW_TYPE,
+  isWelcomePageTab,
   panelControlCommands,
   readCollapsedSteps,
   stepMet,
@@ -2890,5 +2892,40 @@ describe('the welcome page sends a reader to a control by the words it draws', (
       [],
       `the steps name a row the Commands panel does not draw; it draws ${JSON.stringify(drawn)}`,
     );
+  });
+});
+
+// A page the extensions restarted under is found among the editor's tabs by its
+// page type, and a tab taken by mistake is a tab closed — so the reading is held
+// to the two spellings the editor reports it in and to nothing that merely
+// resembles them.
+describe('the welcome page\'s tab, as the editor reports it', () => {
+  it('is read under the type the page is drawn with, bare and behind the editor\'s prefix', () => {
+    assert.strictEqual(isWelcomePageTab(WELCOME_VIEW_TYPE), true);
+    assert.strictEqual(isWelcomePageTab(`mainThreadWebview-${WELCOME_VIEW_TYPE}`), true);
+  });
+
+  it('is not read for another page, however much of the type it shares', () => {
+    for (const other of [
+      'mainThreadWebview-aggrega.graph',
+      `mainThreadWebview-another-${WELCOME_VIEW_TYPE}`,
+      `another-${WELCOME_VIEW_TYPE}`,
+      `${WELCOME_VIEW_TYPE}-another`,
+      `mainThreadWebview-${WELCOME_VIEW_TYPE}-another`,
+      '',
+    ]) {
+      assert.strictEqual(isWelcomePageTab(other), false, `${JSON.stringify(other)} is read as the welcome page's tab`);
+    }
+  });
+
+  it('is the type the page is drawn under, named in one place', () => {
+    // The panel is created under the constant the reading compares against, so
+    // the two cannot come to name different types.
+    const created = functionBody('src/get-started.ts', 'export function activateGetStarted(');
+    assert.ok(
+      created.includes('vscode.window.createWebviewPanel(\n      WELCOME_VIEW_TYPE,'),
+      `the welcome page is drawn under something other than WELCOME_VIEW_TYPE; the body was:\n${created}`,
+    );
+    assert.ok(!created.includes(`'${WELCOME_VIEW_TYPE}'`), 'the page type is spelled again where the page is drawn');
   });
 });

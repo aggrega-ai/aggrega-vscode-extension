@@ -318,10 +318,11 @@ export function fromWorkspaceRelative(workspaceRoot: string, reported: string): 
   return path.isAbsolute(reported) ? reported : path.join(workspaceRoot, reported);
 }
 
-// relativeIfInside is the containment judgement the workspace-relative request
-// parameters on this surface share: it answers with the workspace-relative form
-// of target when target names somewhere inside the root, and null when it does
-// not.
+// relativeIfInside is this module's one containment judgement: it answers with
+// the relative form of target when target names somewhere inside the root, and
+// null when it does not. The workspace-relative request parameters on this
+// surface share it, and so does the question whether a remembered workspace's
+// root sits inside a folder.
 //
 // The contract belongs to the surface rather than to any one parameter, which is
 // why it is judged here once and each parameter below adds only the one reading
@@ -341,13 +342,14 @@ export function fromWorkspaceRelative(workspaceRoot: string, reported: string): 
 // 🔴 THE EMPTY RESULT IS THE CALLER'S TO READ, AND IT IS THE ONE THING THIS
 // DELIBERATELY DOES NOT DECIDE. A target that resolves to the root itself is
 // inside the root, so it is answered with rather than refused — but what it MEANS
-// is not the same for every parameter, and that is the only axis the two callers
-// below disagree on. Each settles it in a line of its own; folding either reading
-// in here would decide it for both.
+// is not the same for every caller, and that is the only axis the callers
+// disagree on. Each settles it in a line of its own; folding one reading in here
+// would decide it for all of them.
 //
-// It stays private, and both parameters that need it are below, so a surface
-// reaching for the rule reaches it through one of them — which is what stops a
-// third reading of it growing somewhere this file cannot see.
+// It stays private, and every reading of it is in this file — the two parameters
+// below, and the judgement of whether a remembered workspace's root sits inside a
+// folder — so a surface reaching for the rule reaches it through one of them,
+// which is what stops another reading of it growing somewhere this file cannot see.
 //
 // This is a DELIBERATE second implementation of the containment rule the daemon
 // applies to these same parameters — it refuses an absolute value and one that
@@ -358,8 +360,8 @@ export function fromWorkspaceRelative(workspaceRoot: string, reported: string): 
 // anchor-discovery rule above holds its own: by a table of cases covering each
 // boundary the rule turns on — an interior climb that resolves back inside, a
 // sibling whose name merely extends the root, the root itself — driven through
-// the two callers below, which is the only way in. A case added on one side
-// belongs on the other.
+// the two parameters below, which are its only way in from a request. A case
+// added on one side belongs on the other.
 function relativeIfInside(workspaceRoot: string | null, target: string): string | null {
   if (workspaceRoot === null || workspaceRoot === '') {
     return null;
@@ -614,6 +616,43 @@ export async function workspacesReachedFromAll<F extends FolderLike>(
     found.push(...await workspacesReachedFrom(folder, search));
   }
   return dedupeByWorkspaceRoot(found);
+}
+
+// rememberedWorkspaceReached answers with the entry for a remembered Aggrega
+// workspace, by its marker, where one of `folders` still reaches it, and null where
+// none does.
+//
+// 🔴 IT ASKS THE TWO QUESTIONS THE REACH ASKS, OF ONE MARKER, AND NEEDS NO SEARCH
+// TO ASK THEM. The reach finds a workspace by walking up from a folder, and by
+// confirming through discovery the directory of each candidate file the editor's
+// search lists inside it. A remembered marker already names its own directory, so
+// the second question is put to it directly: its root sits at or inside the
+// folder, and discovery asked from that root still answers with this marker, which
+// is the answer the reach takes from the files marking that root. That is what lets
+// a choice made below the folder be honoured as the window is evaluated, with
+// nothing waiting on a glob across everything the window holds. And it is
+// discovery's answer rather than a test beside it, so a marker that has been
+// deleted, or that a workspace configuration further up now claims, is reached by
+// neither question. It is still a second derivation of the reach's population,
+// held to one answer with it by a test that computes both over real directories.
+//
+// The folder carried is the first, in the window's own order, that reaches the
+// marker, asked the walk before the look inside — the order the reach keeps — so
+// the entry is the one the fuller population lists for that workspace.
+export async function rememberedWorkspaceReached<F extends FolderLike>(
+  anchorPath: string,
+  folders: readonly F[],
+): Promise<AnchoredFolder<F> | null> {
+  const root = workspaceRootOf({ anchorPath });
+  for (const folder of folders) {
+    if (await findAggregaWorkspaceAnchor(folder.uri.fsPath) === anchorPath) {
+      return { folder, anchorPath };
+    }
+    if (relativeIfInside(folder.uri.fsPath, root) !== null && await findAggregaWorkspaceAnchor(root) === anchorPath) {
+      return { folder, anchorPath };
+    }
+  }
+  return null;
 }
 
 // heuristicMarkerInDir reports the highest-priority heuristic marker present in

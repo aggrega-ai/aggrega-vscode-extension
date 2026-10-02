@@ -16,6 +16,7 @@ import {
   anchorsAvailableSentence,
   buildPickerItems,
   classifyActivation,
+  isAttachedTo,
   isSavedAnchorValid,
   readSavedAnchor,
   rememberAnchorChoice,
@@ -186,6 +187,32 @@ describe('isSavedAnchorValid', () => {
 
   it('returns false when anchored list is empty', () => {
     assert.strictEqual(isSavedAnchorValid('/ws/a/.aggrega-config.yaml', []), false);
+  });
+});
+
+// The guard against attaching again where the language server already is, read
+// for each of the two windows it exists for and the one where it must hold.
+describe('isAttachedTo', () => {
+  it('holds where both the opened folder and the workspace are the ones in use', () => {
+    const inUse = fakeAnchor('/ws/a', '/ws/a/.aggrega-config.yaml');
+    assert.strictEqual(isAttachedTo(inUse, fakeAnchor('/ws/a', '/ws/a/.aggrega-config.yaml')), true);
+  });
+
+  it('does not hold for the other of two open folders beneath one marker, so choosing it moves', () => {
+    // Both folders climb to /ws/.aggrega-config.yaml: one workspace, two folders
+    // the editor could have been reached from.
+    const inUse = fakeAnchor('/ws/x', '/ws/.aggrega-config.yaml');
+    assert.strictEqual(isAttachedTo(inUse, fakeAnchor('/ws/y', '/ws/.aggrega-config.yaml')), false);
+  });
+
+  it('does not hold for a second workspace reached from the same folder, so choosing it moves', () => {
+    // The folder's own workspace, and one the look inside it found below it.
+    const inUse = fakeAnchor('/ws/nest', '/ws/nest/.aggrega-config.yaml');
+    assert.strictEqual(isAttachedTo(inUse, fakeAnchor('/ws/nest', '/ws/nest/sub/.aggrega-config.yaml')), false);
+  });
+
+  it('does not hold where nothing is in use', () => {
+    assert.strictEqual(isAttachedTo(null, fakeAnchor('/ws/a', '/ws/a/.aggrega-config.yaml')), false);
   });
 });
 

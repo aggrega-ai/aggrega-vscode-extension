@@ -8,6 +8,7 @@ import * as path from 'node:path';
 
 import {
   findAllAnchoredFolders,
+  rememberedWorkspaceReached,
   workspaceRootOf,
   workspacesReachedFrom,
   workspacesReachedFromAll,
@@ -418,5 +419,126 @@ describe('the cost of the widening, shown on one window', () => {
       rootsOf(reached),
       [path.join(repo, 'one'), path.join(repo, 'two')],
     );
+  });
+});
+
+// 🔴 A REMEMBERED WORKSPACE IS JUDGED WITH NO SEARCH, AND THE JUDGEMENT IS HELD TO
+// THE REACH IT STANDS IN FOR. The window asks whether the workspace it last worked
+// in is still reached before the editor's search has answered, by putting the
+// reach's two questions to the remembered marker itself. That is a second
+// derivation of one population, so every case below computes both — the reach,
+// with the search, and the judgement, without it — and holds them to one answer.
+describe('a remembered workspace, judged before any search', () => {
+  beforeEach(async () => {
+    tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'aggrega-reach-'));
+    tmp = await fs.realpath(tmp);
+  });
+
+  afterEach(async () => {
+    await fs.rm(tmp, { recursive: true, force: true });
+  });
+
+  // judged answers with the folder the judgement carries for `marker`, and the
+  // folder the reach lists it under, or null for either that does not reach it.
+  async function judged(marker: string, open: readonly string[]): Promise<{ direct: string | null; reach: string | null }> {
+    const folders = open.map(folder);
+    const direct = await rememberedWorkspaceReached(marker, folders);
+    const reach = (await workspacesReachedFromAll(folders, searchUnder)).find((entry) => entry.anchorPath === marker);
+    return { direct: direct?.folder.uri.fsPath ?? null, reach: reach?.folder.uri.fsPath ?? null };
+  }
+
+  // LAYOUT: open folder <tmp>/repo carrying <tmp>/repo/aggregate.yaml, with
+  // <tmp>/repo/sub/release.yaml below it — a heuristic marker, so it shadows
+  // nothing and sub is a workspace of its own.
+  it('reaches a workspace chosen BELOW the folder, which the walk up never finds', async () => {
+    await write('repo/aggregate.yaml');
+    const marker = await write('repo/sub/release.yaml');
+    const repo = path.join(tmp, 'repo');
+
+    assert.ok(
+      !(await findAllAnchoredFolders([folder(repo)])).some((entry) => entry.anchorPath === marker),
+      'the walk up finds the workspace below, so this case does not show the look inside being asked',
+    );
+    assert.deepStrictEqual(await judged(marker, [repo]), { direct: repo, reach: repo });
+  });
+
+  // LAYOUT: open folder <tmp>/repo holding nothing of its own; a workspace marker
+  // at <tmp>/repo/sub/.aggrega-config.yaml.
+  it('reaches a workspace below a folder that is no workspace itself', async () => {
+    const marker = await write('repo/sub/.aggrega-config.yaml', WORKSPACE_CONFIG);
+    const repo = path.join(tmp, 'repo');
+    assert.deepStrictEqual(await judged(marker, [repo]), { direct: repo, reach: repo });
+  });
+
+  // LAYOUT: open folder <tmp>/repo/docs; the marker at <tmp>/repo/.aggrega-config.yaml.
+  it('reaches a workspace ABOVE the folder by the walk', async () => {
+    const marker = await write('repo/.aggrega-config.yaml', WORKSPACE_CONFIG);
+    const docs = await makeDir('repo/docs');
+    assert.deepStrictEqual(await judged(marker, [docs]), { direct: docs, reach: docs });
+  });
+
+  // LAYOUT: as the first case, with <tmp>/repo/sub/release.yaml then deleted.
+  it('does not reach a remembered workspace whose marker has been deleted', async () => {
+    await write('repo/aggregate.yaml');
+    const marker = await write('repo/sub/release.yaml');
+    const repo = path.join(tmp, 'repo');
+    assert.deepStrictEqual(await judged(marker, [repo]), { direct: repo, reach: repo }, 'the marker is not reached before it is deleted, so its deletion shows nothing');
+    await fs.rm(marker);
+    assert.deepStrictEqual(await judged(marker, [repo]), { direct: null, reach: null });
+  });
+
+  // LAYOUT: open folder <tmp>/repo carrying a workspace configuration, which wins
+  // across directories, and <tmp>/repo/sub/release.yaml below it — the marker below
+  // confirms to the root above, so it is no workspace of its own.
+  it('does not reach a remembered marker a workspace configuration further up now claims', async () => {
+    await write('repo/.aggrega-config.yaml', WORKSPACE_CONFIG);
+    const marker = await write('repo/sub/release.yaml');
+    const repo = path.join(tmp, 'repo');
+    assert.deepStrictEqual(await judged(marker, [repo]), { direct: null, reach: null });
+  });
+
+  // LAYOUT: <tmp>/alpha/aggregate.yaml and <tmp>/beta/sub/release.yaml; the window
+  // has alpha open, and then both.
+  it('does not reach a workspace inside a folder the window does not have open', async () => {
+    await write('alpha/aggregate.yaml');
+    const marker = await write('beta/sub/release.yaml');
+    const alpha = path.join(tmp, 'alpha');
+    const beta = path.join(tmp, 'beta');
+    assert.deepStrictEqual(await judged(marker, [alpha]), { direct: null, reach: null });
+    assert.deepStrictEqual(await judged(marker, [alpha, beta]), { direct: beta, reach: beta });
+  });
+
+  // 🔴 EVERY MARKER OF ONE LAYOUT, FROM EVERY CHOICE OF OPEN FOLDERS. The cases
+  // above name the shapes; this holds the two derivations to one answer across
+  // all of them at once, so a shape added to one derivation alone shows here.
+  //
+  // LAYOUT: <tmp>/w/.aggrega-config.yaml (workspace); <tmp>/w/svc/release.yaml
+  // (shadowed by it); <tmp>/x/aggregate.yaml; <tmp>/x/inner/.aggrega/active-release;
+  // <tmp>/x/inner/deep/manifest.yml; <tmp>/y/.aggrega-config.yaml (workspace);
+  // <tmp>/y/a/.aggrega-config.yaml (workspace); <tmp>/z/docs, holding nothing.
+  it('answers as the reach does for every marker and every choice of open folders', async () => {
+    const markers = [
+      await write('w/.aggrega-config.yaml', WORKSPACE_CONFIG),
+      await write('w/svc/release.yaml'),
+      await write('x/aggregate.yaml'),
+      path.dirname(await write('x/inner/.aggrega/active-release', 'release.yaml\n')),
+      await write('x/inner/deep/manifest.yml'),
+      await write('y/.aggrega-config.yaml', WORKSPACE_CONFIG),
+      await write('y/a/.aggrega-config.yaml', WORKSPACE_CONFIG),
+    ];
+    await makeDir('z/docs');
+    const choices = [['w'], ['w/svc'], ['x'], ['x/inner'], ['y'], ['y/a'], ['z/docs'], ['x', 'y'], ['y', 'x'], ['z/docs', 'w/svc']];
+    let reachedSomewhere = 0;
+    for (const choice of choices) {
+      const open = choice.map((rel) => path.join(tmp, rel));
+      for (const marker of markers) {
+        const answer = await judged(marker, open);
+        assert.deepStrictEqual(answer.direct, answer.reach, `${path.relative(tmp, marker)} judged from ${JSON.stringify(choice)}`);
+        if (answer.reach !== null) { reachedSomewhere += 1; }
+      }
+    }
+    // The control on the sweep: a sweep in which nothing was ever reached would
+    // agree with itself by answering null everywhere.
+    assert.ok(reachedSomewhere > 0, 'no marker was reached from any choice, so the agreement above compared nothing');
   });
 });
