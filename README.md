@@ -88,7 +88,8 @@ repository, so your choice does not travel to whoever else opens it. The control
 checkbox reading **Show Aggrega welcome page on startup**, ticked while the page opens on startup —
 so it reports the setting as it stands rather than offering you the act that would change it. Turn it
 off in the settings screen and the checkbox follows; press the checkbox and the settings screen
-follows. It is one switch in two places rather than two switches.
+follows. It is one switch in two places rather than two switches. The checkbox keeps the keyboard focus
+when it is pressed, so Space ticks and unticks it in turn.
 
 Turning it off stops the page opening on startup rather than putting it out of reach, and it is not
 a one-way door: **Aggrega: Get started** in the Command Palette turns it back on and opens it, and
@@ -303,7 +304,7 @@ they write `.aggrega/active-release` or `.aggrega-config.yaml` rather than an ed
 
 | Setting | Default | Purpose |
 |---------|---------|---------|
-| `aggrega.getStarted.show` | `true` | Whether the [welcome page](#the-welcome-page) opens on startup. Three surfaces move this one setting and stay in step: the checkbox at the page's own foot, **Aggrega: Stop opening the welcome page on startup**, and **Aggrega: Get started**. Turning it off stops the page opening rather than removing it; turning it back on also opens it. |
+| `aggrega.getStarted.show` | `true` | Whether the [welcome page](#the-welcome-page) opens on startup. Three surfaces move this one setting and stay in step: the checkbox at the page's own foot, **Aggrega: Stop opening the welcome page on startup**, and **Aggrega: Get started**. Turning it off stops the page opening rather than removing it; turning it back on with **Aggrega: Get started** also opens it. |
 | `aggrega.server.binaryPath` | `aggrega` | Path to the `aggrega` binary. |
 | `aggrega.server.debounceMs` | `300` | Debounce window for proactive validate-on-change. |
 | `aggrega.server.respawnAttempts` | `5` | How many times, within the window below, the language server is started again after it stops without being asked to, before the extension leaves it stopped and raises the stopped-responding notification. A server started again that stops before it has answered counts the same as one that stops while running. See [Lifecycle](#lifecycle). |
@@ -317,7 +318,7 @@ they write `.aggrega/active-release` or `.aggrega-config.yaml` rather than an ed
 
 ## Commands
 
-- **Aggrega: Get started** — bring the [welcome page](#the-welcome-page) back after you have turned it off, and open it. It turns `aggrega.getStarted.show` back on, so turning the page off is a choice you can undo rather than a door that locks behind you. Ticking the checkbox at the page's foot runs this same command. The house icon in the Commands panel title bar is a different thing: it opens the page and changes no setting, so a glance at the page is never also a decision about startup.
+- **Aggrega: Get started** — bring the [welcome page](#the-welcome-page) back after you have turned it off, and open it. It turns `aggrega.getStarted.show` back on, so turning the page off is a choice you can undo rather than a door that locks behind you. Ticking the checkbox at the page's foot turns the same setting back on and opens nothing: the page is the one you are on, so the checkbox keeps the keyboard focus and Space ticks and unticks it in turn. The house icon in the Commands panel title bar is a different thing: it opens the page and changes no setting, so a glance at the page is never also a decision about startup.
 - **Aggrega: Stop opening the welcome page on startup** — stop the [welcome page](#the-welcome-page) opening on startup, by turning `aggrega.getStarted.show` off in your own settings. This stops it arriving unasked rather than putting it out of reach: **Aggrega: Get started** brings it back. Unticking the checkbox at the page's foot runs this same command, so the decision can be taken from where the page is being read as well as from the palette.
 - **Aggrega: Open settings** — open this extension's preferences. Also the cog at the top right of the Commands panel. It opens the editor's own settings page filtered to this extension, so there is one place a preference lives and one place it is written. Distinct from **Show config**, which reports what the *compiler* resolved for the workspace rather than what your editor is set to.
 - **Aggrega: Select Release…** — choose the Release the editor works on. Takes effect at once and re-checks the open files against it; nothing restarts. Also reachable by clicking the Release indicator in the status bar. See [Selecting a Release](#selecting-a-release).
@@ -659,8 +660,9 @@ A last group reads the welcome page as a reader meets it, step by step:
   registry and backing out of an add, pointing at a second compiler, and taking
   a folder beneath that already has a configuration — and turns the page's
   opening on startup off and on again from the palette, the checkbox at its
-  foot and the settings screen, beside the house icon in the Commands panel
-  title bar, which changes no setting.
+  foot (pressed, and toggled with Space while it keeps the focus) and the
+  settings screen, beside the house icon in the Commands panel title bar, which
+  changes no setting.
 - `welcome-page-configured-workspace` opens a workspace whose compiler, Release
   and registry are all in place: every step met and folded on arrival, the
   compiler step going back to **To do** when the compiler stops or will not

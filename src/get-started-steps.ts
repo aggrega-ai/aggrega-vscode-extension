@@ -52,6 +52,7 @@
 import { panelActionLabel } from './operation-groups';
 import { SELECT_RELEASE_COMMAND } from './release-selection';
 import { REGISTRY_ADD_COMMAND } from './registry-configure';
+import { SELECTOR_ROW_LABELS } from './selector-levels';
 
 // WELCOME_SHOW_SETTING is the preference that decides whether the panel opens
 // by itself. It is the reader's own, like every other preference here, and it is
@@ -523,6 +524,13 @@ export interface StepContent {
 // else. The renderer escapes first and applies exactly those three, so this text
 // can never introduce markup of its own.
 //
+// 🔴 A SENTENCE NAMING A CONTROL ANOTHER SURFACE DRAWS COMPOSES THAT CONTROL'S
+// LABEL FROM THE LABEL'S ONE HOME rather than spelling it again. A reader looks
+// for the words the sentence gives them, so a row named here by any other
+// spelling is a row they cannot find, and a second spelling agrees with the
+// surface only until that surface's label is edited. The rows of the Commands
+// panel and the Catalog panel's drafting row are composed that way below.
+//
 // THE CONFIGURATION WORDING IS THE PRODUCT DOCUMENTATION'S OWN, AND THE FULLER
 // MODEL IS POINTED AT RATHER THAN RESTATED. The two files a project needs — one
 // at the project root and one on the machine — are described here in the words
@@ -570,7 +578,7 @@ export const STEP_CONTENT: readonly StepContent[] = [
       },
       {
         paragraph:
-          'Because discovery climbs rather than descends, the root may legitimately sit *above* the folder you opened. The **Workspace** row at the top of the Commands panel always names the folder that was actually anchored, so when it differs from what you opened you can see why.',
+          `Because discovery climbs rather than descends, the root may legitimately sit *above* the folder you opened. The **${SELECTOR_ROW_LABELS.workspace}** row at the top of the Commands panel always names the folder that was actually anchored, so when it differs from what you opened you can see why.`,
       },
       {
         paragraph:
@@ -643,7 +651,7 @@ export const STEP_CONTENT: readonly StepContent[] = [
       },
       {
         paragraph:
-          'The selection is named in two places — a status-bar indicator, and a **Release** row at the top of the Commands panel — so the Problems panel and the graph always describe the same Release, and you can see which without pressing anything.',
+          `The selection is named in two places — a status-bar indicator, and a **${SELECTOR_ROW_LABELS.release}** row at the top of the Commands panel — so the Problems panel and the graph always describe the same Release, and you can see which without pressing anything.`,
       },
       {
         paragraph: 'Two properties of the selection are worth knowing:',
@@ -733,10 +741,34 @@ export const STEP_CONTENT: readonly StepContent[] = [
 // one here and another there.
 export const PANEL_SETTING_LABEL = 'Show Aggrega welcome page on startup';
 
+// OPEN_ON_STARTUP_COMMAND turns the startup preference on and does nothing else.
+// Ticking the box at the page's foot runs it.
+//
+// 🔴 IT IS NOT THE PALETTE'S WAY BACK, AND THE DIFFERENCE IS THE OPENING. The way
+// back turns the preference on and then brings the page to the front, and
+// bringing forward a page that is already open moves the keyboard focus into the
+// page and off the box the reader pressed, so their next key reaches nothing. The
+// tick is pressed on the very page the way back would open, so the opening has
+// nothing left to do there except take the focus. This command writes the one
+// preference through the same writer the way back uses and leaves the page, and
+// the focus, where they are.
+//
+// It is kept out of the command palette for the reason the opening-only command
+// is: the capability is already listed there as the way back, and two entries
+// differing only by whether the page is opened behind one of them is a choice no
+// single line of text puts to a reader well.
+export const OPEN_ON_STARTUP_COMMAND = 'aggrega.getStarted.openOnStartup';
+
+// OPEN_ON_STARTUP_COMMAND_TITLE is how that command is named where the editor
+// lists every command, in the vocabulary the rest of the surface uses.
+export const OPEN_ON_STARTUP_COMMAND_TITLE = 'Aggrega: Open the welcome page on startup';
+
 // PANEL_SETTING_COMMANDS is what a press at the foot runs, one entry for a page
 // that opens on startup and one for a page that does not. A press moves the
 // preference the way it is not already set, so the standing picks the command
-// while the words above stay put.
+// while the words above stay put. Unticking runs the palette's own way out, which
+// also says how to bring the page back; ticking runs the command above, which
+// opens nothing because the page being pressed on is already open.
 //
 // 🔴 THE CONTROL IS COMPOSED FROM THE PREFERENCE AND HOLDS NO STATE OF ITS OWN.
 // It reads and writes the one preference that already decides whether the panel
@@ -748,7 +780,7 @@ export const PANEL_SETTING_LABEL = 'Show Aggrega welcome page on startup';
 // screen — each correct about itself.
 export const PANEL_SETTING_COMMANDS: readonly [string, string] = [
   DISMISS_COMMAND,
-  WELCOME_SHOW_COMMAND,
+  OPEN_ON_STARTUP_COMMAND,
 ];
 
 // panelSettingCommand picks the command a press would run from the standing the

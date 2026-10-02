@@ -25,8 +25,8 @@ import { ADD_REGISTRY_TITLE, entryFor, globalConfiguration } from './suite-regis
 import {
   COMPILER_READING, describeReadings, describeSteps, dismissedNotice, drawnValue, EXTENSION_READING, FOOT_BOX, FOOT_WORDS, FOOT_WORDS_NO_FOOT_CARRIES, FOOT_WORDS_SELECTOR, frontPage,
   houseHover, houseTitle, markSteps, noPage, NONE_AVAILABLE, NONE_SELECTED, NOT_READ_YET, observePage, observeStatusText, PAGE_HEADING, PAGE_TITLE, pageNow, pageReadings, PageSeen, pageTabs,
-  pressHouse, pressOnPage, pressWayThrough, readPage, registriesListed, runningAgain, samePage, SecondCompiler, SELECTED_LEAD, STANDING_MET, STANDING_TO_DO, statusMark, statusTexts,
-  STEP_IDS, stepOf, stepsDrawnAgain, TabSeen, tabs, VERSION_NOT_REPORTED, WAYS_THROUGH, wayThroughChooser, WELCOME_OPEN_COMMAND, WELCOME_SHOW_SETTING, welcomePage, welcomePages,
+  pressHouse, pressOnPage, pressWayThrough, promptPressRecord, readPage, registriesListed, runningAgain, samePage, SecondCompiler, SELECTED_LEAD, STANDING_MET, STANDING_TO_DO, statusMark, statusTexts,
+  STEP_IDS, stepOf, stepsDrawnAgain, TabSeen, tabs, VERSION_NOT_REPORTED, WAYS_THROUGH, watchPromptPress, wayThroughChooser, WELCOME_OPEN_COMMAND, WELCOME_SHOW_SETTING, welcomePage, welcomePages,
   clearForCapture, commandsTitleActions,
 } from './welcome';
 import {
@@ -302,7 +302,7 @@ export async function welcomeEmptyFolderChecks(ctx: SuiteContext, opts: { regist
   // ---- the workspace step's words ------------------------------------------------------
   await c.run('welcome-page.workspace-step-names-the-rows-it-points-at', {
     expected: 'every row of the Commands panel the workspace step\'s explanation names, in bold before the word "row", is one of the rows the panel draws, by the label it draws',
-    plant: 'a correction in the scratch copy, out/src/get-started-steps.js with the row named "Aggrega workspace", turns it green',
+    plant: 'in the scratch copy, out/src/get-started-steps.js with the row the workspace step names spelled in the step\'s own words, the panel\'s label left as it is',
   }, async () => {
     const doc = await welcomePage(ctx);
     const named = await doc.evaluate<string[]>(`[...document.querySelectorAll('section.step[data-step="workspace"] .step-prose strong')].filter((s) => /^\\s*row\\b/.test((s.nextSibling && s.nextSibling.textContent) || '')).map((s) => (s.textContent || '').trim())`);
@@ -470,7 +470,10 @@ export async function welcomeEmptyFolderChecks(ctx: SuiteContext, opts: { regist
     // are read — because which one opens first is the verdict: filtering on the
     // name prompt here would wait past a list of kinds instead of reporting it. No
     // quick input is drawn before the press, so the one accepted is the press's.
+    // What each press did is recorded from before the first, as the seeding's is.
+    const watch = await watchPromptPress(ctx);
     const opened = await wayThroughChooser(ctx, 'release', WAYS_THROUGH.release[0], (x) => x.message.startsWith(NAME_PROMPT) || x.placeholder !== '');
+    const pressed = await promptPressRecord(ctx, watch);
     const since = async (): Promise<PickerSeen[]> => (await pickersSeen(ctx.d)).slice(mark);
     const first = await until('a quick input recorded since the press', 10000, since, (v) => v.length > 0);
     const named = await until('the name prompt among the quick inputs recorded since the press', 3000, since, (v) => v.some((p) => p.message.includes(NAME_PROMPT))).then(() => true, () => false);
@@ -478,7 +481,7 @@ export async function welcomeEmptyFolderChecks(ctx: SuiteContext, opts: { regist
     await closeChooser(ctx.d);
     return {
       passed: first[0].message.startsWith(NAME_PROMPT) && first[0].rows === 0,
-      seen: `the quick inputs drawn after ${opened.presses} press(es): ${JSON.stringify(all)}; ${named ? 'the name prompt among them' : 'no name prompt among them within 3000 ms of the first'}`,
+      seen: `the quick inputs drawn after ${opened.presses} press(es) (${pressed}): ${JSON.stringify(all)}; ${named ? 'the name prompt among them' : 'no name prompt among them within 3000 ms of the first'}`,
     };
   });
 
@@ -493,9 +496,14 @@ export async function welcomeEmptyFolderChecks(ctx: SuiteContext, opts: { regist
     need(!fs.existsSync(global), `${global} is already there`);
     const mark = (await toasts(ctx.d)).length;
     const pickMark = (await pickersSeen(ctx.d)).length;
+    // What each press did is recorded from before the first one — the press on the
+    // page, and the prompt and the focus in the workbench — so a prompt that took a
+    // second press says whether the first ran nothing or opened one that closed.
+    const watch = await watchPromptPress(ctx);
     const asked = await wayThroughChooser(ctx, 'registry', WAYS_THROUGH.registry[1], (x) => x.rows.length === 0 && x.title !== '').catch(async (err: unknown) => {
-      throw new Error(`${err instanceof Error ? err.message : String(err)}; the quick inputs drawn since the press ${JSON.stringify((await pickersSeen(ctx.d)).slice(pickMark))}`);
+      throw new Error(`${err instanceof Error ? err.message : String(err)}; the quick inputs drawn since the press ${JSON.stringify((await pickersSeen(ctx.d)).slice(pickMark))}; ${await promptPressRecord(ctx, watch)}`);
     });
+    const pressed = await promptPressRecord(ctx, watch);
     const prompt = asked.chooser;
     await ctx.d.type(host);
     await ctx.d.press('Enter');
@@ -506,7 +514,7 @@ export async function welcomeEmptyFolderChecks(ctx: SuiteContext, opts: { regist
     seeded = held[host];
     return {
       passed: ending !== null && ending.message.startsWith(`${SEEDING_SUBJECT} registered ${host} in ${global}`) && seeded && step.badge === STANDING_MET && drawnValue(step)?.text === `${SELECTED_LEAD}${host}`,
-      seen: `the prompt ${JSON.stringify({ title: prompt.title, placeholder: prompt.placeholder })}, opened by ${asked.presses} press(es); ${ending === null ? 'no ending within 60000 ms' : `"${ending.message}"`}; ${global} holds an entry for ${JSON.stringify(held)}; the registry step reads ${step.badge} with ${JSON.stringify(drawnValue(step)?.text ?? null)}`,
+      seen: `the prompt ${JSON.stringify({ title: prompt.title, placeholder: prompt.placeholder })}, opened by ${asked.presses} press(es) (${pressed}); ${ending === null ? 'no ending within 60000 ms' : `"${ending.message}"`}; ${global} holds an entry for ${JSON.stringify(held)}; the registry step reads ${step.badge} with ${JSON.stringify(drawnValue(step)?.text ?? null)}`,
     };
   });
 
@@ -770,7 +778,7 @@ export async function welcomeEmptyFolderChecks(ctx: SuiteContext, opts: { regist
 
   await c.run('welcome-page.foot-checkbox-toggles-from-the-keyboard', {
     expected: 'with the checkbox pressed once so it holds the focus, Space toggles it, and again, and again, the focus staying on it after each while the foot is drawn again around it',
-    plant: 'a correction in the scratch copy, out/src/get-started.js with a page already open brought forward leaving the focus where it is, turns it green',
+    plant: 'in the scratch copy, out/src/get-started-steps.js with ticking the box running the palette\'s way back, which brings the open page forward',
   }, async () => {
     const doc = await welcomePage(ctx);
     const focusOnBox = (): Promise<boolean> => doc.evaluate<boolean>(`(() => { const b = document.querySelector(${JSON.stringify(FOOT_BOX)}); return !!b && document.activeElement === b; })()`);

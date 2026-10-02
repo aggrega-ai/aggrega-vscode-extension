@@ -36,6 +36,7 @@ import {
   DRAFT_RELEASE_COMMAND,
   GetStartedFacts,
   LOCATE_COMPILER_COMMAND,
+  OPEN_ON_STARTUP_COMMAND,
   SEED_NAMED_REGISTRY_COMMAND,
   SEED_REGISTRY_COMMAND,
   StepId,
@@ -445,6 +446,13 @@ export function activateGetStarted(
 
   // reuseOpenPanel refreshes the panel that is already open, bringing it to the
   // front where the reader asked for it, and answers whether there was one.
+  //
+  // Bringing it to the front also moves the keyboard focus into it, which is what
+  // a reader asking for the page from somewhere else — the house on the Commands
+  // panel, the palette's way back — is asking for. Nothing pressed ON the page
+  // reaches this with a reveal: the box at its foot writes the preference through
+  // a command of its own, because a reveal there would take the focus off the box
+  // the reader is pressing.
   const reuseOpenPanel = (reveal: boolean): boolean => {
     const open = panel;
     if (open === null) { return false; }
@@ -453,7 +461,10 @@ export function activateGetStarted(
     return true;
   };
 
-  // openPanel is what a reader asking for the panel reaches.
+  // openPanel is what a reader asking for the panel from somewhere else reaches:
+  // the house on the Commands panel runs it alone, and the palette's way back runs
+  // it after turning the startup preference back on. A page already open is
+  // brought to the front with the focus, as reuseOpenPanel says.
   //
   // It draws from the standings read at the moment it opens, rather than from
   // whatever was last computed: a reader who built their configuration
@@ -532,6 +543,10 @@ export function activateGetStarted(
     // opening on its own, which is what the title-bar affordance runs: it shows
     // the page and leaves the reader's startup preference alone.
     vscode.commands.registerCommand(WELCOME_OPEN_COMMAND, () => void openPanel()),
+    // Ticking the box at the page's foot: the preference alone, written through the
+    // one writer, and no opening — the page is the one being pressed on, and
+    // bringing it forward would take the keyboard focus off the box.
+    vscode.commands.registerCommand(OPEN_ON_STARTUP_COMMAND, () => setShown(true)),
     vscode.commands.registerCommand(DISMISS_COMMAND, () => putAway()),
     vscode.commands.registerCommand(CREATE_WORKSPACE_COMMAND, () => createWorkspace(deps, refresh)),
     vscode.commands.registerCommand(CHOOSE_WORKSPACE_COMMAND, () => chooseWorkspace(deps, refresh)),

@@ -454,12 +454,15 @@ export async function pressWayThrough(ctx: SuiteContext, id: StepId, label: stri
 // wayThroughChooser presses one of a step's controls and answers with the quick
 // input it opens, once that has stayed drawn a moment, and how many presses it took.
 //
-// 🔴 A PROMPT A PRESS ON THE PAGE OPENS CAN CLOSE AGAIN AS SOON AS IT OPENS. The
-// press lands in the page's own document, and a prompt that does not keep itself
-// open when the focus moves is closed by the focus change the press brings after
-// it. So the press is made once more where the prompt did not stay, as `rowChooser`
-// (levels.ts) does for a row's chooser, over the same settle; that helper presses a
-// row by the command it runs and cannot be handed a press on the page.
+// 🔴 A PRESS ON THE PAGE CAN OPEN NOTHING, AND THE PROMPT IT WAS FOR THEN OPENS ON
+// A SECOND ONE. A press made as the page's tab is brought to the front can focus
+// the page's frame in the workbench while no press reaches the page's own
+// document, so it runs nothing — and a prompt that holds itself open on focus loss
+// takes two presses that way as readily as one that does not. So the press is made
+// once more where no prompt stayed drawn, as `rowChooser` (levels.ts) does for a
+// row's chooser, over the same settle; that helper presses a row by the command it
+// runs and cannot be handed a press on the page. `watchPromptPress` records what
+// each press reached, so a check that took two can say why.
 export async function wayThroughChooser(ctx: SuiteContext, id: StepId, label: string, wanted: (c: Chooser) => boolean, boundMs = 10000): Promise<{ chooser: Chooser; presses: number }> {
   for (let attempt = 1; attempt <= 2; attempt++) {
     await pressWayThrough(ctx, id, label);
@@ -472,7 +475,7 @@ export async function wayThroughChooser(ctx: SuiteContext, id: StepId, label: st
     const still = stayed.held ? await chooser(ctx.d) : null;
     if (still !== null && wanted(still)) { return { chooser: still, presses: attempt }; }
   }
-  throw new Error(`the quick input "${label}" opens closed again as soon as it opened, on each of two presses, watched ${CHOOSER_SETTLE_MS} ms each time`);
+  throw new Error(`the quick input "${label}" opens closed again within ${CHOOSER_SETTLE_MS} ms of opening on the second press, the first having left none drawn that stayed`);
 }
 
 // pressCaret presses the caret that opens and closes a step's explanation.
@@ -574,6 +577,78 @@ export async function observePage(doc: WebviewDocument): Promise<string> {
 
 export function pageReadings(doc: WebviewDocument, key: string): Promise<PageReadingLogged[]> {
   return evaluateWithin<PageReadingLogged[]>(doc, `((window.__welcomeSuiteLogs || {})[${JSON.stringify(key)}] || [])`, 5000);
+}
+
+// PROMPT_FOCUS_OBSERVER records in the workbench's document, from the moment it is
+// installed, every element the keyboard focus moves into and every quick input
+// shown or hidden, each as it happens. A prompt that opens and closes again within
+// a moment is kept with what the focus did around it, rather than missed between
+// two readings of what is drawn.
+const PROMPT_FOCUS_OBSERVER = `(() => {
+  if (window.__welcomeSuitePromptFocus) { return window.__welcomeSuitePromptFocus.length; }
+  const log = [];
+  const where = (e) => {
+    if (!e || e === document.body) { return 'the workbench itself'; }
+    if (e.closest && e.closest('.quick-input-widget')) { return 'the quick input'; }
+    if (e.tagName === 'IFRAME') { return 'a webview (' + (e.getAttribute('title') || e.getAttribute('name') || 'untitled').slice(0, 60) + ')'; }
+    return e.tagName.toLowerCase() + (e.className ? '.' + String(e.className).trim().split(/\\s+/).slice(0, 2).join('.') : '');
+  };
+  document.addEventListener('focusin', (ev) => { log.push({ at: Date.now(), focus: where(ev.target) }); }, true);
+  let shown = null;
+  const sample = () => {
+    const w = [...document.querySelectorAll('.quick-input-widget')].find((e) => e.style.display !== 'none' && e.getBoundingClientRect().height > 0);
+    const now = w ? (((w.querySelector('.quick-input-title') || {}).innerText || '').trim() || '(untitled)') : null;
+    if (now === shown) { return; }
+    log.push(now === null ? { at: Date.now(), hidden: shown } : { at: Date.now(), shown: now });
+    shown = now;
+  };
+  sample();
+  new MutationObserver(sample).observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['style', 'class'] });
+  window.__welcomeSuitePromptFocus = log;
+  return log.length;
+})()`;
+
+// PAGE_PRESS_OBSERVER records in the page's own document every pointer press, its
+// release and the click they make, each with the command of the control it landed
+// on — so a press whose down and up fell on two drawings of the step list, which
+// makes no click and runs nothing, is told apart from a press that ran its command.
+const PAGE_PRESS_OBSERVER = `(() => {
+  if (window.__welcomeSuitePresses) { return window.__welcomeSuitePresses.length; }
+  const log = [];
+  const on = (ev) => {
+    const c = ev.target && ev.target.closest ? ev.target.closest('[data-command]') : null;
+    log.push({ at: Date.now(), event: ev.type, command: c ? c.dataset.command : null });
+  };
+  for (const type of ['pointerdown', 'pointerup', 'click']) { document.addEventListener(type, on, true); }
+  window.__welcomeSuitePresses = log;
+  return log.length;
+})()`;
+
+// PromptPressWatch is where the two records stood, and when, as a press that opens
+// a prompt is about to be made.
+export interface PromptPressWatch { doc: WebviewDocument; at: number; workbenchMark: number; pageMark: number }
+
+// watchPromptPress installs both observers, where they are not already in, and
+// marks where their records stand, before a press on the page that opens a prompt.
+export async function watchPromptPress(ctx: SuiteContext): Promise<PromptPressWatch> {
+  const doc = await welcomePage(ctx);
+  const at = Date.now();
+  const workbenchMark = await ctx.d.workbench<number>(PROMPT_FOCUS_OBSERVER);
+  const pageMark = await evaluateWithin<number>(doc, PAGE_PRESS_OBSERVER, 5000);
+  return { doc, at, workbenchMark, pageMark };
+}
+
+// promptPressRecord words, for a check's report, what both records hold since the
+// mark: each event with how long after the mark it came.
+export async function promptPressRecord(ctx: SuiteContext, w: PromptPressWatch): Promise<string> {
+  type Entry = { at: number } & Record<string, unknown>;
+  const since = (log: Entry[], mark: number): string[] => log.slice(mark).map((e) => {
+    const { at, ...rest } = e;
+    return `+${at - w.at} ms ${Object.entries(rest).map(([k, v]) => `${k} ${String(v)}`).join(', ')}`;
+  });
+  const workbench = since(await ctx.d.workbench<Entry[]>('window.__welcomeSuitePromptFocus || []'), w.workbenchMark);
+  const page = since(await evaluateWithin<Entry[]>(w.doc, 'window.__welcomeSuitePresses || []', 5000), w.pageMark);
+  return `on the page since the mark: ${JSON.stringify(page)}; in the workbench: ${JSON.stringify(workbench)}`;
 }
 
 // ARRIVAL_KEY is what the observer installed as the page is first found keeps its

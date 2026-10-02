@@ -1516,9 +1516,9 @@ export const PLANTS: readonly Plant[] = [
     says: 'a version that was not reported is drawn in the same face as one that was',
   },
   {
-    name: 'workspace-step-names-its-row-by-its-label', scenario: 'welcome-page-empty-folder', checks: ['welcome-page.workspace-step-names-the-rows-it-points-at'], moves: 'green', target: 'extension',
-    file: 'out/src/get-started-steps.js', find: 'The **Workspace** row at the top of the Commands panel', replace: 'The **Aggrega workspace** row at the top of the Commands panel',
-    says: 'the workspace step names the row that says which folder was anchored by the label the row draws',
+    name: 'workspace-step-respells-its-row', scenario: 'welcome-page-empty-folder', checks: ['welcome-page.workspace-step-names-the-rows-it-points-at'], moves: 'red', target: 'extension',
+    file: 'out/src/get-started-steps.js', find: 'The **${selector_levels_1.SELECTOR_ROW_LABELS.workspace}** row at the top of the Commands panel', replace: 'The **Workspace** row at the top of the Commands panel',
+    says: 'the workspace step names the row that says which folder was anchored in a spelling of its own, while the panel draws the row by its label',
   },
   {
     name: 'global-file-said-to-keep-credentials-out', scenario: 'welcome-page-empty-folder', checks: ['welcome-page.workspace-step-says-nothing-of-credentials'], moves: 'red', target: 'extension',
@@ -1616,9 +1616,9 @@ export const PLANTS: readonly Plant[] = [
     says: 'turning the page off on startup raises no notification naming the way back',
   },
   {
-    name: 'page-revealed-keeping-the-focus', scenario: 'welcome-page-empty-folder', checks: ['welcome-page.foot-checkbox-toggles-from-the-keyboard'], moves: 'green', target: 'extension',
-    file: 'out/src/get-started.js', find: '            open.reveal(vscode.ViewColumn.Active);', replace: '            open.reveal(vscode.ViewColumn.Active, true);',
-    says: 'a page already open is brought forward leaving the focus where it is',
+    name: 'foot-tick-runs-the-way-back', scenario: 'welcome-page-empty-folder', checks: ['welcome-page.foot-checkbox-toggles-from-the-keyboard'], moves: 'red', target: 'extension',
+    file: 'out/src/get-started-steps.js', find: '    exports.DISMISS_COMMAND,\n    exports.OPEN_ON_STARTUP_COMMAND,\n];', replace: '    exports.DISMISS_COMMAND,\n    exports.WELCOME_SHOW_COMMAND,\n];',
+    says: 'ticking the box at the foot runs the palette\'s way back, which brings the page it is pressed on forward and takes the keyboard focus off the box',
   },
   {
     name: 'foot-deaf-to-the-preference', scenario: 'welcome-page-empty-folder', checks: ['welcome-page.foot-checkbox-follows-the-settings-screen'], moves: 'red', target: 'extension',

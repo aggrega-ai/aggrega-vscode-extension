@@ -12,6 +12,8 @@ import {
   GetStartedFacts,
   NOTHING_MET,
   OPEN_COMMAND_TITLE,
+  OPEN_ON_STARTUP_COMMAND,
+  OPEN_ON_STARTUP_COMMAND_TITLE,
   PANEL_SETTING_COMMANDS,
   PANEL_SETTING_LABEL,
   REGISTRY_VALUE_UNREAD,
@@ -37,6 +39,7 @@ import {
 import { escapeHtml } from '../../src/html';
 import { extractServerInitMetadata } from '../../src/init-metadata';
 import { REGISTRY_ADD_COMMAND } from '../../src/registry-configure';
+import { SELECTOR_ROW_LABELS } from '../../src/selector-levels';
 import { functionBody } from '../helpers/anchoring-census';
 import {
   WIRE_CONTRACT,
@@ -648,8 +651,8 @@ describe('the welcome panel', () => {
     // The mark beside it is drawn `aria-hidden`, deliberately — it is a glyph
     // repeating what the word already says — so a reader using a screen reader
     // is told the standing by this word and by nothing else. That makes an
-    // ambiguous word a defect rather than a preference, and the retired one was
-    // ambiguous in the worst direction: it also means *excellent*, so it could
+    // ambiguous word a defect rather than a preference, and the word refused here
+    // is ambiguous in the worst direction: it also means *excellent*, so it would
     // read as praise for the step rather than as a job for the reader.
     it('names an unmet step as work to do, in a word that cannot read as praise', () => {
       assert.strictEqual(
@@ -1537,7 +1540,7 @@ describe('the welcome panel', () => {
   });
 
   describe('what the panel is', () => {
-    // 🔴 THE CONTRIBUTION IS RETIRED, NOT LEFT BESIDE THE PANEL. Two surfaces
+    // 🔴 NO WALKTHROUGH IS CONTRIBUTED BESIDE THE PANEL. Two surfaces
     // offering the same onboarding is worse than either alone: they drift, and
     // a reader meeting the editor's own welcome page would find a second,
     // stale Aggrega flow inside it.
@@ -1878,12 +1881,12 @@ describe('the welcome panel', () => {
         'a page that opens on startup does not offer to stop doing so',
       );
       assert.ok(
-        !opening.includes(`data-command="${WELCOME_SHOW_COMMAND}"`),
+        !opening.includes(`data-command="${OPEN_ON_STARTUP_COMMAND}"`),
         'a page that already opens on startup offers to make it open, which is a control with nothing to do',
       );
       assert.ok(
-        withheld.includes(`data-command="${WELCOME_SHOW_COMMAND}"`),
-        'a page the reader turned off does not offer the way back from where they are reading it',
+        withheld.includes(`data-command="${OPEN_ON_STARTUP_COMMAND}"`),
+        'a page the reader turned off does not offer to open on startup again from where they are reading it',
       );
       assert.ok(
         !withheld.includes(`data-command="${DISMISS_COMMAND}"`),
@@ -1972,10 +1975,13 @@ describe('the welcome panel', () => {
     });
 
     // The foot control is a press like any other in this panel, so it goes
-    // through the same guard — and the commands it names are palette commands
-    // the manifest already declares, which is what keeps the two directions one
-    // capability rather than two.
-    it('reaches the panel switch through the same declared commands the palette uses', () => {
+    // through the same guard, and both of its commands are declared. Unticking
+    // runs the palette's own way out. Ticking runs a command of its own that turns
+    // the preference on and opens nothing: the palette's way back would bring
+    // forward the very page the box is pressed on, which moves the keyboard focus
+    // off the box. Either way the one preference is what moves, which is what
+    // keeps the foot, the palette and the settings screen one switch.
+    it('reaches the panel switch through declared commands, the tick opening nothing', () => {
       const declared = new Set(manifest().commands.map((c) => String(c.command)));
       for (const command of PANEL_SETTING_COMMANDS) {
         assert.ok(
@@ -1989,14 +1995,46 @@ describe('the welcome panel', () => {
       }
       assert.deepStrictEqual(
         [...PANEL_SETTING_COMMANDS],
-        [DISMISS_COMMAND, WELCOME_SHOW_COMMAND],
-        'the foot control no longer runs the two commands the palette runs, so the panel and the palette are two switches rather than one',
+        [DISMISS_COMMAND, OPEN_ON_STARTUP_COMMAND],
+        'the foot control runs something other than the palette\'s way out when unticked and the preference alone when ticked',
+      );
+      for (const opens of [WELCOME_SHOW_COMMAND, WELCOME_OPEN_COMMAND]) {
+        assert.notStrictEqual(
+          PANEL_SETTING_COMMANDS[1],
+          opens,
+          `ticking the box runs ${opens}, which brings the open page forward and takes the keyboard focus off the box`,
+        );
+      }
+      const tick = manifest().commands.find((c) => c.command === OPEN_ON_STARTUP_COMMAND);
+      assert.strictEqual(tick?.title, OPEN_ON_STARTUP_COMMAND_TITLE);
+      assert.ok(
+        /welcome page/.test(OPEN_ON_STARTUP_COMMAND_TITLE) && /on startup/.test(OPEN_ON_STARTUP_COMMAND_TITLE),
+        `the tick's command is named outside the surface's vocabulary: ${OPEN_ON_STARTUP_COMMAND_TITLE}`,
       );
     });
 
-    // 🔴 NOTHING ELSE BECAME REACHABLE. The guard was widened by exactly the two
-    // commands the foot control declares and by nothing else, asserted against
-    // the step-derived set rather than against a remembered count.
+    // 🔴 THE TICK'S COMMAND WRITES THE PREFERENCE AND OPENS NOTHING. The handler
+    // holds the editor and cannot be run here, so it is read off its registration.
+    // The reading is calibrated on the way back's registration beside it, which
+    // provably exists and provably opens the page, so a pattern that has stopped
+    // matching cannot pass as a handler that opens nothing.
+    it('registers the tick\'s command to turn the preference on without opening the page', () => {
+      const source = fs.readFileSync(path.join(EXTENSION_ROOT, 'src', 'get-started.ts'), 'utf8');
+      const handler = (identifier: string): string | null =>
+        new RegExp(`registerCommand\\(\\s*${identifier}\\s*,\\s*([^\\n]*)\\),?\\s*$`, 'm').exec(source)?.[1] ?? null;
+      const wayBack = handler('WELCOME_SHOW_COMMAND');
+      assert.ok(
+        wayBack !== null && /\bopenPanel\b/.test(wayBack),
+        `the reading of the way back's registration came back ${JSON.stringify(wayBack)}, so what it says about the tick's means nothing`,
+      );
+      const tick = handler('OPEN_ON_STARTUP_COMMAND');
+      assert.ok(tick !== null, `${OPEN_ON_STARTUP_COMMAND} is what ticking the box runs, and it is registered nowhere, so the tick does nothing`);
+      assert.match(tick, /^\(\)\s*=>\s*setShown\(\s*true\s*\)$/, `ticking the box runs ${tick}, which is not the preference turned on through its one writer and nothing else`);
+    });
+
+    // 🔴 NOTHING ELSE IS REACHABLE. The guard admits the steps' ways through and
+    // exactly the two commands the foot control declares, and nothing else,
+    // asserted against the step-derived set rather than against a remembered count.
     it('widened what a press may reach by the foot control alone', () => {
       const stepCommands = STEP_CONTENT.flatMap((s) => s.actions.map((a) => a.command));
       const admitted = panelControlCommands();
@@ -2685,9 +2723,9 @@ describe('the welcome panel', () => {
       );
     });
 
-    // The README taught the panel as a page inside the editor's own welcome
-    // page, and every sentence saying so became wrong the moment the panel
-    // moved. This is the assertion that fails if that teaching is left behind.
+    // The panel is a page of its own rather than one inside the editor's own
+    // welcome page, so a README sentence teaching it as a walkthrough there is
+    // false. This is the assertion that fails on one.
     it('does not teach the panel as a page inside the editor\'s welcome', () => {
       const readme = fs.readFileSync(README, 'utf8');
       assert.ok(
@@ -2723,7 +2761,7 @@ describe('the welcome panel seeds a configuration without starting a process', (
     // PATTERN. A module holding no spawn of its own can still reach one through a
     // helper, which is what a launch census over the module alone cannot see. Both
     // of the panel's compiler questions — the seeding and the configured-registry
-    // reading — now travel as injected requests, so the helper that captures a
+    // reading — travel as injected requests, so the helper that captures a
     // structured command run is not imported here at all.
     const source = fs.readFileSync(path.join(EXTENSION_ROOT, 'src/get-started.ts'), 'utf8');
     const imported = [...source.matchAll(/from\s+'([^']+)'/g)].map((m) => m[1]);
@@ -2827,5 +2865,30 @@ describe('the welcome page sends a reader to a control by the words it draws', (
     assert.ok(!/Author group/.test(everyStep), 'a step sends the reader to the Commands panel\'s Author group');
     // A negative control on that absence: the text read is the steps' own.
     assert.ok(everyStep.includes('**Draft a Release**'), 'the census read no step text at all');
+  });
+
+  // 🔴 A ROW THE PAGE SENDS A READER TO IS A ROW THE COMMANDS PANEL DRAWS. Every
+  // span the steps set in bold immediately before the word "row" is read off the
+  // composed content and required to be one of the labels the panel draws its
+  // rows with, so a step spelling a row its own way — a "Workspace" row, where the
+  // panel draws "Aggrega workspace" — is refused here rather than met by a reader
+  // looking for a row that is not there.
+  it('names every Commands panel row by the label the panel draws it with', () => {
+    const everyStep = STEP_CONTENT.flatMap((step) => step.detail)
+      .flatMap((block) => ('paragraph' in block ? [block.paragraph] : [...block.bullets]))
+      .join('\n');
+    const named = [...everyStep.matchAll(/\*\*([^*]+)\*\* row\b/g)].map((m) => m[1]);
+    const drawn = Object.values(SELECTOR_ROW_LABELS);
+    // The refusal below is satisfied by an empty list, so the census is first
+    // required to have read the row the Release step points a reader at.
+    assert.ok(
+      named.includes(SELECTOR_ROW_LABELS.release),
+      `the census read the rows ${JSON.stringify(named)} and not the Release step's, so the refusal below proves nothing`,
+    );
+    assert.deepStrictEqual(
+      named.filter((n) => !drawn.includes(n)),
+      [],
+      `the steps name a row the Commands panel does not draw; it draws ${JSON.stringify(drawn)}`,
+    );
   });
 });
