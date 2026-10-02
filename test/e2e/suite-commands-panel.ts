@@ -66,6 +66,7 @@ export const COMMANDS_PANEL_CHECKS = [
   'commands-panel.one-button-group-and-the-palettes-longer-titles',
   'commands-panel.section-chevrons-turn-as-they-open',
   'commands-panel.keyboard-in-sections-opens-and-closes-with-the-arrows',
+  'commands-panel.closing-a-section-hands-its-tab-stop-to-its-heading',
   'commands-panel.context-rows-stay-with-every-section-closed',
   'commands-panel.follows-the-theme-and-borders-every-control-in-high-contrast',
   'settings.preference-is-the-users-and-a-workspace-value-is-ignored',
@@ -443,7 +444,7 @@ export async function commandsPanelChecks(ctx: SuiteContext, notABinary: string,
   // ---- the icons ----
   await c.run('commands-panel.icons-drawn-from-the-font-the-extension-ships', {
     expected: `the panel's icon font is loaded; every operation's button draws the icon the product declares for it and the caret beside Build its chevron, each a glyph of that font; and the three rows draw ${ROW_ICONS.join(', ')}, each control beside them its own icon, all glyphs of that font`,
-    plant: 'red on the product as it stands; a correction in the scratch copy, media/vendor/codicon.css with Import\'s declared icon given a glyph the font carries, turns it green',
+    plant: 'in the scratch copy, out/src/operation-groups.js with Import\'s icon named as one the shipped font carries no rule for',
   }, async () => {
     const p = await drawnPanel(panel);
     const wrongOps = p.controls.filter((o) => o.kind === 'op' && (o.icon !== `codicon-${opsDef(o.command)?.icon ?? ''}` || !o.glyph)).map((o) => `${o.label}: ${o.icon}${o.glyph ? '' : ' (no glyph)'}`);
@@ -457,8 +458,8 @@ export async function commandsPanelChecks(ctx: SuiteContext, notABinary: string,
   // ---- widths ----
   const sweep: SweepReading[] = [];
   await c.run('commands-panel.flow-wraps-at-every-width-cutting-nothing-short', {
-    expected: `with the side bar dragged ${SWEEP_PX.map((x) => `${x > 0 ? '+' : ''}${x}`).join(', ')} px in turn, at every width — at every reading over ${ABSENCE_MS} ms once the drawing has come to rest there — no button's label is cut short, no button is drawn past the panel's edge and the panel does not scroll sideways; the flow takes more lines the narrower it is and fewer again when it is widened; and each of the three rows stays one line as tall as it started, cut short with an ellipsis where it does not fit, its create control as far from the row's right edge as it started, and the folder's full path on the Project folder and Aggrega workspace rows' hovers`,
-    plant: 'red on the product as it stands; a correction in the scratch copy, media/operations.css with a row\'s label allowed to give way, cut short with an ellipsis, turns it green',
+    expected: `with the side bar dragged ${SWEEP_PX.map((x) => `${x > 0 ? '+' : ''}${x}`).join(', ')} px in turn, at every width — at every reading over ${ABSENCE_MS} ms once the drawing has come to rest there — no button's label is cut short, no button is drawn past the panel's edge and the panel does not scroll sideways; the flow takes more lines the narrower it is and fewer again when it is widened; and each of the three rows stays one line as tall as it started, cut short with an ellipsis where it does not fit, its create control as far from the row's right edge as it started, and the folder's full path on the Project folder and Aggrega workspace rows' hovers; the three values start in line at every width; and a row's label is drawn whole, or cut short with an ellipsis only once the value beside it has no room left, with the row's hover naming its level`,
+    plant: 'in the scratch copy, media/operations.css with the rows\' labels forbidden to give way',
   }, async () => {
     const take = async (): Promise<SweepReading> => {
       let last: DrawnPanel | null = null;
@@ -483,6 +484,9 @@ export async function commandsPanelChecks(ctx: SuiteContext, notABinary: string,
     }
     const start = sweep[0];
     const faults = new Set<string>();
+    // Where a label gave way, for the report: the narrowest widths are where one
+    // is owed to.
+    const labelsCut = new Set<string>();
     const rightGap = (r: LevelRow): number | null => (r.create === null ? null : (r.row.x + r.row.width) - (r.create.box.x + r.create.box.width));
     for (const s of sweep) {
       for (const w of [{ panel: s.panel, rows: s.rows }, ...s.window]) {
@@ -497,7 +501,15 @@ export async function commandsPanelChecks(ctx: SuiteContext, notABinary: string,
           const g = rightGap(r);
           const g0 = rightGap(r0);
           if (g !== null && g0 !== null && Math.abs(g - g0) > 1) { faults.add(`at ${s.width} px the ${r.label} row's create control sits ${Math.round(g)} px from its right edge, against ${Math.round(g0)}`); }
+          const l = w.panel.rows[i]?.label ?? null;
+          if (l !== null && l.clipped && l.overflow !== 'ellipsis') { faults.add(`at ${s.width} px the ${r.label} row's label is cut short without an ellipsis`); }
+          if (l !== null && l.clipped && r.valueBox.width > 1) { faults.add(`at ${s.width} px the ${r.label} row's label is cut short while its value is drawn ${Math.round(r.valueBox.width)} px wide`); }
+          if (!r.title.includes(r.label)) { faults.add(`at ${s.width} px the ${r.label} row's hover does not name its level`); }
         });
+        const starts = w.rows.slice(0, 3).map((r) => Math.round(r.valueBox.x));
+        if (starts.some((x) => Math.abs(x - starts[0]) > 1)) { faults.add(`at ${s.width} px the values start at ${JSON.stringify(starts)} px`); }
+        const cut = w.panel.rows.slice(0, 3).filter((r) => r.label !== null && r.label.clipped).map((r) => r.label?.text ?? '');
+        if (cut.length > 0) { labelsCut.add(`${s.width} px: ${cut.join(', ')}`); }
         if (!w.rows[0]?.title.includes(ctx.folder) || !w.rows[1]?.title.includes(ctx.folder)) { faults.add(`at ${s.width} px the folder's path is not on the first two rows' hovers`); }
       }
     }
@@ -506,7 +518,7 @@ export async function commandsPanelChecks(ctx: SuiteContext, notABinary: string,
     const monotonic = counts.every((n, i) => i === 0 || n <= counts[i - 1]);
     const repacks = counts[0] > counts[counts.length - 1];
     if (!monotonic || !repacks) { faults.add(`the lines by width ${JSON.stringify(byWidth.map((s, i) => `${s.width}px:${counts[i]}`))} do not fall as the panel widens`); }
-    return { passed: faults.size === 0, seen: `widths visited ${JSON.stringify(sweep.map((s) => `${s.width}px:${lines(s.panel).length} lines, ${s.window.length} readings`))}${faults.size > 0 ? `; ${[...faults].join('; ')}` : '; nothing cut short, nothing past the edge, the rows one line each'}` };
+    return { passed: faults.size === 0, seen: `widths visited ${JSON.stringify(sweep.map((s) => `${s.width}px:${lines(s.panel).length} lines, ${s.window.length} readings`))}${faults.size > 0 ? `; ${[...faults].join('; ')}` : '; no button cut short, nothing past the edge, the rows one line each with their values in line'}; labels given way ${labelsCut.size === 0 ? 'at no width' : [...labelsCut].join('; ')}` };
   });
 
   await c.run('commands-panel.nothing-drawn-between-groups-at-any-width', {
@@ -874,7 +886,7 @@ export async function commandsPanelChecks(ctx: SuiteContext, notABinary: string,
 
   await c.run('commands-panel.keyboard-in-sections-opens-and-closes-with-the-arrows', {
     expected: 'in the section shape, with every section open, Tab visits each row\'s own controls, then the sections as one stop, then leaves; with the focus on a heading ArrowLeft closes its section and ArrowRight opens it again, and from the closed heading ArrowDown moves to the next heading rather than staying put',
-    plant: 'red on the product as it stands; a correction in the scratch copy, media/operations.js with the arrow keys passing over the controls of a closed section, turns it green',
+    plant: 'in the scratch copy, media/operations.js with the arrow keys walking into the controls of a closed section',
   }, async () => {
     const rows = await levelRows(panel);
     await openEverySection(ctx, panel);
@@ -895,6 +907,26 @@ export async function commandsPanelChecks(ctx: SuiteContext, notABinary: string,
     const focused = await until('ArrowDown reaching the next heading', 3000, () => activeControl(panel), (v) => v === second.group).catch(() => activeControl(panel));
     const moved = focused === second.group;
     return { passed: walk.firstIsFirst && walk.stops.length === owed && walk.stops.filter((s) => s.operation).length === 1 && closed && opened && moved, seen: `Shift+Tab from the Project folder row ${walk.firstIsFirst ? 'left the panel' : 'stayed in it'}; the stops ${JSON.stringify(walk.stops.map((s) => s.control))}, ${owed} owed; on ${first.title} ArrowLeft ${closed ? 'closed' : 'did not close'} it and ArrowRight ${opened ? 'opened' : 'did not open'} it; from it closed, ArrowDown left the focus on ${JSON.stringify(focused)}${moved ? '' : `, not on ${second.title}`}` };
+  });
+
+  await c.run('commands-panel.closing-a-section-hands-its-tab-stop-to-its-heading', {
+    expected: 'in the section shape, with every section open and the tab stop walked by ArrowDown from the Build heading onto its first operation, pressing the Build heading with the pointer closes the section and leaves exactly one tab stop in the list, on that heading, so Tab from the rows reaches the list there; the same walk by Tab, taken before the press, reaches the list on the operation the stop was on',
+    plant: 'in the scratch copy, media/operations.js with a closing section leaving the tab stop where it was',
+  }, async () => {
+    const open0 = await openEverySection(ctx, panel);
+    const build = open0.heads[0];
+    if (build === undefined) { throw new Error('the section shape draws no heading'); }
+    await focusInPanel(ctx, panel, `.section-head[data-toggle="${build.group}"]`);
+    await ctx.d.press('ArrowDown');
+    const onFirst = await until('ArrowDown reaching the section\'s first operation', 3000, () => activeControl(panel), (v) => v !== build.group && v !== '').catch(() => activeControl(panel));
+    const before = (await tabWalk(ctx, panel)).stops.filter((s) => s.operation).map((s) => s.control);
+    need(before.length === 1 && before[0] === onFirst && onFirst !== '', `its positive control did not fire: with the stop walked onto ${JSON.stringify(onFirst)}, Tab reached the list on ${JSON.stringify(before)}, so the walk is not shown to find the list where its stop is`);
+    await pressHead(ctx, panel, build.group);
+    await until(`the ${build.title} section closing`, 5000, () => drawnPanel(panel), (p) => p.heads[0]?.expanded === false);
+    const stops = await panel.evaluate<{ control: string; shown: boolean }[]>(`[...document.querySelectorAll('[data-roving] [tabindex="0"]')].map((e) => ({ control: e.dataset.command || e.dataset.toggle || ('caret:' + (e.dataset.dials || '')), shown: !e.closest('[hidden]') }))`);
+    const after = (await tabWalk(ctx, panel)).stops.filter((s) => s.operation).map((s) => s.control);
+    const passed = stops.length === 1 && stops[0].control === build.group && stops[0].shown && after.length === 1 && after[0] === build.group;
+    return { passed, seen: `before the press the stop on ${JSON.stringify(onFirst)} and Tab reached the list on ${JSON.stringify(before)}; with ${build.title} closed by the pointer, the list's stops ${JSON.stringify(stops)}, and Tab reached the list on ${after.length === 0 ? 'nothing — it passed the list by' : JSON.stringify(after)}` };
   });
 
   await c.run('commands-panel.context-rows-stay-with-every-section-closed', {

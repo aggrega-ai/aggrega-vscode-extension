@@ -10,9 +10,9 @@
 // modal chooser supplied keyboard navigation, filtering as you type, focus
 // trapping, dismissal, and the semantics a screen reader reads — none of which
 // comes free to a menu drawn in a document. So each is written here, and none of
-// it is provable without a running editor: what this file does is walked by
-// hand. The composed document is what a test can read back, and it carries every
-// attribute this file keys on.
+// it is provable without a running editor: what this file does is read in one,
+// by the extension's end-to-end suite and by hand. The composed document is what
+// a unit test can read back, and it carries every attribute this file keys on.
 (function () {
   'use strict';
 
@@ -55,24 +55,35 @@
   }
 
   // controlsIn reports the controls a roving container's arrow keys move
-  // between. A disabled control is left out because it cannot hold focus, so
-  // stopping on one would strand the reader on a control that never receives the
-  // keystroke.
+  // between: the ones a reader can see. A disabled control is left out because
+  // it cannot hold focus, and so is every control inside a closed section — the
+  // section is put away through the attribute, and a control inside it cannot
+  // take focus either. Stopping on either would strand the reader on a control
+  // that never receives the keystroke, and move the tab stop onto it. A control
+  // merely scrolled out of view is one a reader can see by scrolling, and taking
+  // focus brings it into view, so it stays in the walk.
   function controlsIn(container) {
     return Array.prototype.slice.call(
       container.querySelectorAll('[data-focus-key]:not([disabled])'),
-    );
+    ).filter((control) => !control.closest('[hidden]'));
   }
 
-  // moveRoving puts the tab stop on one control and takes it off the rest, so
-  // the container costs one tab stop however many controls it holds.
-  function moveRoving(container, target) {
-    if (!target) { return; }
-    controlsIn(container).forEach((control) => {
+  // placeStop puts the tab stop on one control and takes it off every other
+  // control the container holds — the ones inside a closed section included —
+  // so the container costs one tab stop however many controls it holds, and
+  // opening a section never brings a second one back with it.
+  function placeStop(container, target) {
+    Array.prototype.slice.call(container.querySelectorAll('[data-focus-key]')).forEach((control) => {
       control.setAttribute('tabindex', control === target ? '0' : '-1');
     });
-    target.focus();
     state.focused = target.dataset.focusKey || null;
+  }
+
+  // moveRoving puts the tab stop and the focus on one control.
+  function moveRoving(container, target) {
+    if (!target) { return; }
+    placeStop(container, target);
+    target.focus();
     remember();
   }
 
@@ -188,11 +199,14 @@
     // full-width button, so the left edges already agree with what the reader
     // pressed and there is nothing narrow to hang from.
     const from = holdsDials(menu) ? at.right - width : at.left;
-    // Kept inside the panel's own width. The flow wraps, so a control near the
-    // right edge of a narrow panel would otherwise open a menu the reader
-    // cannot see the end of. It also catches a menu wider than the room to the
-    // left of its caret, which would otherwise start off the near edge.
-    const left = Math.max(0, Math.min(from, window.innerWidth - width));
+    // Kept inside the panel's own width, and left of the panel's scroll bar
+    // where it draws one: the window's own width counts the scroll bar in, so a
+    // menu kept inside that would run its last few pixels under the bar. The
+    // flow wraps, so a control near the right edge of a narrow panel would
+    // otherwise open a menu the reader cannot see the end of. It also catches a
+    // menu wider than the room to the left of its caret, which would otherwise
+    // start off the near edge.
+    const left = Math.max(0, Math.min(from, document.documentElement.clientWidth - width));
     menu.style.top = Math.max(0, top) + 'px';
     menu.style.left = left + 'px';
   }
@@ -201,7 +215,11 @@
   // IT. Returning focus is the part that matters: a menu that closed leaving
   // focus nowhere would drop a keyboard reader out of the panel entirely, with
   // nothing to say where they now are.
-  function closeMenu() {
+  //
+  // The one close that leaves the focus where it is, is the one a press outside
+  // this document makes: the reader has put the focus somewhere else in the
+  // editor, and taking it back into the panel would undo their press.
+  function closeMenu(keepFocusWhereItIs) {
     if (!openMenu) { return; }
     const menu = openMenu;
     const control = openedBy;
@@ -221,7 +239,7 @@
     }
     if (control) {
       control.setAttribute('aria-expanded', 'false');
-      control.focus();
+      if (!keepFocusWhereItIs) { control.focus(); }
     }
   }
 
@@ -361,6 +379,17 @@
     state.collapsed = closed;
     const head = panel.querySelector('[data-toggle="' + group + '"]');
     const body = document.getElementById('sec-' + group);
+    // 🔴 A SECTION CLOSING ON THE TAB STOP HANDS THE STOP TO ITS OWN HEADING.
+    // The stop is the one control in the list Tab reaches, so left on a control
+    // inside the closed section it would be on a control nothing can focus, and
+    // Tab would pass the whole list by. The heading is where the reader is when
+    // they close a section, by the keyboard or the pointer, so it is the control
+    // the stop belongs on — and where the focus was inside the section, it goes
+    // to the heading with the stop. Both are read before the section is put
+    // away, while what it holds can still be asked about.
+    const container = head ? head.closest('[data-roving]') : null;
+    const stranded = !open && container !== null && body !== null && body.querySelector('[tabindex="0"]') !== null;
+    const focusInside = stranded && body.contains(document.activeElement);
     if (head) {
       head.setAttribute('aria-expanded', open ? 'true' : 'false');
       const chevron = head.querySelector('.codicon');
@@ -374,6 +403,11 @@
       // accessibility tree instead of staying in it as content the reader cannot
       // see or reach.
       body.hidden = !open;
+    }
+    if (stranded && focusInside) {
+      moveRoving(container, head);
+    } else if (stranded) {
+      placeStop(container, head);
     }
     remember();
   }
@@ -468,6 +502,29 @@
     closeMenu();
   });
 
+  // Whether this document holds the keyboard is told to the extension each time
+  // it changes, and once as the document loads. The extension reads it at the
+  // moment it raises one of the editor's own choosers, which is what lets the
+  // focus come back here when that chooser closes — and only where the reader
+  // was here when it opened.
+  function tellFocus(held) {
+    vscode.postMessage({ type: 'focus', held });
+  }
+
+  // A PRESS OUTSIDE THIS DOCUMENT CLOSES THE MENU TOO, and this document never
+  // sees that press: it lands in the editor around the panel. What it does see
+  // is its own window losing the focus to wherever the press put it, so that is
+  // what closes the menu — and nothing inside the panel causes it, because
+  // opening a menu, filling one, re-drawing the panel and moving between its
+  // controls all keep the focus in this window. The focus is left where the
+  // press put it.
+  window.addEventListener('blur', () => {
+    closeMenu(true);
+    tellFocus(false);
+  });
+  window.addEventListener('focus', () => { tellFocus(true); });
+  tellFocus(document.hasFocus());
+
   // The reader's place follows the control they last put focus on, whether they
   // arrived by keyboard or by pointer.
   panel.addEventListener('focusin', (event) => {
@@ -555,7 +612,9 @@
   // before the swap and focus is returned to the matching one after. Focus is
   // returned ONLY where this document held it, so a re-drawing prompted by
   // something elsewhere in the editor does not take focus away from wherever the
-  // reader actually is.
+  // reader actually is. The one time this document takes the focus back after
+  // losing it is when the extension says a chooser of the editor's own, opened
+  // while the reader was here, has closed.
   window.addEventListener('message', (event) => {
     const message = event.data;
     if (!message) { return; }
@@ -604,6 +663,18 @@
     // that state rather than a second wording of it inside the menu.
     if (message.type === 'menu-refused') {
       if (openMenu && openMenu.dataset.menuCommand === message.command) { closeMenu(); }
+      return;
+    }
+
+    // One of the editor's own choosers has closed, having opened while this
+    // document held the keyboard — the extension sends this only then. It is the
+    // same promise a menu drawn here keeps when it is dismissed: the focus goes
+    // back to the control the reader was on, rather than staying with the frame
+    // the panel is drawn in, where no key reaches a control.
+    if (message.type === 'focus-back') {
+      const key = state.focused;
+      const returning = key === null ? null : panel.querySelector('[data-focus-key="' + key + '"]:not([disabled])');
+      if (returning) { returning.focus(); }
       return;
     }
 

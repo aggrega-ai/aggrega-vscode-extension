@@ -632,11 +632,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         detail: p,
         absolutePath: p,
       }));
-      const choice = await vscode.window.showQuickPick(items, {
+      // Raised through the Commands panel, so where the panel held the keyboard
+      // as it opened, the focus goes back to the control the reader was on once
+      // it closes.
+      const open = (): Thenable<(typeof items)[number] | undefined> => vscode.window.showQuickPick(items, {
         placeHolder,
         matchOnDescription: true,
         matchOnDetail: true,
       });
+      const choice = operationsView === null ? await open() : await operationsView.returningFocus(open);
       return choice?.absolutePath;
     },
     reportInfo: (message) => { void vscode.window.showInformationMessage(message); },

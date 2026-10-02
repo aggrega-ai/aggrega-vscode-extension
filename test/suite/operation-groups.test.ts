@@ -259,6 +259,39 @@ describe('the operation surface, grouped by what a reader came to do', () => {
     }
   });
 
+  it('draws every Commands panel operation with a glyph the icon font it ships carries, and no two with one', () => {
+    // The Commands panel is a document the extension hosts, and the editor puts no
+    // icon font into one: every icon there is drawn from the stylesheet the build
+    // places beside the panel's own. An id that stylesheet carries no rule for is a
+    // button drawn with no picture, and nothing says so — so the stylesheet is read
+    // here, and each operation's icon is held against it.
+    //
+    // An operation's picture is chosen for what it does, so two operations drawing
+    // one glyph is one of them borrowing the other's. The glyph is compared rather
+    // than the id, because the stylesheet carries several ids for one glyph.
+    const vendored = path.join(__dirname, '..', '..', '..', 'media', 'vendor', 'codicon.css');
+    assert.ok(
+      fs.existsSync(vendored),
+      `${vendored} is not there; the build places it (npm run compile), and without it every icon on the panel is absent`,
+    );
+    const glyphs = new Map<string, string>();
+    for (const rule of fs.readFileSync(vendored, 'utf8').matchAll(/\.codicon-([a-z0-9-]+):before\s*\{\s*content:\s*"([^"]+)"/g)) {
+      glyphs.set(rule[1], rule[2]);
+    }
+    // The reading's own control: the chevron every caret and section heading on
+    // the panel draws is found by it, so a reading that finds nothing cannot pass.
+    assert.ok(glyphs.has('chevron-down'), 'the stylesheet was read and no rule was found in it, so the reading finds nothing');
+    const blank = commandsPanelOperations().filter((op) => !glyphs.has(op.icon)).map((op) => `${op.id}: ${op.icon}`);
+    assert.deepStrictEqual(blank, [], 'an operation names an icon the shipped font draws nothing for');
+    const byGlyph = new Map<string, string[]>();
+    for (const op of commandsPanelOperations()) {
+      const glyph = glyphs.get(op.icon) ?? '';
+      byGlyph.set(glyph, [...(byGlyph.get(glyph) ?? []), op.id]);
+    }
+    const shared = [...byGlyph.values()].filter((ids) => ids.length > 1);
+    assert.deepStrictEqual(shared, [], 'two operations draw one glyph');
+  });
+
   it('reuses the command already contributed for an entry another surface owns', () => {
     // A command id is what a reader binds a keystroke to, so it is reused
     // rather than renamed — and the handler stays where it already is rather

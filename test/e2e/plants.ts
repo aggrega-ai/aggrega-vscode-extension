@@ -72,6 +72,17 @@ const CONTEXT_ROW_LABEL = {
 
 const REFRESH_GRAPH = '        refreshGraphView();\n';
 
+// The panel script's line keeping a menu inside the panel's width, and its
+// listener closing a menu when the panel's window loses the focus — the latter
+// taken out by a plant in each scenario that presses outside the panel.
+const MENU_CLAMP = '    const left = Math.max(0, Math.min(from, document.documentElement.clientWidth - width));';
+const OUTSIDE_PRESS_IGNORED = {
+  file: PANEL_SCRIPT,
+  find: "  window.addEventListener('blur', () => {\n    closeMenu(true);\n    tellFocus(false);\n  });",
+  replace: "  window.addEventListener('blur', () => {\n    tellFocus(false);\n  });",
+  says: 'the panel\'s window losing the focus leaves an open menu open, so a press outside the panel does not close it',
+} as const;
+
 // The workspace catalog panel's view and its row model, and the language-server
 // item's model.
 const CATALOG_VIEW = 'out/src/workspace-catalog-view.js';
@@ -423,11 +434,8 @@ export const PLANTS: readonly Plant[] = [
     says: 'pressing a row of the Build options menu closes the menu',
   },
   {
-    name: 'menu-closes-when-the-panel-loses-focus', scenario: 'workspace-above', checks: ['build-options.menu-closes-on-each-gesture'], moves: 'green', target: 'extension',
-    file: PANEL_SCRIPT,
-    find: "  document.addEventListener('click', (event) => {\n    if (!openMenu) { return; }",
-    replace: "  window.addEventListener('blur', () => { if (openMenu) { closeMenu(); } });\n  document.addEventListener('click', (event) => {\n    if (!openMenu) { return; }",
-    says: 'an open menu closes when the panel\'s document loses focus, which a click outside the panel causes',
+    name: 'build-options-left-open-when-the-panel-loses-focus', scenario: 'workspace-above', checks: ['build-options.menu-closes-on-each-gesture'], moves: 'red', target: 'extension',
+    ...OUTSIDE_PRESS_IGNORED,
   },
   {
     name: 'caret-out-of-the-walk', scenario: 'workspace-above', checks: ['build-options.keyboard-reaches-the-chevron-after-build'], moves: 'red', target: 'extension',
@@ -1232,12 +1240,19 @@ export const PLANTS: readonly Plant[] = [
   {
     name: 'create-gap-left-out', scenario: 'two-releases-context-rows', checks: ['context-rows.create-controls-beside-the-workspace-and-release-rows'], moves: 'red', target: 'extension',
     file: RENDER, find: `        ? '<span class="selector-create-gap" aria-hidden="true"></span>'`, replace: "        ? ''",
-    says: 'a row without a create control draws no empty space in its place, so its choosing control is wider than the rows beside it',
+    says: 'a row without a create control draws no empty space in that control\'s column',
   },
   {
-    name: 'row-labels-given-one-width', scenario: 'two-releases-context-rows', checks: ['context-rows.values-start-in-line'], moves: 'green', target: 'extension',
-    file: 'media/operations.css', find: '.selector-label {\n  flex: 0 0 auto;', replace: '.selector-label {\n  flex: 0 0 10rem;',
-    says: 'the three rows\' labels are drawn at one width, so the values after them start in line',
+    name: 'row-labels-each-their-own-width', scenario: 'two-releases-context-rows', checks: ['context-rows.values-start-in-line'], moves: 'red', target: 'extension',
+    file: 'media/operations.css',
+    find: '.selector {\n  display: grid;\n  grid-column: inset-start / trail-end;\n  grid-template-columns: subgrid;',
+    replace: '.selector {\n  display: grid;\n  grid-column: inset-start / trail-end;\n  grid-template-columns: [inset-start] 0.6rem [inset-end icon-start] auto [icon-end label-start] max-content [label-end value-start] minmax(0, 1fr) [value-end mark-start] auto [mark-end trail-start] 0.6rem [trail-end];',
+    says: 'each row\'s choosing control lays out columns of its own, so each label is as wide as its own words and each value starts after it',
+  },
+  {
+    name: 'row-labels-held-to-a-fixed-width', scenario: 'two-releases-context-rows', checks: ['context-rows.values-start-in-line'], moves: 'red', target: 'extension',
+    file: 'media/operations.css', find: '    [icon-end label-start] minmax(0, max-content)\n', replace: '    [icon-end label-start] 5rem\n',
+    says: 'the three rows\' labels are held to one fixed width narrower than the widest of them, so that one is cut short where the panel has room for it',
   },
   {
     name: 'workspace-chooser-titled-as-the-release-chooser', scenario: 'two-releases-context-rows', checks: ['context-rows.each-row-opens-its-own-chooser'], moves: 'red', target: 'extension',
@@ -1797,15 +1812,14 @@ export const PLANTS: readonly Plant[] = [
     says: 'the Configuration group\'s Show config runs the seeding of a workspace configuration the welcome page offers',
   },
   {
-    name: 'import-icon-given-a-glyph', scenario: 'gateway-commands-panel', checks: ['commands-panel.icons-drawn-from-the-font-the-extension-ships'], moves: 'green', target: 'extension',
-    file: 'media/vendor/codicon.css', find: '.codicon-sign-in:before { content: "\\ea6f" }', replace: '.codicon-sign-in:before { content: "\\ea6f" }\n.codicon-arrow-into:before { content: "\\ea6f" }',
-    says: 'the icon font\'s stylesheet draws Import\'s declared icon with a glyph the font carries, the one it draws for signing in',
+    name: 'import-icon-names-no-glyph', scenario: 'gateway-commands-panel', checks: ['commands-panel.icons-drawn-from-the-font-the-extension-ships'], moves: 'red', target: 'extension',
+    file: 'out/src/operation-groups.js', find: "                icon: 'insert',", replace: "                icon: 'arrow-into',",
+    says: 'Import names an icon the shipped icon font\'s stylesheet carries no rule for, so its button draws no picture',
   },
   {
-    name: 'row-label-gives-way', scenario: 'gateway-commands-panel', checks: ['commands-panel.flow-wraps-at-every-width-cutting-nothing-short'], moves: 'green', target: 'extension',
-    file: 'media/operations.css', find: '.selector-label {\n  flex: 0 0 auto;\n  font-weight: 600;\n}',
-    replace: '.selector-label {\n  flex: 0 1 auto;\n  min-width: 0;\n  overflow: hidden;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-weight: 600;\n}',
-    says: 'a row\'s label gives way where the panel is too narrow for it, cut short with an ellipsis, rather than reaching past the panel\'s edge',
+    name: 'row-labels-forbidden-to-give-way', scenario: 'gateway-commands-panel', checks: ['commands-panel.flow-wraps-at-every-width-cutting-nothing-short'], moves: 'red', target: 'extension',
+    file: 'media/operations.css', find: '    [icon-end label-start] minmax(0, max-content)\n', replace: '    [icon-end label-start] max-content\n',
+    says: 'the rows\' label column never narrows below the widest label, so in a panel narrower than that the rows reach past its edge',
   },
   {
     name: 'mark-after-each-group-in-the-flow', scenario: 'gateway-commands-panel', checks: ['commands-panel.nothing-drawn-between-groups-at-any-width'], moves: 'red', target: 'extension',
@@ -1857,10 +1871,16 @@ export const PLANTS: readonly Plant[] = [
     says: 'a section\'s chevron is left as it was drawn when the section opens or closes',
   },
   {
-    name: 'arrows-pass-over-closed-sections', scenario: 'gateway-commands-panel', checks: ['commands-panel.keyboard-in-sections-opens-and-closes-with-the-arrows'], moves: 'green', target: 'extension',
-    file: PANEL_SCRIPT, find: "      container.querySelectorAll('[data-focus-key]:not([disabled])'),\n    );",
-    replace: "      container.querySelectorAll('[data-focus-key]:not([disabled])'),\n    ).filter((control) => !control.closest('[hidden]'));",
-    says: 'the arrow keys move between the controls a reader can see, passing over those inside a closed section',
+    name: 'arrows-walk-into-closed-sections', scenario: 'gateway-commands-panel', checks: ['commands-panel.keyboard-in-sections-opens-and-closes-with-the-arrows'], moves: 'red', target: 'extension',
+    file: PANEL_SCRIPT, find: "    ).filter((control) => !control.closest('[hidden]'));", replace: '    );',
+    says: 'the arrow keys count the controls inside a closed section among the ones they move between',
+  },
+  {
+    name: 'tab-stop-left-in-a-closed-section', scenario: 'gateway-commands-panel', checks: ['commands-panel.closing-a-section-hands-its-tab-stop-to-its-heading'], moves: 'red', target: 'extension',
+    file: PANEL_SCRIPT,
+    find: '    if (stranded && focusInside) {\n      moveRoving(container, head);\n    } else if (stranded) {\n      placeStop(container, head);\n    }\n',
+    replace: '',
+    says: 'a section closing on the tab stop leaves the stop on the control inside it',
   },
   {
     name: 'rows-put-away-with-a-section', scenario: 'gateway-commands-panel', checks: ['commands-panel.context-rows-stay-with-every-section-closed'], moves: 'red', target: 'extension',
@@ -1907,6 +1927,16 @@ export const PLANTS: readonly Plant[] = [
     replace: "        lockfile = entry.lockfile;\n        announce();\n        void require('vscode').commands.executeCommand('aggrega.server.restart');\n    };",
     says: 'choosing a Release restarts the language server',
   },
+  {
+    name: 'focus-never-handed-back', scenario: 'mysql-commands-panel-no-release', checks: ['commands-panel.focus-comes-back-to-its-button-after-choosing-a-release'], moves: 'red', target: 'extension',
+    file: OPERATIONS, find: "                void this.view.webview.postMessage({ type: 'focus-back' });", replace: '                void 0;',
+    says: 'the panel is never told that a chooser it held the keyboard under has closed',
+  },
+  {
+    name: 'focus-handed-back-wherever-the-reader-was', scenario: 'mysql-commands-panel-no-release', checks: ['commands-panel.release-chosen-from-elsewhere-leaves-the-focus-where-it-was'], moves: 'red', target: 'extension',
+    file: OPERATIONS, find: '        const held = this.view !== null && this.holdsFocus;', replace: '        const held = this.view !== null;',
+    says: 'the panel is told to take the focus back after the chooser closes wherever the reader was when it opened',
+  },
 
   // ---- the gateway folder: the menus a Commands panel button opens ----
   {
@@ -1916,13 +1946,27 @@ export const PLANTS: readonly Plant[] = [
   },
   {
     name: 'menu-left-past-the-edge', scenario: 'gateway-docked-menus', checks: ['commands-panel.menus-open-against-their-button-docked-a-few-hundred-pixels-wide'], moves: 'red', target: 'extension',
-    file: PANEL_SCRIPT, find: '    const left = Math.max(0, Math.min(from, window.innerWidth - width));', replace: '    const left = from;',
+    file: PANEL_SCRIPT, find: MENU_CLAMP, replace: '    const left = from;',
     says: 'a menu is left where its button\'s left edge puts it, past the panel\'s right edge where it is wider than the room',
   },
   {
+    name: 'menu-kept-inside-the-window-width', scenario: 'gateway-docked-menus', checks: ['commands-panel.menus-open-against-their-button-docked-a-few-hundred-pixels-wide'], moves: 'red', target: 'extension',
+    file: PANEL_SCRIPT, find: MENU_CLAMP, replace: MENU_CLAMP.replace('document.documentElement.clientWidth', 'window.innerWidth'),
+    says: 'a menu is kept inside the panel\'s window, whose width counts the scroll bar in, so its end can run under the bar',
+  },
+  {
+    name: 'menu-capped-at-the-window-width', scenario: 'gateway-docked-menus', checks: ['commands-panel.menus-open-against-their-button-docked-a-few-hundred-pixels-wide'], moves: 'red', target: 'extension',
+    file: 'media/operations.css', find: '  max-width: calc(100% - 0.4rem);', replace: '  max-width: calc(100vw - 0.4rem);',
+    says: 'a menu\'s widest is a share of the window\'s width, which counts the scroll bar in, so a wide menu runs under the bar',
+  },
+  {
     name: 'closing-menu-leaves-its-button-held', scenario: 'gateway-docked-menus', checks: ['commands-panel.held-button-marked-alone-and-cleared-by-every-close'], moves: 'red', target: 'extension',
-    file: PANEL_SCRIPT, find: "    if (control) {\n      control.setAttribute('aria-expanded', 'false');\n      control.focus();\n    }", replace: '    if (control) {\n      control.focus();\n    }',
+    file: PANEL_SCRIPT, find: "    if (control) {\n      control.setAttribute('aria-expanded', 'false');\n      if (!keepFocusWhereItIs) { control.focus(); }\n    }", replace: '    if (control) {\n      if (!keepFocusWhereItIs) { control.focus(); }\n    }',
     says: 'a menu closing leaves its button drawn held',
+  },
+  {
+    name: 'outside-press-leaves-the-menu-open', scenario: 'gateway-docked-menus', checks: ['commands-panel.held-button-marked-alone-and-cleared-by-every-close'], moves: 'red', target: 'extension',
+    ...OUTSIDE_PRESS_IGNORED,
   },
   {
     name: 'held-border-wider', scenario: 'gateway-docked-menus', checks: ['commands-panel.opening-a-menu-moves-nothing'], moves: 'red', target: 'extension',

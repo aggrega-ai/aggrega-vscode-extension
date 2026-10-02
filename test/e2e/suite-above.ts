@@ -273,7 +273,7 @@ export async function aboveChecks(ctx: SuiteContext, layout: { root: string; ref
   });
   await c.run('build-options.menu-closes-on-each-gesture', {
     expected: 'the open menu closes on a second press of the chevron, on Escape, on Tab, on a click elsewhere — in the panel and outside it — on a resize of the panel, and on a press of Build, which then builds',
-    plant: 'in the scratch copy, media/operations.js with the Escape handler removed',
+    plant: 'in the scratch copy, media/operations.js with the panel\'s window losing the focus leaving an open menu open',
   }, async () => {
     const gestures: [string, () => Promise<void>][] = [
       ['a second press of the chevron', async () => { await pressIn(ctx.d, panel, CARET); }],

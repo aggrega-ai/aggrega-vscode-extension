@@ -1,26 +1,31 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cognitio S.r.l.
 
+import * as path from 'path';
+
 import { RESTART_COMMAND } from '../../src/daemon-status';
 import { commandIdFor, commandsPanelOperations, operationHint } from '../../src/operation-groups';
 import { NO_RELEASE_SELECTED_CONTROL_REASON } from '../../src/release-selection';
 import { need } from './checks';
-import { ABSENCE_MS, activeControl, drawnPanel, focusInPanel, ops } from './commands-panel';
+import { ABSENCE_MS, activeControl, drawnPanel, FOCUS_LOG, focusInPanel, focusLog, ops } from './commands-panel';
 import { levelRows } from './levels';
-import { languageServers, ready, send, SuiteContext, theServer } from './suite-context';
+import { closeAllEditors, languageServers, open, ready, send, SuiteContext, theServer } from './suite-context';
 import { commandsPanel, holds, RUNNING, STARTING, statusLog, until, waitQuickInput, waitStatus } from './workbench';
 
 // The checks run in a documentation example holding two Releases and naming no
 // default, so no Release is selected when it opens: the operations that act on a
 // Release drawn in place and greyed with their reason, the arrow keys passing over
 // them, a Release chosen bringing them back with nothing restarted, and where
-// the focus stands once the panel is drawn again after the choice.
+// the focus stands once the panel is drawn again after the choice — back on the
+// panel's control for a choice made from the panel, and left in the editor for
+// one made from there.
 
 export const NO_RELEASE_CHECKS = [
   'commands-panel.release-operations-greyed-in-place-with-their-reason',
   'commands-panel.arrows-skip-greyed-controls',
   'commands-panel.choosing-a-release-enables-them-without-a-restart',
   'commands-panel.focus-comes-back-to-its-button-after-choosing-a-release',
+  'commands-panel.release-chosen-from-elsewhere-leaves-the-focus-where-it-was',
 ] as const;
 
 // The operations a reader is told are greyed while no Release is selected, by their
@@ -41,22 +46,6 @@ const ARROW_MS = 3000;
 // focusReading is where the panel's document has its focus, and whether it holds
 // the keyboard at all, for the reading a failure reports.
 const focusReading = `(() => { const e = document.activeElement; return (document.hasFocus() ? 'holding the keyboard' : 'not holding the keyboard') + ', its focus on ' + (e ? (e.dataset.command || e.dataset.focusKey || e.tagName) : 'nothing'); })()`;
-
-// FOCUS_LOG is installed in the panel's document before the Release is changed,
-// and records where its focus stands at each focus change, each window focus and
-// blur, and just after each drawing the extension posts — read back from
-// window.__focusLog for the reading a failure reports.
-const FOCUS_LOG = `(() => {
-  const log = [];
-  const on = () => { const e = document.activeElement; return (e ? (e.dataset.command || e.dataset.focusKey || e.tagName) : 'none') + (document.hasFocus() ? '' : ' (unfocused)'); };
-  document.addEventListener('focusin', () => log.push('in ' + on()), true);
-  document.addEventListener('focusout', () => log.push('out ' + on()), true);
-  window.addEventListener('blur', () => log.push('blur ' + on()));
-  window.addEventListener('focus', () => log.push('focus ' + on()));
-  window.addEventListener('message', (m) => { if (m.data && m.data.type === 'panel') { log.push('drawn ' + on()); } });
-  window.__focusLog = log;
-  return true;
-})()`;
 
 // workbenchFocus is what the window outside the panel has its focus on.
 const workbenchFocus = `(() => { const e = document.activeElement; return e ? e.tagName + (e.className ? '.' + String(e.className).split(' ').slice(0, 2).join('.') : '') : 'nothing'; })()`;
@@ -139,7 +128,7 @@ export async function noReleaseChecks(ctx: SuiteContext, releases: readonly stri
     const read = async (): Promise<{ pids: number[]; starting: boolean; instance: string }> => ({ pids: languageServers(ctx).map((x) => x.pid), starting: (await statusLog(ctx.d)).slice(statusMark).some((r) => r.reading === STARTING), instance: (await ctx.probe.request<{ instance: string }>('hello')).instance });
     const quiet = await holds(2000, read, (v) => v.pids.length === 1 && v.pids[0] === srv.pid && !v.starting && v.instance === hello.instance);
     const focused = await until(`the focus back on ${FOCUSED_LABEL}`, 5000, () => activeControl(panel), (v) => v === lint.command).catch(() => activeControl(panel));
-    const where = focused === lint.command ? '' : `the panel ${await panel.evaluate<string>(focusReading)}; the window's focus on ${await ctx.d.workbench<string>(workbenchFocus)}; the panel's focus over the choice: ${(await panel.evaluate<string[]>('window.__focusLog || []')).join(' → ')}`;
+    const where = `the panel ${await panel.evaluate<string>(focusReading)}; the window's focus on ${await ctx.d.workbench<string>(workbenchFocus)}; the panel's focus over the choice: ${(await focusLog(panel)).join(' → ')}`;
     afterChoice = { focused, want: lint.command, where };
     // The control: a restart asked for, read the same way. The server is then owed
     // its running reading back, since every check after this one starts from it.
@@ -152,10 +141,37 @@ export async function noReleaseChecks(ctx: SuiteContext, releases: readonly stri
 
   await c.run('commands-panel.focus-comes-back-to-its-button-after-choosing-a-release', {
     expected: `with the focus put on ${FOCUSED_LABEL} before the Release was chosen above, the focus is on ${FOCUSED_LABEL} again, in the panel's document holding the keyboard, within 5 s of the panel being drawn again`,
-    plant: 'none: it fails on the product as it stands with no one-edit correction — once the Release chooser closes, the window\'s focus is on the panel\'s frame while the panel\'s own document holds neither the keyboard nor a focused control',
+    plant: 'in the scratch copy, out/src/operations.js with the panel never told that the chooser it was under has closed',
   }, async () => {
     const got = afterChoice as { focused: string; want: string; where: string } | null;
     need(got !== null, 'the Release was not chosen above, so the panel was not drawn again under the focus');
-    return { passed: got.focused === got.want, seen: `the focus on ${JSON.stringify(got.focused)}, where ${JSON.stringify(got.want)} is owed${got.where === '' ? '' : ` (${got.where})`}` };
+    return { passed: got.focused === got.want, seen: `the focus on ${JSON.stringify(got.focused)}, where ${JSON.stringify(got.want)} is owed (${got.where})` };
+  });
+
+  await c.run('commands-panel.release-chosen-from-elsewhere-leaves-the-focus-where-it-was', {
+    expected: `with ${releases[1]} opened in an editor and the focus in its text, choosing ${releases[1]} from the Release chooser draws the panel again naming it, and the focus is back in that editor's text while the panel's document does not hold the keyboard, at every reading over ${ABSENCE_MS} ms once the panel is drawn again; the same reading of the panel found it holding the keyboard on ${FOCUSED_LABEL} after the choice above, made from the panel`,
+    plant: 'in the scratch copy, out/src/operations.js with the panel told to take the focus back after the chooser closes wherever the reader was when it opened',
+  }, async () => {
+    const back = afterChoice as { focused: string; want: string } | null;
+    need(back !== null && back.focused === back.want, `its positive control did not fire: after the choice made from the panel the same reading found the focus on ${JSON.stringify(back?.focused ?? null)}, so it is not shown to see the panel holding the keyboard`);
+    const file = path.join(ctx.folder, releases[1]);
+    await open(ctx, file);
+    const inEditor = `(() => { const e = document.activeElement; return !!e && !!e.closest('.monaco-editor') && !!e.closest('#workbench\\\\.parts\\\\.editor'); })()`;
+    await until('the focus in the editor\'s text', 5000, () => ctx.d.workbench<boolean>(inEditor), (v) => v);
+    await panel.evaluate<boolean>(FOCUS_LOG);
+    await send(ctx, 'aggrega.release.select');
+    await waitQuickInput(ctx.d, 'the Release chooser', (q) => q.rows.some((r) => r.label === releases[1]), 10000);
+    await ctx.d.type(releases[1]);
+    await waitQuickInput(ctx.d, `the Release chooser narrowed to ${releases[1]}`, (q) => q.value === releases[1] && q.rows.length > 0 && q.rows[0].label === releases[1], 5000);
+    await ctx.d.press('Enter');
+    const rows = await until(`the Release row naming ${releases[1]}`, 15000, () => levelRows(panel), (r) => r[2]?.value === releases[1]).catch(() => levelRows(panel));
+    const read = async (): Promise<{ panelHolds: boolean; editorHolds: boolean }> => ({ panelHolds: await panel.evaluate<boolean>('document.hasFocus()'), editorHolds: await ctx.d.workbench<boolean>(inEditor) });
+    const kept = await holds(ABSENCE_MS, read, (v) => !v.panelHolds && v.editorHolds);
+    const log = await focusLog(panel);
+    await closeAllEditors(ctx);
+    return {
+      passed: rows[2]?.value === releases[1] && kept.held,
+      seen: `the Release row "${rows[2]?.value ?? ''}"; ${kept.held ? `the focus in the editor's text and the panel not holding the keyboard for ${ABSENCE_MS} ms` : `at ${kept.atMs} ms ${JSON.stringify(kept.broke)}`}; the panel's focus over the choice: ${log.length === 0 ? 'nothing recorded' : log.join(' → ')}`,
+    };
   });
 }

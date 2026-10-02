@@ -62,8 +62,10 @@ export interface OperationDef {
   id: OperationId;
   label: string;
   detail: string;
-  // icon is a VS Code ThemeIcon (codicon) id, so the surface inherits the editor
-  // theme rather than shipping bitmap assets.
+  // icon is a codicon id, so the surface inherits the editor theme rather than
+  // shipping bitmap assets. A list panel's head draws it as the editor's own
+  // icon; the Commands panel draws it from the icon font the extension ships,
+  // where an id that font's stylesheet carries no rule for draws nothing at all.
   icon: string;
   // command overrides the derived id for an operation whose command is
   // contributed and registered elsewhere: the topology graph and the
@@ -210,7 +212,7 @@ export const OPERATION_GROUPS: OperationGroup[] = [
         id: 'import',
         label: 'Import',
         detail: 'Import a foreign source into Aggrega',
-        icon: 'arrow-into',
+        icon: 'insert',
       },
       {
         id: 'inspect',

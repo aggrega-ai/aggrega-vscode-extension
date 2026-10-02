@@ -405,6 +405,12 @@ class OperationsViewProvider implements vscode.WebviewViewProvider {
   // than drawing the default and correcting itself.
   private dialsOn: string[] = [];
 
+  // Whether the panel's document holds the keyboard, as its script last said.
+  // It is the script's to say rather than this side's to work out: the editor
+  // reports a view's visibility but not whether the document inside it has the
+  // focus.
+  private holdsFocus = false;
+
   constructor(
     private readonly extensionUri: vscode.Uri,
     private readonly deps: OperationDeps,
@@ -420,7 +426,10 @@ class OperationsViewProvider implements vscode.WebviewViewProvider {
       enableScripts: true,
       localResourceRoots: [vscode.Uri.joinPath(this.extensionUri, 'media')],
     };
-    view.onDidDispose(() => { this.view = null; });
+    view.onDidDispose(() => {
+      this.view = null;
+      this.holdsFocus = false;
+    });
     view.webview.onDidReceiveMessage((message: unknown) => this.receive(message));
     view.webview.html = operationsDocumentHtml({
       nonce: makeNonce(),
@@ -485,12 +494,39 @@ class OperationsViewProvider implements vscode.WebviewViewProvider {
     return dialsTurnedOn(this.dialsOn);
   }
 
+  // returningFocus raises one of the editor's own choosers and answers with what
+  // it answered. Where the panel's document held the keyboard as the chooser
+  // opened, the panel is told once the chooser has closed — chosen from or
+  // dismissed — and puts the focus back on the control the reader was on.
+  //
+  // 🔴 THE EDITOR GIVES THE FOCUS BACK TO THE FRAME THE PANEL IS DRAWN IN AND NOT
+  // TO ANYTHING INSIDE IT, so without this a reader who opened the chooser from
+  // the panel by the keyboard comes back to a panel no key reaches a control
+  // of. It is decided as the chooser opens rather than as it closes, because by
+  // then the chooser has taken the focus from wherever the reader was; and a
+  // chooser opened while the reader was elsewhere in the editor sends nothing,
+  // so the panel never takes the focus from them.
+  async returningFocus<T>(open: () => Thenable<T>): Promise<T> {
+    const held = this.view !== null && this.holdsFocus;
+    try {
+      return await open();
+    } finally {
+      if (held && this.view !== null) {
+        void this.view.webview.postMessage({ type: 'focus-back' });
+      }
+    }
+  }
+
   private receive(message: unknown): void {
     const named = typeof message === 'object' && message !== null
       ? (message as { type?: unknown; command?: unknown; set?: unknown })
       : null;
     if (named?.type === 'state') {
       this.state = readPanelState(message);
+      return;
+    }
+    if (named?.type === 'focus') {
+      this.holdsFocus = (message as { held?: unknown }).held === true;
       return;
     }
     // An adjustment the reader turned beside a button. It arrives on a message
@@ -630,6 +666,10 @@ export interface OperationsView {
   // a surface offering Pull elsewhere — the missing-lockfile notice — reaches
   // this one rather than a second way of pulling.
   pull(release: string | null): Promise<void>;
+  // returningFocus raises one of the editor's own choosers and answers with
+  // what it answered, putting the focus back on the panel's control the reader
+  // was on once it closes, where the panel held the keyboard as it opened.
+  returningFocus<T>(open: () => Thenable<T>): Promise<T>;
 }
 
 // activateOperations registers the Commands view and a command for each entry
@@ -747,6 +787,7 @@ export function activateOperations(
   return {
     refresh: () => provider.refresh(),
     pull: (release) => runReleaseScoped(deps, 'pull', release),
+    returningFocus: (open) => provider.returningFocus(open),
   };
 }
 

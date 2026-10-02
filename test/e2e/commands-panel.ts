@@ -67,6 +67,27 @@ export function activeControl(doc: WebviewDocument): Promise<string> {
   return doc.evaluate<string>(ACTIVE_CONTROL);
 }
 
+// FOCUS_LOG is installed in the panel's document before an action whose effect
+// on the focus is to be read, and records where its focus stands at each focus
+// change, each window focus and blur, and just after each drawing the extension
+// posts — read back from window.__focusLog by focusLog.
+export const FOCUS_LOG = `(() => {
+  const log = [];
+  const on = () => { const e = document.activeElement; return (e ? (e.dataset.command || e.dataset.focusKey || e.tagName) : 'none') + (document.hasFocus() ? '' : ' (unfocused)'); };
+  document.addEventListener('focusin', () => log.push('in ' + on()), true);
+  document.addEventListener('focusout', () => log.push('out ' + on()), true);
+  window.addEventListener('blur', () => log.push('blur ' + on()));
+  window.addEventListener('focus', () => log.push('focus ' + on()));
+  window.addEventListener('message', (m) => { if (m.data && m.data.type === 'panel') { log.push('drawn ' + on()); } });
+  window.__focusLog = log;
+  return true;
+})()`;
+
+// focusLog reads back what FOCUS_LOG has recorded since it was installed.
+export function focusLog(doc: WebviewDocument): Promise<string[]> {
+  return doc.evaluate<string[]>('window.__focusLog || []');
+}
+
 // restoring runs a check's body and then puts back what the body changed — a
 // theme, a width — however the body ended. `putBack` answers null once the state
 // is back, or the sentence saying what was left, and where it says one the check
@@ -135,11 +156,13 @@ export interface SectionHead { group: string; title: string; expanded: boolean; 
 export interface FlowItem { kind: 'op' | 'pair' | 'other'; className: string; box: PanelBox }
 
 // RowDrawn is one of the three rows as the icons and borders go: what each of its
-// controls draws, and the edge each is drawn with.
+// controls draws, and the edge each is drawn with; and its label as drawn —
+// whether it is cut short, and how a cut is drawn.
 export interface RowDrawn {
   icons: { control: string; icon: string; glyph: boolean }[];
   borders: { control: string; width: number; colour: number[] }[];
   valueOverflow: string;
+  label: { text: string; clipped: boolean; overflow: string } | null;
 }
 
 // DrawnPanel is the panel as drawn now, read in one evaluation.
@@ -234,10 +257,12 @@ const DRAWN_PANEL = `(() => {
   const rows = [...document.querySelectorAll('.selector-row')].map((r) => {
     const parts = [['choosing', r.querySelector('button.selector')], ['create', r.querySelector('button.selector-create')], ['offer', r.querySelector('button.selector-offer')], ['mark', r.querySelector('.selector-warning')]].filter((p) => p[1]);
     const v = r.querySelector('.selector-value');
+    const l = r.querySelector('.selector-label');
     return {
       icons: parts.map(([control, e]) => { const i = e.classList.contains('codicon') ? e : e.querySelector('.codicon'); return { control, icon: iconOf(i), glyph: glyph(i) }; }),
       borders: parts.filter((p) => p[0] !== 'mark').map(([control, e]) => { const cs = getComputedStyle(e); return { control, width: parseFloat(cs.borderTopWidth) || 0, colour: colour(cs.borderTopColor) }; }),
       valueOverflow: v ? getComputedStyle(v).textOverflow : '',
+      label: l ? { text: (l.textContent || '').trim(), clipped: l.scrollWidth > l.clientWidth + 0.5, overflow: getComputedStyle(l).textOverflow } : null,
     };
   });
   const root = getComputedStyle(document.documentElement);
@@ -318,7 +343,9 @@ export interface OpenMenu {
   command: string;
   label: string;
   box: PanelBox | null;
-  // cap and floor are the widest and narrowest the menu's own style lets it be.
+  // cap and floor are the widest and narrowest the menu's own style lets it be,
+  // resolved in the panel to pixels: the style may state either as a share of
+  // the panel, which reads back as a formula rather than as a length.
   cap: number;
   floor: number;
   // needed is what the widest of its rows takes, with the menu's own edges: the
@@ -341,6 +368,21 @@ const OPEN_MENU = `(() => {
   const box = (e) => { if (!e) { return null; } const r = e.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; };
   const px = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : 0; };
   const edges = (e) => { const cs = getComputedStyle(e); return px(cs.paddingLeft) + px(cs.paddingRight) + px(cs.borderLeftWidth) + px(cs.borderRightWidth); };
+  // A bound the style states as a share of the panel reads back as a formula, so
+  // it is resolved by a box standing where the menu stands — fixed against the
+  // panel's view — given that bound and a width it must give way to. The box is
+  // set under the root rather than in the body, so nothing watching the panel's
+  // content sees it, and it is taken out in the same reading.
+  const resolved = (bound, value) => {
+    const probe = document.createElement('div');
+    probe.style.cssText = 'position: fixed; left: 0; top: 0; visibility: hidden; padding: 0; border: 0; box-sizing: content-box;';
+    probe.style.width = bound === 'max' ? '100000px' : '0px';
+    if (bound === 'max') { probe.style.maxWidth = value; } else { probe.style.minWidth = value; }
+    document.documentElement.appendChild(probe);
+    const w = probe.getBoundingClientRect().width;
+    probe.remove();
+    return w;
+  };
   const marked = [...document.querySelectorAll('[aria-expanded="true"]')].filter((e) => e.matches('button.op, button.op-caret'));
   const opener = m ? document.querySelector('[aria-controls="' + m.id + '"]') : null;
   const entries = m ? [...m.querySelectorAll('.op-menu-option, .op-menu-dial')].filter((o) => !o.hidden) : [];
@@ -357,8 +399,8 @@ const OPEN_MENU = `(() => {
     command: m ? (m.dataset.menuCommand || '') : '',
     label: m ? (m.getAttribute('aria-label') || '') : '',
     box: box(m),
-    cap: m ? px(getComputedStyle(m).maxWidth) : 0,
-    floor: m ? px(getComputedStyle(m).minWidth) : 0,
+    cap: m ? resolved('max', getComputedStyle(m).maxWidth) : 0,
+    floor: m ? resolved('min', getComputedStyle(m).minWidth) : 0,
     needed,
     rows: entries.map((o) => ({ text: (o.innerText || '').replace(/\\s+/g, ' ').trim(), label: ((o.querySelector('.op-menu-label') || {}).innerText || '').trim(), clipped: [...o.querySelectorAll('.op-menu-label, .op-menu-detail')].some((p) => p.scrollWidth > p.clientWidth + 0.5) })),
     status: m ? (((m.querySelector('[data-menu-status]') || {}).textContent) || '').trim() : '',
@@ -375,8 +417,10 @@ export function openMenu(doc: WebviewDocument): Promise<OpenMenu> {
 // Placement is where a menu of choices stands against the control that opened it,
 // by the rule a reader is promised: beneath the control, or above it where there is
 // no room below; its left edge on the control's left edge, pulled in from the
-// panel's right edge where it would otherwise run past it; and never narrower than
-// its rows need, up to as wide as the panel lets it be.
+// panel's right edge where it would otherwise run past it — the edge left of the
+// panel's scroll bar, where it draws one, since a menu's end under the bar is out
+// of sight; and never narrower than its rows need, up to as wide as the panel lets
+// it be.
 export interface Placement { below: boolean; across: 'on the control\'s left edge' | 'pulled in from the right edge'; breaks: string[] }
 
 export function placement(m: OpenMenu): Placement {
@@ -386,13 +430,14 @@ export function placement(m: OpenMenu): Placement {
   const breaks: string[] = [];
   const b = m.box;
   const o = m.opener;
+  const edge = m.view.contentWidth;
   const room = m.view.height - (o.y + o.height);
   const above = room < b.height && o.y > b.height;
   if (above && Math.abs(b.y + b.height - o.y) > 1) { breaks.push(`with ${Math.round(room)} px below the control for a ${Math.round(b.height)} px menu it is to end at the control's top (${Math.round(o.y)}), and ends at ${Math.round(b.y + b.height)}`); }
   if (!above && Math.abs(b.y - (o.y + o.height)) > 1) { breaks.push(`it is to start at the control's bottom (${Math.round(o.y + o.height)}), and starts at ${Math.round(b.y)}`); }
-  const wanted = Math.max(0, Math.min(o.x, m.view.width - b.width));
-  if (Math.abs(b.x - wanted) > 1) { breaks.push(`its left edge is to be at ${Math.round(wanted)} (the control's left edge ${Math.round(o.x)}, the panel ${m.view.width} px wide), and is at ${Math.round(b.x)}`); }
-  if (b.x + b.width > m.view.width + 1) { breaks.push(`it runs ${Math.round(b.x + b.width - m.view.width)} px past the panel's right edge`); }
+  const wanted = Math.max(0, Math.min(o.x, edge - b.width));
+  if (Math.abs(b.x - wanted) > 1) { breaks.push(`its left edge is to be at ${Math.round(wanted)} (the control's left edge ${Math.round(o.x)}, the panel ${edge} px wide left of its scroll bar), and is at ${Math.round(b.x)}`); }
+  if (b.x + b.width > edge + 1) { breaks.push(`it runs ${Math.round(b.x + b.width - edge)} px past the panel's right edge${edge < m.view.width ? ', under the panel\'s scroll bar' : ''}`); }
   const least = Math.min(Math.max(m.needed, m.floor), m.cap);
   if (b.width < least - 1) { breaks.push(`it is ${Math.round(b.width)} px wide where its rows need ${Math.round(m.needed)} px and the panel lets it be ${Math.round(m.cap)}`); }
   return { below: !above, across: wanted < o.x - 1 ? 'pulled in from the right edge' : 'on the control\'s left edge', breaks };
@@ -402,8 +447,7 @@ export function placement(m: OpenMenu): Placement {
 export function describeMenu(m: OpenMenu): string {
   if (!m.open || m.box === null) { return 'no menu open'; }
   const p = placement(m);
-  const under = m.box.x + m.box.width - m.view.contentWidth;
-  return `"${m.label}" ${Math.round(m.box.width)} px wide at ${Math.round(m.box.x)},${Math.round(m.box.y)} for a control at ${m.opener ? `${Math.round(m.opener.x)},${Math.round(m.opener.y)}–${Math.round(m.opener.y + m.opener.height)}` : 'nowhere'} in a ${m.view.width} × ${m.view.height} panel; ${p.below ? 'beneath it' : 'above it'}, ${p.across}; its rows need ${Math.round(m.needed)} px${m.rows.some((r) => r.clipped) ? ', some cut short' : ''}${under > 0.5 && m.view.contentWidth < m.view.width ? `; its last ${Math.round(under)} px under the panel's scroll bar` : ''}${p.breaks.length > 0 ? `; against the rule: ${p.breaks.join('; ')}` : ''}`;
+  return `"${m.label}" ${Math.round(m.box.width)} px wide at ${Math.round(m.box.x)},${Math.round(m.box.y)}, its right edge at ${Math.round(m.box.x + m.box.width)}, for a control at ${m.opener ? `${Math.round(m.opener.x)},${Math.round(m.opener.y)}–${Math.round(m.opener.y + m.opener.height)}` : 'nowhere'} in a ${m.view.width} × ${m.view.height} panel${m.view.contentWidth < m.view.width ? `, ${m.view.contentWidth} px of it left of its scroll bar` : ''}; ${p.below ? 'beneath it' : 'above it'}, ${p.across}; its rows need ${Math.round(m.needed)} px${m.rows.some((r) => r.clipped) ? ', some cut short' : ''}${p.breaks.length > 0 ? `; against the rule: ${p.breaks.join('; ')}` : ''}`;
 }
 
 // MENU_CONTROLS are the operations whose press opens a menu of choices beside their

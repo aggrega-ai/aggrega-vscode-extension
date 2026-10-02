@@ -888,7 +888,7 @@ describe('the Commands panel document', () => {
     }
 
     // The reserved column is a gap and not a control: it takes no press, no tab
-    // stop and no announcement, so what it adds is width and nothing else.
+    // stop and no announcement, so it adds nothing a reader can press or reach.
     const gap = operationsBodyHtml(body()).match(/<span class="selector-offer-gap"[^>]*>/);
     assert.notStrictEqual(gap, null, 'no column is reserved at all');
     assert.ok(gap !== null && gap[0].includes('aria-hidden="true"'));
@@ -899,8 +899,8 @@ describe('the Commands panel document', () => {
   it('draws no create control on the project-folder row, and still reserves its column', () => {
     // Bringing a project folder into being is not an Aggrega act, so a control
     // there would promise a creation nothing performs. The column is reserved
-    // all the same: without it the choosing control on that row is a different
-    // width from the two below, which puts its value out of line with theirs —
+    // all the same, and a gap stands in it: the rows' grid gives every row the
+    // same columns, so that row's value stays in line with the two below —
     // and the rows are read down the panel as three answers to one question.
     const html = operationsBodyHtml(body());
     const chunks = Array.from(html.matchAll(/<div class="selector-row">([\s\S]*?)<\/div>/g))
@@ -935,7 +935,7 @@ describe('the Commands panel document', () => {
     );
 
     // The reserved column is a gap and not a control: it takes no press, no tab
-    // stop and no announcement, so what it adds is width and nothing else.
+    // stop and no announcement, so it adds nothing a reader can press or reach.
     const gap = html.match(/<span class="selector-create-gap"[^>]*>/);
     assert.notStrictEqual(gap, null, 'no column is reserved at all');
     assert.ok(gap !== null && gap[0].includes('aria-hidden="true"'));

@@ -7,6 +7,7 @@ import * as path from 'path';
 import { RESTART_COMMAND } from '../../src/daemon-status';
 import { CONFIG_FILENAME } from '../../src/workspace';
 import { need } from './checks';
+import { drawnPanel } from './commands-panel';
 import {
   ADD_ENTRY, closeChooser, CREATE_RELEASE, CREATE_WORKSPACE, describeRows, droppedRelease, HOVER_LINES_NO_ROW_CARRIES, LEVEL_OBSERVERS, LevelRow, linesOf, NAME_PROMPT, needRows,
   OPEN_ENTRY, PLACEHOLDER, pickersSeen, pressRowControl, projectHover, releaseHover, reloadWindow, ROW_LABELS, rowChooser, rowsNow, rowValues, SENTENCES_NO_SURFACE_DRAWS,
@@ -14,7 +15,7 @@ import {
 } from './levels';
 import { capture, languageServers, ready, reopen, send, SuiteContext, theServer } from './suite-context';
 import { setBinaryPath } from './suite-killed';
-import { holds, NOT_RUNNING, RUNNING, STARTING, statusItems, statusLog, toasts, toastsSince, until, waitStatus, waitToast } from './workbench';
+import { commandsPanel, holds, NOT_RUNNING, RUNNING, STARTING, statusItems, statusLog, toasts, toastsSince, until, waitStatus, waitToast } from './workbench';
 
 // The checks run in a folder that is its own Aggrega workspace and holds two
 // Releases with no default: the three rows that say which folder, which Aggrega
@@ -106,7 +107,7 @@ export async function levelsChecks(ctx: SuiteContext, missing: string): Promise<
   });
 
   await c.run('context-rows.create-controls-beside-the-workspace-and-release-rows', {
-    expected: `the Aggrega workspace and Release rows each carry a control of their own beside the choosing control and outside it, whose hover and accessible name read "${CREATE_WORKSPACE}" and "${CREATE_RELEASE}"; the Project folder row carries none, and an empty space as wide as those controls holds its place, so the three choosing controls start and end in line and the three values end in line`,
+    expected: `the Aggrega workspace and Release rows each carry a control of their own beside the choosing control and outside it, whose hover and accessible name read "${CREATE_WORKSPACE}" and "${CREATE_RELEASE}"; the Project folder row carries none, and an empty space as wide as those controls stands in its place; and the three choosing controls start and end in line and the three values end in line`,
     plant: 'in the scratch copy, out/src/operations-render.js with the empty space on a row without a create control left out',
   }, async () => {
     const rows = keep(await rowsNow(ctx));
@@ -123,13 +124,18 @@ export async function levelsChecks(ctx: SuiteContext, missing: string): Promise<
   });
 
   await c.run('context-rows.values-start-in-line', {
-    expected: 'the three rows\' values start in line with one another, as they end in line, so the three answers are read down the panel as one column',
-    plant: 'red on the product as it stands; a correction in the scratch copy, media/operations.css with the rows\' labels given one width, turns it green',
+    expected: 'at the side bar\'s default width, where every label fits, the three rows\' values start in line with one another, as they end in line, and each row\'s label is drawn whole, so the three answers are read down the panel as one column',
+    plant: 'in the scratch copy, media/operations.css with each row\'s label sized to its own words; and with the labels held to one fixed width narrower than the widest of them',
   }, async () => {
     const rows = keep(await rowsNow(ctx));
     needRows(rows);
+    const drawn = (await drawnPanel(await commandsPanel(ctx.d))).rows.slice(0, 3);
     const starts = rows.slice(0, 3).map((x) => Math.round(x.valueBox.x));
-    return { passed: starts.every((s) => Math.abs(s - starts[0]) <= 1), seen: `the values start at ${JSON.stringify(starts)} px across the panel, after labels ${JSON.stringify(rows.slice(0, 3).map((x) => x.label))}` };
+    const cut = drawn.filter((r) => r.label === null || r.label.clipped).map((r) => r.label?.text ?? 'a row with no label');
+    return {
+      passed: starts.every((s) => Math.abs(s - starts[0]) <= 1) && cut.length === 0 && drawn.length === 3,
+      seen: `the values start at ${JSON.stringify(starts)} px across the panel, after labels ${JSON.stringify(rows.slice(0, 3).map((x) => x.label))}; labels cut short ${cut.length === 0 ? 'none' : JSON.stringify(cut)}`,
+    };
   });
 
   await c.run('context-rows.each-row-opens-its-own-chooser', {

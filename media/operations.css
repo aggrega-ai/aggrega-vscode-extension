@@ -35,10 +35,36 @@ body {
 /* --- the three rows naming what the panel is acting on ------------------- */
 
 /* They are the document's first elements, above every group, so a reader who
-   has closed every section still has all three facts in front of them. */
+   has closed every section still has all three facts in front of them.
+
+   🔴 THE THREE ROWS ARE ONE GRID, AND EVERY PART OF A ROW STANDS IN A COLUMN
+   ALL THREE SHARE. That is what puts the three values in one column, starting
+   and ending in line: each row's label sits in the same column, and the column
+   is as wide as the widest label, so a short label leaves room after itself
+   rather than letting its value start early. A row laid out on its own could
+   only line up with its neighbours by every label being given one width
+   written here — which is right at one width and at one set of words, never
+   gives way, and pushes the panel sideways at every width narrower than itself.
+
+   The label's column takes the room it needs before the value's does, and is
+   the one column that gives way once the panel is narrower than the widest
+   label: the value's column is left with whatever remains, down to nothing.
+
+   The first and the last column inside the choosing control stand for its
+   padding. They are columns rather than padding because every row draws them
+   whether or not it carries a mark, so the inset is the same on every row. */
 .selectors {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns:
+    [inset-start] 0.6rem
+    [inset-end icon-start] auto
+    [icon-end label-start] minmax(0, max-content)
+    [label-end value-start] minmax(0, 1fr)
+    [value-end mark-start] auto
+    [mark-end trail-start] 0.6rem
+    [trail-end create-start] var(--selector-control-size)
+    [create-end offer-start] var(--selector-control-size)
+    [offer-end];
   min-width: 0;
   /* The width one column beside the choosing control occupies, named once so
      every such control and every gap standing in for one cannot come to differ.
@@ -47,15 +73,19 @@ body {
   --selector-control-size: 1.5rem;
 }
 
-/* A row is the choosing control and the two columns beside it, and both are
-   there on every row whether or not they hold a control. A row that left one
-   out would give its choosing control a different width from the rows above and
-   below, putting its value out of line with theirs — and the second of the two
-   holds a control that comes and goes with the window, so a column standing
-   only while it is filled would move that row's value sideways under a reader
-   who had only changed folders. */
+/* A row is the choosing control and the two columns beside it, and both stand
+   on every row whether or not they hold a control: the columns are the grid's,
+   so a row's choosing control spans the same columns as its neighbours' whatever
+   the row carries. The second of the two holds a control that comes and goes
+   with the window, so a column standing only while it is filled would move that
+   row's value sideways under a reader who had only changed folders.
+
+   It takes the columns of the grid above rather than columns of its own, which
+   is what keeps it in line with the other two. */
 .selector-row {
-  display: flex;
+  display: grid;
+  grid-column: inset-start / offer-end;
+  grid-template-columns: subgrid;
   align-items: center;
   min-width: 0;
 }
@@ -66,10 +96,10 @@ body {
    height this shape exists to give back, so the answer is clipped with an
    ellipsis instead — and the hover is where the untruncated text already is. */
 .selector {
-  display: flex;
+  display: grid;
+  grid-column: inset-start / trail-end;
+  grid-template-columns: subgrid;
   align-items: center;
-  gap: 0.4rem;
-  flex: 1 1 auto;
   min-width: 0;
   text-align: left;
   font-family: inherit;
@@ -78,9 +108,16 @@ body {
   background: none;
   border: none;
   border-radius: 3px;
-  padding: 0.25rem 0.6rem;
+  padding: 0.25rem 0;
   white-space: nowrap;
   cursor: pointer;
+}
+
+/* The icon naming the level, in its own column at the head of the row. It is
+   placed by name because the inset column ahead of it holds nothing, and an
+   element left to find its own column would take that empty one. */
+.selector > .codicon:first-child {
+  grid-column: icon-start / icon-end;
 }
 
 /* The control that creates a new one of this level, and the control that acts
@@ -92,7 +129,6 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  flex: 0 0 var(--selector-control-size);
   align-self: stretch;
   color: inherit;
   background: none;
@@ -102,11 +138,18 @@ body {
   cursor: pointer;
 }
 
-/* The same width, holding nothing. It is what keeps a row lacking one of those
-   controls in the same three columns as the rows that have them. */
-.selector-create-gap,
+/* Where a row lacks one of those controls, an empty gap stands in its column
+   instead: it holds nothing and is no control. Each is placed in its column by
+   name, so a control and the gap standing in for it can only ever occupy the one
+   column. */
+.selector-create,
+.selector-create-gap {
+  grid-column: create-start / create-end;
+}
+
+.selector-offer,
 .selector-offer-gap {
-  flex: 0 0 var(--selector-control-size);
+  grid-column: offer-start / offer-end;
 }
 
 .selector-create:hover,
@@ -120,27 +163,40 @@ body {
   outline-offset: -1px;
 }
 
+/* The label names the level, and is drawn whole wherever the panel has room for
+   it. Where the panel is narrower than the widest label it gives way, cut short
+   with an ellipsis rather than reaching past the panel's edge: the panel never
+   scrolls sideways, and the whole name is still the control's own text, so it
+   is announced whole and the control's hover names the level too. */
 .selector-label {
-  flex: 0 0 auto;
+  grid-column: label-start / label-end;
+  min-width: 0;
+  margin-left: 0.4rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-weight: 600;
 }
 
-/* The value is what the row exists to report, so it takes the room that is
-   left and is never clipped in favour of the field name beside it. */
+/* The value is what the row exists to report, and it takes the room the label
+   leaves, cut short with an ellipsis where that is not enough — the hover is
+   where the whole of it already is. */
 .selector-value {
-  flex: 1 1 auto;
+  grid-column: value-start / value-end;
   min-width: 0;
+  margin-left: 0.4rem;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 /* The mark a row carries while something about its own value needs saying out
-   loud. It takes no room from the value and is never allowed to shrink: it is
-   the last thing on the row, so the value clips before it does. Its colour is
-   the editor's own for a warning, so it reads the same way here as everywhere
-   else in the window rather than as decoration this panel invented. */
+   loud. It stands in a column of its own after every value and never shrinks,
+   so the value clips before it does, and every value still ends where its
+   neighbours' do. Its colour is the editor's own for a warning, so it reads the
+   same way here as everywhere else in the window rather than as decoration this
+   panel invented. */
 .selector-warning {
-  flex: 0 0 auto;
+  grid-column: mark-start / mark-end;
+  margin-left: 0.4rem;
   color: var(--vscode-editorWarning-foreground);
 }
 
@@ -497,9 +553,13 @@ body {
   flex-direction: column;
   /* Never wider than the panel, and never so narrow that a name is unreadable.
      A long entity name is clipped on its own line rather than widening the
-     menu past the view. */
-  min-width: 12rem;
-  max-width: calc(100vw - 0.4rem);
+     menu past the view. The width is the panel's own less its scroll bar: a
+     menu stands against the view, so a share of it excludes the bar, where the
+     view's width unit counts the bar in. The floor yields to that width in a
+     panel too narrow for both, since a floor wider than the panel would put the
+     menu's end out of sight. */
+  min-width: min(12rem, calc(100% - 0.4rem));
+  max-width: calc(100% - 0.4rem);
   /* A long list scrolls inside the menu rather than running off the panel. The
      cap is a fraction of the view, so it is right at every panel height
      instead of being a length chosen for one. */

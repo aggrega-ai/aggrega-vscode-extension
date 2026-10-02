@@ -4,8 +4,8 @@
 import { CACHE_OPERATIONS } from '../../src/operation-groups';
 import { need } from './checks';
 import {
-  ABSENCE_MS, chooseLayout, describeMenu, drawnPanel, DrawnPanel, inWindow, MENU_CONTROLS, menuCommand, MenuOpened, moveContainer, openEverySection, openMenu, openMenuOf, PanesAt,
-  placement, pointerOff, restoring, rgb, sameColour, seen, waitMenuClosed, waitMenuOpen,
+  ABSENCE_MS, chooseLayout, describeMenu, drawnPanel, DrawnPanel, FOCUS_LOG, focusLog, inWindow, MENU_CONTROLS, menuCommand, MenuOpened, moveContainer, openEverySection, openMenu, openMenuOf,
+  PanesAt, placement, pointerOff, restoring, rgb, sameColour, seen, waitMenuClosed, waitMenuOpen,
 } from './commands-panel';
 import { WebviewDocument } from './drivers';
 import { dragSash } from './suite-above';
@@ -96,6 +96,12 @@ async function emptyPoint(ctx: SuiteContext, doc: WebviewDocument): Promise<{ x:
   return at === null ? null : inWindow(ctx, doc, at);
 }
 
+// focusedEntry is what the panel's document has its focus on, by the choice or the
+// command it carries, or its tag where it carries neither.
+function focusedEntry(doc: WebviewDocument): Promise<string> {
+  return doc.evaluate<string>('(() => { const e = document.activeElement; return e ? (e.dataset.option || e.dataset.command || e.tagName) : ""; })()');
+}
+
 // pressable reads whether a person could press a control where it stands now: the
 // whole of it inside the panel's view, so reaching it scrolls nothing — a scroll
 // puts an open menu away — and nothing drawn over its middle, as an open menu can
@@ -127,7 +133,7 @@ export async function dockedMenusChecks(ctx: SuiteContext): Promise<void> {
 
   // ---- a panel with room ----
   await c.run('commands-panel.menu-hangs-from-its-buttons-left-edge-where-there-is-room', {
-    expected: `with the side bar dragged ${WIDE_PX} px wider, each of the ${MENU_CONTROLS.map((id) => menuCommand(id).label).join(', ')} menus stands against its button by the rule — beneath it, or above it where there is no room below; its left edge on the button's left edge, pulled in from the panel's right edge where it would run past it; never narrower than its rows need — and at least one, having the room, hangs from its button's left edge; the side bar is then dragged back where it was`,
+    expected: `with the side bar dragged ${WIDE_PX} px wider, each of the ${MENU_CONTROLS.map((id) => menuCommand(id).label).join(', ')} menus stands against its button by the rule — beneath it, or above it where there is no room below; its left edge on the button's left edge, pulled in from the panel's right edge — the edge left of the panel's scroll bar — where it would run past it; never narrower than its rows need — and at least one, having the room, hangs from its button's left edge; the side bar is then dragged back where it was`,
     plant: 'in the scratch copy, media/operations.js with every menu placed at the panel\'s left margin whatever its button',
   }, async () => {
     const narrow = await drawnPanel(panel);
@@ -154,8 +160,8 @@ export async function dockedMenusChecks(ctx: SuiteContext): Promise<void> {
   // ---- docked ----
   let docked: PanesAt | null = null;
   await c.run('commands-panel.menus-open-against-their-button-docked-a-few-hundred-pixels-wide', {
-    expected: `with the container moved by the activity bar's "Move To" to the ${DOCK_ENTRY}, every one of its panels drawn there and the Commands panel ${DOCKED.least} to ${DOCKED.most} px wide, each of the ${MENU_CONTROLS.map((id) => menuCommand(id).label).join(', ')} menus stands against its own button by the same rule, so that buttons on different lines open menus at different heights`,
-    plant: 'in the scratch copy, media/operations.js with a menu left where its button\'s left edge puts it, past the panel\'s right edge',
+    expected: `with the container moved by the activity bar's "Move To" to the ${DOCK_ENTRY}, every one of its panels drawn there and the Commands panel ${DOCKED.least} to ${DOCKED.most} px wide, each of the ${MENU_CONTROLS.map((id) => menuCommand(id).label).join(', ')} menus stands against its own button by the same rule — so none runs under the panel's scroll bar — and buttons on different lines open menus at different heights`,
+    plant: 'in the scratch copy, media/operations.js with a menu left where its button\'s left edge puts it, past the panel\'s right edge; and with the menu kept inside the window\'s width, the scroll bar counted in — in the script, and in the stylesheet\'s cap',
   }, async () => {
     const at = await moveContainer(ctx, DOCK_ENTRY, DOCK_PART);
     panel = await commandsPanel(ctx.d);
@@ -177,8 +183,8 @@ export async function dockedMenusChecks(ctx: SuiteContext): Promise<void> {
   // ---- the mark ----
   const cache = menuCommand('cache');
   await c.run('commands-panel.held-button-marked-alone-and-cleared-by-every-close', {
-    expected: `docked, the button whose menu stands is drawn held — its border in the editor's focus colour on the button's hover ground — and it alone: with one of the ${MENU_CONTROLS.map((id) => menuCommand(id).label).join(', ')} menus open and its button drawn held, pressing another of those buttons that stands in view and uncovered leaves that one the one held, at every reading over ${ABSENCE_MS} ms; the mark clears when the menu closes by Escape, by taking a choice (${cache.label} → ${CACHE_OPERATIONS[0].value}) and by a press elsewhere in the panel, on no control; what a press outside the panel, in the editor area, does is read and reported, not judged`,
-    plant: 'in the scratch copy, media/operations.js with a closing menu leaving its button drawn held',
+    expected: `docked, the button whose menu stands is drawn held — its border in the editor's focus colour on the button's hover ground — and it alone: with one of the ${MENU_CONTROLS.map((id) => menuCommand(id).label).join(', ')} menus open and its button drawn held, pressing another of those buttons that stands in view and uncovered leaves that one the one held, at every reading over ${ABSENCE_MS} ms; the mark clears when the menu closes by Escape, by taking a choice (${cache.label} → ${CACHE_OPERATIONS[0].value}), by a press elsewhere in the panel, on no control, and by a press outside the panel, in the editor area — which closes the menu and leaves the focus out of the panel's document, at every reading over ${ABSENCE_MS} ms; and the panel's own window loses the focus at that press and at no moment before it while the Inspect menu opens, its choices arrive and ArrowDown moves between them, read by one observer installed before the menu opened`,
+    plant: 'in the scratch copy, media/operations.js with a closing menu leaving its button drawn held; and with the panel\'s window losing the focus leaving an open menu open',
   }, async () => {
     need(docked !== null, 'the container was not docked above');
     const notes: string[] = [];
@@ -236,14 +242,28 @@ export async function dockedMenusChecks(ctx: SuiteContext): Promise<void> {
     const afterElsewhere = await until('the mark clearing on a press elsewhere in the panel', 5000, () => drawnPanel(panel), cleared).then(() => true, () => false);
     ok = ok && afterElsewhere && !(await openMenu(panel)).open;
     notes.push(`a press elsewhere in the panel, on no control, ${afterElsewhere ? 'cleared it' : 'left it'}`);
-    // Read and reported, and not part of the verdict: a press outside the panel
-    // altogether, in the editor area.
-    await openMenuOf(ctx, panel, 'inspect');
+    // A press outside the panel altogether, in the editor area. The panel's
+    // document never sees that press; what it sees is its own window losing the
+    // focus. So the window's focus is watched from before the menu opens: opening
+    // the menu, its choices arriving and the focus moving between them must cost
+    // the window nothing, and the press must.
+    await panel.evaluate<boolean>(FOCUS_LOG);
+    const outsideMenu = await openMenuOf(ctx, panel, 'inspect');
+    const firstChoice = await focusedEntry(panel);
+    await ctx.d.press('ArrowDown');
+    const moved = await until('ArrowDown moving within the menu', 3000, () => focusedEntry(panel), (v) => v !== firstChoice).then(() => true, () => false);
+    const beforePress = await focusLog(panel);
     const editor = await ctx.d.box(null, '#workbench\\.parts\\.editor');
     need(editor !== null, 'the editor area is not drawn to press outside the panel');
     await ctx.d.click(centre(editor));
-    const outside = await holds(ABSENCE_MS, () => openMenu(panel), (m) => m.open && m.marked.length === 1);
-    notes.push(`a press in the editor area, outside the panel, ${outside.held ? `leaves the menu open and its button held, read for ${ABSENCE_MS} ms` : 'closed the menu'}`);
+    const shut = await until('the menu closing on a press outside the panel', 5000, () => openMenu(panel), (m) => !m.open && m.marked.length === 0).then(() => true, () => false);
+    const left = await holds(ABSENCE_MS, async () => ({ menu: await openMenu(panel), holds: await panel.evaluate<boolean>('document.hasFocus()'), drawn: await drawnPanel(panel) }), (v) => !v.menu.open && !v.holds && cleared(v.drawn));
+    const afterPress = (await focusLog(panel)).slice(beforePress.length);
+    const lostBefore = beforePress.filter((e) => e.startsWith('blur ')).length;
+    const lostAt = afterPress.filter((e) => e.startsWith('blur ')).length;
+    need(moved, `the focus did not move within the ${outsideMenu.label} menu on ArrowDown, so moving between its choices was not read`);
+    ok = ok && shut && left.held && lostBefore === 0 && lostAt > 0;
+    notes.push(`a press in the editor area, outside the panel, ${shut ? 'closed the menu' : 'left the menu open'}${left.held ? `, cleared the mark and left the panel's document without the keyboard for ${ABSENCE_MS} ms` : ` — at ${left.atMs} ms the menu ${left.broke?.menu.open ? 'open' : 'closed'}, the panel ${left.broke?.holds ? 'holding' : 'not holding'} the keyboard, the mark ${left.broke !== undefined && cleared(left.broke.drawn) ? 'cleared' : 'still drawn'}`}; the panel's window lost the focus ${lostBefore} time(s) while the menu opened, filled and was walked (${beforePress.join(' → ') || 'nothing recorded'}) and ${lostAt} time(s) at the press (${afterPress.join(' → ') || 'nothing recorded'})`);
     if ((await openMenu(panel)).open) {
       await pressIn(ctx.d, panel, `button.op[data-command="${menuCommand('inspect').command}"]`);
       await waitMenuClosed(panel, `the ${opened.label} menu closing on its own button`);

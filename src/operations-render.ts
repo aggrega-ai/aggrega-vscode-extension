@@ -130,14 +130,14 @@ function selectorOfferHtml(row: SelectorRow, offer: SelectorOffer): string {
 // THE ROW IS A CONTAINER RATHER THAN A SINGLE BUTTON, because a level that can
 // be created carries two press targets and buttons do not nest.
 //
-// 🔴 EVERY ROW HAS THE SAME THREE COLUMNS WHATEVER IT CAN DO, and a row that
-// fills one of the two beside the choosing control reserves it with a gap that
-// is not a control. The alternative — leaving a column out where there is
-// nothing to put in it — gives the choosing control on that row a different
-// width from the ones above and below, which moves its value out of line with
-// theirs. The rows are read down the panel as three answers to one question, so
-// a value that does not start and end where its neighbours' do is the
-// arrangement failing at the one job it has.
+// 🔴 EVERY ROW HAS THE SAME THREE COLUMNS WHATEVER IT CAN DO. The columns are
+// the three rows' one grid, laid out by the panel's stylesheet, so a row's
+// choosing control spans the same columns as its neighbours' whatever the row
+// carries, and its label stands in the column every label shares; a row that
+// does not fill one of the two columns beside the choosing control stands a gap
+// there that is not a control. The rows are read down the panel as three
+// answers to one question, so a value that does not start and end where its
+// neighbours' do is the arrangement failing at the one job it has.
 //
 // 🔴 THE THIRD COLUMN IS RESERVED FOR A SECOND REASON THE OTHER TWO DO NOT
 // NEED, and it is the stronger one: what fills it comes and goes with the
@@ -147,8 +147,8 @@ function selectorOfferHtml(row: SelectorRow, offer: SelectorOffer): string {
 // are.
 //
 // A gap carries no command, no focus key and no name: it is out of the press
-// order, out of the tab order and out of the accessibility tree, so what it
-// adds is width and nothing else.
+// order, out of the tab order and out of the accessibility tree, so it adds
+// nothing a reader can press, reach or hear.
 function selectorHtml(row: SelectorRow): string {
   const beside = row.create === null
     ? '<span class="selector-create-gap" aria-hidden="true"></span>'
