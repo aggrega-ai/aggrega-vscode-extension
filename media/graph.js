@@ -2,8 +2,9 @@
 // Copyright 2026 Cognitio S.r.l.
 //
 // Webview renderer for the Aggrega IR topology graph. Receives the serialized
-// IRGraph from the extension, lays it out with elkjs (nested boundary →
-// subsystem → node containers, since the IR ships no coordinates), draws it as
+// IRGraph from the extension, lays it out with elkjs (each node inside its
+// boundary and its subsystem, and each boundary or subsystem inside the one it
+// is declared in, since the IR ships no coordinates), draws it as
 // SVG with a legend for the parts of the drawing that are otherwise unreadable,
 // shows what is attached to the node the reader selects and what may attach to
 // it, and posts a source-open request back when a node is double-clicked.
@@ -89,8 +90,8 @@
   // THE FRAME IS THE READER'S ONCE THEY HAVE ONE. A drawing nobody has seen is
   // framed to fit, because there is no view to keep and a graph that runs off
   // the panel teaches nothing. After that the frame is what the reader panned
-  // and zoomed to, and a redraw they did not ask for leaves them looking at
-  // what they were reading.
+  // and zoomed to, and a redraw they did not ask for keeps it, whatever its new
+  // layout moves inside it.
   let framed = false;
   // The layout a still-owed framing will be computed against. It is held
   // because the moment a drawing arrives and the moment a frame can be computed

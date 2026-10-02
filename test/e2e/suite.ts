@@ -33,7 +33,10 @@ import { populateRegistry, registerAsDefault, ScratchRegistry, startRegistry, st
 import { bringUp, DisplayReading, Scenario, ScenarioEnd, tearDown } from './scenario';
 import { makeContext, SuiteContext } from './suite-context';
 import { gatewayChecks, GATEWAY_CHECKS } from './suite-gateway';
-import { FLEET_CHECKS, fleetChecks, GRAPH_DRAWING_CHECKS, graphDrawingChecks, GRAPH_IDLE_CHECKS, GRAPH_IDLE_SETTINGS, graphIdleChecks } from './suite-graph-drawing';
+import {
+  FLEET_CHECKS, fleetChecks, GRAPH_DRAWING_CHECKS, graphDrawingChecks, GRAPH_IDLE_CHECKS, GRAPH_IDLE_SETTINGS, graphIdleChecks, NESTED_BOUNDARY_CHECKS, nestBoundaries,
+  nestedBoundaryChecks,
+} from './suite-graph-drawing';
 import { GRAPH_PANEL_CHECKS, graphPanelChecks, RELEASE } from './suite-graph-panel';
 import { KILLED_CHECKS, KILLED_SETTINGS, killedChecks } from './suite-killed';
 import { LEVELS_CHECKS, levelsChecks } from './suite-levels';
@@ -77,6 +80,7 @@ export const SCENARIO_CHECKS: Readonly<Record<string, readonly string[]>> = {
   'storefront-graph-drawing': GRAPH_DRAWING_CHECKS,
   'storefront-graph-idle': GRAPH_IDLE_CHECKS,
   'fleet-graph-first-fit': FLEET_CHECKS,
+  'storefront-graph-nested-boundaries': NESTED_BOUNDARY_CHECKS,
   'gateway-readiness': READINESS_CHECKS,
   'gateway-cache': CACHE_CHECKS,
   'empty-workspace': EMPTY_WORKSPACE_CHECKS,
@@ -352,6 +356,21 @@ function plans(inputs: Inputs): ScenarioPlan[] {
         return { folder, fixtures };
       },
       body: (ctx) => fleetChecks(ctx),
+    },
+    {
+      name: 'storefront-graph-nested-boundaries',
+      checks: NESTED_BOUNDARY_CHECKS,
+      prepare: async (root, home, log) => {
+        const folder = path.join(root.dir, 'workspace', 'storefront');
+        const fixtures = [
+          placeFolder(inputs.extension.dir, 'storefront', folder, inputs.catalog.dir),
+          nestBoundaries(folder),
+          await writeLockfile(bin, folder, 'release-compose.yaml', home, log),
+          proveNothingAbove(folder),
+        ];
+        return { folder, fixtures };
+      },
+      body: (ctx) => nestedBoundaryChecks(ctx),
     },
     {
       name: 'gateway-readiness',

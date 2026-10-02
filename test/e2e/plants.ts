@@ -802,11 +802,11 @@ export const PLANTS: readonly Plant[] = [
   // ---- the folder whose one Feature applies to nothing it deploys ----
   { name: 'context-row-renamed-probes', scenario: 'probes-nothing-may-attach', checks: ['commands-panel.context-rows-name-the-opened-folder'], moves: 'red', target: 'extension', ...CONTEXT_ROW_LABEL },
   {
-    name: 'undeclared-grouping-read-as-none-declared', scenario: 'probes-nothing-may-attach', checks: ['graph.undeclared-groupings-titled-by-kind-in-words'], moves: 'green', target: 'extension',
+    name: 'synthesized-mark-read-as-absent', scenario: 'probes-nothing-may-attach', checks: ['graph.undeclared-groupings-titled-by-kind-in-words'], moves: 'red', target: 'extension',
     file: GRAPH_MODEL,
-    find: '      const bKey = n.boundary_path || UNGROUPED;\n      const sKey = n.subsystem_path || UNGROUPED;',
-    replace: "      const bKey = n.boundary_path && n.boundary_path !== 'default' ? n.boundary_path : UNGROUPED;\n      const sKey = n.subsystem_path && n.subsystem_path !== 'default' ? n.subsystem_path : UNGROUPED;",
-    says: 'the drawing reads a grouping the compiler names "default" as one nobody declared, as it reads one the compiler names not at all',
+    find: '    return synthesized === true || !path ? null : path;',
+    replace: '    return !path ? null : path;',
+    says: 'the drawing reads past the compiler\'s mark on a grouping it synthesized, so the grouping is titled with the name the compiler gave it as though an author had declared it',
   },
   {
     name: 'empty-answer-worded-as-finalised-labels', scenario: 'probes-nothing-may-attach', checks: ['may-attach.nothing-matching-reads-as-an-empty-state'], moves: 'red', target: 'extension',
@@ -842,8 +842,15 @@ export const PLANTS: readonly Plant[] = [
   },
   {
     name: 'boundary-set-aside', scenario: 'storefront-graph-drawing', checks: ['graph.release-boundaries-drawn-holding-what-they-place'], moves: 'red', target: 'extension',
-    file: GRAPH_MODEL, find: '      const bKey = n.boundary_path || UNGROUPED;', replace: '      const bKey = UNGROUPED;',
+    file: GRAPH_MODEL,
+    find: '      const boundary = groupingIn(boundaries, declaredPath(n.boundary_path, n.synthesized_boundary));',
+    replace: '      const boundary = groupingIn(boundaries, null);',
     says: 'the drawing sets aside the boundary the compiler sends for each node, so every node lands in one box',
+  },
+  {
+    name: 'subsystems-laid-flat', scenario: 'storefront-graph-drawing', checks: ['graph.subsystems-drawn-nested-as-declared'], moves: 'red', target: 'extension',
+    file: GRAPH_MODEL, find: "  const SUBSYSTEM_SEPARATOR = '.';", replace: "  const SUBSYSTEM_SEPARATOR = '/';",
+    says: 'a subsystem\'s path is taken apart at the slash a boundary\'s path is joined with, which no subsystem\'s path holds, so every subsystem is read as declared at the top of its Aggregate and one declared inside another is laid out beside it, by its whole path, rather than inside it',
   },
   {
     name: 'boxes-placed-unresolved', scenario: 'storefront-graph-drawing',
@@ -966,6 +973,13 @@ export const PLANTS: readonly Plant[] = [
     name: 'first-fit-held-to-a-smallest-zoom', scenario: 'fleet-graph-first-fit', checks: ['graph.large-topology-arrives-whole-in-its-first-drawing'], moves: 'red', target: 'extension',
     file: GRAPH_SCRIPT, find: '    const scale = Math.min(box.width / (w + 40), box.height / (h + 40), 1.5);', replace: '    const scale = Math.max(0.75, Math.min(box.width / (w + 40), box.height / (h + 40), 1.5));',
     says: 'a fit is held to a smallest zoom, so a topology too large for the panel at that zoom runs past its edges',
+  },
+  // ---- the storefront folder with boundaries declared inside boundaries ----
+  { name: 'context-row-renamed-graph-nested-boundaries', scenario: 'storefront-graph-nested-boundaries', checks: ['commands-panel.context-rows-name-the-opened-folder'], moves: 'red', target: 'extension', ...CONTEXT_ROW_LABEL },
+  {
+    name: 'boundaries-laid-flat', scenario: 'storefront-graph-nested-boundaries', checks: ['graph.release-boundaries-drawn-nested-as-declared'], moves: 'red', target: 'extension',
+    file: GRAPH_MODEL, find: "  const BOUNDARY_SEPARATOR = '/';", replace: "  const BOUNDARY_SEPARATOR = '.';",
+    says: 'a boundary\'s path is taken apart at the dot a subsystem\'s path is joined with, which no boundary\'s path holds, so every boundary is read as declared at the top of its Release and one declared inside another is laid out beside it, by its whole path, rather than inside it',
   },
   // ---- the gateway folder as the editor comes up and the server comes and goes ----
   { name: 'context-row-renamed-readiness', scenario: 'gateway-readiness', checks: ['commands-panel.context-rows-name-the-opened-folder'], moves: 'red', target: 'extension', ...CONTEXT_ROW_LABEL },

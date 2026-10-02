@@ -548,6 +548,214 @@ describe('topology graph model — telling the two container kinds apart', () =>
   });
 });
 
+describe('topology graph model — groupings nobody declared', () => {
+  let model: GraphModel;
+
+  beforeEach(() => {
+    model = loadModel();
+  });
+
+  // The title the drawing gives the nodes in no declared grouping, as a reader
+  // meets it.
+  const NONE = '(none declared)';
+
+  // titles lists every container's title, depth first, as "kind title".
+  const titles = (root: ElkNode): string[] => containers(root).map(c => `${c._kind} ${c._title}`);
+
+  it('titles a grouping the compiler marks as synthesized as declaring none, on both axes', () => {
+    // The compiler gives the grouping it synthesizes a name, so the name it
+    // sends says nothing about whether anyone declared the grouping; the mark
+    // it sends beside it does.
+    const { root } = model.toElkGraph(irGraph({
+      solo: node({
+        boundary_path: 'default', subsystem_path: 'default', synthesized_boundary: true, synthesized_subsystem: true,
+      }),
+    }));
+    assert.deepStrictEqual(titles(root), [`boundary ${NONE}`, `subsystem ${NONE}`]);
+    assert.deepStrictEqual(
+      containers(root).map(c => c._label),
+      [model.containerLabel('boundary', NONE), model.containerLabel('subsystem', NONE)],
+    );
+  });
+
+  it('reads each axis by its own mark', () => {
+    // A module listing its components at the top level, routed into a boundary
+    // the Release declares: the subsystem is the compiler's and the boundary is
+    // the author's, and each is titled for what it is.
+    const { root } = model.toElkGraph(irGraph({
+      cache: node({ boundary_path: 'data', subsystem_path: 'backend' }),
+      'sessions.store': node({ boundary_path: 'data', subsystem_path: 'default', synthesized_subsystem: true }),
+    }));
+    assert.deepStrictEqual(titles(root), ['boundary data', 'subsystem backend', `subsystem ${NONE}`]);
+  });
+
+  it('keeps the name of a grouping an author declared, the name the compiler gives its own included', () => {
+    const { root } = model.toElkGraph(irGraph({
+      solo: node({ boundary_path: 'default', subsystem_path: 'default' }),
+    }));
+    assert.deepStrictEqual(titles(root), ['boundary default', 'subsystem default']);
+  });
+
+  it('draws a declared grouping and a synthesized one of the same name as two boxes', () => {
+    // Keyed by the name, the two would share one box, and whichever title it
+    // took would be wrong about the other's nodes.
+    const { root } = model.toElkGraph(irGraph({
+      api: node({ boundary_path: 'data', subsystem_path: 'default' }),
+      'sessions.store': node({ boundary_path: 'data', subsystem_path: 'default', synthesized_subsystem: true }),
+    }));
+    const subsystems = containers(root).filter(c => c._kind === 'subsystem');
+    assert.deepStrictEqual(
+      subsystems.map(s => [s._title, leaves(s).map(n => n.id)]),
+      [['default', ['api']], [NONE, ['sessions.store']]],
+    );
+  });
+});
+
+// nestedSubsystems is a topology whose subsystems are declared inside one
+// another, two deep, and with one subsystem that holds no node of its own. In
+// the zone boundary: outer holds gate, outer.middle holds api, and
+// outer.middle.inner holds db; hollow holds nothing but hollow.leaf, which holds
+// job. db is the first node, so the subsystems it sits inside are first met
+// through it. api→db joins two nested subsystems, gate→api runs from a subsystem
+// into one declared inside it, and gate→job leaves both for the boundary.
+function nestedSubsystems(waves: Record<string, number> = {}): unknown {
+  const at = (subsystem: string, id: string): Record<string, unknown> =>
+    node({ boundary_path: 'zone', subsystem_path: subsystem, ...(id in waves ? { sync_wave: waves[id] } : {}) });
+  return irGraph(
+    {
+      db: at('outer.middle.inner', 'db'),
+      gate: at('outer', 'gate'),
+      api: at('outer.middle', 'api'),
+      job: at('hollow.leaf', 'job'),
+    },
+    [
+      { source: 'api', target: 'db' },
+      { source: 'gate', target: 'api' },
+      { source: 'gate', target: 'job' },
+    ],
+  );
+}
+
+// outline is a container's contents as titles and ids, nested as they are
+// handed to the layout engine.
+function outline(n: ElkNode): unknown[] {
+  return (n.children ?? []).map(c => (c._kind ? { [`${c._kind} ${c._title}`]: outline(c) } : c.id));
+}
+
+describe('topology graph model — subsystems declared inside one another', () => {
+  let model: GraphModel;
+
+  beforeEach(() => {
+    model = loadModel();
+  });
+
+  it('puts each subsystem inside the one it is declared in, at every depth', () => {
+    // hollow holds no node of its own, and still gets its box, because the
+    // subsystem declared inside it has to sit somewhere.
+    const { root } = model.toElkGraph(nestedSubsystems());
+    assert.deepStrictEqual(outline(root), [{
+      'boundary zone': [
+        { 'subsystem outer': ['gate', { 'subsystem outer.middle': ['api', { 'subsystem outer.middle.inner': ['db'] }] }] },
+        { 'subsystem hollow': [{ 'subsystem hollow.leaf': ['job'] }] },
+      ],
+    }]);
+  });
+
+  it('titles a nested subsystem with its whole path', () => {
+    const { root } = model.toElkGraph(nestedSubsystems());
+    const inner = containers(root).find(c => c._title === 'outer.middle.inner');
+    assert.ok(inner, 'no container for outer.middle.inner');
+    assert.strictEqual(inner._label, model.containerLabel('subsystem', 'outer.middle.inner'));
+  });
+
+  it('orders a subsystem by the earliest wave anywhere inside it', () => {
+    // job, two levels into hollow, is the earliest work in the zone, so hollow
+    // is laid out ahead of outer although outer was met first.
+    const { root } = model.toElkGraph(nestedSubsystems({ job: -1 }));
+    const zone = (root.children ?? [])[0]!;
+    assert.deepStrictEqual((zone.children ?? []).map(c => c._title), ['hollow', 'outer']);
+    assert.deepStrictEqual((zone.children ?? []).map(partitionOf), ['0', '1']);
+    for (const c of containers(root)) {
+      assert.strictEqual(c.layoutOptions?.['elk.partitioning.activate'], 'true', `container ${c.id}`);
+      assert.ok(partitionOf(c) !== undefined, `container ${c.id} carries no partition`);
+    }
+  });
+});
+
+// nestedBoundaries is a topology whose Release boundaries are declared inside
+// one another, two deep, and with one boundary that places no node of its own.
+// site places gate; site/zone places api, in the subsystem svc; site/zone/vault
+// places db, in svc.store, so the nodes of one subsystem are placed in two
+// boundaries; shell places nothing and holds shell/core, which places job. db is
+// the first node, so the boundaries it sits inside are first met through it.
+// api→db joins two nested boundaries, gate→api runs from a boundary into one
+// declared inside it, and gate→job leaves both for the graph as a whole.
+function nestedBoundaries(waves: Record<string, number> = {}): unknown {
+  const at = (boundary: string, subsystem: string, id: string): Record<string, unknown> =>
+    node({ boundary_path: boundary, subsystem_path: subsystem, ...(id in waves ? { sync_wave: waves[id] } : {}) });
+  return irGraph(
+    {
+      db: at('site/zone/vault', 'svc.store', 'db'),
+      gate: at('site', 'front', 'gate'),
+      api: at('site/zone', 'svc', 'api'),
+      job: at('shell/core', 'batch', 'job'),
+    },
+    [
+      { source: 'api', target: 'db' },
+      { source: 'gate', target: 'api' },
+      { source: 'gate', target: 'job' },
+    ],
+  );
+}
+
+describe('topology graph model — boundaries declared inside one another', () => {
+  let model: GraphModel;
+
+  beforeEach(() => {
+    model = loadModel();
+  });
+
+  it('puts each boundary inside the one it is declared in, at every depth', () => {
+    // shell places no node of its own, and still gets its box, because the
+    // boundary declared inside it has to sit somewhere. Each boundary holds the
+    // subsystems of the nodes it places itself, so svc is drawn in site/zone and
+    // again in site/zone/vault, around svc.store.
+    const { root } = model.toElkGraph(nestedBoundaries());
+    assert.deepStrictEqual(outline(root), [
+      {
+        'boundary site': [
+          { 'subsystem front': ['gate'] },
+          {
+            'boundary site/zone': [
+              { 'subsystem svc': ['api'] },
+              { 'boundary site/zone/vault': [{ 'subsystem svc': [{ 'subsystem svc.store': ['db'] }] }] },
+            ],
+          },
+        ],
+      },
+      { 'boundary shell': [{ 'boundary shell/core': [{ 'subsystem batch': ['job'] }] }] },
+    ]);
+  });
+
+  it('titles a nested boundary with its whole path', () => {
+    const { root } = model.toElkGraph(nestedBoundaries());
+    const vault = containers(root).find(c => c._title === 'site/zone/vault');
+    assert.ok(vault, 'no container for site/zone/vault');
+    assert.strictEqual(vault._label, model.containerLabel('boundary', 'site/zone/vault'));
+  });
+
+  it('orders a boundary by the earliest wave anywhere inside it', () => {
+    // db, two boundaries into site, is the earliest work there, so site/zone is
+    // laid out ahead of the subsystem front although front holds a node of site
+    // itself.
+    const { root } = model.toElkGraph(nestedBoundaries({ db: -1 }));
+    const site = (root.children ?? []).find(c => c._title === 'site');
+    assert.ok(site, 'no container for site');
+    assert.deepStrictEqual((site.children ?? []).map(c => c._title), ['site/zone', 'front']);
+    assert.deepStrictEqual((site.children ?? []).map(partitionOf), ['0', '1']);
+  });
+});
+
 describe('topology graph model — the legend', () => {
   let model: GraphModel;
 
@@ -619,6 +827,39 @@ describe('topology graph model — the legend', () => {
   });
 });
 
+// onBorder reports whether a point sits on the outline of a box, within the
+// rounding the layout's own fractional coordinates carry.
+function onBorder(p: ElkPoint, b: PlacedBox): boolean {
+  const eps = 0.01;
+  const onX = Math.abs(p.x - b.x) < eps || Math.abs(p.x - (b.x + b.width)) < eps;
+  const onY = Math.abs(p.y - b.y) < eps || Math.abs(p.y - (b.y + b.height)) < eps;
+  const withinX = p.x >= b.x - eps && p.x <= b.x + b.width + eps;
+  const withinY = p.y >= b.y - eps && p.y <= b.y + b.height + eps;
+  return (onX && withinY) || (onY && withinX);
+}
+
+// inside reports whether one placed box lies wholly within another.
+function inside(inner: PlacedBox, outer: PlacedBox): boolean {
+  return inner.x >= outer.x && inner.y >= outer.y
+    && inner.x + inner.width <= outer.x + outer.width
+    && inner.y + inner.height <= outer.y + outer.height;
+}
+
+// containerPlaced is the box a placed layout holds for the container titled
+// `title`, the first met in draw order.
+function containerPlaced(placed: { boxes: PlacedBox[] }, title: string): PlacedBox {
+  const box = placed.boxes.find(b => b.kind !== 'node' && b.node._title === title);
+  assert.ok(box, `nothing was placed for ${title}`);
+  return box;
+}
+
+// nodePlaced is the box a placed layout holds for the node `id`.
+function nodePlaced(placed: { boxes: PlacedBox[] }, id: string): PlacedBox {
+  const box = placed.boxes.find(b => b.kind === 'node' && b.node.id === id);
+  assert.ok(box, `nothing was placed for ${id}`);
+  return box;
+}
+
 // crossesContainers is a topology whose edges leave their subsystem and leave
 // their boundary, which is what lets it say anything about hierarchical routing
 // at all: a graph whose edges all sit inside one container exercises none of it.
@@ -672,17 +913,6 @@ describe('topology graph model — resolving a real layout into one space', func
     const box = placed.boxes.find(b => b.node.id === id);
     assert.ok(box, `nothing was placed for ${id}`);
     return box;
-  }
-
-  // onBorder reports whether a point sits on the outline of a box, within the
-  // rounding the layout's own fractional coordinates carry.
-  function onBorder(p: ElkPoint, b: PlacedBox): boolean {
-    const eps = 0.01;
-    const onX = Math.abs(p.x - b.x) < eps || Math.abs(p.x - (b.x + b.width)) < eps;
-    const onY = Math.abs(p.y - b.y) < eps || Math.abs(p.y - (b.y + b.height)) < eps;
-    const withinX = p.x >= b.x - eps && p.x <= b.x + b.width + eps;
-    const withinY = p.y >= b.y - eps && p.y <= b.y + b.height + eps;
-    return (onX && withinY) || (onY && withinX);
   }
 
   it('exercises the hierarchical case rather than only the flat one', () => {
@@ -766,12 +996,140 @@ describe('topology graph model — resolving a real layout into one space', func
         b => b !== box && (b.node.children ?? []).some(c => c.id === box.node.id),
       );
       assert.ok(parent, `${box.node.id} was placed with no parent`);
-      assert.ok(
-        box.x >= parent.x && box.y >= parent.y
-        && box.x + box.width <= parent.x + parent.width
-        && box.y + box.height <= parent.y + parent.height,
-        `${box.node.id} is not inside ${parent.node.id}`,
-      );
+      assert.ok(inside(box, parent), `${box.node.id} is not inside ${parent.node.id}`);
+    }
+  });
+});
+
+describe('topology graph model — laying out subsystems declared inside one another', function () {
+  // A real layout run, as the one above.
+  this.timeout(20000);
+
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const ELK = require('elkjs/lib/elk.bundled.js');
+
+  let model: GraphModel;
+  let laid: ElkRoot;
+  let placed: { boxes: PlacedBox[]; origins: Map<string, ElkPoint> };
+
+  before(async () => {
+    model = loadModel();
+    const { root } = model.toElkGraph(nestedSubsystems());
+    laid = JSON.parse(JSON.stringify(await new ELK().layout(root))) as ElkRoot;
+    placed = model.place(laid);
+  });
+
+  const boxTitled = (title: string): PlacedBox => containerPlaced(placed, title);
+  const boxOf = (id: string): PlacedBox => nodePlaced(placed, id);
+
+  it('draws a subsystem nested two deep inside both subsystems it is declared in', () => {
+    const zone = boxTitled('zone');
+    const outer = boxTitled('outer');
+    const middle = boxTitled('outer.middle');
+    const inner = boxTitled('outer.middle.inner');
+    assert.ok(inside(inner, middle), 'outer.middle.inner is not drawn inside outer.middle');
+    assert.ok(inside(middle, outer), 'outer.middle is not drawn inside outer');
+    assert.ok(inside(outer, zone), 'outer is not drawn inside its boundary');
+    assert.ok(inside(boxOf('db'), inner), 'db is not drawn inside outer.middle.inner');
+    // A subsystem holding no node of its own is drawn, around the one inside it.
+    assert.ok(inside(boxTitled('hollow.leaf'), boxTitled('hollow')), 'hollow.leaf is not drawn inside hollow');
+    assert.ok(inside(boxOf('job'), boxTitled('hollow.leaf')), 'job is not drawn inside hollow.leaf');
+  });
+
+  it('resolves an edge between nested subsystems into the container the two share', () => {
+    // api sits in outer.middle and db one level further in, so the engine
+    // states that edge's geometry against outer.middle — a container two levels
+    // below the graph, whose own position is the sum of the two holding it.
+    const edge = laid.edges.find(e => e.sources[0] === 'api' && e.targets[0] === 'db');
+    assert.ok(edge, 'no edge from api to db was laid out');
+    const middle = boxTitled('outer.middle');
+    assert.strictEqual(edge.container, middle.node.id);
+    const paths = model.edgePaths(edge, placed.origins);
+    assert.ok(paths.length > 0, 'the edge was laid out with no geometry');
+    for (const points of paths) {
+      const start = points[0]!;
+      const end = points[points.length - 1]!;
+      assert.ok(onBorder(start, boxOf('api')), `the edge starts at (${start.x},${start.y}), off api`);
+      assert.ok(onBorder(end, boxOf('db')), `the edge ends at (${end.x},${end.y}), off db`);
+    }
+  });
+
+  it('puts both ends of every edge on the nodes it joins, at each depth the edge is stated at', () => {
+    // gate→api is stated against outer and gate→job against the boundary, so
+    // with api→db the three edges are stated at three different depths.
+    const stated = new Set(laid.edges.map(e => e.container));
+    assert.strictEqual(stated.size, 3, `the edges are stated against ${JSON.stringify([...stated])}`);
+    for (const e of laid.edges) {
+      for (const points of model.edgePaths(e, placed.origins)) {
+        assert.ok(onBorder(points[0]!, boxOf(e.sources[0])), `${e.id} starts off ${e.sources[0]}`);
+        assert.ok(onBorder(points[points.length - 1]!, boxOf(e.targets[0])), `${e.id} ends off ${e.targets[0]}`);
+      }
+    }
+  });
+});
+
+describe('topology graph model — laying out boundaries declared inside one another', function () {
+  // A real layout run, as the ones above.
+  this.timeout(20000);
+
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const ELK = require('elkjs/lib/elk.bundled.js');
+
+  let model: GraphModel;
+  let laid: ElkRoot;
+  let placed: { boxes: PlacedBox[]; origins: Map<string, ElkPoint> };
+
+  before(async () => {
+    model = loadModel();
+    const { root } = model.toElkGraph(nestedBoundaries());
+    laid = JSON.parse(JSON.stringify(await new ELK().layout(root))) as ElkRoot;
+    placed = model.place(laid);
+  });
+
+  const boxTitled = (title: string): PlacedBox => containerPlaced(placed, title);
+  const boxOf = (id: string): PlacedBox => nodePlaced(placed, id);
+
+  it('draws a boundary nested two deep inside both boundaries it is declared in', () => {
+    const site = boxTitled('site');
+    const zone = boxTitled('site/zone');
+    const vault = boxTitled('site/zone/vault');
+    assert.ok(inside(vault, zone), 'site/zone/vault is not drawn inside site/zone');
+    assert.ok(inside(zone, site), 'site/zone is not drawn inside site');
+    assert.ok(inside(boxOf('db'), vault), 'db is not drawn inside site/zone/vault');
+    assert.ok(inside(boxOf('api'), zone) && !inside(boxOf('api'), vault), 'api is not drawn in site/zone alone');
+    // A boundary placing no node of its own is drawn, around the one inside it.
+    assert.ok(inside(boxTitled('shell/core'), boxTitled('shell')), 'shell/core is not drawn inside shell');
+    assert.ok(inside(boxOf('job'), boxTitled('shell/core')), 'job is not drawn inside shell/core');
+  });
+
+  it('resolves an edge between nested boundaries into the container the two share', () => {
+    // api sits in site/zone and db one boundary further in, so the engine states
+    // that edge's geometry against site/zone, a container whose own position is
+    // the sum of the two holding it.
+    const edge = laid.edges.find(e => e.sources[0] === 'api' && e.targets[0] === 'db');
+    assert.ok(edge, 'no edge from api to db was laid out');
+    assert.strictEqual(edge.container, boxTitled('site/zone').node.id);
+    const paths = model.edgePaths(edge, placed.origins);
+    assert.ok(paths.length > 0, 'the edge was laid out with no geometry');
+    for (const points of paths) {
+      const start = points[0]!;
+      const end = points[points.length - 1]!;
+      assert.ok(onBorder(start, boxOf('api')), `the edge starts at (${start.x},${start.y}), off api`);
+      assert.ok(onBorder(end, boxOf('db')), `the edge ends at (${end.x},${end.y}), off db`);
+    }
+  });
+
+  it('puts both ends of every edge on the nodes it joins, at each depth the edge is stated at', () => {
+    // gate→api is stated against site and gate→job against the graph as a
+    // whole, so with api→db the three edges are stated at three different
+    // depths.
+    const stated = new Set(laid.edges.map(e => e.container));
+    assert.strictEqual(stated.size, 3, `the edges are stated against ${JSON.stringify([...stated])}`);
+    for (const e of laid.edges) {
+      for (const points of model.edgePaths(e, placed.origins)) {
+        assert.ok(onBorder(points[0]!, boxOf(e.sources[0])), `${e.id} starts off ${e.sources[0]}`);
+        assert.ok(onBorder(points[points.length - 1]!, boxOf(e.targets[0])), `${e.id} ends off ${e.targets[0]}`);
+      }
     }
   });
 });

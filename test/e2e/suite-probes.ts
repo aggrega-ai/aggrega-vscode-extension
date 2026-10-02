@@ -37,7 +37,7 @@ export async function probesChecks(ctx: SuiteContext, reference: string): Promis
   await contextRowsCheck(ctx);
   await c.run('graph.undeclared-groupings-titled-by-kind-in-words', {
     expected: `with no boundary and no subsystem declared, the drawing draws one boundary box titled "${boundaryTitle(NONE_DECLARED)}" holding one subsystem box titled "${subsystemTitle(NONE_DECLARED)}", which holds every node's card — the two titles told apart by the kind in a word, never by the glyph alone`,
-    plant: 'a correction in the scratch copy, media/graph-model.js with a grouping the compiler names "default" read as one nobody declared, turns it green',
+    plant: 'in the scratch copy, media/graph-model.js made to read past the compiler\'s mark on a grouping it synthesized, titling the grouping with the name the compiler gave it',
   }, async () => {
     const d = await shownDrawing(await showGraph(ctx));
     const boundaries = d.containers.filter((k) => k.kind === 'boundary');

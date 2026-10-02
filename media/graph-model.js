@@ -42,13 +42,30 @@
   const ROLE_NODE_COMPONENT = 'node-component';
   const ROLE_CONTAINER_TITLE = 'container-title';
 
-  // The container fallback title for a node whose boundary or subsystem path is
-  // empty. The compiler sends no path for a node outside any named grouping,
-  // and one container per graph collects those.
+  // The container title for the nodes in no declared grouping on one axis: a
+  // node whose boundary, or whose subsystem, the compiler marks as one it
+  // synthesized — the grouping it creates for a Release or an Aggregate that
+  // lists its components at the top level — and a node it sends no path for.
   //
-  // It says none was declared rather than naming a default, because there is no
+  // The mark is read and the name is not. The compiler gives the grouping it
+  // synthesizes a name, and an author may declare a grouping under that same
+  // name; the mark is the one fact telling the two apart, so a grouping an
+  // author declared is titled with its name whatever the name is.
+  //
+  // It says none was declared rather than naming one, because there is no
   // grouping called this: the box exists to hold the nodes that are in none.
   const UNGROUPED = '(none declared)';
+
+  // The separator in each kind of grouping's path. The compiler composes the
+  // path of a grouping declared inside another of its kind from the path of the
+  // one it is declared in, the separator and its own name — a slash between
+  // boundaries and a dot between subsystems — and neither kind's declared name
+  // can contain its separator. So the path up to its last separator is the path
+  // of the grouping it is declared in. The nesting the drawing shows is read
+  // from the path the compiler sent, taken apart as the compiler puts it
+  // together.
+  const BOUNDARY_SEPARATOR = '/';
+  const SUBSYSTEM_SEPARATOR = '.';
 
   // How each container kind names itself. The kind is spelled out in words and
   // not left to the glyph, because the two kinds nest one inside the other and
@@ -89,11 +106,27 @@
     + 'met. They group nodes within this graph only: the same colour in another '
     + 'graph is not the same type.';
 
-  // containerLabel is what a container's title reads: the kind, then whatever
-  // the compiler named the grouping.
+  // containerLabel is what a container's title reads: the kind, then the
+  // grouping's title — the whole path the compiler sent for a declared one, so
+  // a grouping declared inside another names both, and the fallback above for
+  // the nodes in none.
   function containerLabel(kind, title) {
     const k = CONTAINER_KINDS[kind];
     return k ? `${k.glyph} ${k.word} · ${title}` : title;
+  }
+
+  // declaredPath is the grouping a node is in on one axis, as the path the
+  // compiler sent, or null where the node is in no declared grouping on that
+  // axis.
+  function declaredPath(path, synthesized) {
+    return synthesized === true || !path ? null : path;
+  }
+
+  // enclosingPath is the path of the grouping a grouping is declared in, or the
+  // empty string for one declared at the top of its document.
+  function enclosingPath(path, separator) {
+    const at = path.lastIndexOf(separator);
+    return at === -1 ? '' : path.slice(0, at);
   }
 
   // subLabelFor is the second line a node's box draws, or the empty string when
@@ -173,10 +206,40 @@
     });
   }
 
+  // groupingTree is an empty tree of groupings of one kind: each grouping by its
+  // path, and those declared at the top of the document in the order they are
+  // first met. `holds` makes what a grouping of that kind holds besides the
+  // groupings declared inside it — a boundary the subsystems of the nodes placed
+  // directly in it, a subsystem the nodes declared directly in it.
+  function groupingTree(separator, holds) {
+    return { separator, holds, byPath: new Map(), top: [] };
+  }
+
+  // groupingIn returns the grouping at `path` in one tree, adding it the first
+  // time it is met — and adding first the grouping it is declared inside, at
+  // every depth, so a grouping that holds nothing of its own but holds one that
+  // does still has its place. The grouping nobody declared, keyed by null, is
+  // declared inside nothing.
+  function groupingIn(tree, path) {
+    if (tree.byPath.has(path)) { return tree.byPath.get(path); }
+    const g = Object.assign({ title: path === null ? UNGROUPED : path, inner: [] }, tree.holds());
+    const outer = path === null ? '' : enclosingPath(path, tree.separator);
+    if (outer === '') {
+      tree.top.push(g);
+    } else {
+      groupingIn(tree, outer).inner.push(g);
+    }
+    tree.byPath.set(path, g);
+    return g;
+  }
+
   // toElkGraph builds the nested elk graph and a side table of node metadata
   // the renderer reads back after layout (source file, hover text, accent
-  // colour). Node ids are grouped by boundary, then subsystem, and ordered by
-  // deployment wave within each grouping.
+  // colour). Each node is put inside its boundary's container and, within it,
+  // inside its subsystem's; a boundary declared inside another is put inside
+  // that one's container, and a subsystem declared inside another likewise, at
+  // every depth. Within each container, what it holds is ordered by deployment
+  // wave.
   //
   // measure(text, role) reports the drawn width of one string in one of the
   // three roles above. It is required rather than defaulted: a default would be
@@ -190,20 +253,21 @@
     // Group node ids by boundary, then subsystem, preserving encounter order
     // (the IR nodes object is already author-ordered); the wave ordering below
     // is applied on top of that order, so nodes sharing a wave stay in the
-    // order their author wrote them.
-    const boundaries = new Map(); // boundaryKey -> Map(subsystemKey -> [nodeId])
+    // order their author wrote them. A grouping nobody declared is keyed by
+    // null, which no path the compiler sends can equal. Each boundary keeps the
+    // subsystems of the nodes placed directly in it, so a subsystem whose nodes
+    // the Release places in two boundaries is drawn in each.
+    const boundaries = groupingTree(BOUNDARY_SEPARATOR, () => ({
+      subsystems: groupingTree(SUBSYSTEM_SEPARATOR, () => ({ ids: [] })),
+    }));
     const meta = new Map(); // nodeId -> { component, subLabel, version, wave, labels, catalog, sourceFile, accent }
     const waves = [];
     const accents = new Map();
 
     for (const id of Object.keys(nodes)) {
       const n = nodes[id] || {};
-      const bKey = n.boundary_path || UNGROUPED;
-      const sKey = n.subsystem_path || UNGROUPED;
-      if (!boundaries.has(bKey)) { boundaries.set(bKey, new Map()); }
-      const subs = boundaries.get(bKey);
-      if (!subs.has(sKey)) { subs.set(sKey, []); }
-      subs.get(sKey).push(id);
+      const boundary = groupingIn(boundaries, declaredPath(n.boundary_path, n.synthesized_boundary));
+      groupingIn(boundary.subsystems, declaredPath(n.subsystem_path, n.synthesized_subsystem)).ids.push(id);
 
       const wave = nodeWave(n);
       const component = n.component || id;
@@ -227,49 +291,47 @@
     const titleFloor = (label) =>
       Math.ceil(measure(label, ROLE_CONTAINER_TITLE)) + CONTAINER_TITLE_PAD;
 
-    const children = [];
-    for (const [bKey, subs] of boundaries) {
-      const bChildren = [];
-      for (const [sKey, ids] of subs) {
-        const ordered = byWave(ids, rankOf);
-        const sChildren = ordered.map((id) => ({
+    // A container is itself a node in its parent's ordering, so it takes the
+    // earliest wave it holds at any depth: a grouping whose first work happens
+    // in an earlier wave is laid out ahead of one whose does not. Its layout
+    // options are written once what it holds is ordered, so its rank is known.
+    const container = (kind, id, title, held) => {
+      const ordered = byRank(held);
+      const rank = ordered.length > 0 ? ordered[0].rank : 0;
+      const label = containerLabel(kind, title);
+      return {
+        id,
+        _title: title,
+        _label: label,
+        _kind: kind,
+        _rank: rank,
+        layoutOptions: containerOpts(rank, titleFloor(label)),
+        children: ordered.map((h) => h.child),
+      };
+    };
+    const ranked = (c) => ({ rank: c._rank, child: c });
+    // A subsystem's container holds the boxes of the nodes declared directly in
+    // it and the containers of the subsystems declared directly inside it.
+    const subsystemContainer = (boundaryTitle, s) => container('subsystem', `s::${boundaryTitle}::${s.title}`, s.title, [
+      ...s.ids.map((id) => ({
+        rank: rankOf(id),
+        child: {
           id,
           width: nodeBoxWidth(id, meta.get(id).subLabel, measure),
           height: NODE_H,
           layoutOptions: partitioned(rankOf(id)),
-        }));
-        bChildren.push({
-          id: `s::${bKey}::${sKey}`,
-          _title: sKey,
-          _label: containerLabel('subsystem', sKey),
-          _kind: 'subsystem',
-          _rank: minRank(ordered, rankOf),
-          children: sChildren,
-        });
-      }
-      // A container is itself a node in its parent's ordering, so it takes the
-      // earliest wave it holds: a grouping whose first work happens in an
-      // earlier wave is laid out ahead of one whose does not.
-      const orderedSubs = byRank(bChildren);
-      children.push({
-        id: `b::${bKey}`,
-        _title: bKey,
-        _label: containerLabel('boundary', bKey),
-        _kind: 'boundary',
-        _rank: orderedSubs.length > 0 ? orderedSubs[0]._rank : 0,
-        children: orderedSubs,
-      });
-    }
-    const orderedBoundaries = byRank(children);
-
-    // The layout options are attached after ordering so a container's rank is
-    // known before it is written out.
-    for (const b of orderedBoundaries) {
-      b.layoutOptions = containerOpts(b._rank, titleFloor(b._label));
-      for (const s of b.children) {
-        s.layoutOptions = containerOpts(s._rank, titleFloor(s._label));
-      }
-    }
+        },
+      })),
+      ...s.inner.map((inner) => ranked(subsystemContainer(boundaryTitle, inner))),
+    ]);
+    // A boundary's container holds the containers of the subsystems its own
+    // nodes are declared in and the containers of the boundaries declared
+    // directly inside it.
+    const boundaryContainer = (b) => container('boundary', `b::${b.title}`, b.title, [
+      ...b.subsystems.top.map((s) => ranked(subsystemContainer(b.title, s))),
+      ...b.inner.map((inner) => ranked(boundaryContainer(inner))),
+    ]);
+    const orderedBoundaries = byRank(boundaries.top.map((b) => ranked(boundaryContainer(b)))).map((h) => h.child);
 
     const elkEdges = edges.map((e, i) => ({
       id: `e${i}`,
@@ -363,30 +425,16 @@
         .map((p) => ({ x: p.x + o.x, y: p.y + o.y })));
   }
 
-  // byWave orders node ids by wave rank, keeping author order within a wave.
-  // Handing elk the children already ordered means the wave sequence is visible
-  // even where the layout falls back to input order.
-  function byWave(ids, rankOf) {
-    return ids
-      .map((id, i) => ({ id, i, rank: rankOf(id) }))
-      .sort((a, b) => (a.rank - b.rank) || (a.i - b.i))
-      .map((entry) => entry.id);
-  }
-
-  function byRank(containers) {
-    return containers
-      .map((c, i) => ({ c, i }))
-      .sort((a, b) => (a.c._rank - b.c._rank) || (a.i - b.i))
-      .map((entry) => entry.c);
-  }
-
-  function minRank(ids, rankOf) {
-    let min = 0;
-    for (let i = 0; i < ids.length; i++) {
-      const r = rankOf(ids[i]);
-      if (i === 0 || r < min) { min = r; }
-    }
-    return min;
+  // byRank orders what a container holds by wave rank, keeping the order it was
+  // handed within a rank: its nodes in author order, then the containers beside
+  // them in the order they were first met. Handing elk the children already
+  // ordered means the wave sequence is visible even where the layout falls back
+  // to input order.
+  function byRank(held) {
+    return held
+      .map((h, i) => ({ h, i }))
+      .sort((a, b) => (a.h.rank - b.h.rank) || (a.i - b.i))
+      .map((entry) => entry.h);
   }
 
   // accentColor returns a stable accent colour for a node's type label, or null

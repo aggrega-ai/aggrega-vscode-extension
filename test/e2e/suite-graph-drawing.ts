@@ -8,9 +8,10 @@ import { BUILD_ON_INSPECT_KEY, SERVER_CONFIG_SECTION } from '../../src/settings'
 import { buildValidateParams } from '../../src/validate-request';
 import { need } from './checks';
 import { WebviewDocument } from './drivers';
+import { FixtureError, FixtureProof } from './fixtures';
 import {
   boundaryTitle, contains, containsPoint, describeFraming, Drawing, DrawnContainer, DrawnNode, drawnText, framingOf, layoutModel, lineEnters,
-  noticeReadings, onBorder, overlaps, readDrawing, readLegend, rect, sameRect, shownDrawing, subsystemTitle, told, union, visibilityReadings,
+  noticeReadings, onBorder, overlaps, readDrawing, readFrame, readLegend, rect, sameRect, shownDrawing, subsystemTitle, told, union, visibilityReadings,
   watchNotice, watchVisibility,
 } from './graph-drawing';
 import {
@@ -103,10 +104,11 @@ const SETTLE_MS = 3000;
 
 // ---- what the folder declares, and what the language server answers ---------
 
-// Declared is what the folder's Release and Aggregate declare: each boundary
-// with the components and modules the Release places in it, each subsystem by
-// its dotted path with the components declared directly under it, and each use
-// one component makes of another.
+// Declared is what the folder's Release and Aggregate declare: each boundary by
+// its path, a boundary declared inside another named after it with a slash, with
+// the components and modules the Release places directly in it; each subsystem
+// by its dotted path with the components declared directly under it; and each
+// use one component makes of another.
 interface Declared {
   boundaries: Map<string, { components: string[]; modules: string[] }>;
   subsystems: { path: string; components: string[] }[];
@@ -119,9 +121,14 @@ const mapping = (v: unknown): Yaml => (typeof v === 'object' && v !== null && !A
 function declaredIn(aggregateFile: string, releaseFile: string): Declared {
   const releaseSpec = mapping(mapping(yamlOf(fs.readFileSync(releaseFile, 'utf8'))).spec);
   const boundaries = new Map<string, { components: string[]; modules: string[] }>();
-  for (const [name, b] of Object.entries(mapping(releaseSpec.boundaries))) {
-    boundaries.set(name, { components: Object.keys(mapping(mapping(b).components)), modules: Object.keys(mapping(mapping(b).aggregates)) });
-  }
+  const place = (block: Yaml, prefix: string): void => {
+    for (const [name, b] of Object.entries(block)) {
+      const p = prefix === '' ? name : `${prefix}/${name}`;
+      boundaries.set(p, { components: Object.keys(mapping(mapping(b).components)), modules: Object.keys(mapping(mapping(b).aggregates)) });
+      place(mapping(mapping(b).boundaries), p);
+    }
+  };
+  place(mapping(releaseSpec.boundaries), '');
   const spec = mapping(mapping(yamlOf(fs.readFileSync(aggregateFile, 'utf8'))).spec);
   const subsystems: { path: string; components: string[] }[] = [];
   const uses: { from: string; to: string }[] = [];
@@ -433,7 +440,7 @@ export async function graphDrawingChecks(ctx: SuiteContext, reference: string): 
 
   await c.run('graph.subsystems-drawn-nested-as-declared', {
     expected: `each subsystem the Aggregate declares (${declared.subsystems.map((s) => s.path).join(', ')}) is drawn as a box titled "${subsystemTitle('<path>')}", inside the box of the boundary the Release places its components in and, where it is declared inside another subsystem, inside that subsystem's box, holding the card of each component declared directly under it`,
-    plant: 'no correction is one edit: the drawing lays a boundary\'s subsystems out side by side, each by its whole path, and what turns this green is a subsystem\'s box laid out inside the box of the subsystem its path extends',
+    plant: 'in the scratch copy, media/graph-model.js made to read every subsystem as declared at the top of its Aggregate, so one declared inside another is laid out beside it',
   }, async () => {
     need(first !== null, 'the graph was not drawn');
     const d = first;
@@ -720,13 +727,15 @@ export async function graphDrawingChecks(ctx: SuiteContext, reference: string): 
   });
 
   await c.run('graph.redraw-of-an-addition-keeps-the-view-and-draws-it-once', {
-    expected: `adding a component "${ADDED}" beside ${CACHE} in the Aggregate and beside it in the Release's data boundary, both saved together, draws the graph again once — one drawing reaching it, no notice put up on the way, and no second drawing over the ${SETTLE_MS / 1000} s after it — with "${ADDED}" drawn inside the boxes titled "${subsystemTitle('backend')}" and "${boundaryTitle('data')}", and leaves ${ADMIN}'s card where the reader's zoom put it`,
+    expected: `adding a component "${ADDED}" beside ${CACHE} in the Aggregate and beside it in the Release's data boundary, both saved together, draws the graph again once — one drawing reaching it, no notice put up on the way, and no second drawing over the ${SETTLE_MS / 1000} s after it — with "${ADDED}" drawn inside the boxes titled "${subsystemTitle('backend')}" and "${boundaryTitle('data')}", and keeps the frame the reader's zoom put the drawing at: the pan and zoom the panel's document carries on the drawing read the same before the redraw and after it, that frame zoomed past the one the first drawing was given (${ADMIN}'s card drawn larger in it than in the first drawing)`,
     plant: 'in the scratch copy, media/graph.js made to frame every drawing afresh, asked for or not',
   }, async () => {
-    need(doc !== null && zoomed !== null, 'the panel was not zoomed into a node');
+    need(doc !== null && zoomed !== null && first !== null, 'the panel was not zoomed into a node');
     const d = doc;
+    const fitted = first.nodes.find((n) => n.id === ADMIN);
     const before = (await readDrawing(d)).nodes.find((n) => n.id === ADMIN);
-    need(before !== undefined, `the drawing holds no ${ADMIN}`);
+    need(fitted !== undefined && before !== undefined, `the drawing holds no ${ADMIN}`);
+    const frameBefore = await readFrame(d);
     const renders = (await graphState(d)).renders;
     // The new component goes beside the cache, its key where the cache's is and
     // its type where the cache's is, and beside the cache in the data boundary.
@@ -746,14 +755,16 @@ export async function graphDrawingChecks(ctx: SuiteContext, reference: string): 
     const quiet = once === null ? null : await holds(SETTLE_MS, async () => (await graphState(d)).renders, (v) => v === once);
     const notices = (await noticeReadings(d, from)).filter((x) => x.text !== '').map((x) => x.text);
     const after = await readDrawing(d);
+    const frameAfter = await readFrame(d);
     const added = after.nodes.find((n) => n.id === ADDED);
     const homes = added === undefined ? [] : holdingCard(after, added).map((k) => k.title);
     const admin = after.nodes.find((n) => n.id === ADMIN);
-    const kept = admin !== undefined && sameRect(before.card, admin.card);
+    const kept = frameBefore !== null && frameAfter === frameBefore;
+    const zoomedPast = before.card.height > fitted.card.height;
     const landed = homes.includes(subsystemTitle('backend')) && homes.includes(boundaryTitle('data'));
     return {
-      passed: once === renders + 1 && quiet !== null && quiet.held && notices.length === 0 && landed && kept,
-      seen: `${once === null ? `not drawn again with the addition (${missedOf(reached)})` : `drawn ${once - renders} time(s) to reach it${quiet?.held ? `, and not again over ${SETTLE_MS} ms` : `, and again at ${quiet?.atMs} ms`}`}; the panel's notice ${notices.length === 0 ? 'stayed down' : `read ${JSON.stringify(notices)}`}; ${ADDED} ${added === undefined ? 'not drawn' : `drawn in ${JSON.stringify(homes)}`}; ${ADMIN}'s card ${rect(before.card)} before, ${admin === undefined ? 'gone' : rect(admin.card)} after`,
+      passed: once === renders + 1 && quiet !== null && quiet.held && notices.length === 0 && landed && kept && zoomedPast,
+      seen: `${once === null ? `not drawn again with the addition (${missedOf(reached)})` : `drawn ${once - renders} time(s) to reach it${quiet?.held ? `, and not again over ${SETTLE_MS} ms` : `, and again at ${quiet?.atMs} ms`}`}; the panel's notice ${notices.length === 0 ? 'stayed down' : `read ${JSON.stringify(notices)}`}; ${ADDED} ${added === undefined ? 'not drawn' : `drawn in ${JSON.stringify(homes)}`}; the frame ${JSON.stringify(frameBefore)} before, ${JSON.stringify(frameAfter)} after${kept ? ', the same' : ''}; ${ADMIN}'s card ${rect(fitted.card)} in the first drawing, ${rect(before.card)} before the redraw${zoomedPast ? '' : ', not zoomed past the first drawing'}, ${admin === undefined ? 'gone' : rect(admin.card)} after`,
     };
   });
 
@@ -1109,5 +1120,110 @@ export async function fleetChecks(ctx: SuiteContext): Promise<void> {
     // shape to be judged; it is put away, and stays in the notification centre.
     await putAwayNotifications(ctx);
     return { screenshot: await capture(ctx, 'graph-large-topology-first-drawing'), drawnText: lines.join('\n') };
+  });
+}
+
+// ---- boundaries declared inside boundaries ------------------------------------
+
+// The checks run in a copy of the storefront folder whose Release declares its
+// boundaries one inside another: the first drawing drawing each boundary inside
+// the one it is declared in, a boundary holding nothing but the one inside it
+// included.
+
+export const NESTED_BOUNDARY_CHECKS = [
+  'commands-panel.context-rows-name-the-opened-folder',
+  'graph.release-boundaries-drawn-nested-as-declared',
+] as const;
+
+// NESTED_BOUNDARIES is the boundaries block the copy's Release declares in place
+// of the folder's own. It places every component the folder's Release places and
+// routes the same module: the edge boundary places nothing itself and holds
+// "public", which places the gateway and the admin console; the data boundary
+// places the cache, routes the sessions module, and holds "inner", which places
+// the orders database.
+const NESTED_BOUNDARIES = [
+  '  boundaries:',
+  '    edge:',
+  '      directory: edge',
+  '      boundaries:',
+  '        public:',
+  '          directory: public',
+  '          components:',
+  '            gateway:',
+  '              infra:',
+  '                port: 8081',
+  '            admin:',
+  '              infra:',
+  '                port: 8080',
+  '    data:',
+  '      directory: data',
+  '      components:',
+  '        cache: {}',
+  '      aggregates:',
+  '        sessions: {}',
+  '      boundaries:',
+  '        inner:',
+  '          directory: inner',
+  '          components:',
+  '            orders: {}',
+] as const;
+
+// enclosingBoundary is the path of the boundary a boundary is declared in, or
+// null for one declared at the top of its Release.
+const enclosingBoundary = (p: string): string | null => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : null);
+
+// nestBoundaries writes NESTED_BOUNDARIES over the boundaries block of a folder's
+// Release, which ends it, and reads the Release back: what it places and routes
+// is what it placed and routed before, and it declares a boundary inside another
+// and a boundary that places nothing itself.
+export function nestBoundaries(folder: string): FixtureProof {
+  const aggregate = path.join(folder, 'aggregate.yaml');
+  const file = path.join(folder, RELEASE);
+  const fixture = `${RELEASE} with boundaries declared inside boundaries`;
+  const placed = (d: Declared): string[] => [...d.boundaries.values()].flatMap((b) => [...b.components, ...b.modules]).sort();
+  const before = declaredIn(aggregate, file);
+  const lines = fs.readFileSync(file, 'utf8').split('\n');
+  const at = lines.indexOf(NESTED_BOUNDARIES[0]);
+  if (at === -1) { throw new FixtureError(fixture, `${file} holds no line "${NESTED_BOUNDARIES[0]}" to write the nested block over`); }
+  fs.writeFileSync(file, `${[...lines.slice(0, at), ...NESTED_BOUNDARIES].join('\n')}\n`);
+  const after = declaredIn(aggregate, file);
+  const paths = [...after.boundaries.keys()];
+  const nested = paths.filter((p) => enclosingBoundary(p) !== null);
+  const hollow = [...after.boundaries].filter(([, b]) => b.components.length === 0 && b.modules.length === 0).map(([p]) => p);
+  if (JSON.stringify(placed(after)) !== JSON.stringify(placed(before))) {
+    throw new FixtureError(fixture, `the Release written places ${JSON.stringify(placed(after))} where the folder's placed ${JSON.stringify(placed(before))}`);
+  }
+  if (nested.length === 0 || hollow.length === 0) {
+    throw new FixtureError(fixture, `the Release written declares the boundaries ${JSON.stringify(paths)}, which lack a boundary inside another or one that places nothing itself`);
+  }
+  return { fixture, built: true, proof: `${file} declares the boundaries ${JSON.stringify(paths)}, ${JSON.stringify(nested)} inside another and ${JSON.stringify(hollow)} placing nothing itself, and places ${JSON.stringify(placed(after))} as the folder's own did` };
+}
+
+export async function nestedBoundaryChecks(ctx: SuiteContext): Promise<void> {
+  const c = ctx.checks;
+  const declared = declaredIn(path.join(ctx.folder, 'aggregate.yaml'), path.join(ctx.folder, RELEASE));
+  const paths = [...declared.boundaries.keys()];
+  await ready(ctx);
+  await contextRowsCheck(ctx);
+  await c.run('graph.release-boundaries-drawn-nested-as-declared', {
+    expected: `the first drawing draws one boundary for each the Release declares at every depth (${paths.join(', ')}) and no other, each titled "${boundaryTitle('<path>')}", each declared inside another inside that one's box — a boundary placing nothing itself drawn around the one inside it — and each holding the card of every component the Release places directly in it`,
+    plant: 'in the scratch copy, media/graph-model.js made to take a boundary\'s path apart at the dot a subsystem\'s path is joined with, so every boundary is read as declared at the top of its Release',
+  }, async () => {
+    need(paths.some((p) => enclosingBoundary(p) !== null), 'the Release declares no boundary inside another');
+    const d = await shownDrawing(await showGraph(ctx));
+    const titles = d.containers.filter((k) => k.kind === 'boundary').map((k) => k.title);
+    const want = paths.map(boundaryTitle);
+    let passed = titles.length === want.length && want.every((t) => titles.includes(t));
+    const seen: string[] = [];
+    for (const [p, b] of declared.boundaries) {
+      const box = containerTitled(d, 'boundary', boundaryTitle(p));
+      const outerPath = enclosingBoundary(p);
+      const outer = outerPath === null ? undefined : containerTitled(d, 'boundary', boundaryTitle(outerPath));
+      const inOuter = outerPath === null || (box !== undefined && outer !== undefined && contains(outer.box, box.box));
+      const loose = b.components.filter((id) => { const n = d.nodes.find((x) => x.id === id); return box === undefined || n === undefined || !contains(box.box, n.card); });
+      passed = passed && box !== undefined && inOuter && loose.length === 0;
+      seen.push(`${p}: ${box === undefined ? 'no box titled so' : `${rect(box.box)}${outerPath === null ? '' : inOuter ? `, inside ${outerPath}` : `, not inside ${outerPath}${outer === undefined ? '' : ` ${rect(outer.box)}`}`}, ${b.components.length === 0 ? 'placing nothing itself' : loose.length === 0 ? `holding ${JSON.stringify(b.components)}` : `not holding ${JSON.stringify(loose)}`}`}`);
+    }
+    return { passed, seen: `boundary titles drawn ${JSON.stringify(titles)}; ${seen.join('; ')}` };
   });
 }

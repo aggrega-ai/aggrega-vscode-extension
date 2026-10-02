@@ -11,8 +11,9 @@ import { evaluateWithin, until } from './workbench';
 
 // The topology drawing read as shapes: where each container, each node's card,
 // each line of text and each edge is drawn in the graph panel's document, the
-// legend beside them, every change of the notice at the panel's top, and each
-// time the panel is told whether it is on screen.
+// pan and zoom it is shown at, the legend beside them, every change of the
+// notice at the panel's top, and each time the panel is told whether it is on
+// screen.
 //
 // graph-panel.ts reads what the panel holds at a moment — the drawings the
 // canvas was given, the nodes it names, the notice, whether the drawing is
@@ -378,6 +379,20 @@ export function framingOf(d: Drawing): Framing {
 export function describeFraming(f: Framing): string {
   const m = f.margins;
   return `${f.whole ? 'every card inside the canvas' : `cards outside the canvas: ${JSON.stringify(f.outside)}`}; margins left ${m.left.toFixed(1)}, right ${m.right.toFixed(1)}, top ${m.top.toFixed(1)}, bottom ${m.bottom.toFixed(1)} (${f.centred ? 'centred' : 'not centred'})`;
+}
+
+// readFrame reads the pan and zoom the drawing is shown at: the transform the
+// panel's document carries on the group every drawn shape sits in, as written,
+// or null where the canvas holds no such group or the group carries none. Every
+// drawing builds that group anew and the panel puts its frame back on it, so a
+// frame kept through a redraw reads the same before it and after it, whatever
+// the new layout moved inside it. The string is compared as the panel wrote it
+// rather than taken apart here, which would be a second reading of its shape.
+export function readFrame(doc: WebviewDocument): Promise<string | null> {
+  return evaluateWithin<string | null>(doc, `(() => {
+    const g = document.querySelector('#canvas > g');
+    return g ? g.getAttribute('transform') : null;
+  })()`, 5000);
 }
 
 // rect words a box for a check's report, and the box of a shape the drawing
