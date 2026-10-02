@@ -16,10 +16,10 @@ import {
 } from './graph-panel';
 import { referenceAnswer } from './reference';
 import { LOCKFILE_PULL_BUTTON, lockfileNoticeOpening } from './suite-above';
-import { capture, lineOf, open, ready, run, save, send, SuiteContext } from './suite-context';
+import { capture, closeActiveTab, lineOf, open, ready, run, save, send, SuiteContext } from './suite-context';
 import { contextRowsCheck, openSettingsOn, settingLabel } from './suite-gateway';
 import {
-  commandsPanel, dialog, holds, NOT_RUNNING, operationButtons, pressDialogButton, pressIn, pressOperation, RUNNING, sleep, toasts, until, waitStatus,
+  commandsPanel, dialog, guard, holds, NOT_RUNNING, operationButtons, pressDialogButton, pressIn, pressOperation, RUNNING, sleep, toasts, until, waitStatus,
   waitToast,
 } from './workbench';
 
@@ -276,8 +276,7 @@ async function revertActive(ctx: SuiteContext, file: string): Promise<void> {
   await open(ctx, file);
   await run(ctx, 'workbench.action.files.revert');
   await until(`${path.basename(file)} reading as it does on disk`, 10000, () => activeDocument(ctx), (d) => d !== null && d.path === file && !d.isDirty && d.text === fs.readFileSync(file, 'utf8'));
-  await run(ctx, 'workbench.action.closeActiveEditor');
-  await sleep(300);
+  await closeActiveTab(ctx);
 }
 
 // restoringAfter runs a check's body and then puts back what the body changed,
@@ -299,17 +298,21 @@ async function restoringAfter<T>(body: () => Promise<T>, restore: () => Promise<
 }
 
 // closeEverythingUnsaved closes every open editor, answering "Don't Save" where
-// the editor asks about a changed document, so nothing reaches the disk.
+// the editor asks about a changed document, so nothing reaches the disk. After
+// the close, and after each answer, it waits for whichever comes: the editor
+// asking about the next changed document, or no editor's tab left drawn.
 export async function closeEverythingUnsaved(ctx: SuiteContext): Promise<string[]> {
   const answered: string[] = [];
+  const tabs = (): Promise<number> => ctx.d.workbench<number>(`[...document.querySelectorAll('.tabs-container .tab')].filter((t) => t.getBoundingClientRect().width > 0).length`);
   await send(ctx, 'workbench.action.closeAllEditors');
   for (let i = 0; i < 10; i++) {
-    const d = await until('the editor asking about a changed document', 2000, () => dialog(ctx.d), (v) => v !== null).catch(() => null);
-    if (d === null) { break; }
+    const v = await until('every editor closed, or the editor asking about a changed document', 2000, async () => ({ d: await dialog(ctx.d), tabs: await tabs() }), (x) => x.d !== null || x.tabs === 0);
+    if (v.d === null) { break; }
+    const d = v.d;
     need(d.buttons.includes('Don\'t Save'), `the editor asked "${d.message}" with ${JSON.stringify(d.buttons)} and offers no way to close without saving`);
     answered.push(d.message);
     await pressDialogButton(ctx.d, 'Don\'t Save');
-    await sleep(300);
+    await until('the question answered', 2000, () => dialog(ctx.d), (x) => x === null || x.message !== d.message);
   }
   return answered;
 }
@@ -783,7 +786,7 @@ export async function graphPanelChecks(ctx: SuiteContext, reference: string, sna
     const readings = await panelReadings(d, from);
     const active = await activeDocument(ctx);
     const passed = drawn?.outcome?.text === notOnTheGraph('no-such-node') && drawn.outcome.failed && drawn.title === ADMIN && (active === null || !active.isDirty);
-    return { passed, seen: `the panel ${drawn?.outcome ? `says ${JSON.stringify(drawn.outcome)}` : 'draws no line within 5000 ms'}, showing ${JSON.stringify(drawn?.title ?? null)}; its readings since the request ${JSON.stringify(readings.map((r) => r.outcome))}; the document in front ${active?.path ?? 'none'}${active?.isDirty ? ', changed' : ''}` };
+    return { passed, seen: `the panel ${drawn?.outcome ? `says ${JSON.stringify(drawn.outcome)}` : `draws no line within ${guard(5000)} ms`}, showing ${JSON.stringify(drawn?.title ?? null)}; its readings since the request ${JSON.stringify(readings.map((r) => r.outcome))}; the document in front ${active?.path ?? 'none'}${active?.isDirty ? ', changed' : ''}` };
   });
 
   // ---- with the language server stopped ----

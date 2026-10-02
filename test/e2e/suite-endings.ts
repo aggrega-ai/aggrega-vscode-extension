@@ -4,15 +4,15 @@
 import * as path from 'path';
 
 import { need } from './checks';
-import { readTree, sameTree } from './fixtures';
+import { readTree, sameTree, Tree } from './fixtures';
 import { readStat } from './processes';
 import { referenceAnswer } from './reference';
 import { ScratchRegistry } from './registry';
 import { closeAllEditors, open, ready, run, SuiteContext, theServer } from './suite-context';
 import { CONTEXT_ROW_LABELS, contextRowsCheck } from './suite-gateway';
 import {
-  commandsPanel, notificationReadings, pickQuickInputRow, pressIn, pressOperation, pressPanelAction, pressToastButton, selectorRows, sleep, statusItems,
-  stopWatchingNotification, Toast, toasts, toastsSince, holds, until, waitQuickInput, waitToast, watchNotification,
+  commandsPanel, guard, notificationReadings, pickQuickInputRow, pressIn, pressOperation, pressPanelAction, pressToastButton, selectorRows, sleep, statusItems,
+  stopWatchingNotification, Toast, toasts, toastsGone, toastsSince, holds, until, waitQuickInput, waitToast, watchNotification,
 } from './workbench';
 
 // The checks run where an operation's ending is what a reader is told: a
@@ -70,7 +70,9 @@ export async function registryDigest(host: string, repository: string, tag: stri
 // menu of the workspace's entities it opens beside the button, narrowing the menu
 // by typing as a reader does and taking the one entry left with Enter — the
 // menu fills in when the language server answers, and a press on an entry drawn
-// before that answer lands on one that is then replaced.
+// before that answer lands on one that is then replaced. A push raises three
+// notifications, its ending the one the checks read, so it is made from the stage
+// `closeAllEditors` leaves: the editor's notification window passed.
 async function pushFromPanel(ctx: SuiteContext, label: string): Promise<void> {
   await closeAllEditors(ctx);
   await run(ctx, 'workbench.view.extension.aggrega');
@@ -115,9 +117,11 @@ export async function endingsChecks(ctx: SuiteContext, reference: string, regist
     await waitQuickInput(ctx.d, 'the name prompt reading what was typed', (q) => q.title === DRAFT_NAME_TITLE && q.value === DRAFTED_NAME, 5000);
     await ctx.d.press('Enter');
     const active = await until('the draft opening', 15000, () => ctx.probe.request<{ path: string; isUntitled: boolean; isDirty: boolean; text: string } | null>('editor.active'), (v) => v !== null && v.isUntitled).catch(() => null);
-    await sleep(1000);
-    const after = readTree(ctx.folder);
-    const unwritten = sameTree(before, after);
+    // Nothing written, watched for a second from the draft's opening at every
+    // reading, not read once at its end.
+    const watched = await holds(1000, async () => readTree(ctx.folder), (t) => sameTree(before, t));
+    const after = watched.held ? readTree(ctx.folder) : watched.broke as Tree;
+    const unwritten = watched.held && sameTree(before, after);
     await run(ctx, 'workbench.action.revertAndCloseActiveEditor').catch(() => undefined);
     await closeAllEditors(ctx);
     return {
@@ -139,7 +143,7 @@ export async function endingsChecks(ctx: SuiteContext, reference: string, regist
     const told = await waitToast(ctx.d, 'the publication ending', mark, (t) => t.message.startsWith('The publication '), 60000).catch(() => null);
     const digest = await registryDigest(registry.host, PUBLISHED_REPOSITORY, PUBLISHED_TAG);
     first = digest;
-    return { passed: told !== null && digest.startsWith('sha256:') && told.message === published(ref, PUBLISHED_TAG, digest, registry.host), seen: `${told === null ? 'no ending' : `"${told.message}" (${told.severity})`}; the registry answers ${ref}:${PUBLISHED_TAG} with ${digest}` };
+    return { passed: told !== null && digest.startsWith('sha256:') && told.message === published(ref, PUBLISHED_TAG, digest, registry.host), seen: `${told === null ? await noEnding(ctx, mark) : `"${told.message}" (${told.severity})`}; the registry answers ${ref}:${PUBLISHED_TAG} with ${digest}` };
   });
   await c.run('publication.identical-bytes-again-publish-nothing', {
     expected: `the same entity pushed again ends in "${republished(ref, PUBLISHED_TAG, '<digest>', registry.host)}" with the digest the first push landed, and the registry still answers the tag with it`,
@@ -150,8 +154,25 @@ export async function endingsChecks(ctx: SuiteContext, reference: string, regist
     await pushFromPanel(ctx, PUBLISHED);
     const told = await waitToast(ctx.d, 'the publication ending', mark, (t) => t.message.startsWith('The publication '), 60000).catch(() => null);
     const digest = await registryDigest(registry.host, PUBLISHED_REPOSITORY, PUBLISHED_TAG);
-    return { passed: told !== null && told.message === republished(ref, PUBLISHED_TAG, first, registry.host) && digest === first, seen: `${told === null ? 'no ending' : `"${told.message}"`}; the registry answers ${digest}` };
+    return { passed: told !== null && told.message === republished(ref, PUBLISHED_TAG, first, registry.host) && digest === first, seen: `${told === null ? await noEnding(ctx, mark) : `"${told.message}"`}; the registry answers ${digest}` };
   });
+}
+
+// noEnding words a publication that ended in no notification: what was drawn
+// since the press, and what the channel says it ended in.
+async function noEnding(ctx: SuiteContext, mark: number): Promise<string> {
+  const all = await toasts(ctx.d);
+  const pressedAt = all[mark - 1]?.at ?? 0;
+  const drawn = all.slice(Math.max(0, mark - 2)).map((t, i) => `${i + Math.max(0, mark - 2) < mark ? 'before the press ' : ''}"${t.message.slice(0, 80)}" at ${t.at - pressedAt} ms`);
+  const now = await ctx.d.workbench<{ messages: string[]; centre: boolean }>(`({
+    messages: [...document.querySelectorAll('.notification-list-item-message')].map((e) => (e.innerText || e.textContent || '').trim().slice(0, 120)),
+    centre: !!document.querySelector('.notifications-center.visible'),
+  })`).catch((err: unknown) => ({ messages: [`not read: ${err instanceof Error ? err.message : String(err)}`], centre: false }));
+  const ending = ctx.out.since({ file: null, length: 0 }).split('\n').filter((l) => l.startsWith('The publication ')).pop() ?? '';
+  await run(ctx, 'notifications.showList').catch(() => undefined);
+  const listed = await until('the notification centre listing', 3000, () => ctx.d.workbench<string[]>(`[...document.querySelectorAll('.notifications-center .notification-list-item-message')].map((e) => (e.innerText || '').trim().slice(0, 120))`), (v) => v.length > 0).catch(() => [] as string[]);
+  await run(ctx, 'notifications.hideList').catch(() => undefined);
+  return `no ending; notifications recorded since the press ${drawn.length === 0 ? 'none' : drawn.join(', ')}; in the workbench now ${JSON.stringify(now.messages)}${now.centre ? ', the notification centre open' : ''}; the notification centre lists ${JSON.stringify(listed)}; the channel's last publication line ${ending === '' ? 'none' : JSON.stringify(ending)}`;
 }
 
 // cpuRate reads how much of one core a process used over a window, from the
@@ -197,7 +218,7 @@ export async function folderRowsCheck(ctx: SuiteContext, name: string, why: stri
     const rows = read.rows;
     return {
       passed: rows.length >= 3 && rows.slice(0, 3).every((r, i) => r.label === CONTEXT_ROW_LABELS[i]) && rows[0].value === base && rows[1].value === base && rows[2].value === release,
-      seen: `${rows.slice(0, 3).map((r) => `${r.label}: ${r.value}`).join(' | ')}${read.within ? '' : ', the first two not naming the folder within 20000 ms'}`,
+      seen: `${rows.slice(0, 3).map((r) => `${r.label}: ${r.value}`).join(' | ')}${read.within ? '' : `, the first two not naming the folder within ${guard(20000)} ms`}`,
     };
   });
 }
@@ -241,7 +262,7 @@ export async function watchAndStopChecks(ctx: SuiteContext, releases: readonly s
     // Every notification is put away first, so the progress drawn is not slid
     // under a press by one leaving above it.
     await run(ctx, 'notifications.clearAll').catch(() => undefined);
-    await sleep(800);
+    await toastsGone(ctx.d);
     const mark = ctx.out.mark();
     const toastMark = (await toasts(ctx.d)).length;
     const key = await watchNotification(ctx.d, buildProgress(slow));
@@ -272,7 +293,7 @@ export async function watchAndStopChecks(ctx: SuiteContext, releases: readonly s
     plant: 'in the scratch copy, out/src/cli-run.js with a stopped command reported stopped without the process being ended',
   }, async () => {
     await run(ctx, 'notifications.clearAll').catch(() => undefined);
-    await sleep(800);
+    await toastsGone(ctx.d);
     const mark = ctx.out.mark();
     const toastMark = (await toasts(ctx.d)).length;
     // The pull is a short-lived child of the editor; the table is read often
@@ -290,8 +311,9 @@ export async function watchAndStopChecks(ctx: SuiteContext, releases: readonly s
       clearInterval(poll);
     }
     need(!/^The pull resolved/m.test(text), `the pull completed before the stop landed (its progress ${drawn === null ? 'not drawn with Cancel' : 'drawn with Cancel'}, Cancel ${pressed ? 'pressed' : 'not pressed'}), so whether the command stops cannot be seen`);
-    await sleep(2000);
-    ctx.s.table.snapshot();
+    // A stopped process takes its own time to exit, so its absence is waited for.
+    const pullsAlive = (): Promise<string[]> => { ctx.s.table.snapshot(); return Promise.resolve(ctx.s.table.alive().filter((r) => r.cmd.startsWith(`${bin} pull `)).map((r) => `${r.pid} ${r.cmd}`)); };
+    await until('every pull the extension ran exiting', 2000, pullsAlive, (v) => v.length === 0).catch(() => undefined);
     const pulls = ctx.s.table.all().filter((r) => r.cmd.startsWith(`${bin} pull `));
     const alive = ctx.s.table.alive().filter((r) => r.cmd.startsWith(`${bin} pull `));
     const told: Toast | undefined = (await toastsSince(ctx.d, toastMark)).find((t) => t.message === PULL_STOPPED);

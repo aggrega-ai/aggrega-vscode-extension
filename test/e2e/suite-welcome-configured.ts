@@ -18,7 +18,7 @@ import {
   statusMark, statusTexts, stepOf, WAYS_THROUGH, welcomePage,
 } from './welcome';
 import {
-  describeRowMenu, dialog, holds, NOT_RUNNING, pickQuickInputRow, pressDialogButton, pressMenuItem, rowMenu, RUNNING, statusLog, toasts, until, waitStatus, waitToast,
+  describeRowMenu, dialog, guard, holds, NOT_RUNNING, pickQuickInputRow, pressDialogButton, pressMenuItem, rowMenu, RUNNING, stated, statusLog, toasts, until, waitStatus, waitToast,
 } from './workbench';
 
 // The checks run in a folder configured entirely before the editor opens it —
@@ -155,7 +155,7 @@ export async function welcomeConfiguredChecks(ctx: SuiteContext, opts: { missing
     const server = ctx.s.table.alive().find((p) => p.cmd === `${onPath} serve`);
     let exe = '';
     try { exe = server ? fs.realpathSync(`/proc/${server.pid}/exe`) : ''; } catch { exe = ''; }
-    const step = await until('the compiler step reading met', FOLLOW_MS, async () => stepOf(await readPage(doc), 'compiler'), (s) => s.badge === STANDING_MET).catch(async () => stepOf(await readPage(doc), 'compiler'));
+    const step = await until('the compiler step reading met', stated(FOLLOW_MS), async () => stepOf(await readPage(doc), 'compiler'), (s) => s.badge === STANDING_MET).catch(async () => stepOf(await readPage(doc), 'compiler'));
     const same = await samePage(doc, token);
     return {
       passed: setting === onPath && running && server !== undefined && exe === fs.realpathSync(bin) && step.badge === STANDING_MET && drawnValue(step)?.text === `${SELECTED_LEAD}${onPath}` && same,
@@ -187,15 +187,15 @@ export async function welcomeConfiguredChecks(ctx: SuiteContext, opts: { missing
     await pressDialogButton(ctx.d, 'Remove');
     const ending = await waitToast(ctx.d, 'the removal ending', mark, (t) => t.message.startsWith(`${REGISTRY_REMOVAL_SUBJECT} `), 60000).catch(() => null);
     const endedAt = ending?.at ?? Date.now();
-    const step = await until('the registry step reading to do', FOLLOW_MS, async () => stepOf(await readPage(doc), 'registry'), (s) => s.badge === STANDING_TO_DO && drawnValue(s)?.text === NONE_SELECTED).catch(async () => stepOf(await readPage(doc), 'registry'));
+    const step = await until('the registry step reading to do', stated(FOLLOW_MS), async () => stepOf(await readPage(doc), 'registry'), (s) => s.badge === STANDING_TO_DO && drawnValue(s)?.text === NONE_SELECTED).catch(async () => stepOf(await readPage(doc), 'registry'));
     const moved = (await pageReadings(doc, watch)).find((r) => (r.steps.find((s) => s.id === 'registry')?.value ?? '') === NONE_SELECTED);
     const server = ending === null ? `${describeReadings((await statusLog(ctx.d)).slice(statusAt))}, no removal having ended` : await runningAgain(ctx, statusAt, 60000)
-      .then((v) => describeReadings(v), async () => `${describeReadings((await statusLog(ctx.d)).slice(statusAt))}, not running again within 60000 ms`);
+      .then((v) => describeReadings(v), async () => `${describeReadings((await statusLog(ctx.d)).slice(statusAt))}, not running again within ${guard(60000)} ms`);
     const listed = await until(`the Registries panel dropping ${CONFIGURED_HOST}`, 10000, () => registriesListed(ctx), (v) => !v.includes(CONFIGURED_HOST)).catch(() => registriesListed(ctx));
     removed = ending !== null;
     return {
       passed: ending !== null && step.badge === STANDING_TO_DO && drawnValue(step)?.text === NONE_SELECTED && moved !== undefined && moved.at - endedAt <= FOLLOW_MS && !listed.includes(CONFIGURED_HOST),
-      seen: `the confirmation ${JSON.stringify(asked)}; ${ending === null ? 'no ending within 60000 ms' : `"${ending.message}"`}; the registry step reads ${step.badge} with ${JSON.stringify(drawnValue(step)?.text ?? null)}${moved === undefined ? '' : `, ${moved.at - endedAt} ms after the ending`}; the status bar read ${server} from the press; the Registries panel lists ${JSON.stringify(listed)}`,
+      seen: `the confirmation ${JSON.stringify(asked)}; ${ending === null ? `no ending within ${guard(60000)} ms` : `"${ending.message}"`}; the registry step reads ${step.badge} with ${JSON.stringify(drawnValue(step)?.text ?? null)}${moved === undefined ? '' : `, ${moved.at - endedAt} ms after the ending`}; the status bar read ${server} from the press; the Registries panel lists ${JSON.stringify(listed)}`,
     };
   });
 
@@ -207,7 +207,7 @@ export async function welcomeConfiguredChecks(ctx: SuiteContext, opts: { missing
     const doc = await welcomePage(ctx);
     const add = await addFromThePage(ctx, CONFIGURED_HOST);
     const want = `${SELECTED_LEAD}${CONFIGURED_HOST}`;
-    const byItself = await until('the registry step reading met by itself', FOLLOW_MS, async () => stepOf(await readPage(doc), 'registry'), (s) => s.badge === STANDING_MET && drawnValue(s)?.text === want).then(() => true, () => false);
+    const byItself = await until('the registry step reading met by itself', stated(FOLLOW_MS), async () => stepOf(await readPage(doc), 'registry'), (s) => s.badge === STANDING_MET && drawnValue(s)?.text === want).then(() => true, () => false);
     if (!byItself) { await pressHouse(ctx); }
     const step = await until('the registry step reading met', 10000, async () => stepOf(await readPage(doc), 'registry'), (s) => s.badge === STANDING_MET && drawnValue(s)?.text === want).catch(async () => stepOf(await readPage(doc), 'registry'));
     return {

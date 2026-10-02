@@ -11,7 +11,7 @@ import { FixtureError, FixtureProof } from './fixtures';
 import { coveredBy, putAwayNotifications } from './graph-panel';
 import { CHOOSER_SETTLE_MS, chooser, Chooser, waitChooser } from './levels';
 import { commandTitle, run, SuiteContext } from './suite-context';
-import { centre, documentWith, evaluateWithin, holds, hoverAt, Reading, RUNNING, statusLog, treeRows, until } from './workbench';
+import { centre, documentWith, evaluateWithin, holds, hoverAt, pressConfirmed, PressSite, Reading, RUNNING, selectorTarget, statusLog, treeRows, until } from './workbench';
 
 // Reading the welcome page and pressing what a reader presses on it: its four
 // steps with their marks, standings, values and ways through; the checkbox at its
@@ -407,8 +407,11 @@ const QUIET_MS = 300;
 // page, and the point shown to be the page's own frame before the press — read
 // with `coveredBy` (graph-panel.ts). Where something else is drawn over the point,
 // the notifications are put away and the pointer moved off, and the point is read
-// again. A control the page does not draw is what the page shows, so it fails the
-// check pressing it.
+// again. The press is made through `pressConfirmed` (workbench.ts), so a press
+// that focuses the page's frame without reaching its document — as a press made
+// as the tab comes to the front can — is made again rather than read as made. A
+// control the page does not draw is what the page shows, so it fails the check
+// pressing it.
 //
 // 🔴 THE PRESS WAITS FOR THE PAGE TO STOP BEING DRAWN AGAIN. The page redraws its
 // step list whole whenever what the steps stand at may have moved — the language
@@ -421,18 +424,16 @@ export async function pressOnPage(ctx: SuiteContext, selector: string): Promise<
   const there = await evaluateWithin<boolean>(page, `((s) => { const e = document.querySelector(s); if (e) { e.scrollIntoView({ block: 'center', inline: 'nearest' }); } return !!e; })(${JSON.stringify(selector)})`, 5000);
   if (!there) { throw new Error(`the welcome page draws nothing matching ${selector}`); }
   await until(`the page drawing nothing for ${QUIET_MS} ms`, 10000, () => evaluateWithin<number>(page, QUIET_READING, 2000), (ms) => ms >= QUIET_MS);
-  const covered: string[] = [];
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    const b = await until(`${selector} drawn on the welcome page`, 10000, () => ctx.d.box(page, selector), (v) => v !== null && v.width > 0 && v.height > 0);
-    const at = centre(b as Box);
+  await pressConfirmed(ctx.d, { doc: page, target: selectorTarget(selector), what: `${selector} on the welcome page` }, async (): Promise<PressSite> => {
+    const b = await ctx.d.box(page, selector);
+    if (b === null || b.width <= 0 || b.height <= 0) { return null; }
+    const at = centre(b);
     const over = await coveredBy(ctx, at);
-    if (over === null) { await ctx.d.click(at); return; }
+    if (over === null) { return at; }
     await putAwayNotifications(ctx);
     await ctx.d.moveTo({ x: 1, y: 1 });
-    const cleared = await until('the point showing the page', 3000, () => coveredBy(ctx, at), (v) => v === null).then(() => true, () => false);
-    covered.push(cleared ? over : `${over}, still there 3000 ms after the notifications were put away`);
-  }
-  throw new Error(`the point ${selector} is pressed at showed ${covered.join('; then ')} over the welcome page, on each of three readings`);
+    return { blocked: `the workbench's ${over} is drawn over it` };
+  });
 }
 
 // wayThroughCommand is the command the control labelled `label` on the step runs,

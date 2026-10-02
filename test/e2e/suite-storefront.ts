@@ -20,8 +20,8 @@ import {
 import { contextRowsCheck } from './suite-gateway';
 import { INSPECTION_CHECKS, inspectionChecks } from './suite-inspection';
 import {
-  commandsPanel, describeRowMenu, documentWith, holds, NOT_RUNNING, operationButtons, paneState, pickQuickInputRow, pressIn, pressMenuItem, pressOperation, pressPaneHeader,
-  pressPanelAction, pressToastButton, QuickInput, quickInput, rowMenu, RUNNING, sleep, statusLog, STARTING, toasts, toastsSince, TreeRow,
+  commandsPanel, describeRowMenu, documentWith, guard, holds, NOT_RUNNING, operationButtons, paneState, pickQuickInputRow, pressIn, pressKeyIn, pressMenuItem, pressOperation, pressPaneHeader,
+  pressPanelAction, pressToastButton, QuickInput, quickInput, rowMenu, RUNNING, sleep, stated, statusLog, STARTING, toasts, toastsSince, TreeRow,
   treeRowCentre, treeRows, until, waitQuickInput, waitStatus, waitToast,
 } from './workbench';
 
@@ -144,7 +144,8 @@ export function entityNames(dir: string, kind: string): string[] {
 }
 
 // pressViewAction presses a side-bar view's title action, which is drawn once
-// the pointer is over the view's header.
+// the pointer is over the view's header; `pressIn` (workbench.ts) waits for it to
+// be drawn and confirms the press reached it.
 export async function pressViewAction(ctx: SuiteContext, viewTitle: string, actionLabel: string): Promise<void> {
   const header = await until(`the "${viewTitle}" view's header`, 10000, () => ctx.d.workbench<{ x: number; y: number } | null>(`((t) => {
     for (const h of document.querySelectorAll('#workbench\\\\.parts\\\\.sidebar .pane-header')) {
@@ -156,7 +157,6 @@ export async function pressViewAction(ctx: SuiteContext, viewTitle: string, acti
   })(${JSON.stringify(viewTitle)})`), (v) => v !== null);
   if (header === null) { throw new Error('unreachable'); }
   await ctx.d.moveTo(header);
-  await sleep(300);
   await pressIn(ctx.d, null, `#workbench\\.parts\\.sidebar .pane-header .action-label[aria-label="${actionLabel}"]`);
 }
 
@@ -252,9 +252,10 @@ export async function storefrontChecks(ctx: SuiteContext, referenceFolder: strin
     await save(ctx, moduleFile);
     // Whether the cascade reaches the Aggregate without asking is recorded, not
     // judged: either answer is a behaviour a reader may meet, and the check's
-    // verdict rests on what Validate reports.
+    // verdict rests on what Validate reports. So it is watched for a stated 10 s:
+    // a guard would make every run where it does not arrive wait the guard out.
     await open(ctx, aggregate);
-    const unasked = await until('the cascade reaching the Aggregate unasked', 10000, () => diagnostics(ctx, aggregate), (v) => v.some((d) => d.message.includes(moduleFile))).then(() => true, () => false);
+    const unasked = await until('the cascade reaching the Aggregate unasked', stated(10000), () => diagnostics(ctx, aggregate), (v) => v.some((d) => d.message.includes(moduleFile))).then(() => true, () => false);
     // The reference: the same document against the same broken module on disk.
     fs.writeFileSync(referenceModule, fs.readFileSync(moduleFile, 'utf8'));
     const answer = await referenceAnswer({ binary: bin, root: referenceFolder, method: 'aggrega/validate', params: buildValidateParams(referenceAggregate, fs.readFileSync(aggregate, 'utf8'), RELEASE), home: ctx.home, table: ctx.s.table, log: ctx.cliLog });
@@ -358,7 +359,8 @@ export async function storefrontChecks(ctx: SuiteContext, referenceFolder: strin
     const drawn = await until('the Catalog view drawing its head', 20000, () => treeRows(ctx.d, 'Catalog'), (v) => v !== null && v.length > 0);
     const head = (drawn ?? []).slice(0, CATALOG_HEAD.length).map((r) => r.label);
     await pressPanelAction(ctx.d, 'Catalog', CATALOG_HEAD[0]);
-    const q = await waitQuickInput(ctx.d, 'the search palette', (x) => x.title === SEARCH_TITLE);
+    // Read once its rows are drawn: the editor can draw the title a moment before them.
+    const q = await waitQuickInput(ctx.d, 'the search palette drawing its rows', (x) => x.title === SEARCH_TITLE && x.rows.length > 0);
     const labels = q.rows.map((r) => r.label);
     const valued = q.rows.slice(0, SEARCH_FACETS.length).every((r) => r.description !== '');
     const passed = JSON.stringify(head) === JSON.stringify(CATALOG_HEAD) && q.placeholder === SEARCH_PLACEHOLDER && JSON.stringify(labels) === JSON.stringify([...SEARCH_FACETS, RESET_ROW, SEARCH_ROW]) && valued;
@@ -475,7 +477,7 @@ export async function storefrontChecks(ctx: SuiteContext, referenceFolder: strin
     need(!(before ?? []).some((r) => r.label === copyName) && !fs.existsSync(copyPath), `the "${copyName}" row or its file is already there, so its appearing cannot be observed`);
     fs.copyFileSync(copySource, copyPath);
     const t0 = Date.now();
-    created = await until(`the "${copyName}" row appearing`, 10000, () => treeRows(ctx.d, 'Catalog'), (v) => v !== null && v.some((r) => r.label === copyName)).then(() => true, () => false);
+    created = await until(`the "${copyName}" row appearing`, stated(10000), () => treeRows(ctx.d, 'Catalog'), (v) => v !== null && v.some((r) => r.label === copyName)).then(() => true, () => false);
     const after = Date.now() - t0;
     const editor = await ctx.probe.request<{ path: string } | null>('editor.active');
     return { passed: created && editor?.path !== copyPath, seen: created ? `the row appeared ${after} ms after the file was written; the active editor ${editor?.path ?? 'none'}` : `no "${copyName}" row within 10000 ms; rows ${JSON.stringify(((await treeRows(ctx.d, 'Catalog')) ?? []).map((r) => r.label).slice(0, 10))}` };
@@ -488,7 +490,7 @@ export async function storefrontChecks(ctx: SuiteContext, referenceFolder: strin
     need((await ctx.probe.request<{ path: string } | null>('editor.active'))?.path !== copyPath, 'the copy is open in the editor, so its deletion is not the one this check is about');
     fs.unlinkSync(copyPath);
     const t0 = Date.now();
-    const gone = await until(`the "${copyName}" row leaving`, 10000, () => treeRows(ctx.d, 'Catalog'), (v) => v !== null && !v.some((r) => r.label === copyName)).then(() => true, () => false);
+    const gone = await until(`the "${copyName}" row leaving`, stated(10000), () => treeRows(ctx.d, 'Catalog'), (v) => v !== null && !v.some((r) => r.label === copyName)).then(() => true, () => false);
     const left = Date.now() - t0;
     const out = gone ? await holds(5000, () => treeRows(ctx.d, 'Catalog'), (v) => v !== null && !v.some((r) => r.label === copyName)) : null;
     return { passed: gone && out !== null && out.held, seen: gone ? `the row left ${left} ms after the file was deleted, and ${out?.held ? 'stayed out' : `came back at ${out?.atMs} ms`}` : `the row is still drawn 10000 ms after the file was deleted` };
@@ -511,7 +513,7 @@ export async function storefrontChecks(ctx: SuiteContext, referenceFolder: strin
     fs.unlinkSync(copyPath);
     await sleep(500);
     await run(ctx, 'workbench.action.closeActiveEditor');
-    const gone = await until(`the "${copyName}" row leaving`, 5000, () => treeRows(ctx.d, 'Catalog'), (v) => v !== null && !v.some((r) => r.label === copyName)).then(() => true, () => false);
+    const gone = await until(`the "${copyName}" row leaving`, stated(5000), () => treeRows(ctx.d, 'Catalog'), (v) => v !== null && !v.some((r) => r.label === copyName)).then(() => true, () => false);
     let stayed = false;
     if (gone) {
       const t0 = Date.now();
@@ -682,7 +684,7 @@ export async function storefrontChecks(ctx: SuiteContext, referenceFolder: strin
     const folds = folded && hidden !== null && hidden.held && unfolded;
     const seen = `the panel reads ${JSON.stringify(drawn.slice(0, head.length + 2).map((r) => `${r.label}${r.description ? ` (${r.description})` : ''} at level ${r.level}`))}; `
       + `folded by its header ${folded ? (hidden?.held ? 'it drew none of the head rows for 1.5 s' : `it drew ${JSON.stringify(hidden?.broke)} at ${hidden?.atMs} ms`) : 'it did not fold'}; `
-      + `unfolded, ${unfolded ? 'the head was drawn again' : 'the head was not drawn again within 10 s'}; capture ${captured}`;
+      + `unfolded, ${unfolded ? 'the head was drawn again' : `the head was not drawn again within ${guard(10000) / 1000} s`}; capture ${captured}`;
     return { inOrder, runnable, beneath, folds, seen };
   };
   await c.run('catalog-panel.head-reads-search-catalog-then-draft-entity-and-folds-with-the-panel', {
@@ -743,7 +745,7 @@ export async function storefrontChecks(ctx: SuiteContext, referenceFolder: strin
     await closeAllEditors(ctx);
     await run(ctx, 'aggrega.registries.focus');
     await pressPanelAction(ctx.d, 'Registries', REGISTRIES_HEAD[1]);
-    const text = await ctx.out.waitFor('the index build opening in the channel', mark, (t) => t.split('\n').includes(INDEX_BUILD_OPENING), 10000).catch(() => ctx.out.since(mark));
+    const text = await ctx.out.waitFor('the index build opening in the channel', mark, (t) => t.split('\n').includes(INDEX_BUILD_OPENING), stated(10000)).catch(() => ctx.out.since(mark));
     const opened = text.split('\n').includes(INDEX_BUILD_OPENING);
     await sleep(2000);
     const channel = ctx.out.since(mark).split('\n').filter((l) => l.trim() !== '').slice(0, 6);
@@ -778,16 +780,15 @@ export async function storefrontChecks(ctx: SuiteContext, referenceFolder: strin
     ].map((r) => r.label);
     const drawnAtHeads = JSON.stringify(heads) === JSON.stringify(LIST_PANEL_OPERATIONS);
     await run(ctx, 'aggrega.operations.focus');
-    await sleep(300);
-    const focused = await panel.evaluate<boolean>(`(() => { const b = document.querySelector('button.op[data-command="aggrega.op.validate"]'); if (!b) { return false; } b.focus(); return document.activeElement === b; })()`);
+    const focused = await until('Validate holding the focus', 3000, () => panel.evaluate<boolean>(`(() => { const b = document.querySelector('button.op[data-command="aggrega.op.validate"]'); if (!b) { return false; } b.focus(); return document.activeElement === b; })()`), (v) => v).then(() => true, () => false);
     need(focused, 'Validate could not be given the focus, so the walk has nowhere to start');
     const stop = `(() => { const e = document.activeElement; if (!e) { return 'nothing'; } return e.dataset.command || (e.dataset.dials ? 'caret:' + e.dataset.dials : e.tagName); })()`;
     const walk = [await panel.evaluate<string>(stop)];
     // One press more than the walk has stops, so the last reading shows it stays
-    // on the last stop rather than leaving the panel.
+    // on the last stop rather than leaving the panel. Each stop is read once the
+    // key's own event has reached the panel's document.
     for (let i = 0; i < COMMANDS_PANEL_WALK.length; i++) {
-      await ctx.d.press('ArrowRight');
-      await sleep(100);
+      await pressKeyIn(ctx.d, panel, 'ArrowRight');
       walk.push(await panel.evaluate<string>(stop));
     }
     const walked = JSON.stringify(walk) === JSON.stringify([...COMMANDS_PANEL_WALK, COMMANDS_PANEL_WALK[COMMANDS_PANEL_WALK.length - 1]]);

@@ -180,6 +180,20 @@ function quietEnv(scratch: string): NodeJS.ProcessEnv {
   return { PATH: '/usr/bin:/bin', HOME: home, XDG_CACHE_HOME: path.join(home, '.cache'), XDG_CONFIG_HOME: path.join(home, '.config'), LANG: 'C.UTF-8' };
 }
 
+// notBuiltFromACommit says why a version the compiler reports names no committed
+// revision, or is null where it names one. Three stamps say so, from the two
+// things that stamp a build: the "-dirty" the build-provenance recipe's
+// `git describe --dirty` gives a working tree with uncommitted changes; the
+// "+dirty" the Go toolchain gives the same when it stamps the build itself; and
+// "(devel)" — with "(unknown)", the version command's answer where it can read no
+// build information — where nothing stamped a revision at all. A binary built
+// from a commit reproduces from that commit; none of these does.
+export function notBuiltFromACommit(version: string): string | null {
+  if (version.endsWith('-dirty') || version.endsWith('+dirty')) { return 'a build of a working tree with uncommitted changes'; }
+  if (version === '(devel)' || version === '(unknown)') { return 'a build stamped with no revision at all'; }
+  return null;
+}
+
 function checkCompiler(opts: InputOptions, refusals: Refusal[]): Inputs['compiler'] | null {
   const bin = opts.compiler;
   if (!bin) {
@@ -197,8 +211,9 @@ function checkCompiler(opts: InputOptions, refusals: Refusal[]): Inputs['compile
     refusals.push(refusal('compiler', `\`${bin} version -o json\` exited ${r.status} without reporting a version and a commit`, 'name an aggrega binary'));
     return null;
   }
-  if (reported.version.endsWith('-dirty')) {
-    refusals.push(refusal('compiler', `it reports ${reported.version}, a build of a working tree with uncommitted changes`, 'build the binary from a committed revision'));
+  const uncommitted = notBuiltFromACommit(reported.version);
+  if (uncommitted !== null) {
+    refusals.push(refusal('compiler', `it reports version ${reported.version}, ${uncommitted}`, 'build the binary from a committed revision'));
     return null;
   }
   const want = opts.compilerCommit;

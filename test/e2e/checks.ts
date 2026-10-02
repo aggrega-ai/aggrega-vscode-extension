@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cognitio S.r.l.
 
-import { WaitExpired } from './workbench';
+import { RanOut, ranOutMark, ranOutSince, WaitExpired } from './workbench';
 
 // A check, and what it reports.
 //
@@ -31,8 +31,17 @@ export interface CheckResult extends CheckMeta {
   seen: string;
   reason?: string;
   elapsedMs: number;
+  // ranOut lists the waits that ran to their cap while the check ran, where any
+  // did; in a check that passed, each is a cap paid for an answer.
+  ranOut?: RanOut[];
   evidence?: unknown;
   forPerson?: { question: string; screenshot: string | null; drawnText: string };
+}
+
+// withRanOut records on `r` the waits that ran to their cap since `mark`.
+function withRanOut(r: CheckResult, mark: number): CheckResult {
+  const ran = ranOutSince(mark);
+  return ran.length === 0 ? r : { ...r, ranOut: ran };
 }
 
 // NotRun stops a check whose precondition does not hold, with the reason.
@@ -73,6 +82,7 @@ export class Checks {
 
   async run(name: string, meta: CheckMeta, body: () => Promise<Outcome>): Promise<CheckResult> {
     const t0 = Date.now();
+    const mark = ranOutMark();
     let r: CheckResult;
     try {
       const o = await body();
@@ -86,7 +96,7 @@ export class Checks {
         r = { scenario: this.scenario, name, ...meta, verdict: 'failed', seen: `the check stopped: ${err instanceof Error ? err.message : String(err)}`, elapsedMs: Date.now() - t0 };
       }
     }
-    return this.keep(r);
+    return this.keep(withRanOut(r, mark));
   }
 
   notRun(name: string, meta: CheckMeta, reason: string): CheckResult {
@@ -104,6 +114,7 @@ export class Checks {
   // stopped at and the text drawn there.
   async forPerson(name: string, meta: CheckMeta & { question: string }, capture: () => Promise<{ screenshot: string | null; drawnText: string }>): Promise<CheckResult> {
     const t0 = Date.now();
+    const mark = ranOutMark();
     let r: CheckResult;
     try {
       const c = await capture();
@@ -111,7 +122,7 @@ export class Checks {
     } catch (err) {
       r = { scenario: this.scenario, name, expected: meta.expected, plant: meta.plant, verdict: 'not run', seen: '', reason: err instanceof NotRun ? err.message : `the state could not be captured: ${err instanceof Error ? err.message : String(err)}`, elapsedMs: Date.now() - t0 };
     }
-    return this.keep(r);
+    return this.keep(withRanOut(r, mark));
   }
 
   passed(name: string): boolean {

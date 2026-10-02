@@ -29,7 +29,7 @@ import { THEMES, writeColourTheme } from './suite-welcome-mixed';
 import { clearForCapture, describeReadings, runningAgain, statusMark, TabSeen, tabs } from './welcome';
 import {
   centre, commandsPanel, documentWith, evaluateWithin, holds, NOT_RUNNING, paletteRows, pickQuickInputRow, pressOperation, pressToastButton, quickInput,
-  Reading as StatusReading, RUNNING, statusLog, Toast, until, waitQuickInput, waitToast,
+  Reading as StatusReading, RUNNING, stated, statusLog, Toast, until, waitQuickInput, waitToast,
 } from './workbench';
 
 // The checks run on the configuration panel as a reader meets it in the gateway
@@ -445,7 +445,7 @@ const describeBlock = (b: Block | undefined): string => (b === undefined ? 'no s
 // waitNotice waits for the notification whose message opens as the panel's
 // refusal does, and answers with it, or with why none came within the bound.
 async function waitNotice(ctx: SuiteContext, mark: number): Promise<{ toast: Toast | null; why: string }> {
-  return waitToast(ctx.d, `a notification opening "${NOTICE_LEAD}"`, mark, (t) => t.message.startsWith(NOTICE_LEAD), PANEL_DRAWN_MS)
+  return waitToast(ctx.d, `a notification opening "${NOTICE_LEAD}"`, mark, (t) => t.message.startsWith(NOTICE_LEAD), stated(PANEL_DRAWN_MS))
     .then((toast) => ({ toast, why: '' }), (err: unknown) => ({ toast: null, why: err instanceof Error ? err.message : String(err) }));
 }
 
@@ -610,7 +610,7 @@ export async function configurationReportChecks(ctx: SuiteContext, notABinary: s
     const before = await panelsNow(ctx);
     const t0 = Date.now();
     await pressShowConfig(ctx);
-    const drawn = await until('the configuration panel being drawn', PANEL_DRAWN_MS, () => panelsNow(ctx), (v) => v.documents === 1);
+    const drawn = await until('the configuration panel being drawn', stated(PANEL_DRAWN_MS), () => panelsNow(ctx), (v) => v.documents === 1);
     drawnMs = Date.now() - t0;
     const shape = await shapeNow(ctx);
     panel = await configPanel(ctx, shape);
@@ -1023,7 +1023,7 @@ export async function configurationReportChecks(ctx: SuiteContext, notABinary: s
     await open(ctx, path.join(ctx.folder, RELEASE));
     const behind = await panelsNow(ctx);
     await pressShowConfig(ctx);
-    const after = await until(`the panel reading ${OFFLINE} in force as true`, PANEL_DRAWN_MS, offlineEffective, (v) => v === 'true');
+    const after = await until(`the panel reading ${OFFLINE} in force as true`, stated(PANEL_DRAWN_MS), offlineEffective, (v) => v === 'true');
     const now = await panelsNow(ctx);
     return {
       passed: before !== 'true' && stale.held && behind.tabs.length === 1 && !behind.tabs[0].active && now.documents === 1 && now.tabs.length === 1 && now.tabs[0].active,
@@ -1158,7 +1158,7 @@ export async function configurationReportChecks(ctx: SuiteContext, notABinary: s
     const pressed = held && await pressToastButton(ctx.d, NOTICE_LEAD, START);
     const since = async (): Promise<StatusReading[]> => (await statusLog(ctx.d)).slice(mark);
     const up = pressed
-      ? await until(`the status bar reading "${RUNNING}" after the press`, SERVER_BOUND_MS, since, (v) => v.some((r) => r.reading === RUNNING))
+      ? await until(`the status bar reading "${RUNNING}" after the press`, stated(SERVER_BOUND_MS), since, (v) => v.some((r) => r.reading === RUNNING))
         .then(() => '', (err: unknown) => `; ${err instanceof Error ? err.message : String(err)}`)
       : '';
     const pending = await putAwayPendingRestart(ctx);

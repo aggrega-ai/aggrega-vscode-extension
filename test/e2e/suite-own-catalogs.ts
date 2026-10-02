@@ -10,7 +10,7 @@ import { MAPPED_RELEASES, readTree, sameTree, Tree, UNMAPPED_COPY_OF, UNMAPPED_R
 import { referenceAnswer } from './reference';
 import { capture, ready, SuiteContext } from './suite-context';
 import {
-  commandsPanel, evaluateWithin, pickQuickInputRow, pressIn, pressOperation, selectorRows, sleep, toasts, toastsSince, until, waitQuickInput,
+  answersIn, commandsPanel, pickQuickInputRow, pressIn, pressOperation, selectorRows, sleep, toasts, toastsSince, until, waitQuickInput,
 } from './workbench';
 
 // The checks run in a copy of a documentation example whose workspace
@@ -70,15 +70,9 @@ const GRAPH_PANEL = `(() => {
   };
 })()`;
 
-// graphPanels reads every webview document that is a graph panel. A document
-// that gives no answer within 2 s counts as not being one.
+// graphPanels reads every webview document that is a graph panel.
 async function graphPanels(ctx: SuiteContext): Promise<GraphPanel[]> {
-  const found: GraphPanel[] = [];
-  for (const doc of await ctx.d.webviews()) {
-    const p = await evaluateWithin<GraphPanel | null>(doc, GRAPH_PANEL, 2000).catch(() => null);
-    if (p !== null) { found.push(p); }
-  }
-  return found;
+  return (await answersIn<GraphPanel | null>(ctx.d, GRAPH_PANEL)).map((a) => a.value).filter((p): p is GraphPanel => p !== null);
 }
 
 function describeGraph(r: GraphReading): string {

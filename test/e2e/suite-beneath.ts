@@ -9,7 +9,7 @@ import { findGraphPanel, graphState, showGraph } from './graph-panel';
 import { ABOVE_MESSAGE, aboveDetail, closeChooser, describeRows, rowChooser, statusHover, takeChooserRow, waitRows } from './levels';
 import { continueHere } from './suite-above';
 import { ready, SuiteContext } from './suite-context';
-import { commandsPanel, pressOperation, statusItems, toasts, toastsSince, until } from './workbench';
+import { commandsPanel, pressOperation, stated, statusItems, toasts, toastsSince, until } from './workbench';
 
 // The checks run in a documentation example opened alone beneath a root whose
 // configuration marks it as the Aggrega workspace, the folder itself carrying no
@@ -105,7 +105,7 @@ export async function beneathChecks(ctx: SuiteContext, root: string): Promise<vo
       const mark = ctx.out.mark();
       // A drawing counts only where the canvas is given one after this press: a
       // drawing an earlier Release left stays in place whatever this request does.
-      const refused = await showGraph(ctx, GRAPH_BOUND_MS).then(() => null, async (err: unknown) => {
+      const refused = await showGraph(ctx, stated(GRAPH_BOUND_MS)).then(() => null, async (err: unknown) => {
         // A Graph button that cannot be pressed is a precondition, not a refusal.
         if (err instanceof NotRun) { throw err; }
         const doc = await findGraphPanel(ctx);

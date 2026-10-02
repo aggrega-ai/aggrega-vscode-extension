@@ -12,7 +12,7 @@ import {
 } from './levels';
 import { languageServers, ready, SuiteContext, theServer } from './suite-context';
 import { PAGE_TITLE, pageTabs, WELCOME_PAGE } from './welcome';
-import { evaluateWithin, holds, pressToastButton, RUNNING, toasts, toastsSince, until, waitStatus, waitToast } from './workbench';
+import { evaluateWithin, holds, pressToastButton, RUNNING, stated, toasts, toastsSince, until, waitStatus, waitToast } from './workbench';
 
 // The checks run in a window that reaches two Aggrega workspaces, each a folder
 // of its own: one opened alone, the other added with the editor's own command. No
@@ -211,7 +211,7 @@ export async function twoWorkspacesChecks(ctx: SuiteContext, postgres: string): 
     plant: 'in the scratch copy, out/src/get-started.js with the welcome page drawn before the extensions restarted left open beside the one drawn in its place',
   }, async () => {
     const one = (p: PagesDrawn): boolean => p.tabs === 1 && p.pages.length === 1 && p.unanswered === 0 && p.pages[0].value.includes(postgres);
-    const settled = await until('one welcome page naming the workspace switched to', WELCOME_SETTLE_MS, () => pagesDrawn(ctx), one)
+    const settled = await until('one welcome page naming the workspace switched to', stated(WELCOME_SETTLE_MS), () => pagesDrawn(ctx), one)
       .then((p) => ({ p, within: true }), async () => ({ p: await pagesDrawn(ctx), within: false }));
     return {
       passed: settled.within && one(settled.p),

@@ -37,8 +37,8 @@ import { ADD_REGISTRY_TITLE, entryFor, GLOBAL_DESTINATION, globalConfiguration }
 import { HOST_PROMPT } from './suite-welcome-empty-folder';
 import { runningAgain, statusMark } from './welcome';
 import {
-  describeRowMenu, holds, NOT_RUNNING, notificationReadings, OutputLog, pressDialogButton, pressMenuItem, pressPanelAction, pressTreeRowAction, Reading, RowMenu, rowMenu, RUNNING,
-  statusLog, stopWatchingNotification, toasts, toastsSince, treeRows, until, waitToast, watchNotification,
+  describeRowMenu, guard, holds, NOT_RUNNING, notificationReadings, OutputLog, pressDialogButton, pressMenuItem, pressPanelAction, pressTreeRowAction, Reading, RowMenu, rowMenu, RUNNING,
+  stated, statusLog, stopWatchingNotification, toasts, toastsSince, treeRows, until, waitToast, watchNotification,
 } from './workbench';
 
 // The checks run in the gateway folder on the operations the Registries, Catalog
@@ -460,14 +460,14 @@ export async function listPanelOperationsChecks(ctx: SuiteContext, opts: { regis
     const trust = await waitChooser(ctx.d, 'the question for a trust policy to pin by hand', (q) => q.title === trustByHandTitle(host), 15000).then(() => 'drawn', (err: unknown) => `not drawn: ${err instanceof Error ? err.message : String(err)}`);
     if (trust === 'drawn') { await closedAfterEscape(ctx, 'the question for a trust policy'); }
     const listed = await until(`the Registries panel listing ${host}`, 20000, () => panelLabels(ctx, 'Registries'), (v) => v.includes(host)).then(() => true, () => false);
-    const back = await runningAgain(ctx, statusAt, 60000).then(() => 'read running again', () => 'did not read running again within 60000 ms');
+    const back = await runningAgain(ctx, statusAt, 60000).then(() => 'read running again', () => `did not read running again within ${guard(60000)} ms`);
     const text = fs.readFileSync(global, 'utf8');
     added = entryFor(text, host) !== null;
     return {
       passed: hostQuestion.message.startsWith(HOST_PROMPT) && fileQuestion.placeholder === REGISTRATION_DESTINATION_PROMPT
         && JSON.stringify(labelsOf(fileQuestion)) === JSON.stringify(destinations)
         && ending.message.startsWith(`${REGISTRATION_SUBJECT} registered ${host} in ${global}, `) && added && listed && !nothingSaid(control),
-      seen: `the host question ${describeChooser(hostQuestion)}; after Escape there: ${quietAtHost.seen}; the file question ${describeChooser(fileQuestion)}; after Escape there: ${quietAtFile.seen}; both answered: "${ending.message}" (${ending.severity}), ${describeSaid(control)}; the trust question ${trust === 'drawn' ? 'drawn and put away' : trust}; ${global} ${added ? `holds an entry for ${host}` : `holds ${JSON.stringify(text.slice(0, 200))}`}; the Registries panel ${listed ? `lists ${host}` : `does not list ${host} within 20000 ms`}; the language server ${back}`,
+      seen: `the host question ${describeChooser(hostQuestion)}; after Escape there: ${quietAtHost.seen}; the file question ${describeChooser(fileQuestion)}; after Escape there: ${quietAtFile.seen}; both answered: "${ending.message}" (${ending.severity}), ${describeSaid(control)}; the trust question ${trust === 'drawn' ? 'drawn and put away' : trust}; ${global} ${added ? `holds an entry for ${host}` : `holds ${JSON.stringify(text.slice(0, 200))}`}; the Registries panel ${listed ? `lists ${host}` : `does not list ${host} within ${guard(20000)} ms`}; the language server ${back}`,
     };
   }, putAway));
 
@@ -501,7 +501,7 @@ export async function listPanelOperationsChecks(ctx: SuiteContext, opts: { regis
     const drawn = readings.some((r) => r.drawn);
     return {
       passed: JSON.stringify(menu.items.filter((i) => i !== '')) === JSON.stringify(registryRowOffers) && opened && drawn,
-      seen: `the row's ${describeRowMenu(menu)}; pressed at the row's end, the channel ${opened ? 'opened the build' : `did not open it within 10000 ms: ${JSON.stringify(ctx.out.since(outMark).slice(0, 300))}`}, the progress ${drawn ? 'was drawn' : 'was never drawn'}, and it ended "${ending.message}" (${ending.severity})`,
+      seen: `the row's ${describeRowMenu(menu)}; pressed at the row's end, the channel ${opened ? 'opened the build' : `did not open it within ${guard(10000)} ms: ${JSON.stringify(ctx.out.since(outMark).slice(0, 300))}`}, the progress ${drawn ? 'was drawn' : 'was never drawn'}, and it ended "${ending.message}" (${ending.severity})`,
     };
   }, putAway));
 
@@ -600,7 +600,7 @@ export async function listPanelOperationsChecks(ctx: SuiteContext, opts: { regis
     await pressTreeRowAction(ctx.d, 'Catalog', INSPECTED_ROW, inspect);
     const doc = await until('the definition opening as a new document', 20000, () => ctx.probe.request<{ path: string; isUntitled?: boolean; text?: string } | null>('editor.active'), (v) => v !== null && v.isUntitled === true).then((d) => d, () => null);
     // No document within the bound fails the check, naming what was said instead.
-    if (doc === null) { return { passed: false, seen: `no new untitled document within 20000 ms of the press; since it, ${describeSaid(await saidSince(ctx, pressed))}` }; }
+    if (doc === null) { return { passed: false, seen: `no new untitled document within ${guard(20000)} ms of the press; since it, ${describeSaid(await saidSince(ctx, pressed))}` }; }
     const same = doc.text === want;
     await run(ctx, 'workbench.action.revertAndCloseActiveEditor');
     return { passed: same, seen: `a new untitled document ${same ? 'holding the language server\'s own answer' : `holding ${JSON.stringify((doc.text ?? '').slice(0, 300))} where the answer reads ${JSON.stringify(want.slice(0, 300))}`}` };
@@ -796,7 +796,7 @@ export async function listPanelOperationsChecks(ctx: SuiteContext, opts: { regis
         const channel = await ctx.out.waitFor('the generation closing on the channel', written.out, (t) => t.split('\n').some((l) => l.startsWith(`${GENERATION_SUBJECT} `)), 120000);
         const closing = channel.split('\n').find((l) => l.startsWith(`${GENERATION_SUBJECT} `)) ?? '';
         const generations = runs.read().filter(isGeneration);
-        const listed = await until('the plugin listing run after the generation', LISTING_AFTER_MS, async () => runs.read(), listedAfter).then(() => true, () => false);
+        const listed = await until('the plugin listing run after the generation', stated(LISTING_AFTER_MS), async () => runs.read(), listedAfter).then(() => true, () => false);
         fromWrite = { cmds: [...runs.read()], listed };
         return { ending: closing, ran: generations };
       } finally {
@@ -875,7 +875,7 @@ export async function listPanelOperationsChecks(ctx: SuiteContext, opts: { regis
     const ending = await waitToast(ctx.d, 'the removal ending', given.toasts, (t) => t.message.startsWith(`${REGISTRY_REMOVAL_SUBJECT} `), 60000);
     const gone = entryFor(fs.readFileSync(global, 'utf8'), host) === null;
     const dropped = await until(`the Registries panel dropping ${host}`, 20000, () => panelLabels(ctx, 'Registries'), (v) => !v.includes(host)).then(() => true, () => false);
-    const back = await runningAgain(ctx, statusAt, 60000).then(() => 'read running again', () => 'did not read running again within 60000 ms');
+    const back = await runningAgain(ctx, statusAt, 60000).then(() => 'read running again', () => `did not read running again within ${guard(60000)} ms`);
     const globalDetail = consents.global?.detail ?? '';
     const projectDetail = consents.workspace?.detail ?? '';
     // The records the absences above were read from, shown to record what this
@@ -885,7 +885,7 @@ export async function listPanelOperationsChecks(ctx: SuiteContext, opts: { regis
     return {
       passed: JSON.stringify(labelsOf(fileQuestion)) === JSON.stringify(destinations) && beforeFile.dialogs.length === 0 && globalDetail === removalConsentDetail('global') && projectDetail === removalConsentDetail('workspace')
         && (consents.global?.buttons ?? []).includes(REMOVE_BUTTON) && gone && dropped && recordsTheQuestion && recordsTheConsent,
-      seen: `the file question ${describeChooser(fileQuestion)}, ${beforeFile.dialogs.length === 0 ? 'no dialog before it' : `dialogs before it ${JSON.stringify(beforeFile.dialogs)}`}; with the global file ${consents.global ? describeDialog(consents.global) : 'no consent'}; with the project's file ${consents.workspace ? describeDialog(consents.workspace) : 'no consent'}; ${declines.join('; ')}; consent given, "${ending.message}" (${ending.severity}), ${global} ${gone ? `no longer naming ${host}` : `still naming ${host}`}, the panel ${dropped ? `no longer listing ${host}` : `still listing ${host} after 20000 ms`}; the language server ${back}; the record of questions ${recordsTheQuestion ? 'holds' : 'does not hold'} the file question, and the record of dialogs ${recordsTheConsent ? 'holds' : 'does not hold'} the consent`,
+      seen: `the file question ${describeChooser(fileQuestion)}, ${beforeFile.dialogs.length === 0 ? 'no dialog before it' : `dialogs before it ${JSON.stringify(beforeFile.dialogs)}`}; with the global file ${consents.global ? describeDialog(consents.global) : 'no consent'}; with the project's file ${consents.workspace ? describeDialog(consents.workspace) : 'no consent'}; ${declines.join('; ')}; consent given, "${ending.message}" (${ending.severity}), ${global} ${gone ? `no longer naming ${host}` : `still naming ${host}`}, the panel ${dropped ? `no longer listing ${host}` : `still listing ${host} after ${guard(20000)} ms`}; the language server ${back}; the record of questions ${recordsTheQuestion ? 'holds' : 'does not hold'} the file question, and the record of dialogs ${recordsTheConsent ? 'holds' : 'does not hold'} the consent`,
     };
   }, putAway));
 

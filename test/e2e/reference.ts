@@ -7,6 +7,7 @@ import * as path from 'path';
 
 import { cliEnvironment, ScratchHome } from './cli';
 import { ProcessTable } from './processes';
+import { guard } from './workbench';
 
 // The compiler's own answer to a request, taken outside the editor.
 //
@@ -46,7 +47,8 @@ export function referenceAnswer(opts: {
     const sample = setInterval(() => { opts.table.snapshot(); }, 100);
     child.stdout.on('data', (b: Buffer) => { stdout += b.toString('utf8'); });
     child.stderr.on('data', (b: Buffer) => { stderr += b.toString('utf8'); });
-    const timer = setTimeout(() => { child.kill('SIGKILL'); }, opts.boundMs ?? 60000);
+    // The bound is a deadlock guard, as every wait's is (workbench.ts `guard`).
+    const timer = setTimeout(() => { child.kill('SIGKILL'); }, guard(opts.boundMs ?? 60000));
     child.on('close', () => {
       clearTimeout(timer);
       clearInterval(sample);

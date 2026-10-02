@@ -51,6 +51,7 @@ import { CONFIGURED_HOST, WELCOME_CONFIGURED_CHECKS, welcomeConfiguredChecks } f
 import { WELCOME_EMPTY_FOLDER_CHECKS, welcomeEmptyFolderChecks } from './suite-welcome-empty-folder';
 import { WELCOME_MIXED_CHECKS, welcomeMixedChecks } from './suite-welcome-mixed';
 import { placeNotABinary, placeSecondCompiler, registerWithNoTrust, SecondCompiler } from './welcome';
+import { RanOut, ranOutMark, ranOutSince } from './workbench';
 import { CONFIGURED_PLUGINS_CHECKS, configuredPluginsChecks } from './suite-configured-plugins';
 import { Generation, INSPECTION_BY_NAME_CHECKS, inspectionByNameChecks, LIST_PANEL_OPERATIONS_CHECKS, listPanelOperationsChecks, nameDefaultOnly, placeGeneration } from './suite-list-panels';
 import {
@@ -117,6 +118,9 @@ interface ScenarioResult {
   environmentAdded: Readonly<Record<string, string>>;
   fixtures: FixtureProof[];
   results: CheckResult[];
+  // ranOutOutsideChecks lists the waits that ran to their cap during the scenario
+  // but in none of its checks: in bring-up, in the steps between checks, at the end.
+  ranOutOutsideChecks: RanOut[];
   bringUpMs: number | null;
   wallMs: number;
   teardown: ScenarioEnd | null;
@@ -777,7 +781,8 @@ async function stopTable(table: ProcessTable): Promise<void> {
 
 async function runScenario(plan: ScenarioPlan, inputs: Inputs, runDir: string, driverName: string, plant: Plant | null): Promise<ScenarioResult> {
   const t0 = Date.now();
-  const result: ScenarioResult = { name: plan.name, folder: null, settingsChanged: plan.settings ?? {}, environmentAdded: plan.environment ?? {}, fixtures: [], results: [], bringUpMs: null, wallMs: 0, teardown: null, display: null };
+  const ranOutAtStart = ranOutMark();
+  const result: ScenarioResult = { name: plan.name, folder: null, settingsChanged: plan.settings ?? {}, environmentAdded: plan.environment ?? {}, fixtures: [], results: [], ranOutOutsideChecks: [], bringUpMs: null, wallMs: 0, teardown: null, display: null };
   const checks = new Checks(plan.name, plant === null ? undefined : plant.checks);
   const root = createScenarioRoot(runDir, plan.name);
   const home: ScratchHome = { home: root.home, tmp: root.tmp };
@@ -817,6 +822,8 @@ async function runScenario(plan: ScenarioPlan, inputs: Inputs, runDir: string, d
     }
   }
   result.results = checks.results;
+  const inChecks = new Set(checks.results.flatMap((r) => r.ranOut ?? []));
+  result.ranOutOutsideChecks = ranOutSince(ranOutAtStart).filter((w) => !inChecks.has(w));
   result.wallMs = Date.now() - t0;
   return result;
 }
@@ -826,9 +833,16 @@ function clip(text: string, n: number): string {
   return flat.length > n ? `${flat.slice(0, n)}…` : flat;
 }
 
+// ranOutLine words the waits that ran to their cap, each with its cap, whether
+// that cap was a guard or a duration a check states, and its last reading.
+function ranOutLine(indent: string, ran: readonly RanOut[]): string {
+  return `${indent}waits that ran to their cap: ${ran.map((w) => `${w.what} (${w.capMs} ms, ${w.guarded ? 'a guard' : 'a stated duration'}; last reading ${clip(w.last, 160)})`).join('; ')}`;
+}
+
 function line(r: CheckResult): string[] {
   const tag = r.verdict === 'failed' ? 'FAILED' : r.verdict;
   const out = [`  [${tag}] ${r.name} (${r.elapsedMs} ms)`];
+  if (r.ranOut !== undefined) { out.push(ranOutLine('      ', r.ranOut)); }
   if (r.expected !== '') { out.push(`      expected: ${r.verdict === 'failed' ? r.expected : clip(r.expected, 400)}`); }
   if (r.verdict === 'failed') {
     out.push(`      seen: ${r.seen}`);
@@ -895,6 +909,7 @@ export async function runSuite(opts: { inputs: Inputs; runDir: string; driverNam
     for (const f of s.fixtures) { summary.push(`  fixture ${f.built ? 'built' : 'NOT BUILT'}: ${f.fixture} — ${f.proof}`); }
     if (s.planted) { summary.push(`  planted: ${s.planted}`); }
     if (s.stopped) { summary.push(`  stopped: ${s.stopped.split('\n')[0]}`); }
+    if (s.ranOutOutsideChecks.length > 0) { summary.push(ranOutLine('  outside the checks, ', s.ranOutOutsideChecks)); }
     for (const r of s.results) { summary.push(...line(r)); }
   }
   summary.push('', `checks: ${t.passed} passed, ${t.failed} failed, ${t['not run']} not run, ${t['for a person']} for a person; not run is not counted as passed`, `wall clock ${Date.now() - t0} ms`);

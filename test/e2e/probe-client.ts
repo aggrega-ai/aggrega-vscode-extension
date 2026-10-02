@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cognitio S.r.l.
 
+import { until } from './workbench';
+
 // The runner's side of the probe: one JSON request per call, over the loopback
 // port the probe was handed.
 
@@ -39,22 +41,11 @@ export class ProbeClient {
     return body.result as T;
   }
 
-  // waitHello polls until the probe answers, and returns its answer. With
-  // `notInstance` it waits for an answer from a different start of the probe,
-  // which is what a reload produces.
-  async waitHello(boundMs: number, notInstance?: string): Promise<Hello> {
-    const until = Date.now() + boundMs;
-    let last = 'no answer';
-    while (Date.now() < until) {
-      try {
-        const hello = await this.request<Hello>('hello', {}, 2000);
-        if (notInstance === undefined || hello.instance !== notInstance) { return hello; }
-        last = `still the probe instance ${hello.instance}`;
-      } catch (err) {
-        last = err instanceof Error ? err.message : String(err);
-      }
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    }
-    throw new Error(`the probe did not answer within ${boundMs} ms (${last})`);
+  // waitHello polls until the probe answers, and returns its answer, for at most
+  // the guard of `boundMs` (workbench.ts). With `notInstance` it waits for an
+  // answer from a different start of the probe, which is what a reload produces.
+  waitHello(boundMs: number, notInstance?: string): Promise<Hello> {
+    const what = notInstance === undefined ? 'the probe answering' : `the probe answering from a start other than ${notInstance}`;
+    return until(what, boundMs, () => this.request<Hello>('hello', {}, 2000), (hello) => notInstance === undefined || hello.instance !== notInstance, 100);
   }
 }

@@ -14,7 +14,7 @@ import {
   capture, closeAllEditors, commandTitle, deleteLine, describeDiagnostics, diagnostics, Line, open, putBack, ready, run, save, send, SuiteContext, theServer,
 } from './suite-context';
 import {
-  commandsPanel, documentWith, holds, pressIn, pressOperation, pressToastButton, RUNNING, selectorRows, toasts, until, waitStatus, waitToast,
+  commandsPanel, documentWith, holds, pressIn, pressOperation, pressToastButton, RUNNING, selectorRows, stated, toasts, until, waitStatus, waitToast,
 } from './workbench';
 
 // The checks run in the gateway folder: which build of the extension and of the
@@ -309,7 +309,7 @@ export async function gatewayChecks(ctx: SuiteContext, referenceFolder: string):
     observations.push(`an unsaved edit of the Recipe ${unsaved.held ? 'left the advisory standing' : `took the advisory out after ${unsaved.atMs} ms`}`);
     const t0 = Date.now();
     await save(ctx, recipe);
-    const cleared = await until('the render advisory leaving after the save', 20000, advisoryOn, (v) => !v).then(() => Date.now() - t0, () => -1);
+    const cleared = await until('the render advisory leaving after the save', stated(20000), advisoryOn, (v) => !v).then(() => Date.now() - t0, () => -1);
     return { passed: unsaved.held && cleared >= 0, seen: `unsaved for 8 s: ${unsaved.held ? 'the advisory stood' : `the advisory left at ${unsaved.atMs} ms`}; after the save: ${cleared >= 0 ? `left at ${cleared} ms` : 'still standing at 20000 ms'}` };
   });
 
@@ -326,7 +326,7 @@ export async function gatewayChecks(ctx: SuiteContext, referenceFolder: string):
     await ctx.out.waitFor('the pull ending in its completion line', mark, (t) => /^The pull (resolved|did not complete)/m.test(t), 120000);
     const pulled = ctx.out.since(mark);
     const t0 = Date.now();
-    const cleared = await until('the drift warning leaving after the pull', 15000, () => diagnostics(ctx, lock), (v) => !v.some((d) => d.source === 'aggrega')).then(() => Date.now() - t0, () => -1);
+    const cleared = await until('the drift warning leaving after the pull', stated(15000), () => diagnostics(ctx, lock), (v) => !v.some((d) => d.source === 'aggrega')).then(() => Date.now() - t0, () => -1);
     return {
       passed: /^The pull resolved/m.test(pulled) && cleared >= 0,
       seen: `drift warning "${warning?.message ?? ''}"; the pull: "${(pulled.split('\n').find((l) => l.startsWith('The pull')) ?? '').slice(0, 160)}"; the warning ${cleared >= 0 ? `left at ${cleared} ms` : 'still standing at 15000 ms'}`,

@@ -14,18 +14,81 @@ import { Box, UiDriver, WebviewDocument } from './drivers';
 // the editor hides after a few seconds, or a status reading that lasts a moment,
 // is recorded as it is drawn rather than hoped for by a later look; a wait that
 // expires names what it waited for and the last thing it read.
+//
+// 🔴 A WAIT'S BOUND IS A DEADLOCK GUARD, NOT A JUDGEMENT OF SPEED. A wait returns
+// the moment the state it checks holds, so a busy machine makes it longer and
+// never decides it. The bound a caller hands `until` or `within` is the order of
+// what that state takes a correct editor on an idle machine, and the wait runs to
+// `guard` of it — GUARD_FACTOR times that, never more than GUARD_CEILING_MS — so
+// a correct editor slowed down by the machine reaches the state far inside the
+// cap, and only a state that never comes runs to it. A check whose own
+// expectation states a duration ("within 10 s") is handed `stated(ms)` instead,
+// and its wait runs to that duration, compared as written.
 
 export const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
-// WaitExpired is a bounded wait that ran out, carrying what it waited for.
+export const GUARD_FACTOR = 10;
+export const GUARD_CEILING_MS = 10 * 60 * 1000;
+
+// guard is the cap a wait given `boundMs` runs to.
+export function guard(boundMs: number): number {
+  return Math.max(boundMs, Math.min(boundMs * GUARD_FACTOR, GUARD_CEILING_MS));
+}
+
+// Stated is a duration a check's own expectation states, handed to a wait in
+// place of a bound so that the wait runs to it exactly.
+export interface Stated { readonly statedMs: number }
+
+export function stated(ms: number): Stated {
+  return { statedMs: ms };
+}
+
+// Bound is what a wait is handed: the order of what its state takes on an idle
+// machine, guarded; or a duration the check states.
+export type Bound = number | Stated;
+
+// capOf is the cap a wait handed `b` runs to.
+export function capOf(b: Bound): number {
+  return typeof b === 'number' ? guard(b) : b.statedMs;
+}
+
+// WaitExpired is a bounded wait that ran out, carrying what it waited for and
+// the cap it ran to.
 export class WaitExpired extends Error {
   constructor(readonly what: string, readonly boundMs: number, readonly last: string) {
     super(`${what} did not happen within ${boundMs} ms (last reading ${last})`);
   }
 }
 
-// until polls `read` until `done` holds of what it returned, for at most `boundMs`.
-export async function until<T>(what: string, boundMs: number, read: () => Promise<T>, done: (v: T) => boolean, everyMs = 150): Promise<T> {
+// RanOut is a wait that ran to its cap: what it waited for, the cap, whether that
+// cap was a guard or a duration the check states, and the last thing it read.
+export interface RanOut { what: string; capMs: number; guarded: boolean; last: string }
+
+// 🔴 EVERY WAIT THAT RUNS TO ITS CAP IS RECORDED, WHETHER ITS CALLER CATCHES THE
+// EXPIRY OR NOT. A caller may read an expiry as an answer, and where that answer
+// is the one a correct editor gives, a passing check paid the whole cap for it —
+// a guard, ten times the idle order — with nothing else showing it. The report
+// lists what each check's waits ran out on.
+const RAN_OUT: RanOut[] = [];
+
+function ranOut(what: string, capMs: number, bound: Bound, last: string): void {
+  RAN_OUT.push({ what, capMs, guarded: typeof bound === 'number', last: last.slice(0, 300) });
+}
+
+// ranOutMark is how many waits have run to their cap so far, and ranOutSince the
+// ones that ran out after such a mark.
+export function ranOutMark(): number {
+  return RAN_OUT.length;
+}
+
+export function ranOutSince(mark: number): RanOut[] {
+  return RAN_OUT.slice(mark);
+}
+
+// until polls `read` until `done` holds of what it returned, for at most
+// capOf(bound).
+export async function until<T>(what: string, bound: Bound, read: () => Promise<T>, done: (v: T) => boolean, everyMs = 150): Promise<T> {
+  const boundMs = capOf(bound);
   const end = Date.now() + boundMs;
   let last: T | undefined;
   let lastError = '';
@@ -39,7 +102,26 @@ export async function until<T>(what: string, boundMs: number, read: () => Promis
     if (Date.now() >= end) { break; }
     await sleep(everyMs);
   }
-  throw new WaitExpired(what, boundMs, `${JSON.stringify(last ?? null).slice(0, 400)}${lastError ? `; last error ${lastError.slice(0, 200)}` : ''}`);
+  const reading = `${JSON.stringify(last ?? null).slice(0, 400)}${lastError ? `; last error ${lastError.slice(0, 200)}` : ''}`;
+  ranOut(what, boundMs, bound, reading);
+  throw new WaitExpired(what, boundMs, reading);
+}
+
+// standsStill reads `read` until two readings in a row are the same, and answers
+// with that reading: the state of something an action set moving — a drag, a
+// scroll, a zoom — once it has come to rest.
+export async function standsStill<T>(what: string, bound: Bound, read: () => Promise<T>): Promise<T> {
+  let before: string | null = null;
+  const last: { v?: T } = {};
+  await until(what, bound, async () => {
+    const v = await read();
+    const key = JSON.stringify(v);
+    const same = key === before;
+    before = key;
+    last.v = v;
+    return same;
+  }, (same) => same, 100);
+  return last.v as T;
 }
 
 // holds watches `read` over a stated window and reports whether `ok` held at
@@ -96,8 +178,8 @@ export async function statusNow(driver: UiDriver): Promise<string> {
   return log.length === 0 ? '' : log[log.length - 1].reading;
 }
 
-export function waitStatus(driver: UiDriver, reading: string, boundMs: number): Promise<string> {
-  return until(`the status bar reading "${reading}"`, boundMs, () => statusNow(driver), (v) => v === reading);
+export function waitStatus(driver: UiDriver, reading: string, bound: Bound): Promise<string> {
+  return until(`the status bar reading "${reading}"`, bound, () => statusNow(driver), (v) => v === reading);
 }
 
 // ---- notifications -----------------------------------------------------------
@@ -150,8 +232,30 @@ export async function toastsSince(driver: UiDriver, mark: number): Promise<Toast
   return (await toasts(driver)).slice(mark);
 }
 
-export function waitToast(driver: UiDriver, what: string, mark: number, match: (t: Toast) => boolean, boundMs: number): Promise<Toast> {
-  return until(what, boundMs, async () => (await toastsSince(driver, mark)).find(match) ?? null, (t) => t !== null) as Promise<Toast>;
+export function waitToast(driver: UiDriver, what: string, mark: number, match: (t: Toast) => boolean, bound: Bound): Promise<Toast> {
+  return until(what, bound, async () => (await toastsSince(driver, mark)).find(match) ?? null, (t) => t !== null) as Promise<Toast>;
+}
+
+// TOAST_WINDOW_MS is the window the editor counts notifications in: of those
+// added within it, counted from the first, it draws three as toasts and lists the
+// rest in the notification centre only.
+export const TOAST_WINDOW_MS = 800;
+
+// toastWindowPassed waits until no notification has been drawn for
+// TOAST_WINDOW_MS.
+//
+// 🔴 AN ACTION WHOSE NOTIFICATION A CHECK READS IS MADE ONLY ONCE THE EDITOR'S
+// WINDOW HAS PASSED SINCE THE LAST ONE DRAWN. An operation can raise three in a
+// moment — a progress notification for what it reads, one for what it does, and
+// its ending — and where the one before it is still inside the window, the ending
+// is the fourth and the editor lists it without drawing it. A runner that acts
+// faster would then read a notification the editor gave as one it did not. The
+// stage most checks act from, `closeAllEditors` (suite-context.ts), waits for it.
+export function toastWindowPassed(driver: UiDriver): Promise<number> {
+  return until(`${TOAST_WINDOW_MS} ms with no notification drawn`, 5000, async () => {
+    const ts = await toasts(driver);
+    return ts.length === 0 ? TOAST_WINDOW_MS : Date.now() - ts[ts.length - 1].at;
+  }, (quietMs) => quietMs >= TOAST_WINDOW_MS, 50);
 }
 
 // NotificationReading is one change of whether a notification is drawn.
@@ -203,57 +307,237 @@ export async function stopWatchingNotification(driver: UiDriver, key: string): P
 }
 
 // pressToastButton presses the button labelled `label` on the notification whose
-// message starts with `prefix`, as drawn now, and reports false where no such
-// button is drawn.
+// message starts with `prefix`, once it stands still, and reports false where no
+// such button is drawn. A press that never reaches the button is refused by
+// `pressConfirmed`, so true always means the press reached it.
 export async function pressToastButton(driver: UiDriver, prefix: string, label: string): Promise<boolean> {
-  const find = `((prefix, label) => {
+  const target = `((prefix, label) => {
     for (const item of document.querySelectorAll('.notification-list-item')) {
       const m = item.querySelector('.notification-list-item-message');
       if (!(((m && m.innerText) || '').trim().startsWith(prefix))) { continue; }
       for (const b of item.querySelectorAll('.monaco-button')) {
         if ((b.innerText || '').trim() !== label) { continue; }
         const r = b.getBoundingClientRect();
-        if (r.width > 0 && r.height > 0) { return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; }
+        if (r.width > 0 && r.height > 0) { return b; }
       }
     }
     return null;
   })(${JSON.stringify(prefix)}, ${JSON.stringify(label)})`;
-  const at = await driver.workbench<{ x: number; y: number } | null>(find);
-  if (at === null) { return false; }
-  await driver.click(at);
+  const middle = `(() => { const b = ${target}; if (!b) { return null; } const r = b.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; })()`;
+  if ((await driver.workbench<{ x: number; y: number } | null>(middle)) === null) { return false; }
+  await pressConfirmed(driver, { doc: null, target, what: `the "${label}" button of the notification "${prefix}"` }, () => driver.workbench<{ x: number; y: number } | null>(middle));
   return true;
+}
+
+// TOASTS_DRAWN counts the notifications drawn over the editor area.
+const TOASTS_DRAWN = `[...document.querySelectorAll('.notification-toast-container, .notification-toast')].filter((e) => e.getBoundingClientRect().height > 0).length`;
+
+// toastsGone waits for no notification to be drawn over the editor area — the
+// state a press is made from where a notification leaving would slide the others
+// under it.
+export function toastsGone(driver: UiDriver, bound: Bound = 5000): Promise<number> {
+  return until('no notification drawn over the editor area', bound, () => driver.workbench<number>(TOASTS_DRAWN), (n) => n === 0);
+}
+
+// openTabs is how many editor tabs the workbench draws.
+export function openTabs(driver: UiDriver): Promise<number> {
+  return driver.workbench<number>(`[...document.querySelectorAll('.tabs-container .tab')].filter((t) => t.getBoundingClientRect().width > 0).length`);
+}
+
+// KEYS_SEEN counts the key presses a document has been dispatched, from the first
+// time it is asked; a capture listener on the window sees each before the
+// document's own handlers do, and they all run in that one dispatch.
+const KEYS_SEEN = `(() => {
+  if (!window.__editorSuiteKeys) {
+    const k = { downs: 0 };
+    window.addEventListener('keydown', () => { k.downs++; }, true);
+    window.__editorSuiteKeys = k;
+  }
+  return window.__editorSuiteKeys.downs;
+})()`;
+
+// pressKeyIn presses `key` and waits for that key's own event to reach `doc`, so
+// a reading taken next is of what the document did with it, not of the moment
+// before it arrived.
+export async function pressKeyIn(driver: UiDriver, doc: WebviewDocument, key: string): Promise<void> {
+  const before = await evaluateWithin<number>(doc, KEYS_SEEN, 5000);
+  await driver.press(key);
+  await until(`${key} reaching the document at ${doc.url.slice(0, 60)}`, 3000, () => evaluateWithin<number>(doc, KEYS_SEEN, 5000), (n) => n > before);
+}
+
+// ---- a press, confirmed by its own event ---------------------------------------
+
+// 🔴 A PRESS IS MADE ONCE ITS TARGET STANDS STILL, AND IT COUNTS ONLY WHERE ITS
+// OWN EVENT REACHED THAT TARGET. A control still sliding in, still being scrolled
+// to or drawn again is pressed where it was rather than where it is, and a press
+// on a document that has just come forward can focus its frame without reaching
+// the document at all. So the target is read until two readings in a row put it at
+// the same point with no animation running on it or on anything holding it; an
+// observer goes into its document just before the press; and the press counts
+// only where that observer saw its pointer-down land on the target. A press that
+// landed elsewhere — on something drawn over it, or in no part of that document —
+// is made again, as a person presses again, at most PRESS_ATTEMPTS times, and one
+// that never lands is refused, naming where each landed. Before a press is made
+// again, the observer is read once more, so a press whose event arrived late is
+// the press made rather than a reason to make a second.
+
+const PRESS_ATTEMPTS = 3;
+
+// Aim is a press's target: the document it is drawn in (the workbench where
+// null), an expression that finds it there as an element, and the words a report
+// names it by.
+export interface Aim { doc: WebviewDocument | null; target: string; what: string }
+
+// Blocked is a point read for a press that cannot be pressed yet, and why.
+export interface Blocked { blocked: string }
+
+// PressSite is a point a target is pressed at, in the window, or why there is
+// none to press yet.
+export type PressSite = { x: number; y: number } | Blocked | null;
+
+interface Landed { landed: string | null; hit: boolean }
+
+// pressWatch is installed in a document just before one press: it keeps what that
+// press's pointer-down landed on there, and whether it is the target `find`
+// answers — the element itself or something inside it.
+function pressWatch(target: string): string {
+  return `((find) => {
+    const prior = window.__editorSuitePress;
+    if (prior && prior.stop) { prior.stop(); }
+    const w = { landed: null, hit: false };
+    const describe = (e) => (e ? e.tagName.toLowerCase() + (typeof e.className === 'string' && e.className.trim() !== '' ? '.' + e.className.trim().split(/\\s+/).slice(0, 2).join('.') : '') : 'nothing');
+    const on = (ev) => {
+      if (w.landed !== null) { return; }
+      const t = find();
+      const e = ev.target && ev.target.nodeType === 1 ? ev.target : (ev.target && ev.target.parentElement) || null;
+      w.hit = !!t && !!e && (e === t || t.contains(e));
+      w.landed = describe(e);
+    };
+    window.addEventListener('pointerdown', on, true);
+    w.stop = () => window.removeEventListener('pointerdown', on, true);
+    window.__editorSuitePress = w;
+    return true;
+  })(() => (${target}))`;
+}
+
+const PRESS_LANDED = `(() => { const w = window.__editorSuitePress || {}; return { landed: w.landed === undefined ? null : w.landed, hit: !!w.hit }; })()`;
+
+// stillness reads whether an animation runs on the target or on anything holding
+// it, or null where the target is not drawn.
+function stillness(target: string): string {
+  return `(() => {
+    const t = (${target});
+    if (!t) { return null; }
+    for (let e = t; e; e = e.parentElement) {
+      if (typeof e.getAnimations === 'function' && e.getAnimations().some((a) => a.playState === 'running')) { return false; }
+    }
+    return true;
+  })()`;
+}
+
+// pressConfirmed presses the target `aim` names at the point `site` reads, once
+// that point stands still, and answers with the point pressed.
+export async function pressConfirmed(driver: UiDriver, aim: Aim, site: () => Promise<PressSite>): Promise<{ x: number; y: number }> {
+  const inDoc = <T>(expression: string): Promise<T> => (aim.doc === null ? driver.workbench<T>(expression) : evaluateWithin<T>(aim.doc, expression, 5000));
+  const misses: string[] = [];
+  let pressed: { x: number; y: number } | null = null;
+  for (let attempt = 1; attempt <= PRESS_ATTEMPTS; attempt++) {
+    if (pressed !== null && (await inDoc<Landed>(PRESS_LANDED)).hit) { return pressed; }
+    let before: string | null = null;
+    const reading = await until(`${aim.what} drawn and standing still where it is pressed`, 10000, async () => {
+      const s = await site();
+      const still = s === null || 'blocked' in s ? null : await inDoc<boolean | null>(stillness(aim.target));
+      const key = s !== null && !('blocked' in s) && still === true ? `${Math.round(s.x * 2)},${Math.round(s.y * 2)}` : null;
+      const same = key !== null && key === before;
+      before = key;
+      return { s, still, same };
+    }, (v) => v.same, 100);
+    const at = reading.s as { x: number; y: number };
+    await inDoc(pressWatch(aim.target));
+    if (aim.doc !== null) { await driver.workbench(pressWatch('null')); }
+    await driver.click(at);
+    pressed = at;
+    const w = await inDoc<Landed>(PRESS_LANDED);
+    if (w.hit) { return at; }
+    if (w.landed !== null) {
+      misses.push(w.landed);
+    } else {
+      const outside = aim.doc === null ? null : await driver.workbench<Landed>(PRESS_LANDED);
+      misses.push(outside !== null && outside.landed !== null ? `the workbench's ${outside.landed}` : 'nothing in the document it is drawn in');
+    }
+  }
+  if (pressed !== null && (await inDoc<Landed>(PRESS_LANDED)).hit) { return pressed; }
+  throw new Error(`the press on ${aim.what} landed on ${misses.join(', then on ')}, and never on it`);
+}
+
+// selectorTarget is the target expression for the first element `selector`
+// matches.
+export function selectorTarget(selector: string): string {
+  return `document.querySelector(${JSON.stringify(selector)})`;
 }
 
 // ---- webview panels ----------------------------------------------------------
 
-// within settles as `p` does, or refuses once `boundMs` has passed without it
+// within settles as `p` does, or refuses once capOf(bound) has passed without it
 // settling, naming `what` did not finish.
-export function within<T>(p: Promise<T>, boundMs: number, what: string): Promise<T> {
+export function within<T>(p: Promise<T>, bound: Bound, what: string): Promise<T> {
   let timer: NodeJS.Timeout | undefined;
+  const capMs = capOf(bound);
   const expired = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`${what} did not finish within ${boundMs} ms`)), boundMs);
+    timer = setTimeout(() => { ranOut(what, capMs, bound, 'no answer'); reject(new Error(`${what} did not finish within ${capMs} ms`)); }, capMs);
   });
   return Promise.race([p, expired]).finally(() => clearTimeout(timer));
 }
 
 // evaluateWithin evaluates `expression` in a webview document, refusing once
-// `boundMs` has passed without an answer. A document that runs no script may
+// capOf(bound) has passed without an answer. A document that runs no script may
 // never answer an evaluation made in it, and an unbounded one would hold the
 // whole scenario on it.
-export function evaluateWithin<T>(doc: WebviewDocument, expression: string, boundMs: number): Promise<T> {
-  return within(doc.evaluate<T>(expression), boundMs, `an evaluation in the document at ${doc.url.slice(0, 80)}`);
+export function evaluateWithin<T>(doc: WebviewDocument, expression: string, bound: Bound): Promise<T> {
+  return within(doc.evaluate<T>(expression), bound, `an evaluation in the document at ${doc.url.slice(0, 80)}`);
+}
+
+// DOCUMENT_ANSWER_MS is how long each webview document is given to answer an
+// evaluation made in every document drawn.
+//
+// 🔴 IT IS A STATED WINDOW, NOT A GUARD, BECAUSE A DOCUMENT THAT RUNS NO SCRIPT
+// NEVER ANSWERS. Such a document is part of what the editor draws, so a guard on
+// it would be paid in full on every look a correct editor answers; a document
+// silent for the window counts as answering nothing for that look, and a wait
+// built on the look reads again.
+export const DOCUMENT_ANSWER_MS = 2000;
+
+// answersIn evaluates `expression` in every webview document drawn now and lists
+// each document with its answer, leaving out a document being replaced and one
+// that gave no answer within DOCUMENT_ANSWER_MS.
+export async function answersIn<T>(driver: UiDriver, expression: string): Promise<{ doc: WebviewDocument; value: T }[]> {
+  const out: { doc: WebviewDocument; value: T }[] = [];
+  for (const doc of await driver.webviews()) {
+    try { out.push({ doc, value: await evaluateWithin<T>(doc, expression, stated(DOCUMENT_ANSWER_MS)) }); } catch { /* a document being replaced, or one that does not answer */ }
+  }
+  return out;
+}
+
+// documentsAnswering lists the webview documents drawn now for which `probe`
+// evaluates true.
+async function documentsAnswering(driver: UiDriver, probe: string): Promise<WebviewDocument[]> {
+  return (await answersIn<boolean>(driver, probe)).filter((a) => a.value).map((a) => a.doc);
+}
+
+// documentNow is the one webview document for which `probe` evaluates true as the
+// editor stands, or null where there is none, or more than one; it waits for
+// nothing to be drawn, so it is the reading behind "is one open".
+export async function documentNow(driver: UiDriver, probe: string): Promise<WebviewDocument | null> {
+  const hits = await documentsAnswering(driver, probe);
+  return hits.length === 1 ? hits[0] : null;
 }
 
 // documentWith finds the one webview document for which `probe` evaluates true,
-// waiting for it to be drawn. A document that gives no answer within 2 s counts
-// as not being the one.
-export async function documentWith(driver: UiDriver, what: string, probe: string, boundMs: number): Promise<WebviewDocument> {
+// waiting for it to be drawn.
+export async function documentWith(driver: UiDriver, what: string, probe: string, bound: Bound): Promise<WebviewDocument> {
   let found: WebviewDocument | null = null;
-  await until(what, boundMs, async () => {
-    const hits: WebviewDocument[] = [];
-    for (const d of await driver.webviews()) {
-      try { if (await evaluateWithin<boolean>(d, probe, 2000)) { hits.push(d); } } catch { /* a document being replaced, or one that does not answer */ }
-    }
+  await until(what, bound, async () => {
+    const hits = await documentsAnswering(driver, probe);
     found = hits.length === 1 ? hits[0] : null;
     return hits.length;
   }, (n) => n === 1);
@@ -264,8 +548,8 @@ export async function documentWith(driver: UiDriver, what: string, probe: string
 // COMMANDS_PANEL is what identifies the Commands panel's document: its buttons.
 export const COMMANDS_PANEL = `document.querySelectorAll('button.op[data-command]').length > 0`;
 
-export function commandsPanel(driver: UiDriver, boundMs = 30000): Promise<WebviewDocument> {
-  return documentWith(driver, 'the Commands panel drawing its buttons', COMMANDS_PANEL, boundMs);
+export function commandsPanel(driver: UiDriver, bound: Bound = 30000): Promise<WebviewDocument> {
+  return documentWith(driver, 'the Commands panel drawing its buttons', COMMANDS_PANEL, bound);
 }
 
 // SelectorRow is one of the Commands panel's context rows as drawn.
@@ -302,18 +586,22 @@ export function centre(b: Box): { x: number; y: number } {
 }
 
 // pressIn presses the element `selector` matches in `doc` (the workbench where
-// null) where a person would, and refuses where it is not drawn. An element a
-// panel has scrolled out of sight is scrolled into it first, as a person scrolls
-// to a button before pressing it: a press at the coordinates of a hidden element
-// lands on whatever is drawn there instead.
+// null) where a person would, through `pressConfirmed`, and refuses where it is
+// not drawn. An element a panel has scrolled out of sight is scrolled into it
+// first, as a person scrolls to a button before pressing it: a press at the
+// coordinates of a hidden element lands on whatever is drawn there instead.
 export async function pressIn(driver: UiDriver, doc: WebviewDocument | null, selector: string): Promise<Box> {
   if (doc !== null) {
     await doc.evaluate(`((s) => { const e = document.querySelector(s); if (e) { e.scrollIntoView({ block: 'nearest', inline: 'nearest' }); } return !!e; })(${JSON.stringify(selector)})`);
   }
-  const b = await until(`${selector} being drawn`, 10000, () => driver.box(doc, selector), (v) => v !== null && v.width > 0 && v.height > 0);
-  if (b === null) { throw new Error(`unreachable: ${selector}`); }
-  await driver.click(centre(b));
-  return b;
+  const read: { box: Box | null } = { box: null };
+  await pressConfirmed(driver, { doc, target: selectorTarget(selector), what: selector }, async () => {
+    const b = await driver.box(doc, selector);
+    read.box = b;
+    return b !== null && b.width > 0 && b.height > 0 ? centre(b) : null;
+  });
+  if (read.box === null) { throw new Error(`unreachable: ${selector}`); }
+  return read.box;
 }
 
 export async function hoverIn(driver: UiDriver, doc: WebviewDocument | null, selector: string): Promise<Box> {
@@ -375,8 +663,8 @@ export class OutputLog {
     return f === mark.file ? text.slice(mark.length) : text;
   }
 
-  waitFor(what: string, mark: { file: string | null; length: number }, done: (text: string) => boolean, boundMs: number): Promise<string> {
-    return until(what, boundMs, async () => this.since(mark), done, 200);
+  waitFor(what: string, mark: { file: string | null; length: number }, done: (text: string) => boolean, bound: Bound): Promise<string> {
+    return until(what, bound, async () => this.since(mark), done, 200);
   }
 }
 
@@ -403,8 +691,8 @@ export function quickInput(driver: UiDriver): Promise<QuickInput | null> {
   return driver.workbench<QuickInput | null>(QUICK_INPUT);
 }
 
-export function waitQuickInput(driver: UiDriver, what: string, done: (q: QuickInput) => boolean, boundMs = 10000): Promise<QuickInput> {
-  return until(what, boundMs, () => quickInput(driver), (q) => q !== null && done(q)) as Promise<QuickInput>;
+export function waitQuickInput(driver: UiDriver, what: string, done: (q: QuickInput) => boolean, bound: Bound = 10000): Promise<QuickInput> {
+  return until(what, bound, () => quickInput(driver), (q) => q !== null && done(q)) as Promise<QuickInput>;
 }
 
 // pickQuickInputRow presses the drawn row whose label is `label`.
@@ -733,9 +1021,42 @@ export async function pressPanelAction(driver: UiDriver, title: string, label: s
   if (!row) { throw new Error(`the ${title} view draws no "${label}" row`); }
   if (row.level !== 1) { throw new Error(`the ${title} view draws "${label}" at level ${row.level}, not at its head`); }
   if (row.description !== '') { throw new Error(`the ${title} view's "${label}" row cannot run: ${row.description}`); }
-  const at = await treeRowCentre(driver, title, label);
-  if (at === null) { throw new Error(`the ${title} view's "${label}" row is not drawn where it can be pressed`); }
-  await driver.click(at);
+  if ((await treeRowCentre(driver, title, label)) === null) { throw new Error(`the ${title} view's "${label}" row is not drawn where it can be pressed`); }
+  const target = treeRowTarget(title, label);
+  await pressConfirmed(driver, { doc: null, target, what: `the "${label}" row of the ${title} view` }, () => driver.workbench<PressSite>(uncoveredMiddle(target)));
+}
+
+// treeRowTarget is the target expression for the drawn row labelled `label` in
+// the side-bar view titled `title`.
+function treeRowTarget(title: string, label: string): string {
+  return `((title, label) => {
+    for (const pane of document.querySelectorAll('.pane')) {
+      const h = pane.querySelector('.pane-header');
+      const t = h ? ((h.querySelector('h3.title, .title') || {}).innerText || '').trim() : '';
+      if (t.toLowerCase() !== title.toLowerCase()) { continue; }
+      for (const r of pane.querySelectorAll('.pane-body .monaco-list-row')) {
+        if (((r.querySelector('.label-name') || {}).innerText || '').trim() === label && r.getBoundingClientRect().height > 0) { return r; }
+      }
+    }
+    return null;
+  })(${JSON.stringify(title)}, ${JSON.stringify(label)})`;
+}
+
+// uncoveredMiddle reads where a workbench target is pressed — its middle, or the
+// point `dx` in from its left edge — or why it cannot be pressed there yet: not
+// drawn, or with something else drawn over that point, as a view sliding into
+// place is drawn over the rows of the one above it.
+function uncoveredMiddle(target: string, dx?: number): string {
+  return `(() => {
+    const t = (${target});
+    if (!t) { return null; }
+    const r = t.getBoundingClientRect();
+    if (r.width === 0 || r.height === 0) { return null; }
+    const x = ${dx === undefined ? 'r.x + r.width / 2' : `r.x + ${dx}`}, y = r.y + r.height / 2;
+    const top = document.elementFromPoint(x, y);
+    if (top && top !== t && !t.contains(top)) { return { blocked: 'covered by ' + top.tagName.toLowerCase() + (typeof top.className === 'string' && top.className ? '.' + top.className.trim().split(/\\s+/)[0] : '') }; }
+    return { x, y };
+  })()`;
 }
 
 // PaneState is one side-bar view as drawn: whether it was found, whether its
@@ -762,18 +1083,15 @@ export function paneState(driver: UiDriver, title: string): Promise<PaneState> {
 
 // pressPaneHeader presses the header of the side-bar view titled `title` where a
 // person presses it to fold or unfold the view: on its title, clear of the
-// actions the header draws at its right.
+// actions the header draws at its right, through `pressConfirmed`.
 export async function pressPaneHeader(driver: UiDriver, title: string): Promise<void> {
-  const at = await until(`the "${title}" view's header`, 10000, () => driver.workbench<{ x: number; y: number } | null>(`((t) => {
+  const target = `((t) => {
     for (const h of document.querySelectorAll('#workbench\\\\.parts\\\\.sidebar .pane-header')) {
-      if (((h.querySelector('h3.title') || {}).innerText || '').trim().toLowerCase() === t.toLowerCase()) {
-        const r = h.getBoundingClientRect(); return { x: r.x + 40, y: r.y + r.height / 2 };
-      }
+      if (((h.querySelector('h3.title') || {}).innerText || '').trim().toLowerCase() === t.toLowerCase()) { return h; }
     }
     return null;
-  })(${JSON.stringify(title)})`), (v) => v !== null);
-  if (at === null) { throw new Error(`unreachable: the "${title}" view's header`); }
-  await driver.click(at);
+  })(${JSON.stringify(title)})`;
+  await pressConfirmed(driver, { doc: null, target, what: `the "${title}" view's header` }, () => driver.workbench<PressSite>(uncoveredMiddle(target, 40)));
 }
 
 // ---- the list panels as they are drawn over time -----------------------------

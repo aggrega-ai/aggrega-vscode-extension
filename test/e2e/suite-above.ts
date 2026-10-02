@@ -14,9 +14,9 @@ import { referenceAnswer } from './reference';
 import { capture, closeAllEditors, open, ready, run, save, send, SuiteContext, theServer } from './suite-context';
 import { entityNames, pressViewAction } from './suite-storefront';
 import {
-  centre, commandsPanel, describeRowMenu, dialog, documentWith, holds, observeWorkbench, operationButtons, pickQuickInputRow, pressDialogButton, pressIn,
-  pressMenuItem, pressOperation, pressPanelAction, pressToastButton, quickInput, rowMenu, RUNNING, selectorRows, sleep, toasts,
-  toastsSince, treeRows, until, waitQuickInput, waitStatus, waitToast,
+  centre, commandsPanel, describeRowMenu, dialog, documentWith, guard, holds, observeWorkbench, operationButtons, pickQuickInputRow, pressDialogButton, pressIn,
+  pressMenuItem, pressOperation, pressPanelAction, pressToastButton, quickInput, rowMenu, RUNNING, selectorRows, sleep, standsStill, toasts,
+  toastsGone, toastsSince, treeRows, until, waitQuickInput, waitStatus, waitToast,
 } from './workbench';
 
 // The checks run in a folder whose Aggrega workspace is the folder above it:
@@ -325,8 +325,7 @@ export async function aboveChecks(ctx: SuiteContext, layout: { root: string; ref
     plant: 'in the scratch copy, out/src/operations-render.js with the chevron taken out of the walk',
   }, async () => {
     await run(ctx, 'aggrega.operations.focus');
-    await sleep(300);
-    const focused = await panel.evaluate<boolean>(`(() => { const b = document.querySelector(${JSON.stringify(BUILD)}); if (!b) { return false; } b.focus(); return document.activeElement === b; })()`);
+    const focused = await until('Build holding the focus', 3000, () => panel.evaluate<boolean>(`(() => { const b = document.querySelector(${JSON.stringify(BUILD)}); if (!b) { return false; } b.focus(); return document.activeElement === b; })()`), (v) => v).then(() => true, () => false);
     need(focused, 'Build could not be given the focus');
     await ctx.d.press('ArrowRight');
     const onCaret = await until('the focus reaching the chevron', 3000, () => panel.evaluate<boolean>(`document.activeElement === document.querySelector(${JSON.stringify(CARET)})`), (v) => v).then(() => true, () => false);
@@ -521,7 +520,7 @@ export async function aboveChecks(ctx: SuiteContext, layout: { root: string; ref
     need(control, 'its positive control did not fire: a terminal the editor\'s own command opened was not listed, so the reading is not shown to see one');
     return {
       passed: panelsPull && ending === pullEnding(releaseRel) && progress && announced && back && noTerminal.held,
-      seen: `the channel: ${JSON.stringify(dollarLine)} … ${JSON.stringify(ending)}; the progress notification ${progress ? 'drawn' : 'not drawn'}, the ending ${announced ? 'raised as a notification' : 'not raised as a notification'} (drawn since the press: ${JSON.stringify(drawn.map((t) => t.message.slice(0, 120)))}); the lockfile ${back ? 'is back beside the Release' : 'is not back'}; terminals: ${terminalsBefore} before the press, ${noTerminal.held ? 'no more after the pull (watched 3 s)' : `${JSON.stringify(noTerminal.broke)} at ${noTerminal.atMs} ms`}; the control listed the editor's own terminal; the notifications ${settled ? 'settled' : 'had not settled within 15000 ms'} before the press, drawn then ${JSON.stringify(drawnBefore)} (${shotBefore}), and 1.5 s after it ${JSON.stringify(drawnAfter)} (${shotAfter})`,
+      seen: `the channel: ${JSON.stringify(dollarLine)} … ${JSON.stringify(ending)}; the progress notification ${progress ? 'drawn' : 'not drawn'}, the ending ${announced ? 'raised as a notification' : 'not raised as a notification'} (drawn since the press: ${JSON.stringify(drawn.map((t) => t.message.slice(0, 120)))}); the lockfile ${back ? 'is back beside the Release' : 'is not back'}; terminals: ${terminalsBefore} before the press, ${noTerminal.held ? 'no more after the pull (watched 3 s)' : `${JSON.stringify(noTerminal.broke)} at ${noTerminal.atMs} ms`}; the control listed the editor's own terminal; the notifications ${settled ? 'settled' : `had not settled within ${guard(15000)} ms`} before the press, drawn then ${JSON.stringify(drawnBefore)} (${shotBefore}), and 1.5 s after it ${JSON.stringify(drawnAfter)} (${shotAfter})`,
       evidence: { drawnBefore, drawnAfter, shotBefore, shotAfter, channel: text.slice(0, 4000) },
     };
   });
@@ -537,7 +536,7 @@ export async function aboveChecks(ctx: SuiteContext, layout: { root: string; ref
     // A notice still open would close later and count as one just shown, so every
     // notification is closed before the restart that clears the record.
     await run(ctx, 'notifications.clearAll').catch(() => undefined);
-    await sleep(1500);
+    await toastsGone(ctx.d);
     const before = await theServer(ctx);
     await send(ctx, RESTART_COMMAND);
     await theServer(ctx, 30000, before.pid);
@@ -558,7 +557,7 @@ export async function aboveChecks(ctx: SuiteContext, layout: { root: string; ref
       // for a save's.
       const moved = await ctx.out.waitFor('the graph redrawn after the lockfile moved', mark, (t) => GRAPH_REFUSED.test(t), 15000).then(() => true, () => false);
       await sleep(1000);
-      saves.push(`the move: ${moved ? 'the redraw refused' : 'no refused redraw within 15000 ms'}, ${await noticesSoFar()} notice(s) so far`);
+      saves.push(`the move: ${moved ? 'the redraw refused' : `no refused redraw within ${guard(15000)} ms`}, ${await noticesSoFar()} notice(s) so far`);
       for (const n of [1, 2]) {
         const saveMark = ctx.out.mark();
         await open(ctx, doc);
@@ -571,7 +570,7 @@ export async function aboveChecks(ctx: SuiteContext, layout: { root: string; ref
         const refused = await ctx.out.waitFor(`the redraw after save ${n} refused`, saveMark, (t) => GRAPH_REFUSED.test(t), 30000).then(() => true, () => false);
         refusedEach = refusedEach && refused;
         await sleep(1000);
-        saves.push(`save ${n}: ${refused ? 'the redraw refused' : 'no refused redraw within 30000 ms'}, ${await noticesSoFar()} notice(s) so far`);
+        saves.push(`save ${n}: ${refused ? 'the redraw refused' : `no refused redraw within ${guard(30000)} ms`}, ${await noticesSoFar()} notice(s) so far`);
       }
       await sleep(2000);
     } finally {
@@ -677,11 +676,13 @@ export async function aboveChecks(ctx: SuiteContext, layout: { root: string; ref
     // Each operation's ending is the notification it closes on; the two with
     // none are watched for 5 s. Each is pressed where it is drawn: the first
     // five on the Commands panel, the search at the head of the Catalog panel.
+    // Every editor is closed after each, so Validate is pressed with no file in
+    // front and ends asking for one.
     const ops: [string, string, RegExp | null][] = [
       ['Build', 'aggrega.op.build', /^Aggrega: built |^The build /],
       ['Preview', 'aggrega.op.preview', /^Aggrega: a build of |^The preview /],
       ['Lint', 'aggrega.op.lint', /^Aggrega lint: /],
-      ['Validate', 'aggrega.op.validate', /^Aggrega: validated |^The validation /],
+      ['Validate', 'aggrega.op.validate', /^Aggrega: validated |^The validation |^Aggrega: open a YAML file to validate\./],
       ['Show config', 'aggrega.config.open', null],
       ['Search catalog', 'aggrega.catalog.searchPublished', null],
     ];
@@ -747,7 +748,7 @@ export async function dragSash(ctx: SuiteContext, dx: number): Promise<void> {
   })()`);
   need(sash !== null, 'no sash at the side bar\'s edge');
   await ctx.d.drag(sash, { x: sash.x + dx, y: sash.y }, 6);
-  await sleep(500);
+  await standsStill('the side bar coming to rest after the drag', 5000, () => ctx.d.workbench<number>('Math.round(document.getElementById(\'workbench.parts.sidebar\').getBoundingClientRect().width)'));
 }
 
 // The row at the head of the Plugins panel that generates Plugin entities, and

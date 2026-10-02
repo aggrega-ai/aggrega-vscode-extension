@@ -30,7 +30,7 @@ import {
   clearForCapture, commandsTitleActions,
 } from './welcome';
 import {
-  commandsPanel, holds, NOT_RUNNING, paletteRows, pickQuickInputRow, pressIn, quickInput, RUNNING, statusItems, statusLog, Toast, toasts, toastsSince, until, waitQuickInput, waitStatus,
+  commandsPanel, guard, holds, NOT_RUNNING, paletteRows, pickQuickInputRow, pressIn, quickInput, RUNNING, stated, statusItems, statusLog, Toast, toasts, toastsSince, until, waitQuickInput, waitStatus,
   waitToast,
 } from './workbench';
 
@@ -158,7 +158,7 @@ export async function addFromThePage(ctx: SuiteContext, host: string): Promise<P
   if (question) { await closeChooser(ctx.d); }
   const readSince = async (): Promise<string> => describeReadings((await statusLog(ctx.d)).slice(statusAt));
   const server = ending === null ? { back: false, readings: await readSince() } : await runningAgain(ctx, statusAt, 60000)
-    .then((v) => ({ back: true, readings: describeReadings(v) }), async () => ({ back: false, readings: `${await readSince()}, not running again within 60000 ms` }));
+    .then((v) => ({ back: true, readings: describeReadings(v) }), async () => ({ back: false, readings: `${await readSince()}, not running again within ${guard(60000)} ms` }));
   return { prompt, destination, question, ending, pickers: await pickers(), server };
 }
 
@@ -404,7 +404,7 @@ export async function welcomeEmptyFolderChecks(ctx: SuiteContext, opts: { regist
     const none = await holds(SETTLE_MS, () => chooser(ctx.d), (x) => x === null);
     await closeChooser(ctx.d);
     const drawn = none.broke ?? null;
-    return { passed: told?.message === NOTHING_TO_CHOOSE && none.held, seen: `${told === null ? 'no notification within 15000 ms' : `"${told.message}"`}; ${none.held ? `no quick input at any of ${none.readings} readings over ${SETTLE_MS} ms` : `a quick input drawn ${none.atMs} ms in: ${JSON.stringify(drawn === null ? null : { placeholder: drawn.placeholder, rows: drawn.rows.length })}`}` };
+    return { passed: told?.message === NOTHING_TO_CHOOSE && none.held, seen: `${told === null ? `no notification within ${guard(15000)} ms` : `"${told.message}"`}; ${none.held ? `no quick input at any of ${none.readings} readings over ${SETTLE_MS} ms` : `a quick input drawn ${none.atMs} ms in: ${JSON.stringify(drawn === null ? null : { placeholder: drawn.placeholder, rows: drawn.rows.length })}`}` };
   });
 
   const config = path.join(ctx.folder, CONFIG_FILENAME);
@@ -481,7 +481,7 @@ export async function welcomeEmptyFolderChecks(ctx: SuiteContext, opts: { regist
     await closeChooser(ctx.d);
     return {
       passed: first[0].message.startsWith(NAME_PROMPT) && first[0].rows === 0,
-      seen: `the quick inputs drawn after ${opened.presses} press(es) (${pressed}): ${JSON.stringify(all)}; ${named ? 'the name prompt among them' : 'no name prompt among them within 3000 ms of the first'}`,
+      seen: `the quick inputs drawn after ${opened.presses} press(es) (${pressed}): ${JSON.stringify(all)}; ${named ? 'the name prompt among them' : `no name prompt among them within ${guard(3000)} ms of the first`}`,
     };
   });
 
@@ -514,7 +514,7 @@ export async function welcomeEmptyFolderChecks(ctx: SuiteContext, opts: { regist
     seeded = held[host];
     return {
       passed: ending !== null && ending.message.startsWith(`${SEEDING_SUBJECT} registered ${host} in ${global}`) && seeded && step.badge === STANDING_MET && drawnValue(step)?.text === `${SELECTED_LEAD}${host}`,
-      seen: `the prompt ${JSON.stringify({ title: prompt.title, placeholder: prompt.placeholder })}, opened by ${asked.presses} press(es) (${pressed}); ${ending === null ? 'no ending within 60000 ms' : `"${ending.message}"`}; ${global} holds an entry for ${JSON.stringify(held)}; the registry step reads ${step.badge} with ${JSON.stringify(drawnValue(step)?.text ?? null)}`,
+      seen: `the prompt ${JSON.stringify({ title: prompt.title, placeholder: prompt.placeholder })}, opened by ${asked.presses} press(es) (${pressed}); ${ending === null ? `no ending within ${guard(60000)} ms` : `"${ending.message}"`}; ${global} holds an entry for ${JSON.stringify(held)}; the registry step reads ${step.badge} with ${JSON.stringify(drawnValue(step)?.text ?? null)}`,
     };
   });
 
@@ -577,7 +577,7 @@ export async function welcomeEmptyFolderChecks(ctx: SuiteContext, opts: { regist
       passed: a.prompt !== null && a.prompt.message.startsWith(HOST_PROMPT) && a.destination !== null && a.destination.placeholder === REGISTRATION_DESTINATION_PROMPT
         && JSON.stringify(a.destination.rows.map((r) => r.label)) === JSON.stringify(ADD_DESTINATIONS)
         && a.ending !== null && a.ending.message.startsWith(`${REGISTRATION_SUBJECT} registered ${ADDED_HOST} in ${global}`) && listed.includes(ADDED_HOST) && held[ADDED_HOST] && held[host],
-      seen: `the prompt ${a.prompt === null ? 'not drawn' : JSON.stringify({ title: a.prompt.title, message: a.prompt.message })}; the choice ${a.destination === null ? 'not drawn' : JSON.stringify({ placeholder: a.destination.placeholder, rows: a.destination.rows.map((r) => r.label) })}; ${a.question ? 'a question for a trust policy followed and was pressed away' : 'no question followed'}; ${a.ending === null ? 'no ending within 60000 ms' : `"${a.ending.message}"`}; the status bar read ${a.server.readings} from the press; the Registries panel lists ${JSON.stringify(listed)}; the file holds an entry for ${JSON.stringify(held)}`,
+      seen: `the prompt ${a.prompt === null ? 'not drawn' : JSON.stringify({ title: a.prompt.title, message: a.prompt.message })}; the choice ${a.destination === null ? 'not drawn' : JSON.stringify({ placeholder: a.destination.placeholder, rows: a.destination.rows.map((r) => r.label) })}; ${a.question ? 'a question for a trust policy followed and was pressed away' : 'no question followed'}; ${a.ending === null ? `no ending within ${guard(60000)} ms` : `"${a.ending.message}"`}; the status bar read ${a.server.readings} from the press; the Registries panel lists ${JSON.stringify(listed)}; the file holds an entry for ${JSON.stringify(held)}`,
     };
   });
 
@@ -590,7 +590,7 @@ export async function welcomeEmptyFolderChecks(ctx: SuiteContext, opts: { regist
     const order = [host, ADDED_HOST].filter((h) => listing.stdout.includes(h)).sort((a, b) => listing.stdout.indexOf(a) - listing.stdout.indexOf(b));
     const want = `${SELECTED_LEAD}${order.join(', ')}`;
     const doc = await welcomePage(ctx);
-    await until('the registry step naming every host', Math.max(0, addedAt + 20000 - Date.now()), async () => stepOf(await readPage(doc), 'registry'), (s) => drawnValue(s)?.text === want).catch(() => undefined);
+    await until('the registry step naming every host', stated(Math.max(0, addedAt + 20000 - Date.now())), async () => stepOf(await readPage(doc), 'registry'), (s) => drawnValue(s)?.text === want).catch(() => undefined);
     const log = await pageReadings(doc, addWatch);
     const moved = log.find((r) => r.at >= addedAt - 5000 && (r.steps.find((s) => s.id === 'registry')?.value ?? '') === want);
     const now = stepOf(await readPage(doc), 'registry');
@@ -687,7 +687,7 @@ export async function welcomeEmptyFolderChecks(ctx: SuiteContext, opts: { regist
       return i >= 0 && v.slice(i + 1).some((r) => r.reading === RUNNING);
     }).catch(() => undefined);
     const doc = await welcomePage(ctx);
-    await until('the compiler reading naming the chosen binary', 20000, async () => (await readPage(doc)).versions, (x) => x.length === 2 && x[1].value === theirs).catch(() => undefined);
+    await until('the compiler reading naming the chosen binary', stated(20000), async () => (await readPage(doc)).versions, (x) => x.length === 2 && x[1].value === theirs).catch(() => undefined);
     const status = await statusTexts(ctx);
     const countdown = status.filter((r) => /restarting in/.test(r.reading));
     const back = status.find((r) => countdown.length > 0 && r.at > countdown[countdown.length - 1].at && r.reading === RUNNING);
@@ -921,7 +921,7 @@ export async function welcomeEmptyFolderChecks(ctx: SuiteContext, opts: { regist
     const labels = offered.rows.map((r) => `${r.label} / ${r.detail}`);
     return {
       passed: offered.rows.some((r) => r.label === base && r.detail === CONFIG_FILENAME) && offered.rows.some((r) => r.label === RECOGNISED_BENEATH && r.detail === CONFIG_FILENAME) && rows[1]?.value === RECOGNISED_BENEATH && srv !== null,
-      seen: `offered ${JSON.stringify(labels)}; the window ${change === null ? 'did not change within 30000 ms' : `${change.restarted ? 'restarted its extensions' : 'did not restart its extensions'}${change.reloaded ? ' and reloaded' : ''}`}; the rows ${JSON.stringify(rows.slice(0, 3).map((r) => `${r.label}: ${r.value}`))}; ${srv === null ? `no language server works in ${RECOGNISED_BENEATH}` : `a language server works in ${srv.cwd}`}`,
+      seen: `offered ${JSON.stringify(labels)}; the window ${change === null ? `did not change within ${guard(30000)} ms` : `${change.restarted ? 'restarted its extensions' : 'did not restart its extensions'}${change.reloaded ? ' and reloaded' : ''}`}; the rows ${JSON.stringify(rows.slice(0, 3).map((r) => `${r.label}: ${r.value}`))}; ${srv === null ? `no language server works in ${RECOGNISED_BENEATH}` : `a language server works in ${srv.cwd}`}`,
     };
   });
 }

@@ -23,7 +23,7 @@ import { referenceAnswer } from './reference';
 import { capture, describeDiagnostics, diagnostics, lineIn, open, ready, run, save, SuiteContext, theServer } from './suite-context';
 import { contextRowsCheck } from './suite-gateway';
 import { ADMIN, CACHE, GATEWAY, RELEASE, staleDrawing, yamlOf } from './suite-graph-panel';
-import { commandsPanel, holds, pressOperation, toasts, toastsSince, until, WaitExpired } from './workbench';
+import { Bound, commandsPanel, guard, holds, pressOperation, stated, toasts, toastsSince, until, WaitExpired } from './workbench';
 
 // The checks run in the storefront folder with the topology graph open: what the
 // first drawing measures — the whole topology framed to the panel, no two labels
@@ -255,8 +255,8 @@ async function componentDrawn(doc: WebviewDocument, node: string): Promise<strin
 
 // redrawn waits for the drawing after `renders` to write `component` beneath
 // `node`, and returns how many drawings the canvas was then given.
-async function redrawn(doc: WebviewDocument, renders: number, node: string, component: string, what: string, boundMs = 30000): Promise<number> {
-  const s = await until(what, boundMs, async () => ({ renders: (await graphState(doc)).renders, component: await componentDrawn(doc, node) }),
+async function redrawn(doc: WebviewDocument, renders: number, node: string, component: string, what: string, bound: Bound = 30000): Promise<number> {
+  const s = await until(what, bound, async () => ({ renders: (await graphState(doc)).renders, component: await componentDrawn(doc, node) }),
     (v) => v.renders > renders && v.component === component);
   return s.renders;
 }
@@ -275,26 +275,25 @@ async function zoomInto(ctx: SuiteContext, doc: WebviewDocument, node: string, t
 }
 
 // drawingsSettle waits until the canvas has been given no new drawing for
-// `quietMs`, within `boundMs`, and returns how many it had been given then.
+// `quietMs`, within guard(boundMs), and returns how many it had been given then.
 async function drawingsSettle(doc: WebviewDocument, quietMs = 2000, boundMs = 30000): Promise<number> {
-  const end = Date.now() + boundMs;
+  const capMs = guard(boundMs);
+  const end = Date.now() + capMs;
   let count = (await graphState(doc)).renders;
   for (;;) {
     const watch = await holds(quietMs, async () => (await graphState(doc)).renders, (v) => v === count);
     if (watch.held) { return count; }
     count = watch.broke as number;
-    if (Date.now() >= end) { throw new WaitExpired('the drawings settling', boundMs, `${count} drawings, the last within ${quietMs} ms`); }
+    if (Date.now() >= end) { throw new WaitExpired('the drawings settling', capMs, `${count} drawings, the last within ${quietMs} ms`); }
   }
 }
 
 // pressedDrawing presses Graph over an open panel and waits for the drawing that
-// press laid out. showGraph waits for the canvas to be given any drawing after
-// the press, and a redraw nobody pressed for — the later of two a save brought
-// about — can be that drawing, and can take the press's notice down, while the
-// press's own drawing is still on its way. So the press is waited on in two
-// parts: the notice it alone puts up, recorded by the observer installed before
-// it, coming down over a drawing; then no further drawing for a while, so the
-// press's own is the last to have landed.
+// press laid out, in three parts: showGraph's own wait, for a drawing made after
+// the extension sent one the reader asked for; the notice the press alone puts up,
+// recorded by the observer installed before it, coming down over a drawing; and no
+// further drawing for a while, so that a redraw nobody pressed for — the later of
+// two a save brought about — still on its way is not read as the drawing in place.
 async function pressedDrawing(ctx: SuiteContext, panel: WebviewDocument): Promise<WebviewDocument> {
   const from = await watchNotice(panel);
   const d = await showGraph(ctx);
@@ -696,7 +695,7 @@ export async function graphDrawingChecks(ctx: SuiteContext, reference: string): 
     need(doc !== null && saveRedraw !== null, 'the Aggregate was not saved with the graph open');
     const renders = (await graphState(doc)).renders;
     fs.writeFileSync(aggregate, originalAggregate);
-    const after = await waited(redrawn(doc, renders, CACHE, componentOf(CACHE_TYPE), 'the drawing after the write from outside'));
+    const after = await waited(redrawn(doc, renders, CACHE, componentOf(CACHE_TYPE), 'the drawing after the write from outside', stated(30000)));
     return { passed: after.met, seen: after.met ? `drawn again writing ${componentOf(CACHE_TYPE)}` : `not drawn again (${after.missed}); ${CACHE} reads ${JSON.stringify(await componentDrawn(doc, CACHE))}` };
   });
 
@@ -1035,7 +1034,7 @@ export async function graphIdleChecks(ctx: SuiteContext): Promise<void> {
     const putRightAt = Date.now();
     const [drawn, left] = await Promise.all([
       waited(until('the drawing after the spelling is put right', 60000, () => graphState(doc), (s) => s.renders > closing)).then((w) => ({ w, t3: readStat(server.pid) })),
-      waited(until('the near-miss and the drift warning leaving', LEAVE_MS, filings, cleared)).then((w) => ({ w, ms: Date.now() - putRightAt })),
+      waited(until('the near-miss and the drift warning leaving', stated(LEAVE_MS), filings, cleared)).then((w) => ({ w, ms: Date.now() - putRightAt })),
     ]);
     leaving = left;
     const t3 = drawn.t3;

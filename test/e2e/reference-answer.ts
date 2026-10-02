@@ -22,12 +22,31 @@ import { DEFAULT_SETTINGS } from '../../src/settings';
 
 const HANDSHAKE = 'aggrega/initialize';
 
+// The client gives the server's handshake a bound of its own, which a busy
+// machine can outrun with a server that is starting correctly. A start that ran
+// out on that bound is made again, at most START_ATTEMPTS times in all, so the
+// answer a check reads does not depend on how busy the machine was.
+const START_ATTEMPTS = 3;
+const HANDSHAKE_RAN_OUT = 'initialize timeout';
+
+async function start(daemon: Daemon, root: string): Promise<void> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await daemon.start(root);
+      return;
+    } catch (err) {
+      if (attempt >= START_ATTEMPTS || !(err instanceof Error) || err.message !== HANDSHAKE_RAN_OUT) { throw err; }
+      await daemon.stop().catch(() => undefined);
+    }
+  }
+}
+
 async function main(): Promise<void> {
   const [binary, root, method, paramsJson, flag] = process.argv.slice(2);
   const daemon = new Daemon({ ...DEFAULT_SETTINGS, binaryPath: binary, buildOnInspect: flag === '--build-on-inspect', respawnAttempts: 0 });
   let out: unknown;
   try {
-    await daemon.start(root);
+    await start(daemon, root);
     const result = method === HANDSHAKE ? daemon.getServerInitMetadata() : await daemon.request(method as never, JSON.parse(paramsJson));
     out = { ok: true, result };
   } catch (err) {

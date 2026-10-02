@@ -5,13 +5,13 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { need } from './checks';
-import { capture, closeAllEditors, open, ready, run, SuiteContext, theServer } from './suite-context';
+import { capture, closeAllEditors, open, ready, run, serverNow, SuiteContext } from './suite-context';
 import { setBinaryPath } from './suite-killed';
 import { HOVER_NOT_RUNNING_ANCHORED, LIFECYCLE_PLACEHOLDER, lifecycleReadings, RESTART_ACTION, START_ACTION } from './suite-readiness';
 import { killServer, pressViewAction, STOPPED_RESPONDING } from './suite-storefront';
 import {
-  commandsPanel, hoverAt, NOT_RUNNING, pickQuickInputRow, quickInput, revealTreeRow, RUNNING, selectorRows, sleep, statusItems, statusNow, toasts, toastsSince,
-  treeRowCentre, treeRows, until, waitQuickInput, waitStatus,
+  commandsPanel, holds, hoverAt, NOT_RUNNING, pickQuickInputRow, quickInput, revealTreeRow, RUNNING, selectorRows, sleep, StatusItem, statusItems, statusNow, toasts,
+  toastsSince, treeRowCentre, treeRows, until, waitQuickInput, waitStatus,
 } from './workbench';
 
 // The checks run in a folder that is a workspace root and holds nothing else:
@@ -69,7 +69,7 @@ async function stopPastTheBound(ctx: SuiteContext): Promise<{ stopped: boolean; 
     await open(ctx, aggregate);
     const outcome = await until(`a restart or the stopped-responding notification after kill ${k}`, 20000, async () => {
       const notified = (await toastsSince(ctx.d, mark)).some((t) => t.message === STOPPED_RESPONDING);
-      const restarted = await theServer(ctx, 200, killed.pid).then(() => true, () => false);
+      const restarted = serverNow(ctx, killed.pid) !== null;
       return { notified, restarted };
     }, (v) => v.notified || v.restarted).catch(() => ({ notified: false, restarted: false }));
     if (outcome.notified) {
@@ -211,8 +211,7 @@ export async function emptyWorkspaceChecks(ctx: SuiteContext, missing: string): 
   }, async () => {
     need(bound.stopped, 'the language server could not be left stopped by ending it past the respawn bound');
     await closeAllEditors(ctx);
-    await sleep(5000);
-    const stillStopped = (await statusNow(ctx.d)) === NOT_RUNNING;
+    const stillStopped = (await holds(5000, () => statusNow(ctx.d), (v) => v === NOT_RUNNING)).held;
     const item = (await statusItems(ctx.d)).find((i) => i.text === NOT_RUNNING);
     need(item !== undefined, `the status bar draws no "${NOT_RUNNING}" item to press`);
     const mark = (await lifecycleReadings(ctx)).length;
@@ -221,8 +220,8 @@ export async function emptyWorkspaceChecks(ctx: SuiteContext, missing: string): 
     await waitQuickInput(ctx.d, 'the language server\'s list', (x) => x.placeholder === LIFECYCLE_PLACEHOLDER && x.rows.length > 0, 10000);
     await pickQuickInputRow(ctx.d, START_ACTION.label);
     const running = await waitStatus(ctx.d, RUNNING, 60000).then(() => true, () => false);
-    await sleep(500);
-    const now = (await statusItems(ctx.d)).find((i) => i.text === RUNNING);
+    const runningItem = async (): Promise<StatusItem | undefined> => (await statusItems(ctx.d)).find((i) => i.text === RUNNING);
+    const now = await until(`the "${RUNNING}" item drawn with the tick and out of the error colour`, 5000, runningItem, (i) => i !== undefined && !i.errorKind && i.icons.some((x) => /codicon-check/.test(x))).catch(runningItem);
     const readings = (await lifecycleReadings(ctx)).slice(mark);
     const said = (await toastsSince(ctx.d, toastMark)).map((t) => t.message);
     return {

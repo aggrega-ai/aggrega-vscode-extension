@@ -11,6 +11,7 @@ import { freePort } from './editor';
 import { FixtureError, FixtureProof } from './fixtures';
 import { ProcessTable } from './processes';
 import { HOSTS_FILE, LISTED_REPOSITORY, LISTED_VERSION, REPEATING_LISTING, REQUESTS_FILE, StubHosts } from './stub-registries';
+import { until } from './workbench';
 
 // A scratch registry: the zot server the development registry pins, started on a
 // free loopback port with a data directory of its own and no authentication, so
@@ -60,21 +61,10 @@ export async function startRegistry(zot: string, dir: string, home: ScratchHome,
   if (child.pid === undefined) { throw new FixtureError('scratch registry', 'the registry server could not be started'); }
   table.addRoot('registry', child.pid);
   const host = `127.0.0.1:${port}`;
-  const until = Date.now() + 30000;
-  let last = 'no answer';
-  while (Date.now() < until) {
-    try {
-      const res = await fetch(`http://${host}/v2/`, { signal: AbortSignal.timeout(2000) });
-      if (res.status === 200) {
-        return { host, dataDir, pid: child.pid, proof: { fixture: 'scratch registry', built: true, proof: `zot at ${host} (pid ${child.pid}), data in ${dataDir}, no authentication: GET /v2/ answered 200` } };
-      }
-      last = `HTTP ${res.status}`;
-    } catch (err) {
-      last = err instanceof Error ? err.message : String(err);
-    }
-    await new Promise((resolve) => setTimeout(resolve, 150));
-  }
-  throw new FixtureError('scratch registry', `GET http://${host}/v2/ did not answer 200 within 30000 ms (${last}); see ${path.join(dir, 'zot.log')}`);
+  const pid = child.pid;
+  await until(`GET http://${host}/v2/ answering 200`, 30000, async () => (await fetch(`http://${host}/v2/`, { signal: AbortSignal.timeout(2000) })).status, (status) => status === 200)
+    .catch((err: unknown) => { throw new FixtureError('scratch registry', `${err instanceof Error ? err.message : String(err)}; see ${path.join(dir, 'zot.log')}`); });
+  return { host, dataDir, pid, proof: { fixture: 'scratch registry', built: true, proof: `zot at ${host} (pid ${pid}), data in ${dataDir}, no authentication: GET /v2/ answered 200` } };
 }
 
 // SigningKey is a key pair for keyed signing, written into the scenario.
@@ -229,11 +219,8 @@ export async function startStubRegistries(dir: string, home: ScratchHome, table:
   if (child.pid === undefined) { throw new FixtureError(fixture, 'the stub process could not be started'); }
   table.addRoot('stub registries', child.pid);
   const hostsFile = path.join(dir, HOSTS_FILE);
-  const until = Date.now() + 15000;
-  while (!fs.existsSync(hostsFile)) {
-    if (Date.now() > until) { throw new FixtureError(fixture, `the stub process wrote no ${HOSTS_FILE} within 15000 ms; see ${path.join(dir, 'stub-registries.log')}`); }
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
+  await until(`the stub process writing ${HOSTS_FILE}`, 15000, async () => fs.existsSync(hostsFile), (written) => written, 100)
+    .catch((err: unknown) => { throw new FixtureError(fixture, `${err instanceof Error ? err.message : String(err)}; see ${path.join(dir, 'stub-registries.log')}`); });
   const hosts = JSON.parse(fs.readFileSync(hostsFile, 'utf8')) as StubHosts;
   const page = async (url: string): Promise<{ repositories: string[]; next: string | null }> => {
     const res = await fetch(url, { signal: AbortSignal.timeout(5000) });

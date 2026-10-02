@@ -8,9 +8,9 @@ import { RESTART_COMMAND } from '../../src/daemon-status';
 import { need, NotRun } from './checks';
 import { WebviewDocument } from './drivers';
 import { referenceAnswer } from './reference';
-import { closeAllEditors, languageServers, open, ready, run, save, Server, SuiteContext, theServer } from './suite-context';
+import { closeActiveTab, closeAllEditors, languageServers, open, ready, run, save, Server, serverNow, SuiteContext, theServer } from './suite-context';
 import { killServer, STOPPED_RESPONDING } from './suite-storefront';
-import { documentWith, NOT_RUNNING, observeWorkbench, RUNNING, sleep, statusNow, toasts, toastsSince, until, waitStatus, waitToast } from './workbench';
+import { documentWith, guard, NOT_RUNNING, observeWorkbench, RUNNING, sleep, statusNow, toasts, toastsSince, until, waitStatus, waitToast } from './workbench';
 
 // The checks run with the language server killed from outside, repeatedly: that
 // it starts without an error notification, that a server started in place of a
@@ -92,8 +92,7 @@ export async function setBinaryPath(ctx: SuiteContext, from: string, to: string,
     return;
   }
   await open(ctx, userSettings);
-  await run(ctx, 'workbench.action.closeActiveEditor');
-  await sleep(300);
+  await closeActiveTab(ctx);
 }
 
 // The welcome page's last line in each reading, held here as written for the
@@ -163,12 +162,12 @@ async function onePage(ctx: SuiteContext, page: WebviewDocument): Promise<string
 
 // killOnSight signals, by its PID, the first language server listed that is none
 // of `known`, as soon as it is listed, and returns it — or null where none is
-// listed within the bound. It reads the process table every few milliseconds,
-// far inside the time a server takes to answer its handshake, so the signal
-// reaches a server whose handshake is still open; the caller confirms that from
-// the channel rather than assuming it.
+// listed within guard(boundMs). It reads the process table every few
+// milliseconds, far inside the time a server takes to answer its handshake, so
+// the signal reaches a server whose handshake is still open; the caller confirms
+// that from the channel rather than assuming it.
 async function killOnSight(ctx: SuiteContext, known: number[], boundMs: number): Promise<Server | null> {
-  const end = Date.now() + boundMs;
+  const end = Date.now() + guard(boundMs);
   while (Date.now() < end) {
     const fresh = languageServers(ctx).filter((x) => !known.includes(x.pid));
     if (fresh.length > 0) {
@@ -203,7 +202,7 @@ export async function killedChecks(ctx: SuiteContext): Promise<void> {
     const watching = killOnSight(ctx, [first.pid], 20000);
     process.kill(first.pid, 'SIGTERM');
     const second = await watching;
-    need(second !== null, `no language server was started in place of ${first.pid} within 20000 ms`);
+    need(second !== null, `no language server was started in place of ${first.pid} within ${guard(20000)} ms`);
     const inHandshake = await ctx.out.waitFor('the channel reporting the handshake ending on an exit', mark, (t) => t.includes(HANDSHAKE_ENDED_BY_EXIT), 10000)
       .then(() => true, () => false);
     need(inHandshake, `the server started in place of ${first.pid} (pid ${second.pid}) was signalled after its handshake had closed, so this run did not reach the fault the check is about; the channel read ${JSON.stringify(ctx.out.since(mark).slice(0, 800))}`);
@@ -219,7 +218,7 @@ export async function killedChecks(ctx: SuiteContext): Promise<void> {
     return {
       passed: restarted && !outcome.notified && unsaid.length === 0,
       seen: `killed ${first.pid}; killed ${second.pid}, started in its place, during its handshake; `
-        + (outcome.notified ? 'the stopped-responding notification was raised' : restarted ? `a third server ${outcome.third?.pid} reads running in ${outcome.third?.cwd}` : 'neither a third server running nor the notification within 30000 ms')
+        + (outcome.notified ? 'the stopped-responding notification was raised' : restarted ? `a third server ${outcome.third?.pid} reads running in ${outcome.third?.cwd}` : `neither a third server running nor the notification within ${guard(30000)} ms`)
         + (unsaid.length === 0 ? '; the channel says each step' : `; the channel does not say ${JSON.stringify(unsaid)}`),
       evidence: { channel: channel.slice(0, 4000) },
     };
@@ -264,7 +263,7 @@ export async function killedChecks(ctx: SuiteContext): Promise<void> {
       await ctx.probe.request('document.undo', { path: aggregate });
       const outcome = await until(`a restart or the stopped-responding notification after kill ${k}`, 20000, async () => {
         const notified = (await toastsSince(ctx.d, boundMark)).some((t) => t.message === STOPPED_RESPONDING);
-        const restarted = await theServer(ctx, 200, killed.pid).then(() => true, () => false);
+        const restarted = serverNow(ctx, killed.pid) !== null;
         return { notified, restarted };
       }, (v) => v.notified || v.restarted).catch(() => ({ notified: false, restarted: false }));
       // A restart is a server that reads running again, not merely a new
@@ -284,7 +283,7 @@ export async function killedChecks(ctx: SuiteContext): Promise<void> {
     const notifiedAfter = kills.length === RESPAWN_BOUND + 1 && kills[RESPAWN_BOUND].notified;
     return {
       passed: restartedBefore && notifiedAfter,
-      seen: kills.map((x) => `kill ${x.kill} (pid ${x.pid}): ${x.notified ? 'the stopped-responding notification' : x.restarted ? 'restarted' : 'neither within 20000 ms'}`).join('; '),
+      seen: kills.map((x) => `kill ${x.kill} (pid ${x.pid}): ${x.notified ? 'the stopped-responding notification' : x.restarted ? 'restarted' : `neither within ${guard(20000)} ms`}`).join('; '),
     };
   });
 

@@ -14,7 +14,7 @@ import {
   reloadWindow, rowChooser, rowsNow, serverIn, serversWorking, statusItem, takeChooserRow, ToastLedger, waitChooser, waitRows, WIDEN_ANOTHER, WIDEN_DETAIL, WIDEN_FIRST, WindowChange,
 } from './levels';
 import { capture, languageServers, SuiteContext } from './suite-context';
-import { holds, NOT_RUNNING, pressToastButton, RUNNING, toasts, toastsSince, until, waitStatus, waitToast } from './workbench';
+import { guard, holds, NOT_RUNNING, pressToastButton, RUNNING, toasts, toastsSince, until, waitStatus, waitToast } from './workbench';
 
 // The checks run over folder layouts that each place a workspace marker
 // somewhere different relative to the folder opened, each opened alone in turn:
@@ -315,7 +315,7 @@ export async function discoveryChecks(ctx: SuiteContext, layouts: string): Promi
       const said = (await toasts(ctx.d)).map((t) => t.message).filter((m) => m.startsWith('Aggrega'));
       return {
         passed: told?.message === droppedAnchor(insideMarker) && rows[1]?.value === 'none available' && idle.held,
-        seen: `${told ? `"${told.message}"` : 'no notice of a drop within 20000 ms'}; Aggrega notifications ${JSON.stringify(said)}; the rows ${describeRows(rows)}; ${idle.held ? `no language server for ${WATCH_MS} ms` : `a language server working in ${serversWorking(ctx)}`}`,
+        seen: `${told ? `"${told.message}"` : `no notice of a drop within ${guard(20000)} ms`}; Aggrega notifications ${JSON.stringify(said)}; the rows ${describeRows(rows)}; ${idle.held ? `no language server for ${WATCH_MS} ms` : `a language server working in ${serversWorking(ctx)}`}`,
       };
     } finally {
       fs.renameSync(aside, insideMarker);

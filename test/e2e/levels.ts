@@ -7,9 +7,9 @@ import { SELECT_RELEASE_COMMAND } from '../../src/release-selection';
 import { need } from './checks';
 import { UiDriver, WebviewDocument } from './drivers';
 import { Hello } from './probe-client';
-import { languageServers, run, send, Server, SuiteContext, theServer } from './suite-context';
+import { languageServers, run, send, Server, serverNow, SuiteContext } from './suite-context';
 import {
-  commandsPanel, Dialog, dialog, documentWith, evaluateWithin, holds, hoverAt, observeWorkbench, pickQuickInputRow, pressDialogButton, pressIn, statusItems, StatusItem,
+  answersIn, commandsPanel, Dialog, dialog, documentWith, guard, holds, hoverAt, observeWorkbench, pickQuickInputRow, pressDialogButton, pressIn, statusItems, StatusItem,
   toasts, toastsSince, Toast, until, workbenchText,
 } from './workbench';
 
@@ -268,8 +268,8 @@ export async function takeChooserRow(d: UiDriver, label: string): Promise<void> 
     const drawn = await chooser(d).catch(() => null);
     const aimed = last as Aim | null;
     throw new Error(aimed !== null
-      ? `the entry labelled "${label}" was drawn, but the point it would be pressed at shows ${JSON.stringify(aimed.there)} for 10000 ms`
-      : `no entry labelled "${label}" was drawn within 10000 ms; the quick input drawn then: ${drawn === null ? 'none' : JSON.stringify({ placeholder: drawn.placeholder, value: drawn.value, rows: drawn.rows.map((r) => r.label) })}`);
+      ? `the entry labelled "${label}" was drawn, but the point it would be pressed at shows ${JSON.stringify(aimed.there)} for ${guard(10000)} ms`
+      : `no entry labelled "${label}" was drawn within ${guard(10000)} ms; the quick input drawn then: ${drawn === null ? 'none' : JSON.stringify({ placeholder: drawn.placeholder, value: drawn.value, rows: drawn.rows.map((r) => r.label) })}`);
   });
   if (at === null) { throw new Error(`unreachable: ${label}`); }
   await pickQuickInputRow(d, label);
@@ -451,13 +451,21 @@ export const EDITOR_CANCEL = 'Cancel';
 
 // answerWorkspaceSaveIfAsked answers the editor's own question about saving an
 // untitled workspace — which it asks as a window leaves one, whoever asked for
-// the window to change — with the answer that keeps nothing, where the question is
-// drawn within `boundMs`. It answers with the question as drawn, or null.
+// the window to change — with the answer that keeps nothing. It is called once the
+// change has been asked for, and waits for whichever comes: the question drawn, or
+// the window going without asking it, read as the workbench's document no longer
+// being the one marked as the wait began. It answers with the question as drawn,
+// or null where the window went without one.
 export async function answerWorkspaceSaveIfAsked(d: UiDriver, boundMs = 5000): Promise<DrawnDialog | null> {
-  const asked = await until('the editor asking whether to save the workspace', boundMs, () => drawnDialog(d).catch(() => null), (v) => v !== null && v.buttons.includes(EDITOR_DONT_SAVE)).catch(() => null);
-  if (asked === null) { return null; }
+  const key = '__levelsSaveQuestion';
+  const token = await markDocument(d, key).catch(() => null);
+  if (token === null) { return null; }
+  const seen = await until('the editor asking whether to save the workspace, or the window going without asking', boundMs,
+    async () => ({ asked: await drawnDialog(d).catch(() => null), here: await sameDocument(d, token, key) }),
+    (v) => (v.asked !== null && v.asked.buttons.includes(EDITOR_DONT_SAVE)) || !v.here);
+  if (seen.asked === null || !seen.asked.buttons.includes(EDITOR_DONT_SAVE)) { return null; }
   await pressDialogButton(d, EDITOR_DONT_SAVE);
-  return asked;
+  return seen.asked;
 }
 
 // ---- the window --------------------------------------------------------------
@@ -556,7 +564,10 @@ export async function changeWindow(ctx: SuiteContext, ledger: ToastLedger, act: 
     await ctx.probe.waitHello(opts.boundMs ?? 60000, before.instance);
     restarted = true;
   }
-  const reloaded = !(await until('the workbench answering', 30000, async () => sameDocument(ctx.d, token), () => true).catch(() => false));
+  // The workbench's own mark, read once it answers an evaluation again: a document
+  // being replaced answers none, so any answer is the state waited for.
+  const mark = await until('the workbench answering', 30000, () => ctx.d.workbench<string | null>('window.__levelsDocument || null'), (answer) => answer === null || typeof answer === 'string');
+  const reloaded = mark !== token;
   await installLevelObservers(ctx.d);
   await ledger.afterChange(ctx.d);
   return { restarted, reloaded, ms: Date.now() - t0, before };
@@ -629,25 +640,19 @@ export const WELCOME_WORKSPACE_VALUE = `(() => { const e = document.querySelecto
 // restarted can hold the page it had beside the one drawn again, so every one is
 // read rather than the first.
 export async function welcomeWorkspaceValues(ctx: SuiteContext): Promise<string[]> {
-  const read = async (): Promise<string[]> => {
-    const out: string[] = [];
-    for (const doc of await ctx.d.webviews()) {
-      const v = await evaluateWithin<string | null>(doc, WELCOME_WORKSPACE_VALUE, 2000).catch(() => null);
-      if (v !== null) { out.push(v); }
-    }
-    return out;
-  };
+  const read = async (): Promise<string[]> => (await answersIn<string | null>(ctx.d, WELCOME_WORKSPACE_VALUE))
+    .map((a) => a.value).filter((v): v is string => v !== null);
   const drawn = await read();
   if (drawn.length > 0) { return drawn; }
   await run(ctx, 'aggrega.getStarted.open', [], 10000).catch(() => undefined);
   return until('the welcome page drawing its workspace step', 20000, read, (v) => v.length > 0).catch(() => [] as string[]);
 }
 
-// serverIn waits for the one language server this window started, as `theServer`
-// (suite-context.ts) finds it, to be working in `root`, and answers with it, or
+// serverIn waits for the one language server this window started, as `serverNow`
+// (suite-context.ts) reads it, to be working in `root`, and answers with it, or
 // with null once the bound has passed.
 export function serverIn(ctx: SuiteContext, root: string, boundMs = 30000, notPid?: number): Promise<Server | null> {
-  return until(`a language server working in ${root}`, boundMs, () => theServer(ctx, 0, notPid), (s) => s.cwd === root).catch(() => null);
+  return until(`a language server working in ${root}`, boundMs, async () => serverNow(ctx, notPid), (s) => s !== null && s.cwd === root).catch(() => null);
 }
 
 // serversWorking words where every language server running works, for a check's

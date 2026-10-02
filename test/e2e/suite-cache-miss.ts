@@ -6,7 +6,7 @@ import * as path from 'path';
 
 import { need } from './checks';
 import { catalogPanelAtItsHead, closeAllEditors, deleteLine, diagnostics, lineOf, open, run, SuiteContext } from './suite-context';
-import { commandsPanel, holds, pressOperation, toasts, toastsSince, treeRows, until, waitToast } from './workbench';
+import { commandsPanel, guard, holds, pressOperation, stated, toasts, toastsSince, treeRows, until, waitToast } from './workbench';
 
 // The check run on a hover the language server can only answer once the document
 // is validated again: the document's file changed on disk from outside the editor
@@ -77,7 +77,7 @@ export async function cacheMissChecks(ctx: SuiteContext): Promise<void> {
     const toastMark = (await toasts(ctx.d)).length;
     fs.writeFileSync(file, onDisk);
     const dropped = await until('the Catalog panel reading the file as it is on disk', 15000, () => treeRows(ctx.d, 'Catalog'), (v) => v !== null && v.some((r) => r.label === DISK_NAME)).then(() => true, () => false);
-    need(dropped, `the Catalog panel did not come to read "${DISK_NAME}" within 15000 ms, so the language server's drop of the file is not shown to have happened before the hover`);
+    need(dropped, `the Catalog panel did not come to read "${DISK_NAME}" within ${guard(15000)} ms, so the language server's drop of the file is not shown to have happened before the hover`);
     const t0 = Date.now();
     const answer = await hover();
     const answeredMs = Date.now() - t0;
@@ -110,6 +110,8 @@ export async function cacheMissChecks(ctx: SuiteContext): Promise<void> {
     fs.unlinkSync(file);
   }
   await closeAllEditors(ctx);
-  await until('the Component\'s row leaving the Catalog panel', 15000, () => treeRows(ctx.d, 'Catalog'), (v) => v !== null && !v.some((r) => r.label === HELD_NAME || r.label === DISK_NAME)).catch(() => undefined);
+  // Nothing reads whether the row left, so it is given a stated 15 s rather than
+  // a guard, which a run where it stays would wait out.
+  await until('the Component\'s row leaving the Catalog panel', stated(15000), () => treeRows(ctx.d, 'Catalog'), (v) => v !== null && !v.some((r) => r.label === HELD_NAME || r.label === DISK_NAME)).catch(() => undefined);
   await catalogPanelAtItsHead(ctx, CATALOG_FIRST_ROW).catch(() => false);
 }

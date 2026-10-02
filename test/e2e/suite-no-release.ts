@@ -10,7 +10,7 @@ import { need } from './checks';
 import { ABSENCE_MS, activeControl, drawnPanel, FOCUS_LOG, focusInPanel, focusLog, ops } from './commands-panel';
 import { levelRows } from './levels';
 import { closeAllEditors, languageServers, open, ready, send, SuiteContext, theServer } from './suite-context';
-import { commandsPanel, holds, RUNNING, STARTING, statusLog, until, waitQuickInput, waitStatus } from './workbench';
+import { commandsPanel, guard, holds, RUNNING, STARTING, stated, statusLog, until, waitQuickInput, waitStatus } from './workbench';
 
 // The checks run in a documentation example holding two Releases and naming no
 // default, so no Release is selected when it opens: the operations that act on a
@@ -127,7 +127,7 @@ export async function noReleaseChecks(ctx: SuiteContext, releases: readonly stri
     const enabled = await until('the Release operations runnable', 15000, () => drawnPanel(panel), (p) => ops(p).filter((o) => GREYED.includes(o.label)).every((o) => !o.disabled)).then(() => true, () => false);
     const read = async (): Promise<{ pids: number[]; starting: boolean; instance: string }> => ({ pids: languageServers(ctx).map((x) => x.pid), starting: (await statusLog(ctx.d)).slice(statusMark).some((r) => r.reading === STARTING), instance: (await ctx.probe.request<{ instance: string }>('hello')).instance });
     const quiet = await holds(2000, read, (v) => v.pids.length === 1 && v.pids[0] === srv.pid && !v.starting && v.instance === hello.instance);
-    const focused = await until(`the focus back on ${FOCUSED_LABEL}`, 5000, () => activeControl(panel), (v) => v === lint.command).catch(() => activeControl(panel));
+    const focused = await until(`the focus back on ${FOCUSED_LABEL}`, stated(5000), () => activeControl(panel), (v) => v === lint.command).catch(() => activeControl(panel));
     const where = `the panel ${await panel.evaluate<string>(focusReading)}; the window's focus on ${await ctx.d.workbench<string>(workbenchFocus)}; the panel's focus over the choice: ${(await focusLog(panel)).join(' → ')}`;
     afterChoice = { focused, want: lint.command, where };
     // The control: a restart asked for, read the same way. The server is then owed
@@ -136,7 +136,7 @@ export async function noReleaseChecks(ctx: SuiteContext, releases: readonly stri
     const next = await theServer(ctx, 30000, srv.pid).then((x) => x.pid, () => null);
     const back = await waitStatus(ctx.d, RUNNING, 60000).then(() => true, () => false);
     need(next !== null, 'its positive control did not fire: the restart asked for gave no new process');
-    return { passed: enabled && quiet.held && back, seen: `${GREYED.join(', ')} ${enabled ? 'runnable' : 'still greyed'} after the choice; ${quiet.held ? `process ${srv.pid}, no "starting" reading and the same window for 2 s` : `at ${quiet.atMs} ms ${JSON.stringify(quiet.broke)}`}; the control restarted into process ${next}${back ? ', the status bar reading running again' : `, and the status bar did not read "${RUNNING}" again within 60 s, so the checks after this one start with no running server`}` };
+    return { passed: enabled && quiet.held && back, seen: `${GREYED.join(', ')} ${enabled ? 'runnable' : 'still greyed'} after the choice; ${quiet.held ? `process ${srv.pid}, no "starting" reading and the same window for 2 s` : `at ${quiet.atMs} ms ${JSON.stringify(quiet.broke)}`}; the control restarted into process ${next}${back ? ', the status bar reading running again' : `, and the status bar did not read "${RUNNING}" again within ${guard(60000) / 1000} s, so the checks after this one start with no running server`}` };
   });
 
   await c.run('commands-panel.focus-comes-back-to-its-button-after-choosing-a-release', {

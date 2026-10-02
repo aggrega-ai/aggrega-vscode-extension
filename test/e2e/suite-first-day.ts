@@ -6,12 +6,12 @@ import * as path from 'path';
 
 import { IN_EFFECT_SENTENCE } from '../../src/config-change-watch';
 import { need } from './checks';
-import { readTree, sameTree } from './fixtures';
+import { readTree, sameTree, Tree } from './fixtures';
 import { continueHere } from './suite-above';
 import { closeAllEditors, languageServers, ready, reopen, run, send, SuiteContext } from './suite-context';
 import { HOVER_NOT_RUNNING_UNANCHORED, LIFECYCLE_PLACEHOLDER, RESTART_ACTION, START_ACTION } from './suite-readiness';
 import {
-  commandsPanel, documentWith, holds, hoverAt, NOT_RUNNING, paletteRows, pickQuickInputRow, pressIn, QuickInput, quickInput, RUNNING, selectorRows, sleep, statusItems,
+  commandsPanel, documentWith, holds, hoverAt, NOT_RUNNING, paletteRows, pickQuickInputRow, pressIn, QuickInput, quickInput, RUNNING, selectorRows, stated, statusItems,
   toasts, Toast, treeRows, until, waitQuickInput, waitStatus, waitToast,
 } from './workbench';
 
@@ -132,9 +132,9 @@ export async function noWorkspaceChecks(ctx: SuiteContext): Promise<void> {
     const mark = (await toasts(ctx.d)).length;
     await pickQuickInputRow(ctx.d, restartTitle);
     const told = await endingSince(ctx, 'the command answering', mark, (t) => t.message.startsWith('Aggrega'));
-    await sleep(2000);
-    const servers = languageServers(ctx).length;
-    return { passed: told !== null && told.message === NO_WORKSPACE && servers === 0, seen: `${told === null ? 'no notification' : `"${told.message}" (${told.severity})`}; language servers running: ${servers}` };
+    const none = await holds(2000, async () => languageServers(ctx).length, (n) => n === 0);
+    const servers = none.held ? 0 : none.broke as number;
+    return { passed: told !== null && told.message === NO_WORKSPACE && none.held, seen: `${told === null ? 'no notification' : `"${told.message}" (${told.severity})`}; language servers running: ${servers}${none.held ? ' at every reading over 2000 ms' : ` at ${none.atMs} ms`}` };
   });
 
   // ---- the command left out with no server, and the one that is not ----
@@ -228,10 +228,10 @@ export async function noWorkspaceChecks(ctx: SuiteContext): Promise<void> {
     const mark = (await toasts(ctx.d)).length;
     await pickQuickInputRow(ctx.d, authoringTitle);
     const told = await endingSince(ctx, 'the command answering', mark, (t) => t.message.startsWith('Aggrega'));
-    await sleep(1500);
-    const after = readTree(ctx.folder);
-    const active = await ctx.probe.request<{ path: string } | null>('editor.active');
-    return { passed: told?.message === NO_WORKSPACE && sameTree(before, after) && after.size === 0 && active === null, seen: `${told === null ? 'no notification' : `"${told.message}"`}; the folder holds ${JSON.stringify([...after.keys()])}; the active editor ${active?.path ?? 'none'}` };
+    const untouched = await holds(1500, async () => ({ tree: readTree(ctx.folder), active: await ctx.probe.request<{ path: string } | null>('editor.active') }), (v) => sameTree(before, v.tree) && v.tree.size === 0 && v.active === null);
+    const after = untouched.held ? readTree(ctx.folder) : (untouched.broke as { tree: Tree }).tree;
+    const active = untouched.held ? await ctx.probe.request<{ path: string } | null>('editor.active') : (untouched.broke as { active: { path: string } | null }).active;
+    return { passed: told?.message === NO_WORKSPACE && untouched.held && sameTree(before, after) && after.size === 0 && active === null, seen: `${told === null ? 'no notification' : `"${told.message}"`}; the folder holds ${JSON.stringify([...after.keys()])}; the active editor ${active?.path ?? 'none'}` };
   });
 
   // ---- the welcome page creates the configuration ----
@@ -280,7 +280,7 @@ export async function noWorkspaceChecks(ctx: SuiteContext): Promise<void> {
     need(created !== null, 'the control wrote no configuration, so nothing anchors the folder for a language server to answer in');
     const running = await waitStatus(ctx.d, RUNNING, 20000).then(() => true, () => false);
     need(running, `the status bar does not read "${RUNNING}", so no language server answers`);
-    const last = await until(`the palette listing "${menuTitle}"`, MENU_LISTED_MS, menuReading, (v) => v.query && v.row !== undefined).catch(() => menuReading());
+    const last = await until(`the palette listing "${menuTitle}"`, stated(MENU_LISTED_MS), menuReading, (v) => v.query && v.row !== undefined).catch(() => menuReading());
     return {
       passed: last.query && last.row !== undefined && !last.row.greyed,
       seen: !last.query
@@ -312,9 +312,9 @@ export async function noWorkspaceChecks(ctx: SuiteContext): Promise<void> {
     await pressCreate();
     const told = await endingSince(ctx, 'the control answering', mark, (t) => t.message.startsWith('Aggrega: .aggrega-config.yaml'));
     const active = await until('the configuration opening', 10000, () => ctx.probe.request<{ path: string } | null>('editor.active'), (v) => v !== null && v.path === config).catch(() => null);
-    await sleep(1000);
-    const now = fs.readFileSync(config);
-    return { passed: told?.message === ALREADY && active?.path === config && now.equals(created), seen: `${told === null ? 'no notification' : `"${told.message}"`}; the tab in front ${active?.path ?? 'none'}; the file ${now.equals(created) ? 'unchanged' : `now ${JSON.stringify(now.toString('utf8'))}`}` };
+    const kept = await holds(1000, async () => fs.readFileSync(config), (b) => created !== null && b.equals(created));
+    const now = kept.held ? fs.readFileSync(config) : kept.broke as Buffer;
+    return { passed: told?.message === ALREADY && active?.path === config && kept.held && now.equals(created), seen: `${told === null ? 'no notification' : `"${told.message}"`}; the tab in front ${active?.path ?? 'none'}; the file ${now.equals(created) ? 'unchanged' : `now ${JSON.stringify(now.toString('utf8'))}`}` };
   });
 }
 
@@ -336,10 +336,12 @@ export async function authoringReleaseChecks(ctx: SuiteContext, root: string): P
     need(rows.some((r) => r.label === title), `the palette does not offer "${title}"`);
     await pickQuickInputRow(ctx.d, title);
     const active = await until('a configuration opening', 15000, () => ctx.probe.request<{ path: string } | null>('editor.active'), (v) => v !== null && v.path.endsWith(CONFIG)).catch(() => null);
-    await sleep(1500);
+    // Nothing written beneath and the root's file left as it was, at every reading
+    // over a stated window from the opening.
+    const untouched = await holds(1500, async () => ({ beneath: readTree(ctx.folder).size, kept: fs.readFileSync(rootConfig).equals(before) }), (v) => v.beneath === 0 && v.kept);
     const beneath = readTree(ctx.folder);
     const rowsAfter = await selectorRows(await commandsPanel(ctx.d));
-    const kept = fs.readFileSync(rootConfig).equals(before);
+    const kept = untouched.held && fs.readFileSync(rootConfig).equals(before);
     await closeAllEditors(ctx);
     return {
       passed: rowsBefore[1]?.value === path.basename(root) && active?.path === rootConfig && beneath.size === 0 && rowsAfter[1]?.value === path.basename(root) && kept,

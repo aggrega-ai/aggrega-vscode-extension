@@ -11,7 +11,7 @@ import { Inputs } from './inputs';
 import { DiagnosticEntry, ProbeClient } from './probe-client';
 import { readCmdline } from './processes';
 import { relaunch, Relaunched, Scenario } from './scenario';
-import { commandsPanel, documentWith, OutputLog, RUNNING, scrollTreeToTop, sleep, treeRows, until, waitStatus } from './workbench';
+import { commandsPanel, documentWith, openTabs, OutputLog, RUNNING, scrollTreeToTop, toastWindowPassed, treeRows, until, waitStatus } from './workbench';
 
 // What every check body of the suite reaches: the launched editor, the probe,
 // the inputs, the output channel, and the scenario's contained home.
@@ -90,9 +90,21 @@ export function languageServers(ctx: SuiteContext): Server[] {
     });
 }
 
+function serversOtherThan(ctx: SuiteContext, notPid?: number): Server[] {
+  return languageServers(ctx).filter((x) => x.pid !== notPid);
+}
+
+// serverNow is the one language server running, other than `notPid`, as the
+// process table stands, or null where there is not exactly one: the reading
+// theServer waits on, for a caller that waits on something else as well.
+export function serverNow(ctx: SuiteContext, notPid?: number): Server | null {
+  const v = serversOtherThan(ctx, notPid);
+  return v.length === 1 ? v[0] : null;
+}
+
 // theServer is the one language server this window started.
 export async function theServer(ctx: SuiteContext, boundMs = 30000, notPid?: number): Promise<Server> {
-  const found = await until(`one language server running${notPid ? ` other than ${notPid}` : ''}`, boundMs, async () => languageServers(ctx).filter((x) => x.pid !== notPid), (v) => v.length === 1);
+  const found = await until(`one language server running${notPid ? ` other than ${notPid}` : ''}`, boundMs, async () => serversOtherThan(ctx, notPid), (v) => v.length === 1);
   return found[0];
 }
 
@@ -156,9 +168,23 @@ export async function save(ctx: SuiteContext, file: string): Promise<void> {
   need(r.saved, `${file} could not be saved`);
 }
 
+// closeAllEditors closes every editor and waits for the stage a check acts from:
+// no tab drawn, and the editor's notification window passed since the last
+// notification drawn (`toastWindowPassed`), so a notification the next action
+// raises is drawn rather than only listed.
 export async function closeAllEditors(ctx: SuiteContext): Promise<void> {
   await run(ctx, 'workbench.action.closeAllEditors');
-  await sleep(300);
+  await until('every editor\'s tab gone', 5000, () => openTabs(ctx.d), (n) => n === 0);
+  await toastWindowPassed(ctx.d);
+}
+
+// closeActiveTab closes the editor in front and waits for its tab to be gone,
+// and for the editor's notification window to pass, as closeAllEditors does.
+export async function closeActiveTab(ctx: SuiteContext): Promise<void> {
+  const before = await openTabs(ctx.d);
+  await run(ctx, 'workbench.action.closeActiveEditor');
+  await until('the tab in front closing', 5000, () => openTabs(ctx.d), (n) => n < before);
+  await toastWindowPassed(ctx.d);
 }
 
 // ---- diagnostics -------------------------------------------------------------

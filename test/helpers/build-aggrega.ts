@@ -5,6 +5,8 @@ import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 
+import { recipeAnswer } from '../e2e/inputs';
+
 const BINARY_NAME = 'aggrega';
 const SOURCE_TREE_RELATIVE = path.join('..', 'aggrega-cli');
 
@@ -78,27 +80,54 @@ function binaryCachePath(): string {
   return path.join(extensionRoot(), 'out', 'test-fixtures', BINARY_NAME);
 }
 
-// ensureAggregaBinary builds aggrega from the umbrella's
-// aggrega-cli/ submodule on demand and caches the result. A cached
-// binary is reused when its mtime is newer than the latest mtime in
-// the aggrega-cli source tree (a coarse but reliable signal — any
-// edit to any .go file under aggrega-cli/ invalidates the cache).
+// stampPath is where the version and commit the cached binary was stamped with
+// are kept, beside it.
+function stampPath(): string {
+  return `${binaryCachePath()}.stamp.json`;
+}
+
+// ensureAggregaBinary builds aggrega from the sibling aggrega-cli checkout on
+// demand and caches the result. A cached binary is reused while its mtime is
+// newer than the latest mtime in the aggrega-cli source tree (a coarse but
+// reliable signal — any edit to any .go file under aggrega-cli/ invalidates the
+// cache) and it was stamped with the version and commit that checkout reports
+// now, so a commit that changes no file still rebuilds it.
+//
+// 🔴 THE BINARY REPORTS aggrega-cli's OWN REVISION, STAMPED AS THE COMPILER'S
+// BUILD SCRIPTS STAMP IT. Left to stamp a build itself, the Go toolchain reads the
+// revision from the nearest repository whose metadata is a directory, and a
+// checkout held inside another repository carries a `.git` file instead, so the
+// binary would report the enclosing repository's commit and "(devel)". The build
+// is given instead the version and commit the compiler's build-provenance recipe
+// reports for the checkout — read by `recipeAnswer`, the runner's one reader of
+// that recipe — as `-X main.version` and `-X main.commit`, and the toolchain's own
+// stamping is turned off, so no part of the version names the other repository.
 //
 // Returns the absolute path of the built binary. Throws when the
-// source tree is missing or the build fails.
+// source tree is missing, its revision cannot be read, or the build fails.
 export function ensureAggregaBinary(): string {
   const binPath = binaryCachePath();
   const cliRoot = path.resolve(extensionRoot(), SOURCE_TREE_RELATIVE);
   if (!fs.existsSync(cliRoot)) {
     throw new Error(`aggrega-cli source tree not found at ${cliRoot}`);
   }
+  const revision = recipeAnswer(cliRoot);
+  if ('failure' in revision) {
+    throw new Error(`the aggrega binary cannot be stamped with the revision of ${cliRoot}: ${revision.failure}`);
+  }
+  if (revision.version === '' || revision.version === 'dev' || revision.commit === '' || revision.commit === 'unknown') {
+    throw new Error(`git cannot name the commit ${cliRoot} is checked out at, so the aggrega binary cannot be stamped with it`);
+  }
+  const stamp = JSON.stringify({ version: revision.version, commit: revision.commit });
 
-  if (isUsableBinary(binPath) && isUpToDate(binPath, cliRoot)) {
+  if (isUsableBinary(binPath) && isUpToDate(binPath, cliRoot) && readStamp() === stamp) {
     return binPath;
   }
 
   fs.mkdirSync(path.dirname(binPath), { recursive: true });
-  const result = spawnSync('go', ['build', '-o', binPath, './cmd/aggrega'], {
+  fs.rmSync(stampPath(), { force: true });
+  const ldflags = `-X main.version=${revision.version} -X main.commit=${revision.commit}`;
+  const result = spawnSync('go', ['build', '-buildvcs=false', '-ldflags', ldflags, '-o', binPath, './cmd/aggrega'], {
     cwd: cliRoot,
     stdio: ['ignore', 'pipe', 'pipe'],
     env: { ...process.env, CGO_ENABLED: '0' },
@@ -115,7 +144,18 @@ export function ensureAggregaBinary(): string {
     const stderr = result.stderr?.toString('utf8') ?? '';
     throw new Error(`go build failed (status=${result.status}): ${stderr}`);
   }
+  fs.writeFileSync(stampPath(), stamp);
   return binPath;
+}
+
+// readStamp is what the cached binary was stamped with, or null where no stamp
+// is kept beside it.
+function readStamp(): string | null {
+  try {
+    return fs.readFileSync(stampPath(), 'utf8');
+  } catch {
+    return null;
+  }
 }
 
 // isUsableBinary reports whether binPath is a cached binary worth reusing: a

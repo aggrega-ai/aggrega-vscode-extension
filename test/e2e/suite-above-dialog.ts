@@ -13,7 +13,7 @@ import {
   statusHover, takeChooserRow, takeToFolderDialog, ToastLedger, waitRows, workspaceHover,
 } from './levels';
 import { capture, ready, SuiteContext } from './suite-context';
-import { holds, pressDialogButton, until } from './workbench';
+import { guard, holds, pressDialogButton, until } from './workbench';
 
 // The checks run in a folder beneath a workspace root it carries no marker of its
 // own for, and follow the interruption that says so and the mark it leaves: the
@@ -100,7 +100,7 @@ export async function aboveDialogChecks(ctx: SuiteContext, layouts: string): Pro
     plant: 'in the scratch copy, out/src/workspace-above.js with the workspace\'s line labelled "Workspace:"',
   }, async () => {
     first = await waitDialog(ctx, 60000);
-    if (first === null) { return { passed: false, seen: 'no dialog was drawn within 60000 ms of the folder opening' }; }
+    if (first === null) { return { passed: false, seen: `no dialog was drawn within ${guard(60000)} ms of the folder opening` }; }
     const d = first;
     const folders = (await openFolders(ctx)).map((f) => f.path);
     const unpressed = await holds(UNPRESSED_MS, async () => ({ folders: (await openFolders(ctx)).map((f) => f.path).join('|'), drawn: (await drawnDialog(ctx.d)) !== null }), (v) => v.folders === folders.join('|') && v.drawn);
@@ -167,7 +167,7 @@ export async function aboveDialogChecks(ctx: SuiteContext, layouts: string): Pro
       await answerFolderDialog(ctx.d, above3Sub, ADD_DIALOG.accept);
     });
     const d = await waitDialog(ctx, 60000);
-    if (d === null) { return { passed: false, seen: `no dialog was drawn within 60000 ms of the window coming back with ${above3Sub} added` }; }
+    if (d === null) { return { passed: false, seen: `no dialog was drawn within ${guard(60000)} ms of the window coming back with ${above3Sub} added` }; }
     subDialog = { at: Date.now(), message: d.message, detail: d.detail };
     await ctx.d.press('Escape');
     const closed = await until('the dialog closing', 5000, () => drawnDialog(ctx.d), (v) => v === null).then(() => true, () => false);
@@ -252,7 +252,7 @@ export async function aboveDialogChecks(ctx: SuiteContext, layouts: string): Pro
   }, async () => {
     await openFolderHere(ctx, ledger, above2Sub);
     const d = await waitDialog(ctx, 60000);
-    if (d === null) { return { passed: false, seen: `no dialog was drawn within 60000 ms of ${above2Sub} opening` }; }
+    if (d === null) { return { passed: false, seen: `no dialog was drawn within ${guard(60000)} ms of ${above2Sub} opening` }; }
     const before = (await openFolders(ctx)).map((f) => f.path);
     const unpressed = await holds(UNPRESSED_MS, async () => (await openFolders(ctx)).map((f) => f.path).join('|'), (v) => v === before.join('|'));
     const change = await changeWindow(ctx, ledger, () => pressDialogButton(ctx.d, ABOVE_OPEN));

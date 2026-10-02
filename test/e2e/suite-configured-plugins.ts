@@ -25,7 +25,7 @@ import {
 import { ROW_NONE_AVAILABLE } from './suite-welcome-empty-folder';
 import { runningAgain, statusMark } from './welcome';
 import {
-  describeRowMenu, holds, hoverAt, NOT_RUNNING, paletteRows, pressDialogButton, quickInput, revealTreeRow, RowMenu, rowMenu, treeRowCentre,
+  describeRowMenu, guard, holds, hoverAt, NOT_RUNNING, paletteRows, pressDialogButton, quickInput, revealTreeRow, RowMenu, rowMenu, stated, treeRowCentre,
   TreeRow, treeRows, until, waitToast,
 } from './workbench';
 
@@ -219,13 +219,13 @@ export async function configuredPluginsChecks(ctx: SuiteContext, opts: { referen
     const [after] = loadAll(fs.readFileSync(config, 'utf8')) as Array<{ plugins?: { providers?: unknown[]; linter?: { uri?: string }[] } } | null>;
     const providers = after?.plugins?.providers ?? [];
     const linter = after?.plugins?.linter ?? [];
-    const back = await runningAgain(ctx, statusAt, 60000).then(() => 'read running again', () => 'did not read running again within 60000 ms');
+    const back = await runningAgain(ctx, statusAt, 60000).then(() => 'read running again', () => `did not read running again within ${guard(60000)} ms`);
     const listed = await until('the configured group listing one entry', 30000, async () => headingOf((await treeRows(ctx.d, 'Plugins')) ?? [], CONFIGURED_GROUP_LABEL)?.label ?? '', (l) => l === `${CONFIGURED_GROUP_LABEL} (1)`).then(() => true, () => false);
     const detail = consent.detail;
     return {
       passed: detail.includes(pluginRemovalConfigTarget(described.type ?? '')) && detail.endsWith(TEXT_ALONE) && consent.buttons.includes(REMOVE_BUTTON)
         && !nothingSaid(control) && providers.length === 0 && linter.length === 1 && listed,
-      seen: `the consent ${describeDialog(consent)}; after "${EDITOR_CANCEL}": ${quiet.seen}; consent given, "${ending.message}" (${ending.severity}); the configuration then binds ${providers.length} provider(s) and ${linter.length} linter(s); the configured group ${listed ? 'lists one entry' : 'does not come to list one entry within 30000 ms'}; the language server ${back}`,
+      seen: `the consent ${describeDialog(consent)}; after "${EDITOR_CANCEL}": ${quiet.seen}; consent given, "${ending.message}" (${ending.severity}); the configuration then binds ${providers.length} provider(s) and ${linter.length} linter(s); the configured group ${listed ? 'lists one entry' : `does not come to list one entry within ${guard(30000)} ms`}; the language server ${back}`,
     };
   }, () => leftOpen(ctx)));
 
@@ -252,7 +252,7 @@ export async function configuredPluginsChecks(ctx: SuiteContext, opts: { referen
     for (const command of panelCommands) {
       const title = paletteTitle(ctx, command);
       const q = await paletteRows(ctx.d, (x) => send(ctx, x), query(title));
-      const unlistedFor = await until(`the palette offering "${title}"`, PALETTE_ANSWER_MS, labelsNow, (v) => v.includes(title))
+      const unlistedFor = await until(`the palette offering "${title}"`, stated(PALETTE_ANSWER_MS), labelsNow, (v) => v.includes(title))
         .then(() => null, (err: unknown) => (err instanceof Error ? err.message : String(err)));
       if (unlistedFor === null) { present.push(`${title} (for "${q.value}")`); } else { missing.push(`${title} (for "${q.value}": ${unlistedFor})`); }
       await close();

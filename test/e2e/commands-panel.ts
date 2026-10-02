@@ -9,7 +9,7 @@ import { Box, WebviewDocument } from './drivers';
 import { PanelBox } from './levels';
 import { capture, run, SuiteContext } from './suite-context';
 import { openSettingsOn, settingLabel, settingValue } from './suite-gateway';
-import { centre, commandsPanel, pressIn, pressMenuItem, until } from './workbench';
+import { centre, COMMANDS_PANEL, documentNow, pressIn, pressMenuItem, until } from './workbench';
 
 // Reading the Commands panel as a reader meets it — the shape it is drawn in, its
 // controls with their icons, borders and boxes, the menu a control has open and
@@ -578,13 +578,8 @@ export function drawnActions(t: TitleActions | null): string[] {
 
 // PanesAt is where the container's panes are drawn: in which part of the window,
 // in what order, and how wide the Commands panel's own document is — null where
-// that document did not answer within its bound.
+// that document is not drawn, or did not answer, at the reading.
 export interface PanesAt { part: string; titles: string[]; width: number | null }
-
-// PANEL_LOOKUP_MS bounds the lookup of the Commands panel's document inside one
-// reading of the panes, so a wait polling those readings reads them many times
-// within its own bound rather than once.
-const PANEL_LOOKUP_MS = 1500;
 
 const PANES = `[...document.querySelectorAll('.pane')].map((p) => {
   const h = p.querySelector('.pane-header');
@@ -594,13 +589,14 @@ const PANES = `[...document.querySelectorAll('.pane')].map((p) => {
 })`;
 
 // panesOf reads where the panes the manifest names are drawn, in the order they
-// are drawn.
+// are drawn, as one reading: the Commands panel's document is looked for once,
+// so a wait polling these readings is what waits for it.
 export async function panesOf(ctx: SuiteContext): Promise<PanesAt> {
   const names = viewNames(ctx).map((n) => n.toLowerCase());
   const panes = (await ctx.d.workbench<{ title: string; part: string; y: number; x: number; height: number }[]>(PANES))
     .filter((p) => names.includes(p.title.toLowerCase()) && p.height > 0)
     .sort((a, b) => a.y - b.y || a.x - b.x);
-  const doc = await commandsPanel(ctx.d, PANEL_LOOKUP_MS).catch(() => null);
+  const doc = await documentNow(ctx.d, COMMANDS_PANEL);
   const width = doc === null ? null : await doc.evaluate<number>('document.documentElement.clientWidth').catch(() => null);
   const parts = [...new Set(panes.map((p) => p.part))];
   return { part: parts.join(', '), titles: panes.map((p) => p.title), width };
@@ -684,13 +680,23 @@ export async function openEverySection(ctx: SuiteContext, panel: WebviewDocument
 
 // ---- the panel's focus and its own scroll ------------------------------------------------
 
+const FOCUS_ATTEMPTS = 3;
+
 // focusInPanel gives one control of the panel the focus with the panel's own
 // document holding the keyboard, as a person arrives at it before pressing keys
 // there: the view focused by its own command, then the control. It refuses where
 // the control does not end up holding the focus.
+//
+// The command does not always bring the keyboard into the panel's document, and
+// where it does not, no wait brings it there; a person focuses the view again,
+// and so the command is given again, at most FOCUS_ATTEMPTS times in all.
 export async function focusInPanel(ctx: SuiteContext, doc: WebviewDocument, selector: string): Promise<void> {
-  await run(ctx, 'aggrega.operations.focus');
-  await until('the panel\'s document holding the keyboard', 5000, () => doc.evaluate<boolean>('document.hasFocus()'), (v) => v);
+  const holding = (): Promise<boolean> => doc.evaluate<boolean>('document.hasFocus()');
+  for (let attempt = 1; attempt <= FOCUS_ATTEMPTS; attempt++) {
+    await run(ctx, 'aggrega.operations.focus');
+    if (await until('the panel\'s document holding the keyboard', 2000, holding, (v) => v).then(() => true, () => false)) { break; }
+    if (attempt === FOCUS_ATTEMPTS) { throw new Error(`the panel's document did not hold the keyboard after the view was focused ${FOCUS_ATTEMPTS} times`); }
+  }
   const there = await doc.evaluate<boolean>(`((s) => { const e = document.querySelector(s); if (e) { e.focus(); } return !!e; })(${JSON.stringify(selector)})`);
   if (!there) { throw new Error(`the panel draws nothing matching ${selector}`); }
   await until(`${selector} holding the focus`, 3000, () => doc.evaluate<boolean>(`((s) => document.hasFocus() && document.activeElement === document.querySelector(s))(${JSON.stringify(selector)})`), (v) => v);

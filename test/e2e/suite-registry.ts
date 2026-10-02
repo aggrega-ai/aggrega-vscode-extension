@@ -21,7 +21,7 @@ import { makeSigningKey, PUBLISHED_ENTITY, ScratchRegistry, StubRegistries, WITH
 import { capture, closeAllEditors, ready, run, send, SuiteContext, theServer } from './suite-context';
 import { INDEX_BUILD_OPENING, pressViewAction, REGISTRIES_HEAD } from './suite-storefront';
 import {
-  holds, NotificationReading, notificationReadings, pickQuickInputRow, pressPanelAction, QuickInput, quickInput, RUNNING, sleep, stopWatchingNotification, Toast, toasts,
+  guard, holds, NotificationReading, notificationReadings, pickQuickInputRow, pressPanelAction, QuickInput, quickInput, RUNNING, sleep, stated, stopWatchingNotification, Toast, toasts,
   toastsSince, treeRows, until, waitQuickInput, waitStatus, waitToast, watchNotification,
 } from './workbench';
 
@@ -210,7 +210,8 @@ async function registerThrough(ctx: SuiteContext, host: string, asked: Asked = N
   if (asked.kind !== 'not-waited-for') {
     // The question and the channel are read together, so whether the closing line
     // was there when the question was first seen is observed rather than assumed.
-    // A registration that raises none is given 15 s past its closing line.
+    // A registration that raises none is given the guard of 15 s past its closing
+    // line.
     const title = trustByHandTitle(host);
     let lineAt: number | null = null;
     const seen = await until('the question asking for a trust policy to pin by hand', 90000, async () => {
@@ -218,7 +219,7 @@ async function registerThrough(ctx: SuiteContext, host: string, asked: Asked = N
       const hasLine = ctx.out.since(mark).split('\n').some((l) => l.startsWith(opening));
       if (hasLine && lineAt === null) { lineAt = Date.now(); }
       return { q, hasLine };
-    }, (v) => v.q?.title === title || (lineAt !== null && Date.now() - lineAt > 15000)).catch(() => null);
+    }, (v) => v.q?.title === title || (lineAt !== null && Date.now() - lineAt > guard(15000))).catch(() => null);
     if (seen !== null && seen.q !== null && seen.q.title === title) {
       question = { title: seen.q.title, placeholder: seen.q.placeholder, rows: seen.q.rows.map((r) => r.label), lineFirst: seen.hasLine };
     }
@@ -253,18 +254,23 @@ async function answerTrustByHand(ctx: SuiteContext, host: string, identities: st
   const row = identities.length > 0 && keyFile !== null ? TRUST_BY_HAND_ROWS[2] : identities.length > 0 ? TRUST_BY_HAND_ROWS[0] : TRUST_BY_HAND_ROWS[1];
   await pickQuickInputRow(ctx.d, row);
   const identityTitle = identityPromptTitle(host);
+  // Each prompt is answered once it is drawn empty, which the one before it is not
+  // once something was typed into it, so an Enter not yet taken is never answered
+  // twice.
   for (const typed of identities.length > 0 ? [...identities, ''] : []) {
     await waitQuickInput(ctx.d, 'the prompt for a keyless identity', (q) => q.title === identityTitle && q.value === '', 15000);
-    if (typed !== '') { await ctx.d.type(typed); }
+    if (typed !== '') {
+      await ctx.d.type(typed);
+      await waitQuickInput(ctx.d, `the prompt reading ${typed}`, (q) => q.title === identityTitle && q.value === typed, 5000);
+    }
     await ctx.d.press('Enter');
-    await sleep(400);
   }
   if (keyFile === null) { return; }
   const keyTitle = keyDialogTitle(host);
   await waitQuickInput(ctx.d, 'the file dialog for the public key', (q) => q.title === keyTitle, 15000);
   await ctx.d.press('Control+a');
   await ctx.d.type(keyFile);
-  await sleep(500);
+  await waitQuickInput(ctx.d, `the file dialog reading ${keyFile}`, (q) => q.title === keyTitle && q.value === keyFile, 5000);
   await ctx.d.press('Enter');
   await sleep(800);
   const still = await quickInput(ctx.d);
@@ -381,7 +387,7 @@ async function takeOfflinePosture(ctx: SuiteContext): Promise<{ taken: boolean; 
   const running = await waitStatus(ctx.d, RUNNING, 60000).then(() => true, () => false);
   return next !== null && running
     ? { taken: true, said: `the server ${before.pid} was replaced by ${next.pid}, which reads running` }
-    : { taken: false, said: `after the restart command ${next === null ? `no language server other than ${before.pid} was running within 30000 ms` : `the server ${next.pid} did not read running within 60000 ms`}` };
+    : { taken: false, said: `after the restart command ${next === null ? `no language server other than ${before.pid} was running within ${guard(30000)} ms` : `the server ${next.pid} did not read running within ${guard(60000)} ms`}` };
 }
 
 // ---- an index build over a registry whose listing never ends ------------------
@@ -424,14 +430,14 @@ async function configurePair(ctx: SuiteContext, stubs: StubRegistries): Promise<
   const next = await theServer(ctx, 30000, before.pid).catch(() => null);
   const running = await waitStatus(ctx.d, RUNNING, 60000).then(() => true, () => false);
   if (next === null || !running) {
-    return { taken: false, said: `after the restart command ${next === null ? `no language server other than ${before.pid} was running within 30000 ms` : `the server ${next.pid} did not read running within 60000 ms`}` };
+    return { taken: false, said: `after the restart command ${next === null ? `no language server other than ${before.pid} was running within ${guard(30000)} ms` : `the server ${next.pid} did not read running within ${guard(60000)} ms`}` };
   }
   await run(ctx, 'aggrega.registries.focus');
   const listed = await until('the Registries panel listing both registries', 20000, async () => ((await treeRows(ctx.d, 'Registries')) ?? []).map((r) => `${r.label} ${r.description} ${r.aria}`),
     (rows) => [stubs.repeating, stubs.wellBehaved].every((h) => rows.some((r) => r.includes(h)))).then(() => true, () => false);
   return listed
     ? { taken: true, said: `both registered in ${file}; the server ${before.pid} was replaced by ${next.pid}, which reads running, and the Registries panel lists both` }
-    : { taken: false, said: `the server ${next.pid} reads running, and the Registries panel does not list both within 20000 ms` };
+    : { taken: false, said: `the server ${next.pid} reads running, and the Registries panel does not list both within ${guard(20000)} ms` };
 }
 
 // endingOf is the line a build's run on the channel closes with, read from its
@@ -617,7 +623,7 @@ export async function registryChecks(ctx: SuiteContext, registry: ScratchRegistr
     await pressPanelAction(ctx.d, 'Registries', UPDATE_INDEX_ROW);
     pressed = { outMark, toastMark, requestsBefore };
     const opened = await ctx.out.waitFor('the index build opening in the channel', outMark, (t) => t.split('\n').includes(INDEX_BUILD_OPENING), 10000).then(() => true, () => false);
-    const readings = await until('the progress notification drawn and then gone', 60000, () => notificationReadings(ctx.d, key), drawnThenGone)
+    const readings = await until('the progress notification drawn and then gone', stated(60000), () => notificationReadings(ctx.d, key), drawnThenGone)
       .catch(() => notificationReadings(ctx.d, key));
     const ended = drawnThenGone(readings);
     const after = ended ? await holds(3000, () => notificationReadings(ctx.d, key), (rs) => rs.length > 0 && !rs[rs.length - 1].drawn) : null;
@@ -626,7 +632,7 @@ export async function registryChecks(ctx: SuiteContext, registry: ScratchRegistr
     const asked = stubs.requests().slice(requestsBefore);
     return {
       passed: opened && ended && after !== null && after.held,
-      seen: `the channel ${opened ? 'opened the build' : `did not open the build within 10 s: ${JSON.stringify(ctx.out.since(outMark).slice(0, 300))}`}; the progress notification, after the press: ${describeReadings(final, at)}${after === null ? '' : after.held ? '; not drawn again over the 3 s after' : '; drawn again after it went'}; the repeating registry was asked for its listing ${asked.filter((l) => l.startsWith('repeating GET /v2/_catalog')).length} time(s), the well-behaved one answered ${asked.filter((l) => l.startsWith('well-behaved ')).length} request(s)`,
+      seen: `the channel ${opened ? 'opened the build' : `did not open the build within ${guard(10000) / 1000} s: ${JSON.stringify(ctx.out.since(outMark).slice(0, 300))}`}; the progress notification, after the press: ${describeReadings(final, at)}${after === null ? '' : after.held ? '; not drawn again over the 3 s after' : '; drawn again after it went'}; the repeating registry was asked for its listing ${asked.filter((l) => l.startsWith('repeating GET /v2/_catalog')).length} time(s), the well-behaved one answered ${asked.filter((l) => l.startsWith('well-behaved ')).length} request(s)`,
       evidence: { readings: final, requests: asked },
     };
   });

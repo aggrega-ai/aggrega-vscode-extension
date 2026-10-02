@@ -15,7 +15,7 @@ import { closeAllEditors, open, ready, reopen, run, send, SuiteContext, theServe
 import { contextRowsCheck } from './suite-gateway';
 import { pressViewAction } from './suite-storefront';
 import {
-  commandsPanel, holds, hoverAt, LIST_PANELS, ListPanel, pickQuickInputRow, RUNNING, selectorRows, sleep, STARTING, statusItems, statusLog,
+  Bound, commandsPanel, holds, hoverAt, LIST_PANELS, ListPanel, pickQuickInputRow, RUNNING, selectorRows, sleep, STARTING, standsStill, stated, statusItems, statusLog,
   toasts, toastsSince, treeRows, until, viewReadings, VIEWS_OBSERVER, waitQuickInput, waitStatus,
 } from './workbench';
 
@@ -103,7 +103,7 @@ function describeFilling(f: Filling): string {
 // panelsSettle waits for every list panel to draw its answer and the Commands
 // panel's rows to name the folder, then watches that no panel draws a row of
 // the state before an answer for a while.
-async function panelsSettle(ctx: SuiteContext, boundMs: number): Promise<{ reached: boolean; held: boolean; broke: string; rows: string }> {
+async function panelsSettle(ctx: SuiteContext, boundMs: Bound): Promise<{ reached: boolean; held: boolean; broke: string; rows: string }> {
   const base = path.basename(ctx.folder);
   const read = async (): Promise<Record<string, string[]>> => {
     const out: Record<string, string[]> = {};
@@ -257,8 +257,8 @@ export async function readinessChecks(ctx: SuiteContext): Promise<void> {
     // The control: the folder's own row opens its file, read the same way.
     await ctx.d.moveTo(body);
     await ctx.d.wheel(0, -100000);
-    await sleep(300);
-    const ownNow = (await catalogRows(ctx)).find((r) => r.level === 2 && r.label === 'gateway' && r.inside);
+    const ownRow = async (): Promise<CatalogRow | undefined> => (await catalogRows(ctx)).find((r) => r.level === 2 && r.label === 'gateway' && r.inside);
+    const ownNow = await until('the folder\'s own "gateway" row back in sight', 3000, ownRow, (r) => r !== undefined).catch(ownRow);
     need(ownNow !== undefined, 'the folder\'s own "gateway" row could not be brought back into sight for the control');
     await ctx.d.click(ownNow.centre);
     const control = await until('the gateway row opening its file', 10000, () => ctx.probe.request<{ path: string } | null>('editor.active'), (v) => v !== null && v.path === path.join(ctx.folder, 'aggregate.yaml')).then(() => true, () => false);
@@ -293,9 +293,10 @@ export async function readinessChecks(ctx: SuiteContext): Promise<void> {
       if (panel === 'Plugins') {
         listed = await until('the plugin listing run again', 8000, async () => { ctx.s.table.snapshot(); return ctx.s.table.all().slice(mark).some((r) => r.cmd.startsWith(`${bin} plugin list`) || readCmdline(r.pid).startsWith(`${bin} plugin list`)); }, (v) => v, 20).then(() => true, () => false);
       }
-      await sleep(1500);
-      const after = await rowsOf(panel);
-      const unchanged = JSON.stringify(before) === JSON.stringify(after) && after.length > 0;
+      // What it drew before, at every reading over a stated window from the press.
+      const kept = await holds(1500, () => rowsOf(panel), (v) => JSON.stringify(v) === JSON.stringify(before) && v.length > 0);
+      const after = kept.held ? await rowsOf(panel) : kept.broke as string[];
+      const unchanged = kept.held && JSON.stringify(before) === JSON.stringify(after) && after.length > 0;
       same = same && unchanged && (panel !== 'Plugins' || listed);
       seen.push(`${panel}: ${unchanged ? 'unchanged' : `${JSON.stringify(before.slice(0, 6))} became ${JSON.stringify(after.slice(0, 6))}`}${panel === 'Plugins' ? `, the listing ${listed ? 'run again' : 'not seen run again'}` : ''}`);
     }
@@ -363,8 +364,7 @@ export async function readinessChecks(ctx: SuiteContext): Promise<void> {
     need(canvas !== null, 'the graph panel draws no canvas');
     await ctx.d.moveTo({ x: canvas.x + canvas.width / 2, y: canvas.y + canvas.height / 2 });
     await ctx.d.wheel(0, -240);
-    await sleep(500);
-    const zoomed = await viewTransform(ctx);
+    const zoomed = await standsStill('the zoom coming to rest', 5000, () => viewTransform(ctx));
     const rendersBefore = (await graphState(graph)).renders;
     const statusMark = (await statusLog(ctx.d)).length;
     const viewsFrom = Date.now();
@@ -377,10 +377,9 @@ export async function readinessChecks(ctx: SuiteContext): Promise<void> {
     const readings = (await statusLog(ctx.d)).slice(statusMark).map((r) => r.reading);
     const through = readings.indexOf(STARTING) !== -1 && readings.lastIndexOf(RUNNING) > readings.indexOf(STARTING);
     const runningAt = (await statusLog(ctx.d)).slice(statusMark).filter((r) => r.reading === RUNNING).pop()?.at ?? Date.now();
-    const settle = await panelsSettle(ctx, STALE_BOUND_MS);
+    const settle = await panelsSettle(ctx, stated(STALE_BOUND_MS));
     const redrawn = await until('the graph drawn again after the restart', 60000, () => graphState(graph), (s) => s.renders > rendersBefore && s.nodes.length > 0).then(() => true, () => false);
-    await sleep(500);
-    const after = await viewTransform(ctx);
+    const after = await standsStill('the redrawn view coming to rest', 5000, () => viewTransform(ctx));
     const f = fillingSince(await viewReadings(ctx.d), viewsFrom, runningAt);
     const leftInTime = LIST_PANELS.every((p) => f.lastStale[p] === null || (f.lastStale[p] as number) <= STALE_BOUND_MS);
     const said = (await toastsSince(ctx.d, toastMark)).map((t) => t.message);

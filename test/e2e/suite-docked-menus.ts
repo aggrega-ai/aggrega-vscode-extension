@@ -10,7 +10,7 @@ import {
 import { WebviewDocument } from './drivers';
 import { dragSash } from './suite-above';
 import { capture, closeAllEditors, ready, SuiteContext } from './suite-context';
-import { centre, commandsPanel, holds, pressIn, until } from './workbench';
+import { centre, commandsPanel, guard, holds, pressIn, until } from './workbench';
 
 // The checks run in the gateway folder on the menus a Commands panel button opens
 // beside itself: where each menu stands against its button in a panel wide enough
@@ -153,7 +153,7 @@ export async function dockedMenusChecks(ctx: SuiteContext): Promise<void> {
     }, async () => {
       await dragSash(ctx, -WIDE_PX);
       const back = await until('the side bar back where it was', 5000, async () => (await drawnPanel(panel)).view.width, (w) => Math.abs(w - start) < 6).then(() => true, () => false);
-      return back ? null : `the side bar was not back at ${start} px within 5 s of being dragged back, so the checks after this one start from another width`;
+      return back ? null : `the side bar was not back at ${start} px within ${guard(5000) / 1000} s of being dragged back, so the checks after this one start from another width`;
     });
   });
 

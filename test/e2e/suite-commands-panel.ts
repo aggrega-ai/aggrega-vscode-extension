@@ -32,7 +32,7 @@ import { DRAFT_PLACEHOLDER, SEARCH_TITLE } from './suite-storefront';
 import { THEMES, writeColourTheme } from './suite-welcome-mixed';
 import { pageNow, stepOf, WAYS_THROUGH, wayThroughCommand, WELCOME_OPEN_COMMAND, welcomePage } from './welcome';
 import {
-  commandsPanel, dialog, holds, NOT_RUNNING, pickQuickInputRow, pressIn, pressOperation, pressPanelAction, quickInput, RUNNING, STARTING, statusLog, statusNow, Toast, toasts, toastsSince, treeRows,
+  commandsPanel, dialog, guard, holds, NOT_RUNNING, pickQuickInputRow, pressIn, pressOperation, pressPanelAction, quickInput, RUNNING, STARTING, statusLog, statusNow, Toast, toasts, toastsSince, treeRows,
   until, waitQuickInput, waitStatus, waitToast,
 } from './workbench';
 
@@ -699,7 +699,7 @@ export async function commandsPanelChecks(ctx: SuiteContext, notABinary: string,
     const ask = async (command: string, label: string, words: string, own: (q: { title: string; message: string }) => boolean): Promise<boolean> => {
       await pressOperation(ctx.d, panel, command);
       const q = await waitChooser(ctx.d, `${label}'s question`, own, 10000).catch(() => null);
-      if (q === null) { faults.push(`${label} did not ask ${words} in the editor's own input within 10 s; it reads ${JSON.stringify(await chooser(ctx.d))}`); return false; }
+      if (q === null) { faults.push(`${label} did not ask ${words} in the editor's own input within ${guard(10000) / 1000} s; it reads ${JSON.stringify(await chooser(ctx.d))}`); return false; }
       notes.push(`${label}: ${JSON.stringify(`${q.message} | ${q.title}`)}`);
       return true;
     };
@@ -730,7 +730,7 @@ export async function commandsPanelChecks(ctx: SuiteContext, notABinary: string,
         await run(ctx, 'workbench.view.extension.aggrega');
         await pressPanelAction(ctx.d, h.title, a.label);
         const q = await waitChooser(ctx.d, `${a.label}'s question`, (x) => x.title === own || x.placeholder === own, 8000).catch(() => null);
-        if (q === null) { faults.push(`${name} did not ask "${own}" in the editor's own input within 8 s; it reads ${JSON.stringify(await chooser(ctx.d))}`); }
+        if (q === null) { faults.push(`${name} did not ask "${own}" in the editor's own input within ${guard(8000) / 1000} s; it reads ${JSON.stringify(await chooser(ctx.d))}`); }
         else { notes.push(`${name}: asked ${JSON.stringify(q.title || q.placeholder)}`); }
         await backOutOf(name);
       }
@@ -779,7 +779,7 @@ export async function commandsPanelChecks(ctx: SuiteContext, notABinary: string,
       // would run beside the checks after this one.
       const ended = await ctx.out.waitFor('the pull ending', mark, (t) => /^The pull /m.test(t), 120000).then(() => true, () => false);
       need(pulled, 'its positive control did not fire: Pull was not seen running the compiler as a command, so the reading is not shown to see one');
-      return { passed: quiet.held && during.length === 0 && ended, seen: `while asking, reading and drawing: ${during.length === 0 ? 'no compiler process' : JSON.stringify(during)}; Pull started ${JSON.stringify(runs.seen.slice(during.length))}${ended ? ' and ended' : ', and had not ended within 120 s, so the checks after this one run beside it'}` };
+      return { passed: quiet.held && during.length === 0 && ended, seen: `while asking, reading and drawing: ${during.length === 0 ? 'no compiler process' : JSON.stringify(during)}; Pull started ${JSON.stringify(runs.seen.slice(during.length))}${ended ? ' and ended' : `, and had not ended within ${guard(120000) / 1000} s, so the checks after this one run beside it`}` };
     } finally {
       runs.stop();
     }
@@ -812,7 +812,7 @@ export async function commandsPanelChecks(ctx: SuiteContext, notABinary: string,
     const back = await waitStatus(ctx.d, RUNNING, 60000).then(() => true, () => false);
     const cStarting = (await statusLog(ctx.d)).slice(cStatus).some((r) => r.reading === STARTING);
     need(next !== null, `its positive control did not fire: the restart asked for gave no new process (${cStarting ? 'a' : 'no'} "starting" reading)`);
-    return { passed: JSON.stringify(after) === JSON.stringify(buttonsSequence) && quiet.held && back, seen: `in buttons ${JSON.stringify(buttonsSequence)}; in sections ${JSON.stringify(after)}; ${quiet.held ? `process ${srv.pid}, no "starting" reading and the same window for 3 s` : `at ${quiet.atMs} ms ${JSON.stringify(quiet.broke)}`}; the control restarted into process ${next}${back ? ', the status bar reading running again' : `, and the status bar did not read "${RUNNING}" again within 60 s, so the checks after this one start with no running server`}` };
+    return { passed: JSON.stringify(after) === JSON.stringify(buttonsSequence) && quiet.held && back, seen: `in buttons ${JSON.stringify(buttonsSequence)}; in sections ${JSON.stringify(after)}; ${quiet.held ? `process ${srv.pid}, no "starting" reading and the same window for 3 s` : `at ${quiet.atMs} ms ${JSON.stringify(quiet.broke)}`}; the control restarted into process ${next}${back ? ', the status bar reading running again' : `, and the status bar did not read "${RUNNING}" again within ${guard(60000) / 1000} s, so the checks after this one start with no running server`}` };
   });
 
   const enumValues = manifest.contributes.configuration.properties[LAYOUT_SETTING]?.enum ?? [];
@@ -987,7 +987,7 @@ export async function commandsPanelChecks(ctx: SuiteContext, notABinary: string,
       writeColourTheme(ctx, from, THEMES[0].name);
       from = THEMES[0].name;
       const back = await until(`the panel drawn in ${THEMES[0].name} again`, 15000, () => drawnPanel(panel), (x) => x.bodyClass.split(/\s+/).includes(THEMES[0].bodyClass)).then(() => true, () => false);
-      return back ? null : `the panel was not drawn in ${THEMES[0].name} again within 15 s of the user settings naming it, so the checks after this one may read it in ${left}`;
+      return back ? null : `the panel was not drawn in ${THEMES[0].name} again within ${guard(15000) / 1000} s of the user settings naming it, so the checks after this one may read it in ${left}`;
     });
   });
 
@@ -1075,7 +1075,7 @@ export async function commandsPanelChecks(ctx: SuiteContext, notABinary: string,
   }, async () => {
     await setBinaryPath(ctx, bin, notABinary);
     const stopped = await waitStatus(ctx.d, NOT_RUNNING, 90000).then(() => true, () => false);
-    if (!stopped) { return { passed: false, seen: `with the binary path naming a file that is not a binary, the status bar did not read "${NOT_RUNNING}" within 90 s; it reads "${await statusNow(ctx.d)}"` }; }
+    if (!stopped) { return { passed: false, seen: `with the binary path naming a file that is not a binary, the status bar did not read "${NOT_RUNNING}" within ${guard(90000) / 1000} s; it reads "${await statusNow(ctx.d)}"` }; }
     panel = await commandsPanel(ctx.d);
     await run(ctx, 'workbench.view.extension.aggrega');
     const read = async (): Promise<{ enabled: string[]; greyed: string[]; draft: string | null; described: string[] }> => {

@@ -4,7 +4,7 @@
 import { need } from './checks';
 import { UiDriver, WebviewDocument } from './drivers';
 import { run, SuiteContext } from './suite-context';
-import { commandsPanel, documentWith, evaluateWithin, pressOperation, sleep, until } from './workbench';
+import { Bound, commandsPanel, documentNow, evaluateWithin, pressConfirmed, PressSite, pressOperation, toastsGone, until } from './workbench';
 
 // The topology graph panel as a reader meets it: the graph drawn, a node
 // pressed, what is attached to that node and what may attach to it, and the
@@ -20,7 +20,10 @@ import { commandsPanel, documentWith, evaluateWithin, pressOperation, sleep, unt
 // again over a panel that already shows a graph leaves a drawing in place whether
 // or not the new one ever arrives, so an observer installed in the panel's
 // document counts the drawings the canvas is given, and a check waits for that
-// count to move.
+// count to move. And a press's own drawing is told from one nobody asked for —
+// the redraw a save sends — by what the extension says of each: every drawing it
+// sends the panel says whether the reader asked for it, and the observer keeps
+// the count of the drawings asked for beside the count of the drawings made.
 
 // GRAPH_PANEL identifies the graph panel's document: its canvas and the panel
 // the selection opens.
@@ -36,8 +39,12 @@ const GRAPH_OBSERVER = `(() => {
   const canvas = document.getElementById('canvas');
   const panel = document.getElementById('panel');
   if (!canvas || !panel) { return false; }
-  const state = { renders: 0, readings: [] };
+  const state = { renders: 0, asked: 0, rendersWhenAsked: 0, readings: [] };
   new MutationObserver(() => { state.renders++; }).observe(canvas, { childList: true });
+  window.addEventListener('message', (event) => {
+    const m = event.data;
+    if (m && m.type === 'render' && m.asked) { state.asked++; state.rendersWhenAsked = state.renders; }
+  });
   let last = null;
   const sample = () => {
     const shown = !panel.classList.contains('hidden');
@@ -61,16 +68,20 @@ const GRAPH_OBSERVER = `(() => {
 export interface PanelReading { at: number; title: string; candidates: string | null; outcome: string | null }
 
 // GraphState is the panel's document as it stands: how many drawings the canvas
-// was given since the observer went in, the nodes drawn, the notice at its top
-// where one is shown, and whether the drawing is dimmed as out of date.
-export interface GraphState { renders: number; nodes: string[]; status: string; outOfDate: boolean }
+// was given since the observer went in, how many of the drawings sent were asked
+// for and how many drawings the canvas had been given when the last of those
+// arrived, the nodes drawn, the notice at its top where one is shown, and whether
+// the drawing is dimmed as out of date.
+export interface GraphState { renders: number; asked: number; rendersWhenAsked: number; nodes: string[]; status: string; outOfDate: boolean }
 
 const GRAPH_STATE = `(() => {
-  const s = window.__editorSuiteGraph || { renders: 0 };
+  const s = window.__editorSuiteGraph || { renders: 0, asked: 0, rendersWhenAsked: 0 };
   const status = document.getElementById('status');
   const canvas = document.getElementById('canvas');
   return {
     renders: s.renders,
+    asked: s.asked,
+    rendersWhenAsked: s.rendersWhenAsked,
     nodes: [...canvas.querySelectorAll('g.node')].map((g) => ((g.querySelector(':scope > text.node-label') || {}).textContent || '')),
     status: status && !status.classList.contains('hidden') ? (status.innerText || '').trim() : '',
     outOfDate: canvas.classList.contains('out-of-date'),
@@ -87,22 +98,24 @@ export async function panelReadings(doc: WebviewDocument, from = 0): Promise<Pan
   return log.slice(from);
 }
 
-// findGraphPanel is the graph panel's document where one is open, with the
-// observer in it, or null.
+// findGraphPanel is the graph panel's document where one is open as the editor
+// stands, with the observer in it, or null; it waits for none to be drawn.
 export async function findGraphPanel(ctx: SuiteContext): Promise<WebviewDocument | null> {
-  const doc = await documentWith(ctx.d, 'the graph panel', GRAPH_PANEL, 2500).catch(() => null);
+  const doc = await documentNow(ctx.d, GRAPH_PANEL);
   if (doc !== null) { await evaluateWithin(doc, GRAPH_OBSERVER, 5000); }
   return doc;
 }
 
 // showGraph presses Graph on the Commands panel, as a reader shows the topology,
-// and waits for the canvas to be given a drawing after the press — a new
-// drawing, where a panel was already open — with no notice left at its top. A
-// Graph button the workbench covers — a modal editor's blocking layer, a
-// notification — is refused by name rather than pressed to no effect.
-export async function showGraph(ctx: SuiteContext, boundMs = 90000): Promise<WebviewDocument> {
+// and waits for the drawing that press asked for, with no notice left at its top:
+// in a panel the press opens, its first drawing; in one already open, a drawing
+// made after the extension sent one the reader asked for, so a redraw nobody
+// asked for — a save's — landing after the press is not taken for it. A Graph
+// button the workbench covers — a modal editor's blocking layer, a notification —
+// is refused by name rather than pressed to no effect.
+export async function showGraph(ctx: SuiteContext, boundMs: Bound = 90000): Promise<WebviewDocument> {
   const before = await findGraphPanel(ctx);
-  const mark = before === null ? -1 : (await graphState(before)).renders;
+  const askedBefore = before === null ? -1 : (await graphState(before)).asked;
   const panel = await commandsPanel(ctx.d);
   const button = await ctx.d.box(panel, 'button.op[data-command="aggrega.graph.show"]');
   need(button !== null, 'the Commands panel draws no Graph button');
@@ -110,8 +123,8 @@ export async function showGraph(ctx: SuiteContext, boundMs = 90000): Promise<Web
   need(covered === null, `the Graph button is covered by the workbench's ${covered}, so it cannot be pressed`);
   await pressOperation(ctx.d, panel, 'aggrega.graph.show');
   const doc = before ?? await until('the graph panel opening', boundMs, () => findGraphPanel(ctx), (d) => d !== null) as WebviewDocument;
-  await until('the graph drawn after the press', boundMs, () => graphState(doc),
-    (s) => (mark === -1 || s.renders > mark) && s.status === '' && s.nodes.length > 0);
+  await until('the drawing the press asked for', boundMs, () => graphState(doc),
+    (s) => (askedBefore === -1 || (s.asked > askedBefore && s.renders > s.rendersWhenAsked)) && s.status === '' && s.nodes.length > 0);
   return doc;
 }
 
@@ -176,7 +189,7 @@ async function offsetOf(ctx: SuiteContext, doc: WebviewDocument): Promise<{ dx: 
 // the notification centre, and the record of every notification drawn is kept.
 export async function putAwayNotifications(ctx: SuiteContext): Promise<void> {
   await run(ctx, 'notifications.hideToasts');
-  await until('the notifications put away', 5000, () => ctx.d.workbench<number>(`[...document.querySelectorAll('.notification-toast-container, .notification-toast')].filter((e) => e.getBoundingClientRect().height > 0).length`), (n) => n === 0).catch(() => undefined);
+  await toastsGone(ctx.d).catch(() => undefined);
 }
 
 // coveredBy names what the workbench draws over a point of the window where a
@@ -224,19 +237,51 @@ async function bringIntoReach(ctx: SuiteContext, doc: WebviewDocument, id: strin
       y: Math.max(p.canvas.y + 5, Math.min(p.canvas.y + p.canvas.height - 5, p.free.y + move.y)),
     };
     await ctx.d.drag({ x: p.free.x + off.dx, y: p.free.y + off.dy }, { x: to.x + off.dx, y: to.y + off.dy }, 12);
-    await sleep(150);
+    // The node is read where it comes to rest, not where the drag left it passing.
+    let before: string | null = null;
+    await until(`the node ${id} standing still after the drag`, 5000, async () => {
+      const q = await evaluateWithin<Place | null>(doc, place(id), 5000);
+      const key = q === null ? null : `${Math.round(q.node.x * 2)},${Math.round(q.node.y * 2)}`;
+      const same = key !== null && key === before;
+      before = key;
+      return same;
+    }, (same) => same, 100);
   }
   throw new Error(`the node ${id} could not be brought out from under the attachments panel${covered === null ? '' : ` and the workbench's ${covered}`}`);
 }
 
-// pressNode presses a node where a person presses it, and waits for the
-// attachments panel to be drawn for it after the press — a panel already naming
-// the node before the press is not evidence that this press selected it. A press
-// the panel does not follow means the press did not select the node.
+// nodeTarget finds, in the panel's document, the drawn node labelled `id`.
+function nodeTarget(id: string): string {
+  return `(() => {
+    for (const n of document.getElementById('canvas').querySelectorAll('g.node')) {
+      const l = n.querySelector(':scope > text.node-label');
+      if (l && l.textContent === ${JSON.stringify(id)}) { return n; }
+    }
+    return null;
+  })()`;
+}
+
+// nodeSite is where the node labelled `id` is pressed in the window, or why it
+// cannot be pressed there yet.
+async function nodeSite(ctx: SuiteContext, doc: WebviewDocument, id: string): Promise<PressSite> {
+  const p = await evaluateWithin<Place | null>(doc, place(id), 5000);
+  if (p === null) { return { blocked: `the graph draws no node ${id}` }; }
+  if (p.hit === null) { return { blocked: `no point of the node ${id} is clear of the attachments panel` }; }
+  const off = await offsetOf(ctx, doc);
+  const at = { x: p.hit.x + off.dx, y: p.hit.y + off.dy };
+  const over = await coveredBy(ctx, at);
+  return over === null ? at : { blocked: `the workbench's ${over} is drawn over it` };
+}
+
+// pressNode presses a node where a person presses it, through `pressConfirmed`
+// (workbench.ts), and waits for the attachments panel to be drawn for it after
+// the press — a panel already naming the node before the press is not evidence
+// that this press selected it. A press that reached the node and that the panel
+// does not follow means the node was not selected.
 export async function pressNode(ctx: SuiteContext, doc: WebviewDocument, id: string): Promise<void> {
-  const at = await bringIntoReach(ctx, doc, id);
+  await bringIntoReach(ctx, doc, id);
   const from = (await panelReadings(doc)).length;
-  await ctx.d.click(at);
+  await pressConfirmed(ctx.d, { doc, target: nodeTarget(id), what: `the node ${id}` }, () => nodeSite(ctx, doc, id));
   await until(`the attachments panel drawn for ${id}`, 10000, () => panelReadings(doc, from), (r) => r.some((x) => x.title === id));
 }
 
@@ -323,11 +368,42 @@ export function settledPanel(doc: WebviewDocument, node: string, pending: string
     (p) => p !== null && p.title === node && p.candidates !== null && p.candidates.body !== pending && (p.candidates.rows.length > 0 || p.candidates.note !== null || p.candidates.failed !== null)) as Promise<Panel>;
 }
 
+// attachTarget finds, in the panel's document, the Attach button on the row
+// naming `feature`.
+function attachTarget(feature: string): string {
+  return `(() => {
+    for (const row of document.querySelectorAll('#panel-body section.candidate')) {
+      if (((row.querySelector('.candidate-name') || {}).textContent || '') === ${JSON.stringify(feature)}) { return row.querySelector('.candidate-attach'); }
+    }
+    return null;
+  })()`;
+}
+
+// attachSite is where that button is pressed in the window, as the list stands
+// scrolled, or why it cannot be pressed there.
+async function attachSite(ctx: SuiteContext, doc: WebviewDocument, feature: string): Promise<PressSite> {
+  const at = await evaluateWithin<{ x: number; y: number } | null>(doc, `(() => {
+    const b = ${attachTarget(feature)};
+    if (!b) { return null; }
+    const r = b.getBoundingClientRect();
+    const x = r.left + r.width / 2;
+    const y = r.top + r.height / 2;
+    const e = document.elementFromPoint(x, y);
+    return e === b || b.contains(e) ? { x, y } : null;
+  })()`, 5000);
+  if (at === null) { return { blocked: `the row naming ${feature} draws no Attach button where it can be pressed` }; }
+  const off = await offsetOf(ctx, doc);
+  const inWindow = { x: at.x + off.dx, y: at.y + off.dy };
+  const over = await coveredBy(ctx, inWindow);
+  return over === null ? inWindow : { blocked: `the workbench's ${over} is drawn over it` };
+}
+
 // pressAttach presses Attach on the row naming `feature`, where a person
 // presses it: scrolled into sight inside the panel first — to the middle of the
 // list, or to its top or its bottom where the workbench draws something over the
 // middle — and only where the button itself is under the pointer, in the panel's
-// document and in the window.
+// document and in the window; the press is made through `pressConfirmed`
+// (workbench.ts).
 export async function pressAttach(ctx: SuiteContext, doc: WebviewDocument, feature: string): Promise<void> {
   const tried: string[] = [];
   for (const block of ['center', 'start', 'end']) {
@@ -354,7 +430,7 @@ export async function pressAttach(ctx: SuiteContext, doc: WebviewDocument, featu
       covered = await coveredBy(ctx, inWindow);
     }
     if (covered === null) {
-      await ctx.d.click(inWindow);
+      await pressConfirmed(ctx.d, { doc, target: attachTarget(feature), what: `the Attach button on the row naming ${feature}` }, () => attachSite(ctx, doc, feature));
       return;
     }
     tried.push(`scrolled to its ${block}, the workbench's ${covered}`);

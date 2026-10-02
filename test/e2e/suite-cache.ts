@@ -11,7 +11,7 @@ import { referenceAnswer } from './reference';
 import { closeAllEditors, ready, run, send, SuiteContext, theServer } from './suite-context';
 import { contextRowsCheck } from './suite-gateway';
 import {
-  commandsPanel, Dialog, dialog, holds, paletteRows, pickQuickInputRow, pressDialogButton, pressIn, pressOperation, quickInput, sleep, Toast, toasts, toastsSince,
+  commandsPanel, Dialog, dialog, holds, paletteRows, pickQuickInputRow, pressDialogButton, pressIn, pressOperation, quickInput, Toast, toasts, toastsSince,
   until, waitQuickInput, waitToast,
 } from './workbench';
 
@@ -358,9 +358,11 @@ export async function cacheChecks(ctx: SuiteContext, referenceFolder: string): P
     const d = await confirmation('clear', null);
     need(d !== null, 'clear drew no confirmation to dismiss');
     const told = await ending('the declined clear\'s notification', toastMark, (t) => t.message.startsWith('Aggrega: clear') || t.message.startsWith('The cache wipe'));
-    await sleep(1500);
-    const said = ctx.out.since(mark).trim();
-    const kept = sameFiles(storeFiles(scenarioStore), store);
+    // Nothing said and nothing removed, at every reading over a stated window from
+    // the notification.
+    const quiet = await holds(1500, async () => ({ said: ctx.out.since(mark).trim(), kept: sameFiles(storeFiles(scenarioStore), store) }), (v) => v.said === '' && v.kept);
+    const said = quiet.held ? ctx.out.since(mark).trim() : (quiet.broke as { said: string }).said;
+    const kept = quiet.held && sameFiles(storeFiles(scenarioStore), store);
     return { passed: told !== null && told.message === CLEAR_DECLINED && said === '' && kept, seen: `${told === null ? 'no notification' : `"${told.message}"`}; the channel gained ${JSON.stringify(said.slice(0, 200))}; the store ${kept ? 'unchanged' : 'changed'}` };
   });
 

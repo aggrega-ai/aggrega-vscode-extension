@@ -6,7 +6,7 @@ import { framePoint } from './commands-panel';
 import { Box } from './drivers';
 import { capture, closeAllEditors, ready, run, SuiteContext } from './suite-context';
 import { ConfigPanel, configPanel } from './suite-config-panel';
-import { centre, until } from './workbench';
+import { centre, guard, until } from './workbench';
 
 // The checks run in the gateway folder on the configuration panel's table, drawn in
 // an editor group as narrow as the side bar a panel docks in: the setting column
@@ -259,7 +259,7 @@ export async function dockedConfigurationChecks(ctx: SuiteContext): Promise<void
     const putAway = await until('the description closing', 5000, () => p.read<boolean>(`(() => { const det = d.querySelector('table.config-table tbody tr:first-child details.config-info'); return !!det && !det.open; })()`), (v) => v).then(() => true, () => false);
     return {
       passed: whole && putAway,
-      seen: `the description ${Math.round(r.right - r.left)} px wide, the Setting column ending at ${Math.round(r.keyRight)} px in a view ${r.viewWidth} px wide; scrolled to ${Math.round(r.scrollLeft)} px it stands from ${Math.round(r.left)} to ${Math.round(r.right)} px, ${inEdges ? 'within the view right of the column' : 'not within the view right of the column'}; drawn at ${xs.map((x) => Math.round(x)).join(', ')} px: ${pts.map((q) => q.what).join('; ')}; ${putAway ? 'put away again by its circle' : 'not put away again by its circle within 5 s, so the checks after this one read it open'}`,
+      seen: `the description ${Math.round(r.right - r.left)} px wide, the Setting column ending at ${Math.round(r.keyRight)} px in a view ${r.viewWidth} px wide; scrolled to ${Math.round(r.scrollLeft)} px it stands from ${Math.round(r.left)} to ${Math.round(r.right)} px, ${inEdges ? 'within the view right of the column' : 'not within the view right of the column'}; drawn at ${xs.map((x) => Math.round(x)).join(', ')} px: ${pts.map((q) => q.what).join('; ')}; ${putAway ? 'put away again by its circle' : `not put away again by its circle within ${guard(5000) / 1000} s, so the checks after this one read it open`}`,
     };
   });
 

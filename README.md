@@ -373,7 +373,9 @@ Four of this package's spec files drive the extension against a real `aggrega`
 binary, which means building the compiler from that same sibling tree. That
 build is off by default, so `npm test` does not pay for it: those specs stand
 down and each says which coverage it skipped. Set
-`AGGREGA_EDITOR_COMPILER_FIXTURE=1` to build the binary and run them.
+`AGGREGA_EDITOR_COMPILER_FIXTURE=1` to build the binary and run them. The
+binary is stamped with the sibling tree's own version and commit, as the
+compiler's build scripts stamp it, and is built again whenever either moves.
 
 ### The end-to-end suite
 
@@ -391,8 +393,11 @@ claims to be:
   `node build/stamp-build-version.js`. A compiled output older than its source,
   or a build stamp older than the compiled output, is refused.
 - **An `aggrega` binary built from a committed revision**, and that commit:
-  `--compiler <file> --compiler-commit <sha>`. A binary reporting a build of a
-  working tree with uncommitted changes is refused.
+  `--compiler <file> --compiler-commit <sha>`. A binary whose version shows it
+  was not built from a committed revision is refused, naming the version it
+  reports: one ending `-dirty` or `+dirty`, a build of a working tree with
+  uncommitted changes, or `(devel)` or `(unknown)`, a build stamped with no
+  revision at all.
 - **The standard-library catalog**, the `aggrega-catalog` directory of a git
   checkout: `--catalog <dir>`.
 - **A `zot` registry server binary**: `--registry-server <file>`. The suite
@@ -428,6 +433,28 @@ and the catalog's commit, and gives each check one of four outcomes:
   reached. A check not run is never counted as passed;
 - **for a person**, where the question is a judgement: the check stops at the
   state to judge and leaves a capture and the drawn text for someone to look at.
+
+A check waits for the state it asserts and reads it the moment that state
+holds, so a busy machine makes a run longer and moves no verdict. The bound on
+each wait only guards against a state that never comes: it is ten times what the
+state takes on an idle machine, and never more than ten minutes, which is also
+how long a check failing on that wait takes to report. A check whose expectation
+states a duration of its own — "within 10 s" — compares that duration as
+written, and on a machine too busy to meet it that verdict does move; so does a
+wait whose outcome the check records rather than judges, which is watched for a
+stated time instead. A press on a control drawn in a panel's document, on the
+welcome page, on a notification's button, on the topology graph, or on a row or
+header of a side-bar view is made once that control stands still with nothing
+drawn over it, and counts only where its own event reached it; one that landed
+elsewhere is made again, at most three times, and one that never lands stops the
+check, naming where each landed. The editor draws at most three notifications in
+any 800 ms and lists the rest in its notification centre without drawing them,
+so a check acts, after closing its editors, only once none has been drawn for
+that long, and the notification it then reads is one the editor drew. A wait
+that runs out names the state it waited for, the bound it ran to and the last
+thing it read, and the report lists under each check every wait that ran out in
+it, with that bound and reading — so a check that passed after waiting a whole
+bound out for its answer is visible as one.
 
 Each scenario starts an editor of its own on one folder, and a few then open or
 add others in that window as a reader does. Some work in the topology graph
