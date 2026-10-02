@@ -123,12 +123,12 @@ html, body {
 
 .legend-swatch-boundary {
   background: var(--vscode-editorWidget-background);
-  border: 1.5px solid #0e7070;
+  border: 1.5px solid #217273;
 }
 
 .legend-swatch-subsystem {
   background: var(--vscode-editorWidget-background);
-  border: 1.25px dashed #a3e635;
+  border: 1.25px dashed #a6de3a;
 }
 
 /* The accent swatch is the bar itself: the leading edge of a node body, at the
@@ -151,8 +151,8 @@ html, body {
 }
 
 /* Boundary and subsystem containers.
-   Structural elements carry the brand pair — petrol (#0E7070, the brand's
-   structure/link colour) on boundaries, lime (#A3E635, the brand primary) on
+   Structural elements carry the brand pair — petrol (#217273, the brand's
+   structure/link colour) on boundaries, lime (#A6DE3A, the brand primary) on
    subsystems. The two are also distinguished by border STYLE (solid vs dashed)
    so the grouping never depends on colour alone — petrol and lime differ mainly
    in lightness, which reads for colour-vision deficiencies, but the shape
@@ -160,14 +160,14 @@ html, body {
 .container-boundary {
   fill: var(--vscode-editorWidget-background);
   fill-opacity: 0.35;
-  stroke: #0e7070;
+  stroke: #217273;
   stroke-width: 1.5;
 }
 
 .container-subsystem {
   fill: var(--vscode-editorWidget-background);
   fill-opacity: 0.25;
-  stroke: #a3e635;
+  stroke: #a6de3a;
   stroke-width: 1.25;
   stroke-dasharray: 4 3;
 }
