@@ -854,6 +854,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   activateConfigPanel(context, {
     getSchema: requestSchema,
     effectiveConfiguration: requestEffectiveConfiguration,
+    getDaemonState: () => daemon?.getState() ?? null,
     output: outputChannel,
   });
 

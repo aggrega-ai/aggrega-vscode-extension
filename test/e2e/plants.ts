@@ -108,13 +108,15 @@ const ATTACHMENT_EDIT = 'out/src/attachment-edit.js';
 
 // The configuration panel: the side that asks the compiler and hosts the
 // document, the composition of the document, the join against the compiler's
-// report, and the walk of the schema; and the compiled lines a panel already open
-// is read again by when Show config is pressed.
+// report, and the walk of the schema; the compiled lines bringing a panel already
+// open to the front before it is read again, and those closing whichever panel a
+// press could not read.
 const CONFIG_VIEW = 'out/src/config-view.js';
 const CONFIG_RENDER = 'out/src/config-render.js';
 const CONFIG_MODEL = 'out/src/config-model.js';
 const CONFIG_SCHEMA = 'out/src/config-schema.js';
-const OPEN_PANEL_READ_AGAIN = '            await draw(panel);\n            return;\n        }\n        const created';
+const OPEN_PANEL_REVEALED = '            open.reveal(vscode.ViewColumn.Active);\n        }';
+const UNREAD_PANEL_CLOSED = '            target.dispose();\n            if (panel === target) {\n                panel = null;\n            }';
 
 // The compiled line that inserts an attach's entry into the document.
 const ENTRY_INSERT = '        edit.insert(uri, new vscode.Position(at.line, at.character), text);';
@@ -2129,7 +2131,7 @@ export const PLANTS: readonly Plant[] = [
   },
   {
     name: 'open-panel-brought-forward-unread', scenario: 'gateway-configuration-report', checks: ['config-panel.pressed-again-reveals-the-open-panel-and-reads-again'], moves: 'red', target: 'extension',
-    file: CONFIG_VIEW, find: OPEN_PANEL_READ_AGAIN, replace: '            return;\n        }\n        const created',
+    file: CONFIG_VIEW, find: OPEN_PANEL_REVEALED, replace: '            open.reveal(vscode.ViewColumn.Active);\n            return;\n        }',
     says: 'a panel already open is brought to the front without being read again',
   },
   {
@@ -2141,16 +2143,34 @@ export const PLANTS: readonly Plant[] = [
   },
   {
     name: 'failed-first-drawing-left-standing', scenario: 'gateway-configuration-report', checks: ['config-panel.with-the-server-stopped-leaves-no-panel-and-says-why'], moves: 'red', target: 'extension',
-    file: CONFIG_VIEW, find: '            created.dispose();\n            panel = null;', replace: '            panel = null;',
-    says: 'a panel whose first drawing failed is left standing, empty, rather than closed',
+    file: CONFIG_VIEW, find: UNREAD_PANEL_CLOSED, replace: UNREAD_PANEL_CLOSED.replace('            target.dispose();\n', ''),
+    says: 'a panel whose drawing failed is left standing rather than closed',
   },
   {
-    name: 'open-panel-told-when-it-cannot-be-read-again', scenario: 'gateway-configuration-report',
+    name: 'open-panel-left-standing-when-it-cannot-be-read-again', scenario: 'gateway-configuration-report',
     checks: ['config-panel.open-panel-with-the-server-stopped-is-told-why-from-the-commands-panel', 'config-panel.open-panel-with-the-server-stopped-is-told-why-from-the-palette'],
-    moves: 'green', target: 'extension',
-    file: CONFIG_VIEW, find: OPEN_PANEL_READ_AGAIN,
-    replace: '            try {\n                await draw(panel);\n            }\n            catch (err) {\n                void vscode.window.showErrorMessage(`The configuration surface could not be drawn: ${describe(err)}`);\n            }\n            return;\n        }\n        const created',
-    says: 'a panel already open that cannot be read again tells the reader so, in the words a first opening uses',
+    moves: 'red', target: 'extension',
+    file: CONFIG_VIEW, find: UNREAD_PANEL_CLOSED,
+    replace: `            if (open === null) {\n${UNREAD_PANEL_CLOSED.replace(/^/gm, '    ')}\n            }`,
+    says: 'a panel already open that cannot be read again is left standing on its earlier reading beside the notification, while one a press opened is closed',
+  },
+  {
+    name: 'start-action-dropped', scenario: 'gateway-configuration-report',
+    checks: [
+      'config-panel.with-the-server-stopped-leaves-no-panel-and-says-why',
+      'config-panel.open-panel-with-the-server-stopped-is-told-why-from-the-commands-panel',
+      'config-panel.open-panel-with-the-server-stopped-is-told-why-from-the-palette',
+    ],
+    moves: 'red', target: 'extension',
+    file: CONFIG_RENDER,
+    find: '            ? { label: daemon_status_1.DAEMON_ACTION_LABEL[(0, daemon_status_1.daemonStandingAction)(standing)], command: daemon_status_1.RESTART_COMMAND }',
+    replace: '            ? null',
+    says: 'the notification saying the language server is not running offers nothing',
+  },
+  {
+    name: 'start-action-runs-nothing', scenario: 'gateway-configuration-report', checks: ['config-panel.start-on-the-notification-starts-the-language-server'], moves: 'red', target: 'extension',
+    file: CONFIG_VIEW, find: '                void vscode.commands.executeCommand(action.command);', replace: '                void action.command;',
+    says: 'the notification\'s start is drawn and pressing it runs nothing',
   },
   {
     name: 'environment-variable-read-as-a-file', scenario: 'gateway-configuration-from-the-environment', checks: ['config-panel.setting-from-the-environment-names-the-variable-in-both-shapes'], moves: 'red', target: 'extension',

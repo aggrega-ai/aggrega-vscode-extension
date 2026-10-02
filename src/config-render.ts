@@ -11,12 +11,21 @@
 // 🔴 EVERY WORD DRAWN HERE COMES FROM THE SCHEMA OR THE COMPILER'S REPORT. There
 // is no label, no description and no default written in this file. The only text
 // composed here is what the surface itself says — the headings for the reader's
-// own orientation, and the sentence explaining a setting whose origin the report
-// does not cover. That division is what a reader can rely on: a setting's meaning
-// is the schema's statement of it, not this surface's paraphrase.
+// own orientation, the sentence explaining a setting whose origin the report
+// does not cover, and the notification raised when the surface cannot be drawn.
+// That division is what a reader can rely on: a setting's meaning is the schema's
+// statement of it, not this surface's paraphrase.
 
 import { escapeHtml } from './html';
 import { ConfigControl } from './config-schema';
+import {
+  DAEMON_ACTION_LABEL,
+  DAEMON_STANDING_WORDS,
+  DaemonStanding,
+  RESTART_COMMAND,
+  daemonStandingAction,
+} from './daemon-status';
+import { describeError } from './error-surfaces';
 import {
   ConfigPanelModel,
   ConfigRow,
@@ -63,6 +72,52 @@ export const PRESENTATION_TOGGLE_COMMAND = 'aggrega.config.togglePresentation';
 // type, so the key is readable by an assertion with no extension host running,
 // and the guarantee above can therefore be checked rather than merely intended.
 export const PRESENTATION_MEMENTO_KEY = 'aggrega.config.presentation';
+
+// CONFIG_UNREAD_LEAD opens the notification a press of Show config ends in when
+// the configuration cannot be read.
+export const CONFIG_UNREAD_LEAD = 'The configuration surface could not be drawn';
+
+// ConfigUnreadAction is the one act that notification offers: the words on its
+// button and the command pressing the button runs.
+export interface ConfigUnreadAction {
+  label: string;
+  command: string;
+}
+
+// ConfigUnreadNotice is what a reader is told when the configuration cannot be
+// read, and the act offered beside it where there is one.
+export interface ConfigUnreadNotice {
+  message: string;
+  action: ConfigUnreadAction | null;
+}
+
+// configUnreadNotice decides what a press of Show config ends in when the
+// configuration cannot be read. It is one decision for every press: a panel
+// opened by it and one already open, pressed on the Commands panel or run from
+// the command palette.
+//
+// 🔴 WHETHER THE LANGUAGE SERVER IS RUNNING IS READ FROM ITS LIFECYCLE, NEVER
+// FROM THE REFUSAL'S WORDS. The standing passed in is the one the status bar
+// shows, taken as the refusal arrived. A refusal's sentence belongs to whoever
+// raised it, and matching it would stop offering the start the day it was
+// worded otherwise, with nothing failing. Where the server is not running, or is
+// starting, the notification says so in the words the status bar uses for that
+// standing. Where nothing is running it offers the act the status bar offers for
+// it, under the same label and through the same command; a server starting is
+// offered nothing, because it answers once it is up. A refusal with the server
+// running is told in its own words with nothing offered, because a start is not
+// its answer.
+export function configUnreadNotice(standing: DaemonStanding, err: unknown): ConfigUnreadNotice {
+  if (standing === 'running') {
+    return { message: `${CONFIG_UNREAD_LEAD}: ${describeError(err)}`, action: null };
+  }
+  return {
+    message: `${CONFIG_UNREAD_LEAD}: the Aggrega language server is ${DAEMON_STANDING_WORDS[standing]}`,
+    action: standing === 'notRunning'
+      ? { label: DAEMON_ACTION_LABEL[daemonStandingAction(standing)], command: RESTART_COMMAND }
+      : null,
+  };
+}
 
 // configPanelBodyHtml draws the whole surface in the presentation asked for.
 //

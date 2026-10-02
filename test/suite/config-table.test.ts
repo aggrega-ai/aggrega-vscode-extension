@@ -12,9 +12,15 @@ import {
   configDocumentHtml,
   configPanelBodyHtml,
   configTableHtml,
+  configUnreadNotice,
   shapePhrase,
   shapeSentence,
 } from '../../src/config-render';
+import {
+  DAEMON_ACTION_LABEL,
+  RESTART_COMMAND,
+  daemonStandingAction,
+} from '../../src/daemon-status';
 import {
   DEFAULTS_SOURCE,
   Provenance,
@@ -577,6 +583,64 @@ describe('the columns a reader resizes, in a document that runs no script', () =
     assert.strictEqual(
       view.split('enableScripts').length - 1, 1,
       'the module states whether scripts run somewhere other than the panel\'s creation',
+    );
+  });
+});
+
+describe('what a press ends in when the configuration cannot be read', () => {
+  // The words are written out rather than composed from the module's own
+  // constants, so a change of wording is reported here rather than followed.
+  const NOT_RUNNING_NOTICE = 'The configuration surface could not be drawn: the Aggrega language server is not running';
+  const STARTING_NOTICE = 'The configuration surface could not be drawn: the Aggrega language server is starting';
+
+  // Refusals worded every way a reader could meet one: in the words the request
+  // helpers use when no server runs, in other words, from the transport, and as
+  // something that is not an error at all.
+  const REFUSALS: readonly unknown[] = [
+    new Error('the Aggrega language server is not running'),
+    new Error('daemon is Stopped'),
+    { code: -32603, message: 'the schema could not be served' },
+    'refused',
+  ];
+
+  it('says the server is not running and offers the start the status bar offers, whatever the refusal says', () => {
+    for (const err of REFUSALS) {
+      const notice = configUnreadNotice('notRunning', err);
+      assert.strictEqual(notice.message, NOT_RUNNING_NOTICE, `the notice for ${JSON.stringify(String(err))}`);
+      assert.deepStrictEqual(
+        notice.action,
+        { label: DAEMON_ACTION_LABEL[daemonStandingAction('notRunning')], command: RESTART_COMMAND },
+        'the act offered is not the status bar\'s start, through the start-or-restart command',
+      );
+    }
+  });
+
+  it('says the server is starting in the status bar\'s word for it, and offers nothing, whatever the refusal says', () => {
+    for (const err of REFUSALS) {
+      assert.deepStrictEqual(
+        configUnreadNotice('starting', err),
+        { message: STARTING_NOTICE, action: null },
+        `the notice for ${JSON.stringify(String(err))} with the server starting`,
+      );
+    }
+  });
+
+  it('tells a refusal with the server running in its own words, and offers nothing even where the words say not running', () => {
+    assert.deepStrictEqual(
+      configUnreadNotice('running', new Error('the Aggrega language server is not running')),
+      { message: NOT_RUNNING_NOTICE, action: null },
+      'a refusal worded as not running, with the server running, earns the start',
+    );
+    assert.deepStrictEqual(
+      configUnreadNotice('running', new Error('the schema could not be served')),
+      { message: 'The configuration surface could not be drawn: the schema could not be served', action: null },
+      'a refusal with the server running is not told in its own words',
+    );
+    // The transport's refusal is told with its code, as every other surface
+    // tells one, rather than as an object's name.
+    assert.deepStrictEqual(
+      configUnreadNotice('running', { code: -32603, message: 'the schema could not be served' }),
+      { message: 'The configuration surface could not be drawn: code=-32603 the schema could not be served', action: null },
     );
   });
 });

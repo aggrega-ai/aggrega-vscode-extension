@@ -8,7 +8,7 @@ import { loadAll } from 'js-yaml';
 
 import { DEFAULTS_SOURCE } from '../../src/config-model';
 import { PRESENTATION_TOGGLE_COMMAND } from '../../src/config-render';
-import { RESTART_COMMAND } from '../../src/daemon-status';
+import { DAEMON_ACTION_LABEL, RESTART_COMMAND, STATUS_BAR_MENU_COMMAND } from '../../src/daemon-status';
 import { OperationId } from '../../src/operation-groups';
 import { CONFIG_FILENAME } from '../../src/workspace';
 import { need } from './checks';
@@ -17,7 +17,7 @@ import { menuCommand } from './commands-panel';
 import { FixtureError, FixtureProof } from './fixtures';
 import { readEnviron } from './processes';
 import { referenceAnswer, ReferenceAnswer } from './reference';
-import { capture, closeAllEditors, commandTitle, open, ready, run, send, SuiteContext, theServer } from './suite-context';
+import { capture, closeAllEditors, commandTitle, deleteLine, open, ready, run, save, send, SuiteContext, theServer } from './suite-context';
 import { ConfigPanel, configPanel, HEADINGS, HOSTED, TO_EXPANDED, TO_TABLE } from './suite-config-panel';
 import { paletteTitle } from './suite-first-day';
 import { RELEASE } from './suite-graph-panel';
@@ -28,7 +28,8 @@ import { globalConfiguration, sameSet } from './suite-registry';
 import { THEMES, writeColourTheme } from './suite-welcome-mixed';
 import { clearForCapture, describeReadings, runningAgain, statusMark, TabSeen, tabs } from './welcome';
 import {
-  centre, commandsPanel, documentWith, evaluateWithin, holds, NOT_RUNNING, paletteRows, pressOperation, RUNNING, Toast, until, waitToast,
+  centre, commandsPanel, documentWith, evaluateWithin, holds, NOT_RUNNING, paletteRows, pickQuickInputRow, pressOperation, pressToastButton, quickInput,
+  Reading as StatusReading, RUNNING, statusLog, Toast, until, waitQuickInput, waitToast,
 } from './workbench';
 
 // The checks run on the configuration panel as a reader meets it in the gateway
@@ -36,10 +37,11 @@ import {
 // schema the language server serves and against the language server's own report
 // of what is in force, the description behind each row's circle, the switch to the
 // per-setting shape and what that shape adds, the shape the panel reopens in, that
-// nothing on it edits a setting, a setting put in force by the folder's file, and
-// what pressing it says with the language server stopped. Beside them, the same
-// setting put in force by the editor's environment, and the panel in a folder
-// holding nothing configured at all.
+// nothing on it edits a setting, a setting put in force by the folder's file,
+// what pressing it says and offers with the language server stopped, and that the
+// start it offers starts the server. Beside them, the same setting put in force
+// by the editor's environment, and the panel in a folder holding nothing
+// configured at all.
 
 export const CONFIGURATION_REPORT_CHECKS = [
   'config-panel.opens-as-a-table-in-its-own-tab',
@@ -66,6 +68,7 @@ export const CONFIGURATION_REPORT_CHECKS = [
   'config-panel.with-the-server-stopped-leaves-no-panel-and-says-why',
   'config-panel.open-panel-with-the-server-stopped-is-told-why-from-the-commands-panel',
   'config-panel.open-panel-with-the-server-stopped-is-told-why-from-the-palette',
+  'config-panel.start-on-the-notification-starts-the-language-server',
 ] as const;
 
 export const CONFIGURATION_FROM_THE_ENVIRONMENT_CHECKS = [
@@ -95,8 +98,10 @@ export const OFFLINE_IN_THE_ENVIRONMENT: Readonly<Record<string, string>> = { [O
 // the reach note's label and its whole sentence on the registries setting, the
 // phrases naming what a toggle and a bounded whole number take and the words
 // before the fields a list's entries carry, the notification raised when there is
-// no language server to ask, and the channel's line when the report could not be
-// read.
+// no language server to ask, the channel's line when the report could not be
+// read, its line when a change of the binary setting schedules a restart, which
+// names the grace that restart waits, and its line when that restart is
+// cancelled; and the status bar menu's placeholder and its entry cancelling it.
 const PANEL_TAB = 'Aggrega configuration';
 const SUMMARY_HEADING = 'Where these values come from';
 const NO_FILE_LEAD = 'No configuration file contributed';
@@ -120,6 +125,15 @@ const EACH_CARRYING = 'each carrying';
 const NOTICE_LEAD = 'The configuration surface could not be drawn';
 const STOPPED_NOTICE = `${NOTICE_LEAD}: the Aggrega language server is not running`;
 const REPORT_UNREAD = 'Aggrega configuration: the resolved-configuration report could not be read, so every setting is shown with its declared default and no source.';
+const SCHEDULED_RESTART = /binary path changed; restarting in (\d+)s/;
+const RESTART_CANCELLED = 'binary path restart cancelled';
+const MENU_PLACEHOLDER = 'Aggrega: choose an action';
+const CANCEL_RESTART = 'Cancel restart';
+
+// START is the label the status bar's offer gives a start, read from the
+// product rather than written here: what the checks hold the notification to is
+// offering the start under that same label.
+const START = DAEMON_ACTION_LABEL.start;
 
 // The settings these checks name, as a reader names them: the toggle a reader
 // puts in force, a list whose entries' fields are named on its row, the
@@ -154,6 +168,14 @@ const CONTRAST = MODULE_CACHE_CAP;
 // same way: read again on a press, and not read again with nothing pressed.
 const PANEL_DRAWN_MS = 10000;
 const SERVER_BOUND_MS = 60000;
+
+// GRACE_SETTING is how long a change of the binary setting waits before the
+// restart it schedules. The check pressing the notification's start sets it to
+// HELD_GRACE_SECONDS before it puts the binary setting back: ten times the bound
+// it waits for the server, so the restart that change schedules cannot begin
+// while the check reads, and a start the check reads is the press's.
+const GRACE_SETTING = 'aggrega.server.restartGraceSeconds';
+const HELD_GRACE_SECONDS = (10 * SERVER_BOUND_MS) / 1000;
 
 // SUMMARY_WATCH_MS is how long the summary box of a folder nothing configures is
 // watched drawing no list of files.
@@ -427,7 +449,19 @@ async function waitNotice(ctx: SuiteContext, mark: number): Promise<{ toast: Toa
     .then((toast) => ({ toast, why: '' }), (err: unknown) => ({ toast: null, why: err instanceof Error ? err.message : String(err) }));
 }
 
-const describeNotice = (n: { toast: Toast | null; why: string }): string => (n.toast === null ? `none (${n.why})` : `"${n.toast.message}" (${n.toast.severity})`);
+const describeNotice = (n: { toast: Toast | null; why: string }): string => (n.toast === null ? `none (${n.why})` : `"${n.toast.message}" (${n.toast.severity}), its actions ${JSON.stringify(n.toast.buttons)}`);
+
+// toldNotRunning is whether the notification waited for is the one error saying
+// the language server is not running, carrying the start and nothing else.
+const toldNotRunning = (n: { toast: Toast | null }): boolean => n.toast !== null && n.toast.message === STOPPED_NOTICE && n.toast.severity === 'error'
+  && n.toast.buttons.length === 1 && n.toast.buttons[0] === START;
+
+// noPanelSince watches, from the notification on, that no panel is drawn, by the
+// reading the check opening the panel saw it drawn with.
+interface NoPanel { held: boolean; readings: number; broke?: PanelsNow; atMs?: number }
+const noPanelSince = (ctx: SuiteContext): Promise<NoPanel> => holds(PANEL_DRAWN_MS, () => panelsNow(ctx), (v) => v.documents === 0 && v.tabs.length === 0);
+
+const describeNone = (none: NoPanel): string => (none.held ? `no panel standing over ${none.readings} readings in ${PANEL_DRAWN_MS} ms` : `${describePanels(none.broke as PanelsNow)} ${none.atMs} ms in`);
 
 // dialogDetail is the detail of each modal dialog drawn since a mark. `saidSince`
 // records a dialog by its message alone, and the editor's own notice that a
@@ -438,16 +472,102 @@ async function dialogDetail(ctx: SuiteContext, mark: number): Promise<string> {
   return drawn.length === 0 ? '' : `, their detail ${JSON.stringify(drawn.map((x) => x.detail))}`;
 }
 
-// restoreBinary points the binary setting back at the binary under test and waits
-// for the language server to read running again, answering with what it saw.
-async function restoreBinary(ctx: SuiteContext, from: string): Promise<string> {
+// OpenThenStopped is the panel a check opened with the language server running and
+// left open while the server was stopped: the panel, what the reading the checks'
+// absences are read by saw drawn with it open, the mark its document was given,
+// and the status bar's readings as the server stopped.
+interface OpenThenStopped { opened: ConfigPanel; drawn: PanelsNow; token: string; stop: StatusReading[] }
+
+// openThenStop points the binary setting back at the binary under test from
+// `notABinary`, waits for the language server to read running, opens the panel
+// with Show config, marks its document, and stops the server again by pointing
+// the setting at `notABinary`, leaving the panel open.
+async function openThenStop(ctx: SuiteContext, notABinary: string): Promise<OpenThenStopped> {
+  const start = await statusMark(ctx);
+  await setBinaryPath(ctx, notABinary, ctx.inputs.compiler.path);
+  await statusReadsSince(ctx, start, RUNNING, SERVER_BOUND_MS);
+  await pressShowConfig(ctx);
+  const opened = await configPanel(ctx, await shapeNow(ctx));
+  const drawn = await panelsNow(ctx);
+  const token = `reading-${Date.now()}`;
+  await opened.read(`(d.documentElement.dataset.suiteReading = ${JSON.stringify(token)}, true)`);
+  const mark = await statusMark(ctx);
+  await setBinaryPath(ctx, ctx.inputs.compiler.path, notABinary, 'its-own');
+  const stop = await statusReadsSince(ctx, mark, NOT_RUNNING, SERVER_BOUND_MS);
+  return { opened, drawn, token, stop };
+}
+
+// stillTheDocument is whether the panel opened before the stop is still drawn
+// with the mark its document was given, said in words; a panel closed since has
+// no document to read.
+async function stillTheDocument(o: OpenThenStopped): Promise<string> {
+  return o.opened.read<boolean>(`d.documentElement.dataset.suiteReading === ${JSON.stringify(o.token)}`)
+    .then((v) => (v ? 'its document still the document read before the stop' : 'its document one drawn since'), (err: unknown) => `its document not readable: ${err instanceof Error ? err.message : String(err)}`);
+}
+
+// userSettingsOf is the user settings file of the scenario's own profile.
+const userSettingsOf = (ctx: SuiteContext): string => path.join(ctx.s.root.userData, 'User', 'settings.json');
+
+// GRACE_LINE is the grace setting's line as the check writes it into the user
+// settings.
+const GRACE_LINE = `  ${JSON.stringify(GRACE_SETTING)}: ${HELD_GRACE_SECONDS},`;
+
+// holdRestartGrace writes GRACE_LINE into the user settings, in the editor as a
+// person edits it, as the first line inside the file's opening brace, and saves
+// it; with `hold` false it takes that line out again, leaving the grace at its
+// default. Every editor is closed afterwards, as setBinaryPath leaves them.
+async function holdRestartGrace(ctx: SuiteContext, hold: boolean): Promise<void> {
+  const file = userSettingsOf(ctx);
+  if (hold) {
+    const text = (await open(ctx, file)).text ?? '';
+    need(text.startsWith('{\n') && !text.includes(GRACE_SETTING), `the user settings do not open with a brace on a line of its own, or already name ${GRACE_SETTING}`);
+    await ctx.probe.request('document.edit', { path: file, start: { line: 1, character: 0 }, text: `${GRACE_LINE}\n` });
+  } else {
+    await deleteLine(ctx, file, GRACE_LINE);
+  }
+  await save(ctx, file);
+  await closeAllEditors(ctx);
+}
+
+// statusMenu opens the status bar menu and answers with the entries it offers.
+async function statusMenu(ctx: SuiteContext): Promise<string[]> {
+  await send(ctx, STATUS_BAR_MENU_COMMAND);
+  const q = await waitQuickInput(ctx.d, 'the status bar menu', (x) => x.placeholder === MENU_PLACEHOLDER && x.rows.length > 0);
+  return q.rows.map((r) => r.label);
+}
+
+// closeStatusMenu puts the status bar menu away with Escape and waits for it to go.
+async function closeStatusMenu(ctx: SuiteContext): Promise<void> {
+  await ctx.d.press('Escape');
+  await until('the status bar menu closing on Escape', 5000, () => quickInput(ctx.d), (q) => q === null);
+}
+
+// NothingPending is whether no restart is left pending, and how that was read.
+interface NothingPending { none: boolean; seen: string }
+
+// putAwayPendingRestart leaves no restart pending, through the product's own
+// control for one: the status bar menu offers "Cancel restart" exactly while a
+// restart is pending. Where it is offered it is pressed, the channel's word that
+// the restart was cancelled is waited for, and the menu is read again; where it
+// is not, nothing was pending. What stops it is said rather than thrown.
+async function putAwayPendingRestart(ctx: SuiteContext): Promise<NothingPending> {
   try {
-    const mark = await statusMark(ctx);
-    await setBinaryPath(ctx, from, ctx.inputs.compiler.path);
-    await statusReadsSince(ctx, mark, RUNNING, SERVER_BOUND_MS);
-    return 'the binary setting put back, the language server running again';
+    const offered = await statusMenu(ctx);
+    if (!offered.includes(CANCEL_RESTART)) {
+      await closeStatusMenu(ctx);
+      return { none: true, seen: `the status bar menu offered ${JSON.stringify(offered)}, no "${CANCEL_RESTART}", so no restart was pending` };
+    }
+    const mark = ctx.out.mark();
+    await pickQuickInputRow(ctx.d, CANCEL_RESTART);
+    await ctx.out.waitFor(`the channel saying "${RESTART_CANCELLED}"`, mark, (t) => t.includes(RESTART_CANCELLED), PANEL_DRAWN_MS);
+    const after = await statusMenu(ctx);
+    await closeStatusMenu(ctx);
+    return {
+      none: !after.includes(CANCEL_RESTART),
+      seen: `the status bar menu offered ${JSON.stringify(offered)}, a restart still pending; "${CANCEL_RESTART}" pressed, the channel said "${RESTART_CANCELLED}", and the menu opened again offered ${JSON.stringify(after)}`,
+    };
   } catch (err) {
-    return `the binary setting was not put back: ${err instanceof Error ? err.message : String(err)}`;
+    return { none: false, seen: `the pending restart was not put away: ${err instanceof Error ? err.message : String(err)}` };
   }
 }
 
@@ -938,63 +1058,63 @@ export async function configurationReportChecks(ctx: SuiteContext, notABinary: s
   });
 
   // ---- the language server stopped ----
-  let stoppedWithPanel = false;
+  // stopped is whether the checks before left the language server stopped by the
+  // binary setting pointed at `notABinary`, which the checks after start from.
+  let stopped = false;
   await c.run('config-panel.with-the-server-stopped-leaves-no-panel-and-says-why', {
-    expected: `with the panel closed and the language server stopped — the binary setting pointed at a file that is not a binary, the status bar reading "${NOT_RUNNING}" — pressing "${showTitle}" raises, within ${PANEL_DRAWN_MS} ms, one error notification reading "${STOPPED_NOTICE}", and leaves no panel standing: from the notification on, no panel document and no tab titled "${PANEL_TAB}" over ${PANEL_DRAWN_MS} ms, read the way the check opening the panel saw it drawn`,
-    plant: 'in the scratch copy, out/src/config-view.js with the panel a failed first drawing leaves standing open',
+    expected: `with the panel closed and the language server stopped — the binary setting pointed at a file that is not a binary, the status bar reading "${NOT_RUNNING}" — pressing "${showTitle}" raises, within ${PANEL_DRAWN_MS} ms, one error notification reading "${STOPPED_NOTICE}" and carrying one action, "${START}", the label the status bar's offer gives a start; and leaves no panel standing: from the notification on, no panel document and no tab titled "${PANEL_TAB}" over ${PANEL_DRAWN_MS} ms, read the way the check opening the panel saw it drawn`,
+    plant: 'in the scratch copy, out/src/config-view.js with the panel a failed drawing leaves standing open',
   }, async () => {
     await closePanels(ctx);
     const mark = await statusMark(ctx);
     await setBinaryPath(ctx, ctx.inputs.compiler.path, notABinary);
     const stop = await statusReadsSince(ctx, mark, NOT_RUNNING, SERVER_BOUND_MS);
+    stopped = true;
     const said = await markSaid(ctx);
     await pressShowConfig(ctx);
     const told = await waitNotice(ctx, said.toasts);
-    const none = await holds(PANEL_DRAWN_MS, () => panelsNow(ctx), (v) => v.documents === 0 && v.tabs.length === 0);
+    const none = await noPanelSince(ctx);
     const since = await saidSince(ctx, said);
     const detail = await dialogDetail(ctx, said.dialogs);
     const notices = since.told.filter((m) => m.startsWith(NOTICE_LEAD));
     const left = await putAway();
     return {
-      passed: told.toast !== null && told.toast.message === STOPPED_NOTICE && told.toast.severity === 'error' && notices.length === 1 && none.held && drawnMs !== null && left === null,
-      seen: `stopped: ${describeReadings(stop)}; the notification waited for ${describeNotice(told)}; since the press ${describeSaid(since)}${detail}${left === null ? '' : `; ${left}`}; ${none.held ? `no panel standing over ${none.readings} readings in ${PANEL_DRAWN_MS} ms` : `${describePanels(none.broke as PanelsNow)} ${none.atMs} ms in`}, ${drawnMs === null ? 'where the same reading never saw the panel drawn, so it is not shown to see one' : `where the same reading saw the panel drawn ${drawnMs} ms after a press with the server running`}`,
+      passed: toldNotRunning(told) && notices.length === 1 && none.held && drawnMs !== null && left === null,
+      seen: `stopped: ${describeReadings(stop)}; the notification waited for ${describeNotice(told)}; since the press ${describeSaid(since)}${detail}${left === null ? '' : `; ${left}`}; ${describeNone(none)}, ${drawnMs === null ? 'where the same reading never saw the panel drawn, so it is not shown to see one' : `where the same reading saw the panel drawn ${drawnMs} ms after a press with the server running`}`,
     };
   });
 
   await c.run('config-panel.open-panel-with-the-server-stopped-is-told-why-from-the-commands-panel', {
-    expected: `with the language server running again and the panel opened, then the server stopped the same way with the panel left open, pressing "${showTitle}" on the Commands panel tells the reader the configuration cannot be drawn — the notification "${STOPPED_NOTICE}" within ${PANEL_DRAWN_MS} ms — rather than bringing the panel to the front still showing the reading it showed before the stop, with nothing said`,
-    plant: 'none to turn it red: it is red on the product as it stands; a one-edit correction in out/src/config-view.js, telling the reader when a panel already open cannot be read again, is the plant shown turning it green',
+    expected: `with the language server running again and the panel opened, then the server stopped the same way with the panel left open, pressing "${showTitle}" on the Commands panel ends as the press with the panel closed does: within ${PANEL_DRAWN_MS} ms one error notification reading "${STOPPED_NOTICE}" and carrying one action, "${START}", and from the notification on no panel standing over ${PANEL_DRAWN_MS} ms, read by the reading that saw the panel drawn open before the stop — rather than the panel brought to the front still showing the reading it showed before the stop`,
+    plant: 'in the scratch copy, out/src/config-view.js with a panel already open left standing when it cannot be read again',
   }, async () => {
-    const start = await statusMark(ctx);
-    await setBinaryPath(ctx, notABinary, ctx.inputs.compiler.path);
-    await statusReadsSince(ctx, start, RUNNING, SERVER_BOUND_MS);
-    await pressShowConfig(ctx);
-    const opened = await configPanel(ctx, await shapeNow(ctx));
-    const token = `reading-${Date.now()}`;
-    await opened.read(`(d.documentElement.dataset.suiteReading = ${JSON.stringify(token)}, true)`);
-    const mark = await statusMark(ctx);
-    await setBinaryPath(ctx, ctx.inputs.compiler.path, notABinary, 'its-own');
-    const stop = await statusReadsSince(ctx, mark, NOT_RUNNING, SERVER_BOUND_MS);
-    stoppedWithPanel = true;
+    need(stopped, 'the language server was not left stopped by the check before this one');
+    stopped = false;
+    const o = await openThenStop(ctx, notABinary);
+    stopped = true;
     const said = await markSaid(ctx);
     await pressShowConfig(ctx);
     const told = await waitNotice(ctx, said.toasts);
+    const none = await noPanelSince(ctx);
     const since = await saidSince(ctx, said);
     const detail = await dialogDetail(ctx, said.dialogs);
-    const same = await opened.read<boolean>(`d.documentElement.dataset.suiteReading === ${JSON.stringify(token)}`).then((v) => (v ? 'still the document read before the stop' : 'a document drawn since'), (err: unknown) => `not readable: ${err instanceof Error ? err.message : String(err)}`);
-    const now = await panelsNow(ctx);
+    const notices = since.told.filter((m) => m.startsWith(NOTICE_LEAD));
+    const same = await stillTheDocument(o);
     const left = await putAway();
     return {
-      passed: told.toast !== null && told.toast.message === STOPPED_NOTICE && left === null,
-      seen: `stopped: ${describeReadings(stop)}; the notification waited for ${describeNotice(told)}; since the press ${describeSaid(since)}${detail}${left === null ? '' : `; ${left}`}; ${describePanels(now)}, its document ${same}`,
+      passed: o.drawn.documents === 1 && o.drawn.tabs.length === 1 && toldNotRunning(told) && notices.length === 1 && none.held && left === null,
+      seen: `open before the stop: ${describePanels(o.drawn)}; stopped: ${describeReadings(o.stop)}; the notification waited for ${describeNotice(told)}; since the press ${describeSaid(since)}${detail}${left === null ? '' : `; ${left}`}; ${describeNone(none)}, ${same}`,
     };
   });
 
   await c.run('config-panel.open-panel-with-the-server-stopped-is-told-why-from-the-palette', {
-    expected: `in the same state, "${paletteTitle(ctx, SHOW_CONFIG)}" taken from the command palette tells the reader the same — the notification "${STOPPED_NOTICE}" within ${PANEL_DRAWN_MS} ms`,
-    plant: 'none to turn it red: it is red on the product as it stands; the same one-edit correction in out/src/config-view.js is the plant shown turning it green',
+    expected: `with the language server running again and the panel opened, then the server stopped the same way with the panel left open, "${paletteTitle(ctx, SHOW_CONFIG)}" taken from the command palette ends the same way: within ${PANEL_DRAWN_MS} ms one error notification reading "${STOPPED_NOTICE}" and carrying one action, "${START}", no modal dialog, and from the notification on no panel standing over ${PANEL_DRAWN_MS} ms`,
+    plant: 'in the scratch copy, out/src/config-view.js with a panel already open left standing when it cannot be read again',
   }, async () => {
-    need(stoppedWithPanel, 'the language server was not stopped with the panel open by the check before this one');
+    need(stopped, 'the language server was not left stopped by the check before this one');
+    stopped = false;
+    const o = await openThenStop(ctx, notABinary);
+    stopped = true;
     const title = paletteTitle(ctx, SHOW_CONFIG);
     const q = await paletteRows(ctx.d, (x) => send(ctx, x), title);
     const offered = q.rows.length > 0 && q.rows[0].label === title;
@@ -1003,16 +1123,59 @@ export async function configurationReportChecks(ctx: SuiteContext, notABinary: s
     const said = await markSaid(ctx);
     if (offered) { await ctx.d.press('Enter'); }
     const told = offered ? await waitNotice(ctx, said.toasts) : { toast: null, why: 'not taken' };
+    const none = await noPanelSince(ctx);
     const since = await saidSince(ctx, said);
     const detail = await dialogDetail(ctx, said.dialogs);
-    const now = await panelsNow(ctx);
-    // What was left drawn is put away before the binary setting is put back, which
-    // opens the settings file in an editor a dialog would be drawn over.
+    const notices = since.told.filter((m) => m.startsWith(NOTICE_LEAD));
+    const same = await stillTheDocument(o);
     const left = await putAway();
-    const restored = await restoreBinary(ctx, notABinary);
     return {
-      passed: offered && told.toast !== null && told.toast.message === STOPPED_NOTICE && left === null,
-      seen: `the palette ${offered ? `offered "${title}" first, taken with Enter` : `offered ${JSON.stringify(q.rows.map((r) => r.label).slice(0, 5))}`}; the notification waited for ${describeNotice(told)}; since then ${describeSaid(since)}${detail}${left === null ? '' : `; ${left}`}; ${describePanels(now)}; ${restored}`,
+      passed: offered && o.drawn.documents === 1 && o.drawn.tabs.length === 1 && toldNotRunning(told) && notices.length === 1 && since.dialogs.length === 0 && none.held && left === null,
+      seen: `open before the stop: ${describePanels(o.drawn)}; stopped: ${describeReadings(o.stop)}; the palette ${offered ? `offered "${title}" first, taken with Enter` : `offered ${JSON.stringify(q.rows.map((r) => r.label).slice(0, 5))}`}; the notification waited for ${describeNotice(told)}; since then ${describeSaid(since)}${detail}${left === null ? '' : `; ${left}`}; ${describeNone(none)}, ${same}`,
+    };
+  });
+
+  await c.run('config-panel.start-on-the-notification-starts-the-language-server', {
+    expected: `in the same state, with "${GRACE_SETTING}" set to ${HELD_GRACE_SECONDS} in the user settings — ten times the ${SERVER_BOUND_MS} ms this check waits for the server — and then the binary setting put back on the binary under test, the channel saying the change scheduled its own restart that far off ("binary path changed; restarting in ${HELD_GRACE_SECONDS}s"), so no restart but the press's can begin while the check reads: pressing "${START}" on the notification "${STOPPED_NOTICE}" moves the status bar from "${NOT_RUNNING}" no earlier than the press, and it reads "${RUNNING}" within ${SERVER_BOUND_MS} ms of the press; and the check leaves the server settled — no restart pending, read on the status bar menu, which offers "${CANCEL_RESTART}" while one is (where it does, pressed, the channel saying "${RESTART_CANCELLED}" and the menu opened again offering it no longer), "${GRACE_SETTING}" taken out of the user settings again, and the status bar's last reading "${RUNNING}"`,
+    plant: 'in the scratch copy, out/src/config-view.js with the start on the notification running nothing',
+  }, async () => {
+    need(stopped, 'the language server was not left stopped, its notification drawn, by the check before this one');
+    await holdRestartGrace(ctx, true);
+    const mark = await statusMark(ctx);
+    const out = ctx.out.mark();
+    await setBinaryPath(ctx, notABinary, ctx.inputs.compiler.path);
+    stopped = false;
+    // The press is made once the extension has taken the setting, which its
+    // channel says as it schedules the restart the change calls for: a press made
+    // before that would start the binary the setting named until then. The line
+    // names the grace that restart waits, and the press is made only where it is
+    // the grace written above, since that is what keeps the restart out of the
+    // check.
+    const scheduled = await ctx.out.waitFor('the channel saying the binary setting\'s change scheduled a restart', out, (t) => SCHEDULED_RESTART.test(t), SERVER_BOUND_MS)
+      .then((t) => ({ line: SCHEDULED_RESTART.exec(t), why: '' }), (err: unknown) => ({ line: null, why: err instanceof Error ? err.message : String(err) }));
+    const held = scheduled.line !== null && Number(scheduled.line[1]) === HELD_GRACE_SECONDS;
+    const pressedAt = Date.now();
+    const pressed = held && await pressToastButton(ctx.d, NOTICE_LEAD, START);
+    const since = async (): Promise<StatusReading[]> => (await statusLog(ctx.d)).slice(mark);
+    const up = pressed
+      ? await until(`the status bar reading "${RUNNING}" after the press`, SERVER_BOUND_MS, since, (v) => v.some((r) => r.reading === RUNNING))
+        .then(() => '', (err: unknown) => `; ${err instanceof Error ? err.message : String(err)}`)
+      : '';
+    const pending = await putAwayPendingRestart(ctx);
+    const graceBack = await holdRestartGrace(ctx, false).then(
+      () => (fs.readFileSync(userSettingsOf(ctx), 'utf8').includes(GRACE_SETTING) ? `the user settings still name "${GRACE_SETTING}"` : null),
+      (err: unknown) => `"${GRACE_SETTING}" was not taken out of the user settings: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    const readings = await since();
+    const moved = readings.find((r) => r.reading !== NOT_RUNNING);
+    const running = readings.find((r) => r.reading === RUNNING);
+    const last = readings.length === 0 ? null : readings[readings.length - 1].reading;
+    const timed = (v: StatusReading[]): string => JSON.stringify(v.map((r) => `${r.reading || '(no standing drawn)'} at ${r.at - pressedAt} ms`));
+    const channel = scheduled.line === null ? `nothing matching (${scheduled.why})` : `"${scheduled.line[0]}"`;
+    return {
+      passed: held && pressed && moved !== undefined && moved.at >= pressedAt && running !== undefined && running.at - pressedAt <= SERVER_BOUND_MS
+        && pending.none && graceBack === null && last === RUNNING,
+      seen: `with the binary setting put back the channel said ${channel}${held ? '' : `, not the grace written, so "${START}" was not pressed`}; "${START}" ${pressed ? 'pressed' : held ? 'not drawn on the notification to press' : 'not pressed'}; counted from the press, the status bar read ${timed(readings)}${up}; settling, ${pending.seen}; ${graceBack ?? `"${GRACE_SETTING}" taken out of the user settings again`}; the status bar's last reading ${last === null ? `none since the binary setting was put back, "${NOT_RUNNING}" standing` : `"${last}"`}`,
     };
   });
   await closeAllEditors(ctx);
