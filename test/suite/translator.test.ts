@@ -3,6 +3,7 @@
 
 import * as assert from 'node:assert';
 import {
+  completionResponseToOffers,
   convertPosition,
   hoverResponseToMarkup,
   listedLocations,
@@ -142,6 +143,57 @@ describe('hoverResponseToMarkup', () => {
     ]) {
       assert.deepStrictEqual(hoverResponseToMarkup({ contents }), undefined, JSON.stringify(contents));
     }
+  });
+});
+
+describe('completionResponseToOffers', () => {
+  // The published answer admits a null list of items as well as an empty one, so
+  // a reader that took the list as always present throws on an answer the
+  // compiler is allowed to send. Each case below asserts the whole reading
+  // rather than one member of it.
+  it('offers nothing for no answer at all', () => {
+    assert.deepStrictEqual(completionResponseToOffers(null), []);
+  });
+
+  it('offers nothing for an answer whose items is null', () => {
+    assert.deepStrictEqual(completionResponseToOffers({ items: null }), []);
+  });
+
+  it('offers nothing for an answer whose items is empty', () => {
+    assert.deepStrictEqual(completionResponseToOffers({ items: [] }), []);
+  });
+
+  it('offers each item with its label, sortText and detail, in the order they arrive', () => {
+    assert.deepStrictEqual(
+      completionResponseToOffers({
+        items: [
+          { label: 'local/nightly-backup', sortText: '0-local/nightly-backup', detail: 'Feature' },
+          { label: 'core/datastore/postgres', detail: 'Component' },
+          { label: 'core/secret-value' },
+        ],
+      }),
+      [
+        { label: 'local/nightly-backup', sortText: '0-local/nightly-backup', detail: 'Feature' },
+        { label: 'core/datastore/postgres', detail: 'Component' },
+        { label: 'core/secret-value' },
+      ],
+    );
+  });
+
+  it('carries no sortText or detail that is empty', () => {
+    assert.deepStrictEqual(
+      completionResponseToOffers({ items: [{ label: 'core/secret-value', sortText: '', detail: '' }] }),
+      [{ label: 'core/secret-value' }],
+    );
+  });
+
+  it('carries neither the kind nor the documentation of an item', () => {
+    assert.deepStrictEqual(
+      completionResponseToOffers({
+        items: [{ label: 'Feature', kind: 13, detail: 'kind', documentation: 'A behaviour attached to an entity.', sortText: 'Feature' }],
+      }),
+      [{ label: 'Feature', detail: 'kind', sortText: 'Feature' }],
+    );
   });
 });
 

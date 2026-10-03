@@ -4,6 +4,8 @@
 import { inReleaseTerms } from './release-terms';
 import {
   CompletionParams,
+  CompletionResponse,
+  DaemonCompletionItem,
   DaemonLocation,
   DaemonPosition,
   FindImplementationsParams,
@@ -200,6 +202,30 @@ export function lspCompletionToCompletion(
 // completion raised by a character the reader typed, as against one invoked
 // outright or re-raised over an incomplete list.
 const COMPLETION_TRIGGERED_BY_CHARACTER = 2;
+
+// CompletionOffer is one entry of the completion list, in the members of the
+// compiler's item that the list shows: the text written, the value it is
+// ordered by where that differs from the text, and the short qualifier shown
+// beside it.
+export type CompletionOffer = Pick<DaemonCompletionItem, 'label' | 'sortText' | 'detail'>;
+
+// completionResponseToOffers reads an aggrega/completion answer into the
+// entries the completion list offers, one per item and in the order the items
+// arrive. No answer, and an answer whose items is null, both read as nothing to
+// offer, the same as an empty list: the published shape admits null there, and
+// a reader that took the list as always present would throw on it.
+//
+// A sortText or detail that is empty is not carried, so an entry is ordered by
+// its label and shows no qualifier. An item's kind and documentation are not
+// carried either: nothing the list shows is drawn from them.
+export function completionResponseToOffers(answer: CompletionResponse | null): CompletionOffer[] {
+  return (answer?.items ?? []).map(({ label, sortText, detail }) => {
+    const offer: CompletionOffer = { label };
+    if (sortText) { offer.sortText = sortText; }
+    if (detail) { offer.detail = detail; }
+    return offer;
+  });
+}
 
 // resolvedLocations reads the aggrega/resolve answer into the locations it
 // names: the one under location, or none where it is null or in a shape that is

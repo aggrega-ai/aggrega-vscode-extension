@@ -123,6 +123,7 @@ import { scheduleBinaryRestart, RestartHandle } from './binary-restart';
 import { checkDaemonVersion, readDaemonVersion } from './version-check';
 import { ServerReading, VersionStandings } from './welcome-render';
 import {
+  completionResponseToOffers,
   hoverResponseToMarkup,
   listedLocations,
   lspCompletionToCompletion,
@@ -141,11 +142,13 @@ import {
   CacheEvictResponse,
   CachePruneResponse,
   CacheStatusResponse,
+  CompletionResponse,
   DaemonLocation,
   ERR_FILE_NOT_VALIDATED,
   FindImplementationsResponse,
   FindReferencesResponse,
   HoverResponse,
+  IrGraphResponse,
   PublishDiagnosticsParams,
   ReleaseCandidatesResponse,
   RequestMethod,
@@ -782,7 +785,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (!daemon || daemon.getState() !== DaemonState.Running) {
         throw new Error('the Aggrega language server is not running');
       }
-      const result = await daemon.request<{ graph: unknown }>(
+      const result = await daemon.request<IrGraphResponse>(
         'aggrega/irGraph',
         { release },
         signal,
@@ -1969,14 +1972,11 @@ function registerLanguageFeatures(context: vscode.ExtensionContext): void {
         selectedRelease(),
         ctx.triggerCharacter,
       );
-      const result = await tryRequest<{ items: Array<{ label: string; sortText?: string; detail?: string }> } | null>(
-        'aggrega/completion', params, doc,
-      );
-      if (!result) { return undefined; }
-      return result.items.map(it => {
-        const c = new vscode.CompletionItem(it.label);
-        if (it.sortText) { c.sortText = it.sortText; }
-        if (it.detail) { c.detail = it.detail; }
+      const result = await tryRequest<CompletionResponse>('aggrega/completion', params, doc);
+      return completionResponseToOffers(result).map(offer => {
+        const c = new vscode.CompletionItem(offer.label);
+        if (offer.sortText !== undefined) { c.sortText = offer.sortText; }
+        if (offer.detail !== undefined) { c.detail = offer.detail; }
         return c;
       });
     },

@@ -218,6 +218,16 @@ export type HoverResponse = wire.HoverResult;
 // MarkupContent is text to show together with the name of how it is marked up.
 export type MarkupContent = wire.MarkupContent;
 
+// CompletionResponse is the aggrega/completion result: each thing that may be
+// written at the cursor, under items, which the published shape admits null for
+// as well as an empty list.
+export type CompletionResponse = wire.CompletionResult;
+
+// DaemonCompletionItem is one thing that may be written at the cursor, as the
+// compiler sends it. The name is what distinguishes it, at every call site, from
+// the editor's own completion item.
+export type DaemonCompletionItem = wire.CompletionItem;
+
 // ResolveResponse is the aggrega/resolve result: the one location a reference
 // is defined at, under location, or null there where none is found. The
 // published shape types it as unknown, so a reader narrows it before using it.
@@ -238,6 +248,12 @@ export type FindImplementationsResponse = wire.FindImplementationsResult;
 // which it did not search, so the chooser can say why a Release behind one is
 // absent.
 export type ReleaseCandidatesResponse = wire.ReleaseCandidatesResult;
+
+// IrGraphResponse is the aggrega/irGraph result: the resolved graph a Release
+// compiles to, under graph, as the compiler emitted it. The published shape types
+// it as unknown, because the graph's own shape is a published contract of its
+// own rather than part of this request's.
+export type IrGraphResponse = wire.IrGraphResult;
 
 // BuildNotice is one advisory a build raised that carries no position in a
 // document — a withdrawn pin, an overlapping schema pillar, a parent that would
