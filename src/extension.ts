@@ -56,6 +56,7 @@ import {
   publishShapes,
 } from './diagnostics';
 import { DiskChangeHandler, ON_DISK_PATTERN, createDiskChangeHandler, subscribeToWatcher } from './disk-change';
+import { createDocumentValidations } from './document-validations';
 import { DIAGNOSTIC_SOURCE_FALLBACK } from './diagnostics-shape';
 import {
   DaemonErrorContext,
@@ -447,6 +448,20 @@ const refreshGraphView = debounce(
   () => graphView?.refresh(),
   () => getSettings().debounceMs,
 );
+
+// documentValidations sends every proactive validation, each open document's
+// once its own pause in typing ends, and is what a press of the Catalog panel's
+// Refresh waits on before it reads the list. When each is sent, and what the
+// press waits for, is decided in document-validations.ts, which needs no editor.
+const documentValidations = createDocumentValidations<vscode.TextDocument>({
+  key: (doc) => doc.uri.toString(),
+  validate: validateDocument,
+  timer: {
+    setTimeout: (handler, ms) => setTimeout(handler, ms),
+    clearTimeout: (handle) => clearTimeout(handle as NodeJS.Timeout),
+  },
+  pauseMs: () => getSettings().debounceMs,
+});
 
 // requestGraphWithoutDrawing asks the language server for the topology of a
 // Release and discards the answer. It is sent for what answering does rather
@@ -906,6 +921,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     getBinaryPath: () => getSettings().binaryPath,
     isLanguageServerRunning,
     requestCatalogIndex,
+    validationsAnswered: () => documentValidations.answered(),
     selectedRelease,
     // Asked with no kind named, as the drafting flow asks it: the answer names
     // the kinds, and what each row operation accepts a document of each kind for.
@@ -1568,7 +1584,7 @@ function revalidateOpenDocuments(): void {
   if (!daemon || daemon.getState() !== DaemonState.Running) { return; }
   for (const doc of vscode.workspace.textDocuments) {
     if (doc.languageId !== 'yaml') { continue; }
-    void validateDocument(doc);
+    documentValidations.send(doc);
   }
 }
 
@@ -1847,14 +1863,18 @@ function validateParamsFor(doc: vscode.TextDocument): ValidateParams {
 
 // validateDocument runs the language server's validate on one document and
 // publishes what comes back. It is the single path every proactive validation
-// takes — document open, debounced change, and the sweep of every open document
-// that follows a server becoming answerable, a change of selection or a lockfile
-// write — so none of them can drift into sending a different request than the
-// others.
-function validateDocument(doc: vscode.TextDocument): void {
-  if (!daemon || daemon.getState() !== DaemonState.Running) { return; }
-  if (doc.languageId !== 'yaml') { return; }
-  daemon.request<ValidateResponse>('aggrega/validate', validateParamsFor(doc)).then(
+// takes — document open, the end of a pause in typing in that document, and the
+// sweep of every open document that follows a server becoming answerable, a
+// change of selection or a lockfile write — so none of them can drift into
+// sending a different request than the others.
+//
+// It settles once the server has answered or refused, and at once where it sends
+// nothing — no server running, or a document that is not YAML — which is what a
+// press of the Catalog panel's Refresh waits on before it reads the list.
+function validateDocument(doc: vscode.TextDocument): Promise<void> {
+  if (!daemon || daemon.getState() !== DaemonState.Running) { return Promise.resolve(); }
+  if (doc.languageId !== 'yaml') { return Promise.resolve(); }
+  return daemon.request<ValidateResponse>('aggrega/validate', validateParamsFor(doc)).then(
     response => {
       if (diagnosticCollections) {
         publishDiagnostics(diagnosticCollections, doc.uri, response.diagnostics ?? []);
@@ -1872,21 +1892,18 @@ function validateDocument(doc: vscode.TextDocument): void {
   );
 }
 
-// registerDocumentLifecycle validates a document as it opens and after each pause
-// in typing. The documents already open are not swept here: this runs before the
+// registerDocumentLifecycle validates a document as it opens and once each pause
+// in typing in it ends. Each document waits out a pause of its own, so a change
+// to one document never cancels or replaces the validation still waiting for
+// another. The documents already open are not swept here: this runs before the
 // first server is started, when nothing can answer, and the sweep that does reach
 // them runs each time a server becomes answerable.
 function registerDocumentLifecycle(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
-    vscode.workspace.onDidOpenTextDocument(validateDocument),
-  );
-
-  const debouncedValidate = debounce(
-    (doc: vscode.TextDocument) => validateDocument(doc),
-    () => getSettings().debounceMs,
+    vscode.workspace.onDidOpenTextDocument((doc) => documentValidations.send(doc)),
   );
   context.subscriptions.push(
-    vscode.workspace.onDidChangeTextDocument(e => debouncedValidate(e.document)),
+    vscode.workspace.onDidChangeTextDocument((e) => documentValidations.changed(e.document)),
   );
 }
 

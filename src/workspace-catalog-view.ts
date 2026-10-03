@@ -12,6 +12,7 @@ import {
   catalogValidateArgs,
 } from './catalog-entity-operations';
 import { CancellationSignal } from './cancellation';
+import { readAfterValidations } from './document-validations';
 import { CliOperationDeps, reportOutcome, runWatchableCli } from './cli-operation';
 import {
   PUBLICATION_SUBJECT,
@@ -56,6 +57,11 @@ export interface WorkspaceCatalogDeps extends RendersOnReady, CliOperationDeps {
   // requestCatalogIndex asks for the entities the selected Release's terms hold,
   // or the workspace's own where none is selected.
   requestCatalogIndex(): Promise<CatalogIndexDoc>;
+  // validationsAnswered sends at once every open document's validation still
+  // waiting out a pause in typing, and settles once every validation sent so far
+  // has been answered or refused. A press of the refresh waits on it, so the list
+  // it reads names every open document as the editor held it at the press.
+  validationsAnswered(): Promise<void>;
   // selectedRelease is the Release the row's correctness check is run in the
   // terms of, read when the check is pressed, or null where none is selected.
   selectedRelease(): string | null;
@@ -217,8 +223,9 @@ async function onName(
 }
 
 // WorkspaceCatalogView is what the rest of the extension holds of the Catalog
-// panel: the one way to have it read its list again, which is the panel's own
-// refresh.
+// panel: the one way to have it read its list again. It reads at once, without
+// the wait a reader's press of the refresh takes for the open documents'
+// validations, so each of its callers keeps its own timing.
 export interface WorkspaceCatalogView {
   refresh(): void;
 }
@@ -237,12 +244,24 @@ export function activateWorkspaceCatalogView(
   // that row without the reader doing anything, and a document created, changed
   // or deleted on disk, or closed in the editor, has it re-asked through the view
   // returned below — as does a move of the selected Release, since the list is
-  // what that Release's terms hold; the refresh command stays an override a
-  // reader may press, rather than the way to obtain correct data the first time.
+  // what that Release's terms hold. The refresh command is not the way to obtain
+  // correct data the first time.
+  //
+  // What the panel does not follow on its own is a change still in an unsaved
+  // buffer: typing asks for no read of the list, so the change shows only once
+  // something reads it again, and the press is how a reader asks for that. A
+  // press reads the list for every open document as the editor holds it at the
+  // moment of the press, however soon after a keystroke or an undo it comes —
+  // every validation still waiting out a pause in typing is sent at once, and the
+  // list is asked for only once every validation sent so far has been answered,
+  // because the language server learns a buffer's text from its validation alone.
   deps.onReady(() => catalog.refresh());
   context.subscriptions.push(
     vscode.window.registerTreeDataProvider('aggrega.workspaceCatalog', catalog),
-    vscode.commands.registerCommand('aggrega.workspaceCatalog.refresh', () => catalog.refresh()),
+    vscode.commands.registerCommand(
+      'aggrega.workspaceCatalog.refresh',
+      () => readAfterValidations(deps.validationsAnswered, () => catalog.refresh()),
+    ),
 
     // The inspection is the one operation here addressed by identity: an entity
     // resolves under its name whether or not this workspace holds the document

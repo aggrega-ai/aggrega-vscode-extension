@@ -83,10 +83,11 @@ const OUTSIDE_PRESS_IGNORED = {
   says: 'the panel\'s window losing the focus leaves an open menu open, so a press outside the panel does not close it',
 } as const;
 
-// The workspace catalog panel's view and its row model, and the language-server
-// item's model.
+// The workspace catalog panel's view and its row model, what a press of its
+// Refresh waits for, and the language-server item's model.
 const CATALOG_VIEW = 'out/src/workspace-catalog-view.js';
 const CATALOG_RUN = 'out/src/workspace-catalog-run.js';
+const DOCUMENT_VALIDATIONS = 'out/src/document-validations.js';
 const DAEMON_STATUS = 'out/src/daemon-status.js';
 
 // The scenario reading each request answered in the selected Release's terms,
@@ -993,8 +994,8 @@ export const PLANTS: readonly Plant[] = [
   },
   {
     name: 'graph-redrawn-on-typing', scenario: 'storefront-graph-drawing', checks: ['graph.typing-moves-the-problems-panel-and-not-the-drawing'], moves: 'red', target: 'extension',
-    file: EXTENSION, find: '    context.subscriptions.push(vscode.workspace.onDidChangeTextDocument(e => debouncedValidate(e.document)));',
-    replace: '    context.subscriptions.push(vscode.workspace.onDidChangeTextDocument(e => { debouncedValidate(e.document); refreshGraphView(); }));',
+    file: EXTENSION, find: '    context.subscriptions.push(vscode.workspace.onDidChangeTextDocument((e) => documentValidations.changed(e.document)));',
+    replace: '    context.subscriptions.push(vscode.workspace.onDidChangeTextDocument((e) => { documentValidations.changed(e.document); refreshGraphView(); }));',
     says: 'an open graph is drawn again on every change of a document\'s text, saved or not',
   },
   {
@@ -1096,8 +1097,13 @@ export const PLANTS: readonly Plant[] = [
   },
   {
     name: 'catalog-refresh-bound-to-nothing', scenario: 'gateway-readiness', checks: ['list-panels.refresh-asks-again-and-leaves-the-content-as-it-was'], moves: 'red', target: 'extension',
-    file: CATALOG_VIEW, find: "vscode.commands.registerCommand('aggrega.workspaceCatalog.refresh', () => catalog.refresh())", replace: "vscode.commands.registerCommand('aggrega.workspaceCatalog.refresh', () => undefined)",
+    file: CATALOG_VIEW, find: "vscode.commands.registerCommand('aggrega.workspaceCatalog.refresh', () => (0, document_validations_1.readAfterValidations)(deps.validationsAnswered, () => catalog.refresh()))", replace: "vscode.commands.registerCommand('aggrega.workspaceCatalog.refresh', () => undefined)",
     says: 'the Catalog panel\'s Refresh runs nothing',
+  },
+  {
+    name: 'catalog-refresh-reads-before-validations-answered', scenario: 'gateway-readiness', checks: ['list-panels.refresh-asks-again-and-leaves-the-content-as-it-was'], moves: 'red', target: 'extension',
+    file: DOCUMENT_VALIDATIONS, find: '    await answered();\n    read();', replace: '    read();',
+    says: 'the Catalog panel\'s Refresh asks for the list at once, neither sending a validation still waiting out a pause in typing nor waiting for one in flight, so a press just after an undo is answered for the text before it',
   },
   {
     name: 'click-offers-start-whatever-the-standing', scenario: 'gateway-readiness', checks: ['status-bar.lifecycle-item-reads-running-beside-the-release-and-offers-a-restart'], moves: 'red', target: 'extension',
