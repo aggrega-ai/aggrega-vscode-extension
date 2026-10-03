@@ -1329,6 +1329,13 @@ export const PLANTS: readonly Plant[] = [
     replace: "            if (false) {\n                child.kill('SIGTERM');",
     says: 'a stopped command is reported stopped without the process being ended, so it runs on',
   },
+  {
+    name: 'stop-ends-in-no-notification', scenario: 'mysql-watch-and-stop', checks: ['operations.pull-can-be-watched-and-stopped'], moves: 'red', target: 'extension',
+    file: 'out/src/cli-operation.js',
+    find: "    if (outcome.kind === 'cancelled' || announce) {\n        void vscode.window.showInformationMessage(line);",
+    replace: "    if (outcome.kind !== 'cancelled' && announce) {\n        void vscode.window.showInformationMessage(line);",
+    says: 'an operation the reader stopped ends in its line on the channel and raises no notification',
+  },
   // ---- which folder, which Aggrega workspace, which Release: one folder, two Releases ----
   {
     name: 'sole-folder-left-unchosen', scenario: 'two-releases-context-rows', checks: ['context-rows.sole-candidates-taken-without-a-chooser'], moves: 'red', target: 'extension',

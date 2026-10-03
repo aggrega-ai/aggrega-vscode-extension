@@ -290,7 +290,7 @@ export async function watchAndStopChecks(ctx: SuiteContext, releases: readonly s
 
   await c.run('operations.pull-can-be-watched-and-stopped', {
     expected: `Pull of ${slow} draws the progress notification "${pullProgress(slow)}" with a Cancel button; pressing Cancel ends it with "${PULL_STOPPED}" on the channel and as a notification; and the pull the extension ran as a command is not running afterwards`,
-    plant: 'in the scratch copy, out/src/cli-run.js with a stopped command reported stopped without the process being ended',
+    plant: 'in the scratch copy, out/src/cli-run.js with a stopped command reported stopped without the process being ended; or out/src/cli-operation.js with a stopped operation ending in its line on the channel and no notification',
   }, async () => {
     await run(ctx, 'notifications.clearAll').catch(() => undefined);
     await toastsGone(ctx.d);
@@ -316,10 +316,15 @@ export async function watchAndStopChecks(ctx: SuiteContext, releases: readonly s
     await until('every pull the extension ran exiting', 2000, pullsAlive, (v) => v.length === 0).catch(() => undefined);
     const pulls = ctx.s.table.all().filter((r) => r.cmd.startsWith(`${bin} pull `));
     const alive = ctx.s.table.alive().filter((r) => r.cmd.startsWith(`${bin} pull `));
-    const told: Toast | undefined = (await toastsSince(ctx.d, toastMark)).find((t) => t.message === PULL_STOPPED);
+    // The extension writes the ending's line and raises its notification in the
+    // same moment, but the notification is drawn in the workbench a moment after
+    // the line reaches the channel, so it is waited for, as the process's exit is,
+    // rather than read the moment the line appears.
+    const endingBound = 2000;
+    const told = await waitToast(ctx.d, 'the pull\'s ending drawn as a notification', toastMark, (t) => t.message === PULL_STOPPED, endingBound).catch(() => null);
     return {
-      passed: drawn !== null && pressed && text.split('\n').includes(PULL_STOPPED) && told !== undefined && pulls.length > 0 && alive.length === 0,
-      seen: `progress ${drawn === null ? 'not drawn with Cancel' : `"${drawn.message}" with ${JSON.stringify(drawn.buttons)}`}; the channel ${text.split('\n').includes(PULL_STOPPED) ? `says "${PULL_STOPPED}"` : `ends ${JSON.stringify(text.split('\n').filter((l) => l.trim() !== '').slice(-2))}`}; the notification ${told ? `"${told.message}"` : 'not raised'}; pull processes recorded ${pulls.length}, alive after the stop ${alive.length}`,
+      passed: drawn !== null && pressed && text.split('\n').includes(PULL_STOPPED) && told !== null && pulls.length > 0 && alive.length === 0,
+      seen: `progress ${drawn === null ? 'not drawn with Cancel' : `"${drawn.message}" with ${JSON.stringify(drawn.buttons)}`}; the channel ${text.split('\n').includes(PULL_STOPPED) ? `says "${PULL_STOPPED}"` : `ends ${JSON.stringify(text.split('\n').filter((l) => l.trim() !== '').slice(-2))}`}; the notification ${told ? `"${told.message}"` : `not drawn within ${guard(endingBound)} ms`}; pull processes recorded ${pulls.length}, alive after the stop ${alive.length}`,
     };
   });
 }
