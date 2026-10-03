@@ -578,6 +578,211 @@ describe('a conventions check about one entity', () => {
   });
 });
 
+// --- a whole-catalog check run once for each Release ------------------------
+
+// The finding the per-Release fixtures carry: one conventions rule's own text,
+// as a live language server reported it for a document in a catalog directory
+// every Release of the workspace reads.
+const SHARED_RELATIVE = 'catalog/component/core/devtool/adminer/1.0.0/component.yaml';
+const SHARED_ABSOLUTE = `/ws/${SHARED_RELATIVE}`;
+const SHARED_MESSAGE =
+  'Component at "/ws/catalog/component/core/devtool/adminer/1.0.0/component.yaml" declares component.aggrega.ai/category="datastore" but its path derives category="devtool"; standard-catalog convention requires the label to match the first directory segment under core/';
+const SHARED_FINDING = {
+  line: 1, column: 1, severity: 'warning', message: SHARED_MESSAGE,
+  code: 'category-matches-directory', source: 'aggrega-lint',
+};
+
+// PER_RELEASE is an answer of the shape a live language server gives a
+// whole-catalog check in a workspace whose Releases read catalog directories of
+// their own, assembled from two measured answers so one fixture holds every case
+// the reading has to get right: a pass run for two Releases that read the same
+// directories, a pass whose two Releases read no directory at all, and one
+// finding in a directory two passes read, reported by each.
+//
+// 🔴 ITS TOP-LEVEL FILES ARE WHAT THE COMPILER SENDS BESIDE THE PASSES: every
+// pass's findings regrouped by document, so the shared finding is there twice
+// under one document with nothing saying which pass found it. A reading that
+// took them instead of the passes would show the finding twice, unlabelled, and
+// name no Release anywhere — which is the failure every expectation below would
+// catch.
+const PER_RELEASE: LintAnswer = {
+  checked: 17,
+  findings: 2,
+  errors: 0,
+  warnings: 2,
+  infos: 0,
+  files: [{ file: SHARED_RELATIVE, diagnostics: [SHARED_FINDING, SHARED_FINDING] }],
+  halted: false,
+  passes: [
+    {
+      releases: ['release-compose.yaml', 'release-unmapped.yaml'],
+      catalogDirs: ['catalog-compose', 'catalog'],
+      checked: 8, findings: 1, errors: 0, warnings: 1, infos: 0,
+      files: [{ file: SHARED_RELATIVE, diagnostics: [SHARED_FINDING] }],
+    },
+    {
+      releases: ['release-helm-bitnami.yaml', 'release-helm-chart.yaml'],
+      catalogDirs: [],
+      checked: 0, findings: 0, errors: 0, warnings: 0, infos: 0,
+      files: [],
+    },
+    {
+      releases: ['release-helm-synth.yaml'],
+      catalogDirs: ['catalog-helm-synth', 'catalog'],
+      checked: 9, findings: 1, errors: 0, warnings: 1, infos: 0,
+      files: [{ file: SHARED_RELATIVE, diagnostics: [SHARED_FINDING] }],
+    },
+  ],
+};
+
+// sharedEntry is the Problems panel entry the shared finding becomes, carrying
+// the message it is shown with.
+function sharedEntry(message: string): ConvertedShape {
+  return {
+    startLine: 0, startChar: 0, endLine: 0, endChar: 0,
+    severity: 'warning', message, source: 'aggrega-lint', code: 'category-matches-directory',
+  };
+}
+
+// 🔴 EVERY EXPECTATION IN THIS BLOCK IS THE WHOLE OF WHAT A READER IS SHOWN, BY
+// EQUALITY: every line the channel gains, the one notification, and every entry
+// the Problems panel holds. A containment would pass while a pass's heading went
+// missing, or while a finding was shown once too often.
+describe('a whole-catalog check reported once for each Release', () => {
+  it('names each pass in the channel, with the directories it read and its own findings under it', async () => {
+    const h = harness('/ws', () => Promise.resolve(PER_RELEASE));
+
+    await runLint(h.deps, CATALOG_WIDE);
+
+    assert.deepStrictEqual(h.log.lines, [
+      'Releases release-compose.yaml, release-unmapped.yaml read catalog-compose, catalog',
+      `${SHARED_ABSOLUTE}:`,
+      `[warning] category-matches-directory: ${SHARED_MESSAGE}`,
+      '',
+      'Releases release-helm-bitnami.yaml, release-helm-chart.yaml read no catalog directory, so there is nothing to check for them',
+      '',
+      'Release release-helm-synth.yaml reads catalog-helm-synth, catalog',
+      `${SHARED_ABSOLUTE}:`,
+      `[warning] category-matches-directory: ${SHARED_MESSAGE}`,
+    ]);
+    assert.strictEqual(h.log.shown, 0, 'a successful run does not steal focus from the Problems panel');
+  });
+
+  it('ends in a sentence stating what each pass checked and found, for its own Releases', async () => {
+    const h = harness('/ws', () => Promise.resolve(PER_RELEASE));
+
+    await runLint(h.deps, CATALOG_WIDE);
+
+    assert.deepStrictEqual(h.notices, [{
+      message: 'Aggrega lint: 1 finding(s) across 8 entities checked for Releases release-compose.yaml, release-unmapped.yaml; '
+        + 'Releases release-helm-bitnami.yaml, release-helm-chart.yaml read no catalog directory, so there is nothing to check for them; '
+        + '1 finding(s) across 9 entities checked for Release release-helm-synth.yaml — see the Problems panel.',
+      tier: 'info',
+    }]);
+  });
+
+  // A finding more than one pass reported is one entry per pass, each naming
+  // that pass's Releases, and nothing is merged.
+  it('enters a finding once for each pass that reported it, each entry naming that pass\'s Releases', async () => {
+    const h = harness('/ws', () => Promise.resolve(PER_RELEASE));
+
+    await runLint(h.deps, CATALOG_WIDE);
+
+    assert.deepStrictEqual([...h.sink.published], [[SHARED_ABSOLUTE, [
+      sharedEntry(`${SHARED_MESSAGE} (found for Releases release-compose.yaml, release-unmapped.yaml)`),
+      sharedEntry(`${SHARED_MESSAGE} (found for Release release-helm-synth.yaml)`),
+    ]]]);
+  });
+
+  // A finding that names no document reaches the channel under its pass and the
+  // explanation in the sentence, counted once for each pass that reported it.
+  it('counts a finding naming no document once for each pass that reported it', async () => {
+    const nowhere = { line: 1, column: 1, severity: 'warning', message: 'nowhere', code: 'a', source: 'aggrega-lint' };
+    const h = harness('/ws', () => Promise.resolve({
+      ...PER_RELEASE,
+      files: [{ file: '', diagnostics: [nowhere, nowhere] }],
+      passes: [
+        { ...PER_RELEASE.passes![0], files: [{ file: '', diagnostics: [nowhere] }] },
+        { ...PER_RELEASE.passes![2], files: [{ file: '', diagnostics: [nowhere] }] },
+      ],
+    }));
+
+    await runLint(h.deps, CATALOG_WIDE);
+
+    const note = '2 finding(s) named no entity file, so they appear only in the Aggrega output channel.';
+    assert.deepStrictEqual(h.log.lines, [
+      'Releases release-compose.yaml, release-unmapped.yaml read catalog-compose, catalog',
+      '(no entity file):',
+      '[warning] a: nowhere',
+      '',
+      'Release release-helm-synth.yaml reads catalog-helm-synth, catalog',
+      '(no entity file):',
+      '[warning] a: nowhere',
+      note,
+    ]);
+    assert.deepStrictEqual(h.notices, [{
+      message: 'Aggrega lint: 1 finding(s) across 8 entities checked for Releases release-compose.yaml, release-unmapped.yaml; '
+        + `1 finding(s) across 9 entities checked for Release release-helm-synth.yaml — see the Problems panel. ${note}`,
+      tier: 'info',
+    }]);
+    assert.deepStrictEqual([...h.sink.published], []);
+  });
+
+  // 🔴 THE PRESENCE OF THE PASSES SELECTS THE READING, NOT HOW MANY THERE ARE. One
+  // pass is what a workspace sends whose Releases all read the same directories,
+  // and it still names them.
+  it('reads a single pass per Release as well, naming its Releases', async () => {
+    const h = harness('/ws', () => Promise.resolve({ ...PER_RELEASE, passes: [PER_RELEASE.passes![2]] }));
+
+    await runLint(h.deps, CATALOG_WIDE);
+
+    assert.deepStrictEqual(h.log.lines, [
+      'Release release-helm-synth.yaml reads catalog-helm-synth, catalog',
+      `${SHARED_ABSOLUTE}:`,
+      `[warning] category-matches-directory: ${SHARED_MESSAGE}`,
+    ]);
+    assert.deepStrictEqual(h.notices, [{
+      message: 'Aggrega lint: 1 finding(s) across 9 entities checked for Release release-helm-synth.yaml — see the Problems panel.',
+      tier: 'info',
+    }]);
+    assert.deepStrictEqual([...h.sink.published], [[SHARED_ABSOLUTE, [
+      sharedEntry(`${SHARED_MESSAGE} (found for Release release-helm-synth.yaml)`),
+    ]]]);
+  });
+});
+
+// 🔴 AN ANSWER CARRYING NO PASSES READS EXACTLY AS IT ALWAYS HAS: the same lines,
+// the same sentence and the same entries, byte for byte. Each arm below is one
+// spelling of "no passes" the published answer may carry.
+describe('a whole-catalog check over the workspace\'s own catalog', () => {
+  const ONE_PASS: LintAnswer = {
+    checked: 7, findings: 1, errors: 0, warnings: 1, infos: 0, halted: false,
+    files: [{ file: SHARED_RELATIVE, diagnostics: [SHARED_FINDING] }],
+  };
+  const spellings: Array<[string, LintAnswer]> = [
+    ['with no passes key', ONE_PASS],
+    ['with the passes null', { ...ONE_PASS, passes: null }],
+    ['with the passes empty', { ...ONE_PASS, passes: [] }],
+  ];
+  for (const [name, answer] of spellings) {
+    it(`reads an answer ${name} as one catalog, naming no Release`, async () => {
+      const h = harness('/ws', () => Promise.resolve(answer));
+
+      await runLint(h.deps, CATALOG_WIDE);
+
+      assert.deepStrictEqual(h.log.lines, [
+        `${SHARED_ABSOLUTE}:`,
+        `[warning] category-matches-directory: ${SHARED_MESSAGE}`,
+      ]);
+      assert.deepStrictEqual(h.notices, [{
+        message: 'Aggrega lint: 1 finding(s) across 7 entities checked — see the Problems panel.',
+        tier: 'info',
+      }]);
+      assert.deepStrictEqual([...h.sink.published], [[SHARED_ABSOLUTE, [sharedEntry(SHARED_MESSAGE)]]]);
+    });
+  }
+});
+
 // --- one execution path --------------------------------------------------
 
 describe('the conventions check reaches the compiler without a launch', () => {

@@ -10,17 +10,21 @@ import { MAPPED_RELEASES, readTree, sameTree, Tree, UNMAPPED_COPY_OF, UNMAPPED_R
 import { referenceAnswer } from './reference';
 import { capture, ready, SuiteContext } from './suite-context';
 import {
-  answersIn, commandsPanel, pickQuickInputRow, pressIn, pressOperation, selectorRows, sleep, toasts, toastsSince, until, waitQuickInput,
+  answersIn, commandsPanel, pickQuickInputRow, pressIn, pressOperation, selectorRows, sleep, toasts, toastsSince, toastWindowPassed, until, waitQuickInput, waitToast,
 } from './workbench';
 
 // The checks run in a copy of a documentation example whose workspace
-// configuration gives each of its Releases catalog directories of its own: each
-// Release built from the Build button writes what the command line writes for
-// it, a Release the configuration does not name builds against the directories
-// listed for the whole workspace, and the graph shown after the selection moves
-// is drawn from the Release then selected.
+// configuration gives each of its Releases catalog directories of its own: Lint
+// on the Commands panel checks the catalog once for each Release, over the
+// directories that Release reads, and says so pass by pass; each Release built
+// from the Build button writes what the command line writes for it, a Release
+// the configuration does not name builds against the directories listed for the
+// whole workspace, and the graph shown after the selection moves is drawn from
+// the Release then selected.
 
 export const OWN_CATALOGS_CHECKS = [
+  'lint.reports-each-release-pass-with-the-directories-it-read',
+  'lint.reads-no-variant-beside-another',
   'build.each-release-matches-the-command-line-from-its-own-catalog',
   'build.managed-chart-release-matches-the-command-line-from-its-own-catalog',
   'build.unmapped-release-matches-the-command-line-from-the-workspace-list',
@@ -173,6 +177,106 @@ function keep(ctx: SuiteContext, release: string, editor: EditorBuild, reference
 // ReleaseBuilt is one Release built both ways and held against each other.
 interface ReleaseBuilt { release: string; passed: boolean; seen: string; tree: Tree }
 
+// ---- the conventions check, once for each Release ----
+
+// AnsweredPass is one pass of the language server's answer to the whole-catalog
+// conventions check, as much of it as the checks read.
+interface AnsweredPass { releases: string[]; catalogDirs: string[]; checked: number; findings: number }
+
+// PASS_HEADING matches the line a pass is opened with, and takes from it the
+// directories it names as read.
+const PASS_HEADING = /^Releases? .+? reads? (.+)$/;
+
+// LintPress is what one press of Lint said: every line the channel gained from
+// the press to a moment after its ending, and the ending.
+interface LintPress { lines: string[]; ending: string }
+
+// pressLint presses Lint on the Commands panel and reads what it said.
+async function pressLint(ctx: SuiteContext): Promise<LintPress> {
+  await toastWindowPassed(ctx.d);
+  const mark = ctx.out.mark();
+  const toastMark = (await toasts(ctx.d)).length;
+  await pressOperation(ctx.d, await commandsPanel(ctx.d), 'aggrega.op.lint');
+  const ending = await waitToast(ctx.d, 'the lint\'s ending', toastMark, (t) => t.message.startsWith('Aggrega lint:'), 120000);
+  // The channel is read from the file the editor writes it to, which can trail
+  // what the extension appended, and the language server's own lines reach it on
+  // a stream of their own beside its answer: both are given a moment.
+  await ctx.out.waitFor('the lint\'s lines reaching the channel', mark, (t) => t.split('\n').some((l) => PASS_HEADING.test(l)), 2000).catch(() => '');
+  await sleep(1000);
+  return { lines: ctx.out.since(mark).split('\n'), ending: ending.message };
+}
+
+// releaseFiles names the Release files the folder holds, as the copy was made.
+function releaseFiles(folder: string): string[] {
+  return fs.readdirSync(folder).filter((f) => /^release[^/]*\.ya?ml$/.test(f)).sort();
+}
+
+// releasesNamed and the heading below are this check's own statement of the
+// command line's wording, held against what the command line printed before
+// anything rests on them.
+function releasesNamed(releases: readonly string[]): string {
+  return `${releases.length === 1 ? 'Release' : 'Releases'} ${releases.join(', ')}`;
+}
+
+function headingFor(pass: AnsweredPass): string {
+  return `${releasesNamed(pass.releases)} ${pass.releases.length === 1 ? 'reads' : 'read'} ${pass.catalogDirs.join(', ')}`;
+}
+
+async function lintChecks(ctx: SuiteContext, reference: string): Promise<void> {
+  const c = ctx.checks;
+  const bin = ctx.inputs.compiler.path;
+
+  await c.run('lint.reports-each-release-pass-with-the-directories-it-read', {
+    expected: 'pressing Lint on the Commands panel writes to the channel, for each pass of the language server\'s own answer to the same whole-catalog request over a reference copy — asked through the extension\'s own client — and in its order, the line `aggrega lint` opens that pass with over the reference copy, naming its Releases and the directories they read, the passes parted by an empty line and none named twice; the passes name every Release file the folder holds, each once; and the ending reads "Aggrega lint: " followed by each pass\'s own count for its own Releases — "no findings across <n> entities checked for Release <file>" or "… for Releases <file>, <file>" — parted by "; ", and a full stop',
+    plant: 'in the scratch copy, out/src/lint-run.js made to read every answer as one catalog, setting its per-Release passes aside',
+  }, async () => {
+    const answer = await referenceAnswer({ binary: bin, root: reference, method: 'aggrega/lint', params: {}, home: ctx.home, table: ctx.s.table, log: ctx.cliLog });
+    need(answer.ok, `the language server gave no answer to the whole-catalog check over the reference copy: ${answer.ok ? '' : answer.error.message}`);
+    const passes = ((answer.result as { passes?: AnsweredPass[] | null }).passes ?? []);
+    need(passes.length > 0, 'the language server\'s answer over the reference copy carries no pass per Release, so there is nothing to hold the channel against');
+    // Written for the example's catalogs, which carry no conventions finding: an
+    // answer that does is one this check does not compose, and it says so rather
+    // than passing over lines it never read.
+    const uncomposed = passes.filter((p) => p.findings > 0 || p.catalogDirs.length === 0);
+    need(uncomposed.length === 0, `the reference answer carries a pass this check does not compose — one with findings, or one that read nothing: ${JSON.stringify(uncomposed)}`);
+    const cli = await runCompiler(bin, ['--offline', 'lint'], { cwd: reference, home: ctx.home, boundMs: 120000, log: ctx.cliLog });
+    const cliHeadings = cli.stdout.split('\n').filter((l) => PASS_HEADING.test(l));
+    const headings = passes.map(headingFor);
+    need(JSON.stringify(cliHeadings) === JSON.stringify(headings), `\`aggrega lint\` over the reference copy opens its passes with ${JSON.stringify(cliHeadings)}, not with the lines the language server's passes compose to (${JSON.stringify(headings)}), so the wording this check holds the channel to has moved`);
+    const expected = headings.flatMap((h, i) => (i === 0 ? [h] : ['', h]));
+    const named = passes.flatMap((p) => p.releases).sort();
+    const files = releaseFiles(ctx.folder);
+    const want = `Aggrega lint: ${passes.map((p) => `no findings across ${p.checked} entities checked for ${releasesNamed(p.releases)}`).join('; ')}.`;
+
+    const r = await pressLint(ctx);
+    const at = r.lines.indexOf(expected[0]);
+    const block = at === -1 ? [] : r.lines.slice(at, at + expected.length);
+    const opened = r.lines.filter((l) => PASS_HEADING.test(l));
+    const passed = JSON.stringify(block) === JSON.stringify(expected) && opened.length === headings.length
+      && JSON.stringify(named) === JSON.stringify(files) && r.ending === want;
+    return {
+      passed,
+      seen: `the channel from the press: ${JSON.stringify(r.lines.filter((l) => l.trim() !== ''))}; the ending "${r.ending}"; the language server's passes over the reference copy: ${passes.map((p) => `${p.releases.join(' + ')} over ${p.catalogDirs.join(', ')} (${p.checked} checked, ${p.findings} finding(s))`).join('; ')}; \`aggrega lint\` opens them ${JSON.stringify(cliHeadings)}; Release files in the folder ${JSON.stringify(files)}, named by the passes ${JSON.stringify(named)}`,
+    };
+  });
+
+  await c.run('lint.reads-no-variant-beside-another', {
+    expected: 'pressing Lint on the Commands panel, each of the example\'s catalog variant directories — the folder\'s directories named catalog-<variant>, each holding its own core/datastore/mariadb — is named as read by exactly one of the passes the channel names, and nothing the channel carries from the press to a moment after the ending says core/datastore/mariadb is shadowed, in the extension\'s words or relayed from the language server',
+    plant: 'in the scratch copy of the folder, .aggrega-config.yaml with release-helm-synth.yaml reading catalog-compose beside its own directory',
+  }, async () => {
+    const variants = fs.readdirSync(ctx.folder).filter((f) => /^catalog-/.test(f) && fs.statSync(path.join(ctx.folder, f)).isDirectory()).sort();
+    need(variants.length > 1, `the folder holds ${variants.length} catalog variant director(ies), so no variant could be read beside another`);
+    const r = await pressLint(ctx);
+    const opened = r.lines.filter((l) => PASS_HEADING.test(l));
+    const readIn = variants.map((v) => ({ v, passes: opened.filter((l) => (PASS_HEADING.exec(l)?.[1] ?? '').split(', ').includes(v)).length }));
+    const shadowed = r.lines.filter((l) => l.includes('"core/datastore/mariadb"') && l.includes('is shadowed'));
+    return {
+      passed: opened.length > 0 && readIn.every((x) => x.passes === 1) && shadowed.length === 0,
+      seen: `the passes the channel names ${JSON.stringify(opened)}; each variant read by ${readIn.map((x) => `${x.v}: ${x.passes} pass(es)`).join(', ')}; lines saying core/datastore/mariadb is shadowed ${shadowed.length === 0 ? 'none' : JSON.stringify(shadowed)}; the ending "${r.ending}"`,
+    };
+  });
+}
+
 // buildBothWays builds a Release at the command line over the reference copy and
 // from the Build button in the editor, and holds the two against each other: the
 // same files, the same bytes, and a closing line that names the output directory
@@ -194,6 +298,9 @@ export async function ownCatalogsChecks(ctx: SuiteContext, reference: string): P
   const c = ctx.checks;
   const bin = ctx.inputs.compiler.path;
   await ready(ctx);
+  // First, because a plant run ends once its checks have reported, and these
+  // two build nothing the checks after them read.
+  await lintChecks(ctx, reference);
   const built = new Map<string, Tree>();
 
   // ---- each Release against its own catalog directories ----

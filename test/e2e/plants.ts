@@ -696,6 +696,18 @@ export const PLANTS: readonly Plant[] = [
   },
   // ---- the Releases with catalog directories of their own ----
   {
+    name: 'lint-read-as-one-catalog', scenario: 'releases-with-own-catalogs', checks: ['lint.reports-each-release-pass-with-the-directories-it-read'], moves: 'red', target: 'extension',
+    file: 'out/src/lint-run.js',
+    find: '    return Array.isArray(answer.passes) && answer.passes.length > 0 ? answer.passes : null;',
+    replace: '    return null;',
+    says: 'every whole-catalog answer is read as one catalog: its per-Release passes are set aside, so the channel names no pass and the ending states one total',
+  },
+  {
+    name: 'release-reading-two-variants', scenario: 'releases-with-own-catalogs', checks: ['lint.reads-no-variant-beside-another'], moves: 'red', target: 'folder',
+    file: '.aggrega-config.yaml', find: '        - catalog-helm-synth\n', replace: '        - catalog-helm-synth\n        - catalog-compose\n',
+    says: 'the folder\'s configuration gives release-helm-synth.yaml catalog-compose beside its own directory, so its pass reads two variants\' core/datastore/mariadb at once',
+  },
+  {
     name: 'build-sent-for-the-compose-release', scenario: 'releases-with-own-catalogs', checks: ['build.each-release-matches-the-command-line-from-its-own-catalog'], moves: 'red', target: 'extension',
     file: BUILD_DIALS, find: BUILD_RELEASE_PARAM, replace: BUILD_RELEASE_PARAM.replace('release,', "release: 'release-compose.yaml',"),
     says: 'every build is sent for release-compose.yaml whichever Release is selected, so each writes what that Release reads from its own catalog directory',

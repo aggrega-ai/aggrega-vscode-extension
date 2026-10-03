@@ -44,6 +44,59 @@ export type LintFileFindings = wire.LintFileFindings;
 // and each arm of the subject union below says which of them it expects.
 export type LintAnswer = wire.LintResult;
 
+// LintPass is one pass of a whole-catalog check in a workspace whose Releases
+// read catalog directories of their own: the Releases it ran for, the
+// directories it read, and what it found there, counted and grouped as the
+// answer around it counts and groups the whole run.
+//
+// Releases reading the same directories share one pass, so a pass names one
+// Release or several. A pass naming no directory read nothing, and its counts
+// say so.
+export type LintPass = wire.LintPass;
+
+// passesOf returns the answer's passes, or null for an answer that carries none.
+//
+// 🔴 THE PRESENCE OF THE PASSES SELECTS THE READING, NEVER HOW MANY THERE ARE. The
+// compiler carries them exactly when the workspace's Releases read catalog
+// directories of their own, so an answer with one pass — every Release reading
+// the same directories — still says which Releases were checked, and reads per
+// Release. An answer without them reads as every other whole-catalog answer
+// does.
+//
+// Under the passes, everything a reader is shown is composed from them and
+// nothing from the answer's top-level findings: those regroup every pass's
+// findings by document, so a document two passes read carries each finding once
+// per pass with nothing saying which, and reading both would show each twice.
+function passesOf(answer: LintAnswer): readonly LintPass[] | null {
+  return Array.isArray(answer.passes) && answer.passes.length > 0 ? answer.passes : null;
+}
+
+// releasesNamed names the Releases one pass ran for, as the command line's own
+// heading for a pass names them.
+function releasesNamed(releases: readonly string[] | null): string {
+  const named = releases ?? [];
+  return `${named.length === 1 ? 'Release' : 'Releases'} ${named.join(', ')}`;
+}
+
+// passHeading is the line a pass opens with: its Releases and the directories
+// they read, or that they read none.
+//
+// 🔴 IT IS THE COMMAND LINE'S OWN HEADING FOR A PASS, WORD FOR WORD, AND THE COPY
+// IS DELIBERATE. The compiler composes that line in one place so a terminal and
+// a tool reading the same pass describe it alike; this surface cannot call it
+// across the language boundary, so it states the same wording and a parity spec
+// holds it to a line captured from the command line. The directories are spelled
+// as the answer spells them, which is the spelling the command line prints.
+function passHeading(pass: LintPass): string {
+  const one = (pass.releases ?? []).length === 1;
+  const subject = `${releasesNamed(pass.releases)} ${one ? 'reads' : 'read'}`;
+  const dirs = pass.catalogDirs ?? [];
+  if (dirs.length === 0) {
+    return `${subject} no catalog directory, so there is nothing to check for ${one ? 'it' : 'them'}`;
+  }
+  return `${subject} ${dirs.join(', ')}`;
+}
+
 // --- the subject one run is about -----------------------------------------
 
 // LintSubject is what one run was asked about: every catalog entity the
@@ -116,14 +169,45 @@ function absolutePathFor(workspaceRoot: string, file: string): string {
 // A group naming no document names no entity to navigate to, so it is left out;
 // countUnlocatable reports how many entries were dropped, and the caller
 // surfaces them in the log rather than discarding them silently.
+//
+// Where the answer reports a pass per Release, each pass's findings are entered
+// on their own and each entry names the Releases its pass ran for, after the
+// rule's own text. A finding two passes reported is therefore two entries, one
+// per pass: the panel then tells the story the passes and their counts tell,
+// and merging would need a rule of this surface's own for when two findings are
+// one, which the compiler does not make. The Releases follow the rule's text
+// rather than replacing any of it, so the remediation the rule named is still
+// read first and word for word.
 export function findingsByFile(
   answer: LintAnswer,
   workspaceRoot: string,
 ): Map<string, ConvertedShape[]> {
   const byFile = new Map<string, ConvertedShape[]>();
-  for (const group of answer.files ?? []) {
+  const passes = passesOf(answer);
+  if (passes === null) {
+    addFindings(byFile, answer.files ?? [], workspaceRoot, '');
+  } else {
+    for (const pass of passes) {
+      addFindings(byFile, pass.files ?? [], workspaceRoot, ` (found for ${releasesNamed(pass.releases)})`);
+    }
+  }
+  return byFile;
+}
+
+// addFindings enters one list of document groups into byFile, appending suffix
+// to each entry's message.
+function addFindings(
+  byFile: Map<string, ConvertedShape[]>,
+  groups: readonly LintFileFindings[],
+  workspaceRoot: string,
+  suffix: string,
+): void {
+  for (const group of groups) {
     if (!group.file) { continue; }
-    const shapes = (group.diagnostics ?? []).map(shapeForDaemonDiagnostic);
+    const shapes = (group.diagnostics ?? []).map((d) => {
+      const shape = shapeForDaemonDiagnostic(d);
+      return suffix === '' ? shape : { ...shape, message: `${shape.message}${suffix}` };
+    });
     if (shapes.length === 0) { continue; }
     const file = absolutePathFor(workspaceRoot, group.file);
     const existing = byFile.get(file);
@@ -133,15 +217,19 @@ export function findingsByFile(
       byFile.set(file, shapes);
     }
   }
-  return byFile;
 }
 
 // countUnlocatable reports how many findings named no document. Such a finding
 // cannot be published against any file, so the count is what keeps it from
 // vanishing without trace.
+//
+// Under per-Release passes it counts each pass's, so a finding two passes
+// reported is counted twice, as it is reported twice.
 export function countUnlocatable(answer: LintAnswer): number {
+  const passes = passesOf(answer);
+  const groups = passes === null ? (answer.files ?? []) : passes.flatMap((pass) => pass.files ?? []);
   let n = 0;
-  for (const group of answer.files ?? []) {
+  for (const group of groups) {
     if (group.file) { continue; }
     n += (group.diagnostics ?? []).length;
   }
@@ -271,9 +359,30 @@ export function applyLintPublication(
 //
 // A finding whose producer assigned no rule identity is rendered without one
 // rather than with an empty identifier, since an empty name states nothing.
+//
+// Where the answer reports a pass per Release, each pass is opened by the line
+// the command line opens it with, naming its Releases and the directories they
+// read, and its own findings follow under it; passes are parted by an empty
+// line, as the command line parts them. A pass that found nothing is still named,
+// so a clean run says which Releases it covered.
 export function reportLines(answer: LintAnswer, workspaceRoot: string): string[] {
+  const passes = passesOf(answer);
+  if (passes === null) {
+    return documentLines(answer.files ?? [], workspaceRoot);
+  }
   const lines: string[] = [];
-  for (const group of answer.files ?? []) {
+  passes.forEach((pass, i) => {
+    if (i > 0) { lines.push(''); }
+    lines.push(passHeading(pass));
+    lines.push(...documentLines(pass.files ?? [], workspaceRoot));
+  });
+  return lines;
+}
+
+// documentLines renders one list of document groups in the report format.
+function documentLines(groups: readonly LintFileFindings[], workspaceRoot: string): string[] {
+  const lines: string[] = [];
+  for (const group of groups) {
     const diagnostics = group.diagnostics ?? [];
     if (diagnostics.length === 0) { continue; }
     lines.push(`${group.file ? absolutePathFor(workspaceRoot, group.file) : '(no entity file)'}:`);
@@ -304,21 +413,44 @@ export function reportLines(answer: LintAnswer, workspaceRoot: string): string[]
 // no document. Those are explained by the note rather than subtracted here: the
 // count belongs to the compiler, and recounting it at this boundary would be a
 // second derivation that agrees with the first until one of them is edited.
+//
+// Where the answer reports a pass per Release, the sentence states each pass's
+// own counts for the Releases it ran for, in the order the answer gives them,
+// rather than one total: a total over several Releases cannot say which of them a
+// finding was found for, and a document every pass read is counted once in each.
+// A pass that read nothing is stated in the words its heading uses.
 export function summaryLine(answer: LintAnswer, workspaceRoot: string): string {
-  const checked = answer.checked;
-  const scope = answer.entity
-    ? ` in ${absolutePathFor(workspaceRoot, answer.entity)}`
-    : (typeof checked === 'number' ? ` across ${checked} entities checked` : '');
   const note = unlocatableNote(answer);
   const trailer = note === '' ? '' : ` ${note}`;
-  const found = answer.findings;
+  const passes = passesOf(answer);
+  const clauses = passes === null
+    ? [outcomeClause(answer, workspaceRoot)]
+    : passes.map((pass) => ((pass.catalogDirs ?? []).length === 0
+      ? passHeading(pass)
+      : `${outcomeClause(pass, workspaceRoot)} for ${releasesNamed(pass.releases)}`));
+  const seeProblems = passes === null
+    ? (typeof answer.findings === 'number' && answer.findings > 0)
+    : passes.some((pass) => pass.findings > 0);
+  return `Aggrega lint: ${clauses.join('; ')}${seeProblems ? ' — see the Problems panel' : ''}.${trailer}`;
+}
+
+// outcomeClause states what one run, or one pass of it, found over what it
+// covered: the finding count, and the entity it was about or how many entities it
+// checked. It is the one wording of that clause, so a run checked once and a run
+// checked once per Release state their counts alike.
+function outcomeClause(
+  counts: { entity?: string; checked?: number; findings?: number },
+  workspaceRoot: string,
+): string {
+  const checked = counts.checked;
+  const scope = counts.entity
+    ? ` in ${absolutePathFor(workspaceRoot, counts.entity)}`
+    : (typeof checked === 'number' ? ` across ${checked} entities checked` : '');
+  const found = counts.findings;
   if (typeof found !== 'number') {
-    return `Aggrega lint: run complete${scope}.${trailer}`;
+    return `run complete${scope}`;
   }
-  if (found === 0) {
-    return `Aggrega lint: no findings${scope}.${trailer}`;
-  }
-  return `Aggrega lint: ${found} finding(s)${scope} — see the Problems panel.${trailer}`;
+  return found === 0 ? `no findings${scope}` : `${found} finding(s)${scope}`;
 }
 
 // --- the run ---------------------------------------------------------------

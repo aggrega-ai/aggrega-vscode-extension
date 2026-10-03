@@ -283,6 +283,82 @@ describe('reportLines — the compiler\'s own report format, composed from the a
   });
 });
 
+// --- the heading each pass is opened with ---------------------------------
+
+// MEASURED_PER_RELEASE is the aggrega/lint answer a live language server gave a
+// whole-catalog check in a workspace whose Releases read catalog directories of
+// their own — four Release files, two of them reading the same directories —
+// with its counts and empty finding lists as sent.
+const MEASURED_PER_RELEASE: LintAnswer = {
+  checked: 34, findings: 0, errors: 0, warnings: 0, infos: 0, files: [], halted: false,
+  passes: [
+    { releases: ['release-compose.yaml', 'release-unmapped.yaml'], catalogDirs: ['catalog-compose', 'catalog'], checked: 8, findings: 0, errors: 0, warnings: 0, infos: 0, files: [] },
+    { releases: ['release-helm-bitnami.yaml'], catalogDirs: ['catalog-helm-bitnami', 'catalog'], checked: 8, findings: 0, errors: 0, warnings: 0, infos: 0, files: [] },
+    { releases: ['release-helm-chart.yaml'], catalogDirs: ['catalog-helm-chart', 'catalog'], checked: 9, findings: 0, errors: 0, warnings: 0, infos: 0, files: [] },
+    { releases: ['release-helm-synth.yaml'], catalogDirs: ['catalog-helm-synth', 'catalog'], checked: 9, findings: 0, errors: 0, warnings: 0, infos: 0, files: [] },
+  ],
+};
+
+// COMMAND_LINE_PER_RELEASE is what `aggrega lint` prints over the same
+// workspace, captured verbatim: each pass opened by the line naming its
+// Releases and the directories they read, closed by its count, the passes
+// parted by an empty line.
+//
+// 🔴 A LITERAL READ OFF THE COMMAND LINE, FOR THE SAME REASON THE REPORT ABOVE IS:
+// the heading is the compiler's wording, composed on this side because it cannot
+// be called across the language boundary, and only a capture taken independently
+// of this module can say the two still agree.
+const COMMAND_LINE_PER_RELEASE = [
+  'Releases release-compose.yaml, release-unmapped.yaml read catalog-compose, catalog',
+  'conventions checked: 8 entities, 0 advisory finding(s)',
+  '',
+  'Release release-helm-bitnami.yaml reads catalog-helm-bitnami, catalog',
+  'conventions checked: 8 entities, 0 advisory finding(s)',
+  '',
+  'Release release-helm-chart.yaml reads catalog-helm-chart, catalog',
+  'conventions checked: 9 entities, 0 advisory finding(s)',
+  '',
+  'Release release-helm-synth.yaml reads catalog-helm-synth, catalog',
+  'conventions checked: 9 entities, 0 advisory finding(s)',
+];
+
+// The command line's line for a pass whose Releases read no catalog directory,
+// captured verbatim from a workspace naming two of its Release files under
+// `workspace.releases` and not the other two.
+const COMMAND_LINE_READ_NOTHING =
+  'Releases release-helm-bitnami.yaml, release-helm-chart.yaml read no catalog directory, so there is nothing to check for them';
+
+describe('the line each pass of a whole-catalog check is opened with', () => {
+  // The per-pass count is the one line of the command line's report the channel
+  // does not repeat: the counts are what the run's closing sentence states, for
+  // each pass, so they are set aside here by name rather than matched loosely.
+  it('reproduces the command line\'s heading for each pass, and parts the passes as it does', () => {
+    assert.deepStrictEqual(
+      reportLines(MEASURED_PER_RELEASE, WORKSPACE_ROOT),
+      COMMAND_LINE_PER_RELEASE.filter((l) => !l.startsWith('conventions checked: ')),
+    );
+  });
+
+  it('says a pass read nothing in the command line\'s own words', () => {
+    assert.deepStrictEqual(
+      reportLines(partialAnswer({
+        passes: [{ releases: ['release-helm-bitnami.yaml', 'release-helm-chart.yaml'], catalogDirs: [], checked: 0, findings: 0, errors: 0, warnings: 0, infos: 0, files: [] }],
+      }), WORKSPACE_ROOT),
+      [COMMAND_LINE_READ_NOTHING],
+    );
+  });
+
+  it('states each pass\'s own count in the closing sentence, for its own Releases', () => {
+    assert.strictEqual(
+      summaryLine(MEASURED_PER_RELEASE, WORKSPACE_ROOT),
+      'Aggrega lint: no findings across 8 entities checked for Releases release-compose.yaml, release-unmapped.yaml; '
+        + 'no findings across 8 entities checked for Release release-helm-bitnami.yaml; '
+        + 'no findings across 9 entities checked for Release release-helm-chart.yaml; '
+        + 'no findings across 9 entities checked for Release release-helm-synth.yaml.',
+    );
+  });
+});
+
 // 🔴 EVERY SENTENCE BELOW IS A LITERAL THE WHOLE-CATALOG ARM ALREADY PRODUCED,
 // CARRIED THROUGH UNCHANGED. The subject clause is what was added, and it is
 // reached only by an answer that names an entity — so an answer that names none
