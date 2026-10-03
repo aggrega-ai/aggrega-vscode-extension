@@ -182,9 +182,9 @@ function quietEnv(scratch: string): NodeJS.ProcessEnv {
 
 // notBuiltFromACommit says why a version the compiler reports names no committed
 // revision, or is null where it names one. Three stamps say so, from the two
-// things that stamp a build: the "-dirty" the build-provenance recipe's
-// `git describe --dirty` gives a working tree with uncommitted changes; the
-// "+dirty" the Go toolchain gives the same when it stamps the build itself; and
+// things that stamp a build: the "-dirty" the build-provenance recipe gives a
+// working tree with uncommitted changes; the "+dirty" the Go toolchain gives the
+// same when it stamps the build itself; and
 // "(devel)" — with "(unknown)", the version command's answer where it can read no
 // build information — where nothing stamped a revision at all. A binary built
 // from a commit reproduces from that commit; none of these does.
