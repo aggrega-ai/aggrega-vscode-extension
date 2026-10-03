@@ -29,9 +29,6 @@ name: Package and publish
 #             OVSX_PAT                   the Open VSX access token
 #   variables AGGREGA_RUNNER             the package job's runner label (optional,
 #                                        a hosted runner by default)
-#   environment marketplace-publish      the environment the Marketplace job runs
-#                                        in; the managed identity's federated
-#                                        credential names it as its subject
 
 on:
   push:
@@ -150,6 +147,9 @@ jobs:
     # the token in VSCE_PAT instead; when only some are set, or neither the
     # identity nor the token is, it refuses before anything runs.
     #
+    # Only a job on main of this repository can sign in as the identity, and any
+    # such job that asks for an OpenID Connect token can; only this job asks.
+    #
     # A hosted runner, whatever the package job uses: it carries the Azure CLI the
     # sign-in goes through, and it is discarded after the job, so no sign-in
     # outlives it.
@@ -157,7 +157,6 @@ jobs:
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    environment: marketplace-publish
     permissions:
       contents: read
       # Lets the job ask GitHub for the OpenID Connect token the managed
