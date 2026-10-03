@@ -252,6 +252,8 @@ export class Daemon extends EventEmitter {
   private nextId = 1;
   private serverEncoding: ServerEncoding = 'utf-16';
   private serverInitMetadata: ServerInitMetadata | null = null;
+  // What the running process has written that does not yet make a whole message.
+  // attach says why it belongs to that one process and no other.
   private readBuffer = Buffer.alloc(0);
   private respawnTracker: RespawnTracker;
   private workspaceRoot: string | null = null;
@@ -341,10 +343,9 @@ export class Daemon extends EventEmitter {
    *
    * The factory transitions the daemon to Running via the normal
    * setState path so stateChange listeners fire as they would in
-   * production. The subprocess's stdout / stderr / exit handlers
-   * are wired identically to spawnAndInitialize() so handleExit
-   * runs on subprocess termination and lifecycle observation stays
-   * coherent.
+   * production. The subprocess is attached by the same attach() a
+   * spawned one is, so its output is read, and its exit handled, as
+   * a spawned subprocess's would be.
    *
    * The double-underscore prefix and @internal tag mark this as a
    * test seam; production callers MUST NOT invoke it. Project lint
@@ -357,13 +358,7 @@ export class Daemon extends EventEmitter {
     proc: ChildProcessWithoutNullStreams,
   ): Daemon {
     const d = new Daemon(settings);
-    d.proc = proc;
-    proc.stdout.on('data', (chunk: Buffer) => d.handleStdoutChunk(chunk));
-    proc.stderr.on('data', (chunk: Buffer) => {
-      d.log(`[aggrega serve stderr] ${chunk.toString('utf8').trimEnd()}`);
-    });
-    proc.on('exit', (code, signal) => d.handleExit(code, signal));
-    proc.on('error', err => d.handleSpawnError(err));
+    d.attach(proc);
     d.setState(DaemonState.Running);
     return d;
   }
@@ -527,8 +522,9 @@ export class Daemon extends EventEmitter {
     this.startFailed = false;
     this.setState(DaemonState.Starting);
     const launching = this.settings.binaryPath;
+    let proc: ChildProcessWithoutNullStreams;
     try {
-      this.proc = spawn(launching, buildServeArgs(this.settings), {
+      proc = spawn(launching, buildServeArgs(this.settings), {
         cwd: this.workspaceRoot ?? undefined,
         stdio: ['pipe', 'pipe', 'pipe'],
       });
@@ -538,12 +534,7 @@ export class Daemon extends EventEmitter {
       throw err;
     }
     this.launchedBinaryPath = launching;
-    this.proc.stdout.on('data', (chunk: Buffer) => this.handleStdoutChunk(chunk));
-    this.proc.stderr.on('data', (chunk: Buffer) => {
-      this.log(`[aggrega serve stderr] ${chunk.toString('utf8').trimEnd()}`);
-    });
-    this.proc.on('exit', (code, signal) => this.handleExit(code, signal));
-    this.proc.on('error', err => this.handleSpawnError(err));
+    this.attach(proc);
 
     try {
       await this.initializeHandshake();
@@ -574,6 +565,56 @@ export class Daemon extends EventEmitter {
     }
     this.setState(DaemonState.Running);
     this.drainStartupQueue();
+  }
+
+  // attach makes `proc` the subprocess this client runs, and wires what it writes
+  // and how it ends.
+  //
+  // 🔴 ONLY THE SUBPROCESS THE CLIENT RUNS IS READ, AND IT IS READ FROM AN EMPTY
+  // BUFFER. A subprocess's output can go on arriving after its exit is reported:
+  // the pipe may still hold some of it, and a process it handed its output to can
+  // go on writing. By then the client may run the subprocess that replaced it, and
+  // a message read from the old output would be taken for the new server's — a
+  // finding published after the new server began, as though the new server had
+  // said it. Nothing waits on the old output any more, since its requests were
+  // refused as it was replaced, so it is dropped, from the moment the subprocess
+  // stops being the one this client runs. And a message the old subprocess left
+  // unfinished is discarded rather than completed with the new one's bytes, which
+  // would swallow the new server's answer to the handshake and fail a start that
+  // had succeeded.
+  //
+  // 🔴 HOW A SUBPROCESS ENDS, AND AN ERROR IT RAISES, ARE HANDLED ONLY WHILE IT IS
+  // THE ONE THIS CLIENT RUNS, for the same reason. A teardown stops waiting a moment
+  // after SIGKILL whether or not the end has been reported, and a restart then
+  // starts the next subprocess at once, so the end of the one let go of can arrive
+  // once another runs, or once a stop has settled the client. Taken for the current
+  // subprocess's, it would drop the client's hold on the new one, fail the
+  // handshake under way and leave that process running with nothing to stop it — or,
+  // after a stop, report a crash and start a server nobody asked for. The act that
+  // let the old subprocess go owns its teardown and the position after it, so what
+  // that subprocess reports afterwards is dropped like its output.
+  //
+  // Error output is logged whichever subprocess wrote it: a server's account
+  // of why it ended is written as it ends, often once it has been replaced, and a
+  // line in the output channel is read by a person, never taken for the running
+  // server's answer.
+  //
+  // It is the one place a subprocess is wired, for one this client spawns and one a
+  // test attaches alike, so the two cannot come to read differently.
+  private attach(proc: ChildProcessWithoutNullStreams): void {
+    this.proc = proc;
+    this.readBuffer = Buffer.alloc(0);
+    // whileCurrent hands an event on only while `proc` is the subprocess this
+    // client runs: the one test every event the client acts on passes through.
+    const whileCurrent = <A extends unknown[]>(handle: (...args: A) => void) => (...args: A): void => {
+      if (proc === this.proc) { handle(...args); }
+    };
+    proc.stdout.on('data', whileCurrent((chunk: Buffer) => this.handleStdoutChunk(chunk)));
+    proc.stderr.on('data', (chunk: Buffer) => {
+      this.log(`[aggrega serve stderr] ${chunk.toString('utf8').trimEnd()}`);
+    });
+    proc.on('exit', whileCurrent((code: number | null, signal: NodeJS.Signals | null) => this.handleExit(code, signal)));
+    proc.on('error', whileCurrent((err: Error) => this.handleSpawnError(err)));
   }
 
   // initializeHandshake negotiates the position encoding and DECLARES the
@@ -774,7 +815,9 @@ export class Daemon extends EventEmitter {
   // restart that cannot spawn is counted like any other that did not come up,
   // so a missing or unexecutable binary ends at the respawn bound rather than
   // looping. A stray error after the daemon is already stopping is a no-op
-  // beyond clearing pending work.
+  // beyond clearing pending work, and one raised by a subprocess the client has
+  // already let go of never reaches here (attach drops it), so it cannot clear the
+  // work of the subprocess running now.
   private handleSpawnError(err: Error): void {
     this.log(`subprocess error: ${err.message}`);
     this.rejectPending(err);
@@ -788,7 +831,9 @@ export class Daemon extends EventEmitter {
   // decides what follows — so nothing is started from here, since a second
   // attempt started beside the failing one would be torn down by that attempt's
   // own failure path and left waiting on a handshake nobody answers. Only an exit
-  // of a server that was running is supervised from here.
+  // of a server that was running is supervised from here. An exit of a subprocess
+  // the client has already let go of is the act's that let it go, and attach drops
+  // it before it reaches here.
   private handleExit(code: number | null, signal: NodeJS.Signals | null): void {
     this.proc = null;
     if (this.state === DaemonState.Stopping || this.state === DaemonState.Restarting) {

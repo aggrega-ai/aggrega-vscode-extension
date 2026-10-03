@@ -153,8 +153,8 @@ export const PLANTS: readonly Plant[] = [
   {
     name: 'server-started-by-file-name', scenario: 'gateway', checks: ['language-server.runs-the-binary-under-test'], moves: 'red', target: 'extension',
     file: DAEMON,
-    find: 'this.proc = (0, child_process_1.spawn)(launching, buildServeArgs(this.settings), {',
-    replace: "this.proc = (0, child_process_1.spawn)(require('path').basename(launching), buildServeArgs(this.settings), {",
+    find: 'proc = (0, child_process_1.spawn)(launching, buildServeArgs(this.settings), {',
+    replace: "proc = (0, child_process_1.spawn)(require('path').basename(launching), buildServeArgs(this.settings), {",
     says: 'the language server is started by the binary\'s file name alone, so what runs is whatever that name finds on the path rather than the configured file',
   },
   { name: 'context-row-renamed', scenario: 'gateway', checks: ['commands-panel.context-rows-name-the-opened-folder'], moves: 'red', target: 'extension', ...CONTEXT_ROW_LABEL },
@@ -178,11 +178,11 @@ export const PLANTS: readonly Plant[] = [
     says: 'the inspection flag is passed to the language server whatever the setting says',
   },
   {
-    name: 'restart-clears-the-build-layers', scenario: 'gateway', checks: ['problems.authoring-complaint-and-render-advisory-under-two-sources'], moves: 'green', target: 'extension',
-    file: EXTENSION,
-    find: '        await daemon.restart();\n        return true;',
-    replace: '        await daemon.restart();\n        for (const source of diagnosticCollections?.known() ?? []) { if (source !== diagnostics_shape_1.DIAGNOSTIC_SOURCE_FALLBACK) { diagnosticCollections?.for(source).clear(); } }\n        return true;',
-    says: 'a restart of the language server clears every layer of findings but the authored documents\' own, so a layer the restarted server no longer computes does not outlive it',
+    name: 'new-server-keeps-the-old-findings', scenario: 'gateway', checks: ['problems.authoring-complaint-and-render-advisory-under-two-sources'], moves: 'red', target: 'extension',
+    file: 'out/src/server-turnover.js',
+    find: '        moved: (next) => {\n            if (!beginsANewServer(next)) {\n                return;\n            }\n            for (const holder of deps.holders()) {\n                holder.clear();\n            }\n        },\n        answerable: () => { deps.revalidate(); },',
+    replace: '        moved: () => undefined,\n        answerable: () => undefined,',
+    says: 'a new language server forgets nothing the stopped one filed and has nothing validated again, so a finding the restarted server no longer computes stays in the Problems panel',
   },
   {
     name: 'graph-not-redrawn-on-disk-change', scenario: 'gateway', checks: ['problems.render-advisory-clears-on-save-and-not-on-an-unsaved-edit'], moves: 'red', target: 'extension',

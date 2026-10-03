@@ -117,6 +117,13 @@ export function clearUriInEverySource(
   }
 }
 
+// everyLayer returns the collection of every layer seen so far, which is every
+// collection the language server's findings — pushed, answered, or carried on a
+// refusal — have been filed in.
+export function everyLayer(collections: SourcedCollections): vscode.DiagnosticCollection[] {
+  return [...collections.known()].map((source) => collections.for(source));
+}
+
 // holdsFindings reports whether any layer holds an entry for uri — whether the
 // Problems panel shows something the language server published on that file.
 export function holdsFindings(

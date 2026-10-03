@@ -50,6 +50,7 @@ import {
   SourcedCollections,
   clearUriInEverySource,
   createSourcedCollections,
+  everyLayer,
   holdsFindings,
   publishDiagnostics,
   publishShapes,
@@ -75,6 +76,7 @@ import {
   Readiness,
   createReadiness,
 } from './readiness';
+import { ServerTurnover, createServerTurnover } from './server-turnover';
 import {
   DAEMON_ACTION_DETAIL,
   DAEMON_ACTION_LABEL,
@@ -316,6 +318,11 @@ let releaseSelection: ReleaseSelection | null = null;
 // every view renders from it. Built in activate() before any surface that reads
 // it, and driven from the single lifecycle subscription in ensureDaemonAt.
 let readiness: Readiness | null = null;
+// serverTurnover forgets what a stopped language server said whenever a new one
+// comes up, and has the open documents validated again once it answers. Built in
+// activate() over every collection a server's findings are filed in, and handed
+// each lifecycle position from the single subscription in ensureDaemonAt.
+let serverTurnover: ServerTurnover | null = null;
 let operationsView: OperationsView | null = null;
 // refreshGetStarted re-reads the conditions the welcome panel reports. It is
 // called at the end of every re-evaluation of the open folders, because the
@@ -664,6 +671,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     lint: requestLint,
     output: outputChannel,
   });
+
+  // Every collection a language server's findings are filed in: each layer it
+  // pushes or answers, the refusals filed among them, and the conventions
+  // check's. Nothing the extension files there is its own computation, so a new
+  // server forgets all of it. The open documents are validated again on every
+  // rising edge — the first start included, since no server is answering yet when
+  // the editor's documents are first seen.
+  const runner = lintRunner;
+  const turnover = createServerTurnover({
+    holders: () => [...(diagnosticCollections ? everyLayer(diagnosticCollections) : []), runner],
+    revalidate: revalidateOpenDocuments,
+  });
+  serverTurnover = turnover;
+  ready.onReady(() => { turnover.answerable(); });
 
   // The operation surface (activity-bar Commands view + commands) is
   // available regardless of daemon state: each entry reports when the server is
@@ -1310,6 +1331,10 @@ async function ensureDaemonAt(
     if (next === DaemonState.Running || next === DaemonState.Restarting) {
       resetSessionDedup(toastDebounce);
     }
+    // What the stopped server said is forgotten as the client begins a new one,
+    // on whichever path got here — a restart and a respawn reuse this client, a
+    // move and a start from stopped construct a new one under this same listener.
+    if (serverTurnover) { serverTurnover.moved(next); }
     // THE EXTENSION'S ONE SUBSCRIPTION TO THE SERVER'S LIFECYCLE. Every surface
     // that needs to know whether the compiler can be asked reads the readiness
     // state this drives, so a second listener is not to be added here or
@@ -1503,7 +1528,9 @@ function registerSelectReleaseCommand(context: vscode.ExtensionContext): void {
 // its pins and the withdrawal markers it reports from that lockfile. Without it
 // the Problems panel would go on showing findings computed against the previous
 // Release, or the previous lockfile, until each file happened to be edited, which
-// reads as the change having no effect.
+// reads as the change having no effect. It runs as well each time a language
+// server becomes answerable, the first included: the Problems panel was emptied as
+// that server began, so the open documents' own findings are asked of it afresh.
 function revalidateOpenDocuments(): void {
   if (!daemon || daemon.getState() !== DaemonState.Running) { return; }
   for (const doc of vscode.workspace.textDocuments) {
@@ -1787,9 +1814,10 @@ function validateParamsFor(doc: vscode.TextDocument): ValidateParams {
 
 // validateDocument runs the language server's validate on one document and
 // publishes what comes back. It is the single path every proactive validation
-// takes — document open, debounced change, the startup sweep, and the sweep
-// that follows a change of selection — so none of them can drift into sending a
-// different request than the others.
+// takes — document open, debounced change, and the sweep of every open document
+// that follows a server becoming answerable, a change of selection or a lockfile
+// write — so none of them can drift into sending a different request than the
+// others.
 function validateDocument(doc: vscode.TextDocument): void {
   if (!daemon || daemon.getState() !== DaemonState.Running) { return; }
   if (doc.languageId !== 'yaml') { return; }
@@ -1811,6 +1839,10 @@ function validateDocument(doc: vscode.TextDocument): void {
   );
 }
 
+// registerDocumentLifecycle validates a document as it opens and after each pause
+// in typing. The documents already open are not swept here: this runs before the
+// first server is started, when nothing can answer, and the sweep that does reach
+// them runs each time a server becomes answerable.
 function registerDocumentLifecycle(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.workspace.onDidOpenTextDocument(validateDocument),
@@ -1823,10 +1855,6 @@ function registerDocumentLifecycle(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.workspace.onDidChangeTextDocument(e => debouncedValidate(e.document)),
   );
-
-  for (const doc of vscode.workspace.textDocuments) {
-    validateDocument(doc);
-  }
 }
 
 // registerCloseHandler wires the editor closing a YAML document. The document's

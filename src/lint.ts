@@ -24,6 +24,10 @@ import { withCancellableProgress } from './progress';
 export interface LintRunner {
   run(): Promise<void>;
   runEntity(entityPath: string): Promise<void>;
+  // clear empties the collection both runs write into. Its findings are a
+  // language server's answer, so they go when a new server comes up, with the
+  // rest of what the stopped one said.
+  clear(): void;
 }
 
 // LintDeps is the live extension state the runner reads: the anchored root the
@@ -96,5 +100,6 @@ export function activateLint(context: vscode.ExtensionContext, deps: LintDeps): 
         (signal) => runLint(runDeps, subject, signal),
       );
     },
+    clear: () => collection.clear(),
   };
 }
