@@ -5,6 +5,11 @@
   "version": "0.1.0",
   "publisher": "aggrega-ai",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aggrega-ai/aggrega-vscode-extension"
+  },
+  "icon": "media/listing-icon.png",
   "aggregaCompatibility": ">=0.1.0",
   "engines": {
     "vscode": "^1.85.0"
@@ -592,6 +597,7 @@
     "@vscode/codicons": "^0.0.46-24",
     "@vscode/test-cli": "^0.0.10",
     "@vscode/test-electron": "^2.4.0",
+    "@vscode/vsce": "4.0.0",
     "mocha": "^10.0.0",
     "playwright-core": "1.63.0",
     "typescript": "^5.3.0"

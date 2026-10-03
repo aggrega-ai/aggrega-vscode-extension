@@ -4,7 +4,7 @@ Language support for Aggrega YAML — validation, navigation, hover, and complet
 
 ## Prerequisites
 
-- Visual Studio Code 1.85 or newer.
+- Visual Studio Code 1.85 or newer, on the desktop. The extension works by starting the `aggrega` program and provides no version a browser can run in its place, so it does not run in editors that run entirely in a web browser, such as vscode.dev and github.dev.
 - `aggrega` binary on `PATH`, or its absolute path set in the `aggrega.server.binaryPath` setting.
 - A folder Aggrega recognises as a workspace root, at or above the folder you open. Aggrega reads one file at your project root — `.aggrega-config.yaml`, carrying a `workspace:` block — and climbs from the opened folder to find it. Marking the root with a `workspace:` block is the explicit choice and the one to prefer; a project that has never declared one can still be recognised by other markers, which Aggrega's own configuration reference covers along with everything else configuration can do in a larger project.
 
@@ -776,8 +776,9 @@ are not Apache-2.0; their provenance and licence are recorded in
 `media/codicon-NOTICE.md`, beside the files themselves.
 
 <!-- That path is deliberately NOT a relative markdown link. The packaging step
-     resolves every relative link in this file against a repository URL, and this
-     extension declares none — so a link here fails the package step outright and no
-     installable artifact is produced. A plain path tells the reader exactly where the
+     rewrites every relative link in this file into a link to the file on the
+     repository's web page, so a link here would take a reader of the installed
+     extension away from the copy beside it, to a page they can open only where they
+     can reach that repository. A plain path tells the reader exactly where the
      notice is and needs no URL to resolve. -->
 
