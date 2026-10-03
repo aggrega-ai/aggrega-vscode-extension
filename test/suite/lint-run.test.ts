@@ -237,8 +237,8 @@ describe('runLint', () => {
     );
   });
 
-  // The reader-visible log carries the compiler's own report format, composed
-  // from the answer. An equality on the whole log, not a containment: a
+  // The reader-visible log carries the compiler's findings in its own words,
+  // composed from the answer. An equality on the whole log, not a containment: a
   // containment passes while any one of several lines survives.
   it('writes the compiler\'s report into the log', async () => {
     const h = harness('/ws', () => Promise.resolve(ONE_FINDING));

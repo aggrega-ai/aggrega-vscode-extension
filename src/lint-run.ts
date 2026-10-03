@@ -343,16 +343,17 @@ export function applyLintPublication(
   }
 }
 
-// reportLines renders the run's findings in the compiler's own report format:
-// the document, then one line per finding carrying its severity, the rule that
-// produced it, and the rule's own text.
+// reportLines renders the run's findings for the output channel: the document,
+// then one line per finding carrying its severity, the rule that produced it,
+// and the rule's own text.
 //
 // It is composed from the answer's values rather than from a rendering the
 // compiler wrote, because the request surface answers with the facts and leaves
-// the human formatting to whichever surface a reader is looking at. Every value
-// in it is the compiler's own and none is re-worded — in particular the message
-// is carried through byte for byte, so the remediation the rule named is never
-// replaced by a friendlier sentence.
+// the human formatting to whichever surface a reader is looking at. The line is
+// therefore this surface's rather than the command line's, and it carries what
+// the answer carries: every value in it is the compiler's own and none is
+// re-worded — in particular the message is carried through byte for byte, so the
+// remediation the rule named is never replaced by a friendlier sentence.
 //
 // The document is named by its absolute path, which is the path a reader can
 // open and the one the rules' own message text already quotes.
@@ -467,7 +468,7 @@ export interface LintSink {
 }
 
 // LintLog is the reader-visible log the run appends to — the compiler's own
-// findings, in the compiler's own report format.
+// findings, in the compiler's own words.
 export interface LintLog {
   appendLine(text: string): void;
   show(): void;

@@ -56,9 +56,10 @@ const MEASURED_ANSWER: LintAnswer = {
   halted: false,
 };
 
-// COMMAND_LINE_REPORT is what `aggrega lint` prints for this same finding,
-// captured verbatim from a real run: the absolute document path on its own line,
-// then severity, rule identity and message.
+// COMMAND_LINE_REPORT is what `aggrega lint` writes to its error stream for this
+// same finding, captured verbatim from a real run: the absolute document path on
+// its own line, then the finding's severity, the short code of the condition its
+// rule names, the rule identity and the message.
 //
 // 🔴 IT IS A LITERAL READ OFF THE COMPILER, NOT A VALUE THIS MODULE COMPUTES.
 // The parity claim below is only worth anything because the two sides were
@@ -67,16 +68,40 @@ const MEASURED_ANSWER: LintAnswer = {
 // with it whatever the implementation did.
 const COMMAND_LINE_REPORT = [
   `/ws/${MEASURED_RELATIVE_FILE}:`,
-  `[warn] category-matches-directory: ${MEASURED_MESSAGE}`,
+  `warn: E0281 category-matches-directory: ${MEASURED_MESSAGE}`,
 ];
 
-// The command line and the request surface spell the middle severity tier
-// differently — the compiler's own vocabulary on each of its two wires. Nothing
-// in the extension re-words it; the parity assertion names the substitution
-// explicitly so the one difference is asserted rather than glossed over.
-const REPORT_WITH_REQUEST_SURFACE_SEVERITY = COMMAND_LINE_REPORT.map((l) =>
-  l.replace('[warn] ', '[warning] '),
-);
+// 🔴 THE CHANNEL'S FINDING LINE IS NOT THE COMMAND LINE'S, AND EVERY WAY THE TWO
+// DIFFER IS ONE OF THESE SUBSTITUTIONS. The parity spec applies exactly these to
+// the command line's line and nothing else, so a difference nobody named — in the
+// document, the rule identity or the message — still fails it.
+//
+// The answer carries no short code for a conventions finding, so the channel has
+// none to write. The command line and the request surface spell the middle
+// severity tier differently — the compiler's own vocabulary on each of its two
+// wires — and the channel writes the answer's. The command line opens an advisory
+// with its tier and a colon, and the channel writes the tier in brackets.
+const CHANNEL_SUBSTITUTIONS: ReadonlyArray<{ difference: string; from: string; to: string }> = [
+  { difference: 'the condition\'s short code, which the answer does not carry', from: 'warn: E0281 ', to: 'warn: ' },
+  { difference: 'the severity tier, as the answer spells it', from: 'warn: ', to: 'warning: ' },
+  { difference: 'the severity tier, as the channel frames it', from: 'warning: ', to: '[warning] ' },
+];
+
+// asTheChannelWritesIt applies each substitution, in order, to the head of the
+// command line's finding line. It fails where the line does not open with what a
+// substitution replaces, so a substitution that stopped applying turns the spec
+// red rather than quietly narrowing what the parity holds.
+function asTheChannelWritesIt(commandLineFinding: string): string {
+  let line = commandLineFinding;
+  for (const s of CHANNEL_SUBSTITUTIONS) {
+    assert.ok(
+      line.startsWith(s.from),
+      `${s.difference}: expected ${JSON.stringify(line)} to open with ${JSON.stringify(s.from)}`,
+    );
+    line = s.to + line.slice(s.from.length);
+  }
+  return line;
+}
 
 describe('the conventions findings on their way to the Problems panel', () => {
   // The request surface writes "warning"; the unknown-severity fallback is
@@ -242,15 +267,22 @@ describe('findingsByFile', () => {
   });
 });
 
-describe('reportLines — the compiler\'s own report format, composed from the answer', () => {
+describe('reportLines — the compiler\'s values in the channel\'s line form, composed from the answer', () => {
   // 🔴 THE PARITY ASSERTION. The two sides were measured independently: the
   // expectation is the command line's own stderr, captured verbatim, and the
   // actual is composed from the language server's answer. An equality, not a
-  // containment — a containment passes while any one of several lines survives.
-  it('reproduces what the command line prints for the same finding', () => {
+  // containment — a containment passes while any one of several lines survives —
+  // against the command line's lines with the named substitutions applied and no
+  // other.
+  it('reproduces what the command line prints for the same finding, but for the differences named', () => {
+    assert.strictEqual(
+      MEASURED_ANSWER.files![0].diagnostics![0].shortCode,
+      undefined,
+      'the short-code substitution rests on the answer carrying no short code for this finding',
+    );
     assert.deepStrictEqual(
       reportLines(MEASURED_ANSWER, WORKSPACE_ROOT),
-      REPORT_WITH_REQUEST_SURFACE_SEVERITY,
+      [COMMAND_LINE_REPORT[0], asTheChannelWritesIt(COMMAND_LINE_REPORT[1])],
     );
   });
 
