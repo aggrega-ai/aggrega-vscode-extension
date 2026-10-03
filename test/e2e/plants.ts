@@ -1540,6 +1540,16 @@ export const PLANTS: readonly Plant[] = [
     file: 'out/src/release-selection.js', find: '        const candidates = answer.releases ?? [];', replace: '        const candidates = (answer.releases ?? []).slice(0, -1);',
     says: 'the last Release the language server lists is left out of the chooser without a word',
   },
+  {
+    name: 'link-line-drawn-for-no-link', scenario: 'release-beneath-a-workspace-root', checks: ['beneath-a-workspace.release-chooser-names-no-link-where-none-leads-out'], moves: 'red', target: 'extension',
+    file: 'out/src/release-selection.js', find: '    if (dirs.length === 0) {', replace: '    if (dirs.length < 0) {',
+    says: 'the chooser draws its line naming links even where the language server names none',
+  },
+  {
+    name: 'link-line-never-drawn', scenario: 'release-beneath-a-workspace-root', checks: ['beneath-a-workspace.release-chooser-names-the-link-leading-out-of-the-root'], moves: 'red', target: 'extension',
+    file: 'out/src/release-selection.js', find: '            reportUnreadLinkedDirs(gathered.unreadLinkedDirs);', replace: '',
+    says: 'the chooser never draws its line naming the links the language server did not search',
+  },
   // ---- the interruption for a workspace above the folder opened ----
   {
     name: 'dialog-labels-the-workspace-bare', scenario: 'workspace-above-interruption', checks: ['workspace-above.dialog-says-only-the-two-paths'], moves: 'red', target: 'extension',

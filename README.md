@@ -193,7 +193,11 @@ opened from anywhere else, the chooser leaves the panel without the focus.
 
 The Releases on offer are the ones inside the folder the language server anchored to, named
 relative to it, because that is the form it accepts. Where a Release cannot be offered, the
-editor says how many and where they sit rather than leaving them out silently.
+editor says how many and where they sit rather than leaving them out silently. The language
+server searches no directory outside that folder, so a Release your editor's file tree shows
+through a link leading out of it is not offered. Opening the chooser then says so in a
+notification of its own, naming by its path relative to that folder each such link standing
+where the language server would read a directory.
 
 When you want a choice recorded in the workspace itself — so a fresh checkout starts on it —
 two commands do that, and neither changes what you are working on right now:
@@ -582,8 +586,10 @@ say so:
 - `release-beneath-a-workspace-root` opens a documentation example beneath a
   root that marks it as the workspace: the rows naming the folder and the root,
   every Release the chooser offers drawn as a topology graph with no refusal and
-  one of them built, and the chooser offering every Release file the workspace
-  holds.
+  one of them built, the chooser offering every Release file the workspace
+  holds, and what the chooser says about a link leading out of the workspace —
+  nothing while there is none, and, once the folder holds a link to a directory
+  outside the root, a line naming that link as the language server names it.
 - `workspace-above-interruption` opens a folder beneath a workspace root it has
   no marker of its own for: the dialog that says so and the mark it leaves on the
   row, the dialog raised again in each new window until the reader asks not to be

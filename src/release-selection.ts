@@ -88,8 +88,9 @@ export interface ReleaseSelectionDeps {
   // would not have chosen. Rejects when the server is not running.
   requestActiveRelease(): Promise<ActiveReleaseResponse>;
   // listReleases returns the workspace's Release candidates as absolute paths,
-  // together with the lockfile of each as the language server placed it.
-  // Rejects when the server is not running.
+  // together with the lockfile of each as the language server placed it, and
+  // the links its search met inside the workspace leading to directories outside
+  // it, which it did not search. Rejects when the server is not running.
   listReleases(): Promise<ReleaseCandidatesResponse>;
   // pickRelease offers the candidates and returns the chosen absolute path, or
   // undefined when the reader dismissed the prompt.
@@ -270,14 +271,18 @@ export function createReleaseSelection(deps: ReleaseSelectionDeps): ReleaseSelec
     offerable: OfferedRelease[];
     dropped: string[];
     root: string | null;
+    unreadLinkedDirs: string[];
   }> => {
     const answer = await deps.listReleases();
     // The published shape admits null for a workspace holding no Release, and it
     // is read as none. The lockfiles are keyed by each candidate exactly as it is
     // listed; an answer carrying no map names no lockfile for any of them, and
-    // none is then followed.
+    // none is then followed. The linked directories the server did not search are
+    // named relative to its root, in the order its walk met them; an answer
+    // carrying no list names none.
     const candidates = answer.releases ?? [];
     const lockfiles: Record<string, string> = answer.lockfiles ?? {};
+    const unreadLinkedDirs = answer.unreadLinkedDirs ?? [];
     const root = deps.getDaemonWorkspaceRoot();
     if (root === null) {
       // Nothing can be converted, so this walk established no count. It is
@@ -285,7 +290,7 @@ export function createReleaseSelection(deps: ReleaseSelectionDeps): ReleaseSelec
       // workspace offers nothing, when what happened is that the editor had no
       // folder to name anything relative to.
       setOfferable(null);
-      return { offerable: [], dropped: [...candidates], root: null };
+      return { offerable: [], dropped: [...candidates], root: null, unreadLinkedDirs };
     }
     const named: OfferedRelease[] = [];
     const dropped: string[] = [];
@@ -301,7 +306,7 @@ export function createReleaseSelection(deps: ReleaseSelectionDeps): ReleaseSelec
     // candidate this editor cannot name in a request is one the chooser will
     // not offer, so counting it would promise a choice that is not there.
     setOfferable(named.length);
-    return { offerable: named, dropped, root };
+    return { offerable: named, dropped, root, unreadLinkedDirs };
   };
 
   // reportDropped names what could not be offered, with a count and where those
@@ -314,6 +319,15 @@ export function createReleaseSelection(deps: ReleaseSelectionDeps): ReleaseSelec
     for (const absolute of dropped) {
       deps.logLine(`[not offered] ${absolute}`);
     }
+  };
+
+  // reportUnreadLinkedDirs names the links the server did not follow, in a line
+  // of its own. The editor's file tree follows such a link and shows the Releases
+  // behind it, so without this line the chooser would offer fewer Releases than
+  // the tree shows and say nothing about why.
+  const reportUnreadLinkedDirs = (dirs: readonly string[]): void => {
+    const line = describeUnreadLinkedDirs(dirs);
+    if (line !== null) { deps.reportInfo(line); }
   };
 
   const adoptDefault = async (): Promise<void> => {
@@ -453,6 +467,7 @@ export function createReleaseSelection(deps: ReleaseSelectionDeps): ReleaseSelec
         return null;
       }
       reportDropped(gathered.dropped, gathered.root);
+      reportUnreadLinkedDirs(gathered.unreadLinkedDirs);
       if (gathered.offerable.length === 0) {
         // Only when nothing was dropped is this workspace genuinely empty of
         // Releases. Saying so when some were dropped would be the wrong
@@ -509,6 +524,24 @@ function describeDropped(count: number, root: string | null): string {
   }
   const verb = count === 1 ? 'sits' : 'sit';
   return `Aggrega: ${count} ${noun} ${verb} outside the ${SELECTOR_ROW_LABELS.workspace} ${root} and cannot be offered, because a Release is named relative to it. The paths are in the Aggrega output channel.`;
+}
+
+// describeUnreadLinkedDirs is the line a reader gets when the language server
+// met links inside the workspace leading to directories outside it, and did not
+// search them, or null where it met none. Each link is named as the server named
+// it — relative to the workspace root, in the order its walk met them — and the
+// names close the line, so a path is never read as running into the words after
+// it.
+//
+// It says why the Releases behind those links are absent rather than offering
+// them: the workspace is what the language server reads, and a link leading out of
+// it is not followed.
+export function describeUnreadLinkedDirs(dirs: readonly string[]): string | null {
+  if (dirs.length === 0) { return null; }
+  const which = dirs.length === 1
+    ? 'this link are not offered, because it leads'
+    : 'these links are not offered, because each leads';
+  return `Aggrega: Releases inside ${which} to a directory outside the ${SELECTOR_ROW_LABELS.workspace}: ${dirs.join(', ')}`;
 }
 
 // describeUnnameable explains why a Release this workspace points at could not

@@ -233,7 +233,10 @@ export type FindImplementationsResponse = wire.FindImplementationsResult;
 // absolute paths of the workspace's Release-kind documents, determined by the
 // daemon by content (`kind: Release`). The extension delegates Release
 // detection to the daemon rather than scanning by filename, so the IDE's
-// candidate set matches what the daemon resolves.
+// candidate set matches what the daemon resolves. Beside them it names the
+// links its search met inside the workspace leading to directories outside it,
+// which it did not search, so the chooser can say why a Release behind one is
+// absent.
 export type ReleaseCandidatesResponse = wire.ReleaseCandidatesResult;
 
 // BuildNotice is one advisory a build raised that carries no position in a

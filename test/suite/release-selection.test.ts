@@ -9,6 +9,7 @@ import {
   ReleaseSelectionDeps,
   createReleaseSelection,
   describeSelection,
+  describeUnreadLinkedDirs,
 } from '../../src/release-selection';
 import { ActiveReleaseResponse, ReleaseCandidatesResponse } from '../../src/types';
 
@@ -45,6 +46,9 @@ function harness(options?: {
   // lockfiles is the enumeration's map from each candidate, as listed, to the
   // lockfile the server placed for it. Defaults to naming none.
   lockfiles?: Record<string, string>;
+  // unreadLinkedDirs are the links the enumeration names as leading out of the
+  // workspace, unsearched. Defaults to naming none.
+  unreadLinkedDirs?: string[];
   remembered?: string | null;
   activeRelease?: () => Promise<ActiveReleaseResponse>;
   listReleases?: () => Promise<ReleaseCandidatesResponse>;
@@ -75,7 +79,11 @@ function harness(options?: {
     listReleases: () => {
       h.listReleasesCalls! += 1;
       if (options?.listReleases) { return options.listReleases(); }
-      return Promise.resolve({ releases: options?.candidates ?? [], lockfiles: options?.lockfiles ?? {} });
+      return Promise.resolve({
+        releases: options?.candidates ?? [],
+        lockfiles: options?.lockfiles ?? {},
+        unreadLinkedDirs: options?.unreadLinkedDirs ?? [],
+      });
     },
     pickRelease: (candidates, placeHolder) => {
       h.pickCalls!.push({ candidates, placeHolder });
@@ -455,6 +463,99 @@ describe('which folder a Release is named relative to', () => {
     assert.strictEqual(state.kind, 'none');
     assert.ok(
       state.kind === 'none' && state.reason.includes('has not reported which folder it anchored to'),
+    );
+  });
+});
+
+describe('the links leading out of the workspace', () => {
+  // A link inside the workspace can lead to a directory outside it. The editor's
+  // file tree follows it and shows the Releases there; the language server does
+  // not search it, and names it instead, relative to its root. The chooser says
+  // why those Releases are absent, in a line of its own.
+  const INSIDE = path.join(ROOT, 'inside.yaml');
+
+  it('names the one link in a line of its own, and offers what it offered', async () => {
+    const h = harness({ candidates: [INSIDE], unreadLinkedDirs: ['examples/one/shared'] });
+    h.pickAnswer = INSIDE;
+
+    const chosen = await h.selection.choose();
+
+    assert.strictEqual(chosen, 'inside.yaml');
+    assert.deepStrictEqual(h.pickCalls[0].candidates, [INSIDE], 'what is offered does not change');
+    assert.deepStrictEqual(h.infos, [describeUnreadLinkedDirs(['examples/one/shared'])]);
+    assert.ok(h.infos[0].endsWith(': examples/one/shared'), 'the link is named as the answer named it');
+    assert.ok(h.infos[0].includes('outside the Aggrega workspace'), 'and the line says why');
+    assert.deepStrictEqual(h.logs, [], 'the line names every link itself, so nothing is left to the channel');
+  });
+
+  it('names every link in the one line, in the order the answer gives', async () => {
+    // Ordered so that a sorted list would read differently.
+    const h = harness({ candidates: [INSIDE], unreadLinkedDirs: ['zeta/shared', 'alpha/shared'] });
+    h.pickAnswer = INSIDE;
+
+    await h.selection.choose();
+
+    assert.strictEqual(h.infos.length, 1, 'several links are one line, not one line each');
+    assert.ok(h.infos[0].endsWith(': zeta/shared, alpha/shared'), `the names, in order: ${h.infos[0]}`);
+  });
+
+  it('draws nothing new where the answer names no link', async () => {
+    const h = harness({ candidates: [INSIDE], unreadLinkedDirs: [] });
+    h.pickAnswer = INSIDE;
+
+    await h.selection.choose();
+
+    assert.deepStrictEqual(h.infos, []);
+    assert.strictEqual(h.pickCalls.length, 1);
+  });
+
+  it('reads an answer carrying no list of links as naming none', async () => {
+    // The shape an answer without the list arrives in, written past the type on
+    // purpose: the published shape always carries it.
+    const h = harness({
+      listReleases: () => Promise.resolve({ releases: [INSIDE], lockfiles: {} } as unknown as ReleaseCandidatesResponse),
+    });
+    h.pickAnswer = INSIDE;
+
+    const chosen = await h.selection.choose();
+
+    assert.strictEqual(chosen, 'inside.yaml');
+    assert.deepStrictEqual(h.infos, []);
+  });
+
+  it('says it where nothing is offered, beside the sentence for a workspace holding no Release', async () => {
+    const h = harness({ candidates: [], unreadLinkedDirs: ['shared'] });
+
+    const chosen = await h.selection.choose();
+
+    assert.strictEqual(chosen, null);
+    assert.strictEqual(h.pickCalls.length, 0, 'an empty prompt is a dead end');
+    assert.deepStrictEqual(h.infos, [
+      describeUnreadLinkedDirs(['shared']),
+      'Aggrega: no Release found in this workspace.',
+    ]);
+  });
+
+  it('says nothing about links when a connection reads the workspace', async () => {
+    // The line is the chooser's: a connection reads what is on offer without the
+    // reader having asked to choose, and a notification then would arrive unasked.
+    const h = harness({ candidates: [INSIDE], unreadLinkedDirs: ['shared'] });
+
+    await h.selection.restore();
+
+    assert.strictEqual(h.selection.offerableCount(), 1);
+    assert.deepStrictEqual(h.infos, []);
+  });
+
+  it('is no line for no link, and names one link or several in the words for each', () => {
+    assert.strictEqual(describeUnreadLinkedDirs([]), null);
+    assert.strictEqual(
+      describeUnreadLinkedDirs(['shared']),
+      'Aggrega: Releases inside this link are not offered, because it leads to a directory outside the Aggrega workspace: shared',
+    );
+    assert.strictEqual(
+      describeUnreadLinkedDirs(['shared', 'envs/shared']),
+      'Aggrega: Releases inside these links are not offered, because each leads to a directory outside the Aggrega workspace: shared, envs/shared',
     );
   });
 });
