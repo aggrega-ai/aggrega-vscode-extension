@@ -3,6 +3,7 @@
 
 import { WorkspaceCatalogNode } from './workspace-catalog-run';
 import { withSubject } from './operation-groups';
+import { releaseFlag } from './release-terms';
 
 // This module decides what a row of the workspace catalog admits, and composes
 // the invocation each admitted operation takes.
@@ -134,6 +135,14 @@ export function catalogEntityName(node: WorkspaceCatalogNode): string | null {
 // pathless form of this command addresses the whole catalog rather than this
 // row, which is a different question and is already offered elsewhere, so the
 // path is required here rather than defaulted.
-export function catalogValidateArgs(entityPath: string): string[] {
-  return withSubject('validate', entityPath, 'the path of the entity to check');
+//
+// The check names the selected Release where one is selected, so the entity is
+// checked in that Release's terms: what it refers to — the Component a Recipe
+// implements, a library its schema composes — resolves through the catalog
+// directories that Release reads, as the Catalog panel the row is drawn in lists
+// them. With none selected it is the check of the entity in the workspace's own
+// terms. The flag is put on by the composition every request answered in a
+// Release's terms goes through.
+export function catalogValidateArgs(entityPath: string, selectedRelease: string | null): string[] {
+  return [...withSubject('validate', entityPath, 'the path of the entity to check'), ...releaseFlag(selectedRelease)];
 }

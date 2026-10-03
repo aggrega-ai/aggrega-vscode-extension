@@ -113,7 +113,7 @@ function describeComparison(c: TreeComparison): string {
 
 // selectRelease chooses a Release where a person does, on the Commands panel's
 // Release row and the picker it opens, and waits for the row to name it.
-async function selectRelease(ctx: SuiteContext, release: string): Promise<void> {
+export async function selectRelease(ctx: SuiteContext, release: string): Promise<void> {
   await pressIn(ctx.d, await commandsPanel(ctx.d), 'button.selector[data-command="aggrega.release.select"]');
   await waitQuickInput(ctx.d, 'the Release picker', (q) => q.rows.some((r) => r.label === release));
   await pickQuickInputRow(ctx.d, release);

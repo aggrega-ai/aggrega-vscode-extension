@@ -280,6 +280,68 @@ describe('the editor\'s one selected Release', () => {
   });
 });
 
+// A surface whose content is an answer in the selected Release's terms asks again
+// on each move and at no other time, so the moves are told once each, with the
+// Release now in force — and an announcement that moved nothing is told to none.
+describe('the moves of the selected Release', () => {
+  const first = path.join(ROOT, 'first.yaml');
+  const second = path.join(ROOT, 'second.yaml');
+  const watched = (h: Harness): Array<string | null> => {
+    const moves: Array<string | null> = [];
+    h.selection.onMove((release) => { moves.push(release); });
+    return moves;
+  };
+
+  it('tells a move to a Release, from one to another, and to none, once each', async () => {
+    const h = harness({ candidates: [first, second], activeRelease: () => Promise.resolve({ release: first }) });
+    const moves = watched(h);
+
+    await h.selection.adoptDefault();
+    h.pickAnswer = second;
+    await h.selection.choose();
+    h.selection.forget();
+
+    assert.deepStrictEqual(moves, ['first.yaml', 'second.yaml', null]);
+  });
+
+  it('tells nothing when the Release in force is chosen again', async () => {
+    const h = harness({ candidates: [first, second], activeRelease: () => Promise.resolve({ release: first }) });
+    await h.selection.adoptDefault();
+    const moves = watched(h);
+    const changesBefore = h.changes;
+
+    h.pickAnswer = first;
+    assert.strictEqual(await h.selection.choose(), 'first.yaml');
+
+    // The control: the choice was announced, so the silence is the narrower
+    // listener's, not a choice that never reached the selection.
+    assert.ok(h.changes > changesBefore, 'the choice was not announced at all');
+    assert.deepStrictEqual(moves, []);
+  });
+
+  it('tells nothing when only what is on offer changed', async () => {
+    const h = harness({ candidates: [first, second] });
+    const moves = watched(h);
+    const changesBefore = h.changes;
+
+    h.pickAnswer = undefined;
+    assert.strictEqual(await h.selection.choose(), null);
+
+    assert.ok(h.changes > changesBefore, 'the enumeration was not announced at all');
+    assert.deepStrictEqual(moves, []);
+  });
+
+  it('tells nothing when the server answers that no Release is the default and none was in force', async () => {
+    const h = harness({ activeRelease: () => Promise.resolve({ release: '', reason: 'nothing to choose' }) });
+    const moves = watched(h);
+
+    await h.selection.adoptDefault();
+
+    assert.deepStrictEqual(h.selection.state(), { kind: 'none', reason: 'nothing to choose' });
+    assert.deepStrictEqual(moves, []);
+  });
+});
+
 describe('which folder a Release is named relative to', () => {
   // The anchored folder and the opened folder are two different folders
   // whenever the anchor sits above what was opened, which is the ordinary shape

@@ -1,12 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cognitio S.r.l.
 
+import { inReleaseTerms } from './release-terms';
 import {
   CompletionParams,
   DaemonLocation,
   DaemonPosition,
   FindImplementationsParams,
+  FindImplementationsResponse,
   FindReferencesParams,
+  FindReferencesResponse,
   HoverParams,
   HoverResponse,
   LspLocation,
@@ -14,6 +17,7 @@ import {
   LspRange,
   MarkupContent,
   ResolveParams,
+  ResolveResponse,
   ServerEncoding,
 } from './types';
 
@@ -86,13 +90,23 @@ function utf8ByteLen(cp: number): number {
   return 4;
 }
 
+// The cursor requests below — go-to-definition, references, implementations,
+// hover and completion — are each answered in a Release's terms: the entity a
+// reference resolves to, and the names a reference may take, are the selected
+// Release's where the workspace gives its Releases catalog directories of their
+// own. So each takes the selected Release, required rather than optional, so a
+// caller that forgot it fails to compile instead of asking about the whole
+// workspace; and each puts it on the request through the one composition every
+// such request goes through.
+
 export function lspDefinitionToResolve(
   uri: string,
   lspPosition: LspPosition,
   documentContent: string,
   serverEncoding: ServerEncoding,
+  selectedRelease: string | null,
 ): ResolveParams {
-  return { uri, position: convertPosition(documentContent, lspPosition, 'utf-16', serverEncoding) };
+  return inReleaseTerms({ uri, position: convertPosition(documentContent, lspPosition, 'utf-16', serverEncoding) }, selectedRelease);
 }
 
 export function lspReferencesToFindReferences(
@@ -100,8 +114,9 @@ export function lspReferencesToFindReferences(
   lspPosition: LspPosition,
   documentContent: string,
   serverEncoding: ServerEncoding,
+  selectedRelease: string | null,
 ): FindReferencesParams {
-  return { uri, position: convertPosition(documentContent, lspPosition, 'utf-16', serverEncoding) };
+  return inReleaseTerms({ uri, position: convertPosition(documentContent, lspPosition, 'utf-16', serverEncoding) }, selectedRelease);
 }
 
 export function lspImplementationToFindImplementations(
@@ -109,8 +124,9 @@ export function lspImplementationToFindImplementations(
   lspPosition: LspPosition,
   documentContent: string,
   serverEncoding: ServerEncoding,
+  selectedRelease: string | null,
 ): FindImplementationsParams {
-  return { uri, position: convertPosition(documentContent, lspPosition, 'utf-16', serverEncoding) };
+  return inReleaseTerms({ uri, position: convertPosition(documentContent, lspPosition, 'utf-16', serverEncoding) }, selectedRelease);
 }
 
 export function lspHoverToHover(
@@ -118,8 +134,9 @@ export function lspHoverToHover(
   lspPosition: LspPosition,
   documentContent: string,
   serverEncoding: ServerEncoding,
+  selectedRelease: string | null,
 ): HoverParams {
-  return { uri, position: convertPosition(documentContent, lspPosition, 'utf-16', serverEncoding) };
+  return inReleaseTerms({ uri, position: convertPosition(documentContent, lspPosition, 'utf-16', serverEncoding) }, selectedRelease);
 }
 
 // HoverMarkup is a hover's text in one of the two markups the protocol names:
@@ -166,6 +183,7 @@ export function lspCompletionToCompletion(
   lspPosition: LspPosition,
   documentContent: string,
   serverEncoding: ServerEncoding,
+  selectedRelease: string | null,
   triggerCharacter?: string,
 ): CompletionParams {
   const params: CompletionParams = {
@@ -175,13 +193,39 @@ export function lspCompletionToCompletion(
   if (triggerCharacter !== undefined) {
     params.context = { triggerKind: COMPLETION_TRIGGERED_BY_CHARACTER, triggerCharacter };
   }
-  return params;
+  return inReleaseTerms(params, selectedRelease);
 }
 
 // COMPLETION_TRIGGERED_BY_CHARACTER is the protocol's triggerKind for a
 // completion raised by a character the reader typed, as against one invoked
 // outright or re-raised over an incomplete list.
 const COMPLETION_TRIGGERED_BY_CHARACTER = 2;
+
+// resolvedLocations reads the aggrega/resolve answer into the locations it
+// names: the one under location, or none where it is null or in a shape that is
+// not a location. The answer is an object carrying the location, never the
+// location itself, so reading the answer as one finds no range to convert.
+export function resolvedLocations(answer: ResolveResponse | null): DaemonLocation[] {
+  const location = answer?.location;
+  return isDaemonLocation(location) ? [location] : [];
+}
+
+// listedLocations reads an aggrega/findReferences or aggrega/findImplementations
+// answer into the locations it lists, none where it lists null.
+export function listedLocations(answer: FindReferencesResponse | FindImplementationsResponse | null): DaemonLocation[] {
+  return (answer?.locations ?? []).filter(isDaemonLocation);
+}
+
+function isDaemonPosition(v: unknown): boolean {
+  const p = v as { line?: unknown; character?: unknown } | null;
+  return typeof p === 'object' && p !== null && typeof p.line === 'number' && typeof p.character === 'number';
+}
+
+function isDaemonLocation(v: unknown): v is DaemonLocation {
+  const l = v as { uri?: unknown; range?: { start?: unknown; end?: unknown } | null } | null;
+  return typeof l === 'object' && l !== null && typeof l.uri === 'string'
+    && typeof l.range === 'object' && l.range !== null && isDaemonPosition(l.range.start) && isDaemonPosition(l.range.end);
+}
 
 // locationToLspLocation converts a daemon-encoded Location back to
 // VS Code's UTF-16 Location. When the target document's encoding

@@ -183,12 +183,12 @@ export function attachmentContainerRequest(
 // one node of the drawn graph.
 //
 // The answer is computed over the node's labels on that Release's compiled graph,
-// and its candidates are the Features declared by documents in the workspace
-// together with those held by the catalog directories that Release builds
-// against — its own, where the workspace configuration gives it some. So a Feature
-// held only by such a directory outside the workspace is offered on that
-// Release's graph and on no other, while one a document inside the workspace
-// declares is offered on every graph, whichever directory the document sits in.
+// and its candidates are the Features declared by the workspace documents that
+// Release's terms hold — every one but those under a catalog directory only other
+// Releases read — together with those held by the catalog directories that
+// Release builds against: its own, where the workspace configuration gives it
+// some. So a Feature in a directory only another Release reads, inside the
+// workspace or outside it, is offered on that Release's graph and on no other.
 export function attachCandidatesRequest(
   nodeId: string,
   release: string,

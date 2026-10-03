@@ -1,9 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cognitio S.r.l.
 
+// The topology panel's messages, both ways: what its webview posts back to the
+// extension, and how what the extension posts reaches it.
+
 // GraphMessage is the shape the topology webview posts back to the extension.
 // An unrecognized type is ignored rather than treated as an error, so the
-// webview and the host can be updated in either order.
+// webview and the host can be updated in either order — save for one message the
+// host depends on: it sends a panel nothing until the panel says `listening`, so
+// a webview that never says it is never drawn on.
 export interface GraphMessage {
   type: string;
   sourceFile?: string;
@@ -48,6 +53,9 @@ export interface GraphMessageSinks {
   // arrives here is what the reader clicked: the node they are looking at, and
   // the entity named on the row.
   attachFeature(nodeId: string, featureName: string): void;
+  // listening is the panel's document saying it now hears what is posted to it,
+  // which is when what was held for it can be sent (holdUntilListening, below).
+  listening(): void;
 }
 
 // makeGraphMessageHandler builds the webview's message handler over a LIVE
@@ -78,6 +86,10 @@ export function makeGraphMessageHandler(
     }
     if (msg.type === 'attachFeature') {
       dispatchAttachFeature(msg, sinks);
+      return;
+    }
+    if (msg.type === 'listening') {
+      sinks.listening();
       return;
     }
     // Every other type falls through in silence, which is the tolerance the
@@ -142,4 +154,49 @@ function dispatchAttachFeature(msg: GraphMessage, sinks: GraphMessageSinks): voi
     return;
   }
   sinks.attachFeature(msg.nodeId, msg.featureName);
+}
+
+// PanelDelivery is the one way a message reaches the graph panel's document.
+export interface PanelDelivery {
+  // post sends one message to the panel, or holds it while the panel has not yet
+  // said it listens. Messages arrive in the order they were posted either way.
+  post(message: unknown): void;
+  // listening sends everything held, in order, and every later message at once.
+  // A second call sends nothing twice.
+  listening(): void;
+}
+
+// holdUntilListening builds the delivery for one panel over the function that
+// actually posts to it.
+//
+// 🔴 NOTHING IS POSTED TO A PANEL BEFORE IT HAS SAID IT LISTENS, BECAUSE WHAT IS
+// POSTED BEFORE THAT IS LOST. The editor hands a message to a new panel's
+// document as soon as the document is written, whether or not the document's
+// script has started — and the graph panel's script starts only once its layout
+// library has loaded. The drawing a press asks for is usually ready before then,
+// so on a busy machine it reached a document with nobody listening, was dropped,
+// and the panel went on showing the sentence it opens with although a Release was
+// selected. Nothing re-sends a lost message, so the only remedy is not to send it
+// early: the panel says when it listens, and this holds everything until then.
+export function holdUntilListening(deliver: (message: unknown) => void): PanelDelivery {
+  let held: unknown[] | null = [];
+  return {
+    post: (message: unknown): void => {
+      if (held !== null) {
+        held.push(message);
+        return;
+      }
+      deliver(message);
+    },
+    listening: (): void => {
+      if (held === null) {
+        return;
+      }
+      const waiting = held;
+      held = null;
+      for (const message of waiting) {
+        deliver(message);
+      }
+    },
+  };
 }

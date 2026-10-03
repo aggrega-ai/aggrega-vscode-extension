@@ -89,6 +89,13 @@ const CATALOG_VIEW = 'out/src/workspace-catalog-view.js';
 const CATALOG_RUN = 'out/src/workspace-catalog-run.js';
 const DAEMON_STATUS = 'out/src/daemon-status.js';
 
+// The scenario reading each request answered in the selected Release's terms,
+// the one composition those requests go through, and the cursor features'
+// translators to the requests they send.
+const SELECTED_RELEASE = 'releases-with-own-catalogs-selected-release';
+const RELEASE_TERMS = 'out/src/release-terms.js';
+const TRANSLATOR = 'out/src/translator.js';
+
 // The compiled lines composing a build request from the Release selected.
 const BUILD_DIALS = 'out/src/build-dials.js';
 const BUILD_RELEASE_PARAM = '    const params = {\n        release,\n        [exports.AUTO_PULL_DIAL]: on.includes(exports.AUTO_PULL_DIAL),';
@@ -694,6 +701,54 @@ export const PLANTS: readonly Plant[] = [
     file: 'out/src/graph-view.js', find: '        const release = deps.selectedRelease();', replace: '        const release = shownRelease ?? deps.selectedRelease();',
     says: 'showing the graph again draws the Release the open panel already shows, whichever Release is selected',
   },
+  // ---- the requests answered in the selected Release's terms ----
+  {
+    name: 'composition-names-a-release-where-none-is-selected', scenario: SELECTED_RELEASE, checks: ['no-release.each-surface-answers-in-the-workspaces-own-terms'], moves: 'red', target: 'extension',
+    file: RELEASE_TERMS, find: '    if (!selectedRelease) {\n        return { ...params };\n    }', replace: "    if (!selectedRelease) {\n        return { ...params, release: 'release-compose.yaml' };\n    }",
+    says: 'every request answered in a Release\'s terms names release-compose.yaml where no Release is selected',
+  },
+  {
+    name: 'catalog-index-asked-with-no-release', scenario: SELECTED_RELEASE, checks: ['catalog-panel.lists-what-the-selected-release-reads-and-follows-the-selection'], moves: 'red', target: 'extension',
+    file: EXTENSION, find: '(0, release_terms_1.catalogIndexParams)(selectedRelease())', replace: '(0, release_terms_1.catalogIndexParams)(null)',
+    says: 'the Catalog panel\'s list, and every chooser offering the workspace\'s entities, is asked for with no Release whichever is selected',
+  },
+  {
+    name: 'catalog-panel-not-read-again-on-a-move', scenario: SELECTED_RELEASE, checks: ['catalog-panel.lists-what-the-selected-release-reads-and-follows-the-selection'], moves: 'red', target: 'extension',
+    file: EXTENSION, find: '    releaseSelection?.onMove(() => {\n        workspaceCatalogView?.refresh();\n', replace: '    releaseSelection?.onMove(() => {\n',
+    says: 'the Catalog panel is not read again when the selected Release moves, so it goes on listing what it listed before the move',
+  },
+  { name: 'definition-composed-with-no-release', scenario: SELECTED_RELEASE, checks: ['go-to-definition.opens-the-selected-releases-variant'], moves: 'red', target: 'extension', ...cursorRequestComposedWithNoRelease('lspDefinitionToResolve', 'go-to-definition') },
+  { name: 'hover-composed-with-no-release', scenario: SELECTED_RELEASE, checks: ['hover.renders-the-selected-releases-variant'], moves: 'red', target: 'extension', ...cursorRequestComposedWithNoRelease('lspHoverToHover', 'the hover') },
+  {
+    name: 'completion-composed-with-no-release', scenario: SELECTED_RELEASE, checks: ['completion.offers-what-the-selected-releases-catalog-declares'], moves: 'red', target: 'extension',
+    file: TRANSLATOR, find: '    return (0, release_terms_1.inReleaseTerms)(params, selectedRelease);', replace: '    return (0, release_terms_1.inReleaseTerms)(params, null);',
+    says: 'completion is asked with no Release whichever is selected',
+  },
+  {
+    name: 'inspection-asked-with-no-release', scenario: SELECTED_RELEASE, checks: ['inspect.resolves-in-the-selected-releases-terms'], moves: 'red', target: 'extension',
+    file: EXTENSION, find: '(0, release_terms_1.entityDefinitionParams)(name, selectedRelease())', replace: '(0, release_terms_1.entityDefinitionParams)(name, null)',
+    says: 'an inspection by name, from the Commands panel and from a Catalog row alike, is asked with no Release whichever is selected',
+  },
+  {
+    name: 'row-check-composed-with-no-release', scenario: SELECTED_RELEASE, checks: ['catalog-row.check-runs-in-the-selected-releases-terms'], moves: 'red', target: 'extension',
+    file: 'out/src/catalog-entity-operations.js', find: ", ...(0, release_terms_1.releaseFlag)(selectedRelease)];", replace: '];',
+    says: 'the Catalog row\'s correctness check runs with no --release whichever Release is selected',
+  },
+  {
+    name: 'may-attach-asked-with-no-release', scenario: SELECTED_RELEASE, checks: ['may-attach.lists-the-selected-releases-features'], moves: 'red', target: 'extension',
+    file: ATTACHMENT_EDIT, find: '    return { graphNode: nodeId, release };', replace: '    return { graphNode: nodeId };',
+    says: 'what may attach to a drawn node is asked with no Release',
+  },
+  // The graph panel saying it listens before its listener is in place. The
+  // extension sends a panel nothing until it says so, and a message reaching the
+  // panel's document before its listener is lost; the listener is put in place 8 s
+  // late so the drawing sent when the panel says so certainly arrives first, as it
+  // does on a busy machine when the panel says so too early.
+  {
+    name: 'graph-panel-says-it-listens-before-it-does', scenario: SELECTED_RELEASE, checks: ['may-attach.lists-the-selected-releases-features'], moves: 'red', target: 'extension',
+    file: GRAPH_SCRIPT, find: "  window.addEventListener('message', (event) => {", replace: "  const listenLater = (h) => setTimeout(() => window.addEventListener('message', h), 8000);\n  listenLater((event) => {",
+    says: 'the graph panel says it listens before its listener is in place, so the drawing sent when it says so reaches nobody',
+  },
   // ---- the storefront folder with the topology graph open ----
   { name: 'context-row-renamed-graph-panel', scenario: 'storefront-graph-panel', checks: ['commands-panel.context-rows-name-the-opened-folder'], moves: 'red', target: 'extension', ...CONTEXT_ROW_LABEL },
   {
@@ -719,8 +774,8 @@ export const PLANTS: readonly Plant[] = [
   {
     name: 'graph-posted-without-the-setting', scenario: 'storefront-graph-panel', checks: ['attachments-panel.setting-on-shows-the-value-as-authored'], moves: 'red', target: 'extension',
     file: GRAPH_VIEW,
-    find: "        void panel.webview.postMessage({ type: 'render', release, graph, asked: !opts.quiet, showsSensitiveValues });",
-    replace: "        void panel.webview.postMessage({ type: 'render', release, graph, asked: !opts.quiet });",
+    find: "        toPanel.post({ type: 'render', release, graph, asked: !opts.quiet, showsSensitiveValues });",
+    replace: "        toPanel.post({ type: 'render', release, graph, asked: !opts.quiet });",
     says: 'the graph is posted to the panel without saying whether the setting was on, so the panel withholds by the declarations a value the sending side sent because the setting is on',
   },
   {
@@ -761,7 +816,7 @@ export const PLANTS: readonly Plant[] = [
   },
   {
     name: 'list-asked-about-the-gateway', scenario: 'storefront-graph-panel', checks: ['may-attach.list-follows-the-node-selected-last'], moves: 'red', target: 'extension',
-    file: GRAPH_VIEW, find: '                    void postAttachCandidates(panel, deps, nodeId, shownRelease, requestId);', replace: "                    void postAttachCandidates(panel, deps, 'gateway', shownRelease, requestId);",
+    file: GRAPH_VIEW, find: '                    void postAttachCandidates(toPanel, deps, nodeId, shownRelease, requestId);', replace: "                    void postAttachCandidates(toPanel, deps, 'gateway', shownRelease, requestId);",
     says: 'the list of what may attach is asked about the gateway whatever node was pressed',
   },
   {
@@ -812,7 +867,7 @@ export const PLANTS: readonly Plant[] = [
   },
   {
     name: 'refused-list-sends-nothing', scenario: 'storefront-graph-panel', checks: ['may-attach.refusal-says-the-list-is-not-coming-and-why'], moves: 'red', target: 'extension',
-    file: GRAPH_VIEW, find: "        void panel.webview.postMessage({ type: 'attachCandidatesError', nodeId, requestId, message });\n", replace: '',
+    file: GRAPH_VIEW, find: "        toPanel.post({ type: 'attachCandidatesError', nodeId, requestId, message });\n", replace: '',
     says: 'a refused list of what may attach sends the panel nothing, so it goes on reading as waiting',
   },
   {
@@ -955,7 +1010,7 @@ export const PLANTS: readonly Plant[] = [
   },
   {
     name: 'pressed-failure-sent-without-its-release', scenario: 'storefront-graph-drawing', checks: ['graph.press-on-the-same-fault-ends-in-the-same-presentation'], moves: 'red', target: 'extension',
-    file: GRAPH_VIEW, find: "                void panel.webview.postMessage({ type: 'error', release, message });", replace: "                void panel.webview.postMessage({ type: 'error', release: opts.quiet ? release : '', message });",
+    file: GRAPH_VIEW, find: "                toPanel.post({ type: 'error', release, message });", replace: "                toPanel.post({ type: 'error', release: opts.quiet ? release : '', message });",
     says: 'a failure the reader pressed for reaches the panel without the Release it is about, so its notice reads otherwise than a save\'s for the same fault',
   },
   {
@@ -2318,6 +2373,18 @@ function pageUnreadWhenTheServerReturns(): SharedEdit {
   return {
     file: 'out/src/get-started.js', find: '    deps.onReady(refresh);', replace: '    deps.onReady(() => undefined);',
     says: 'the welcome page is not read again when the language server comes back up, so a change made elsewhere reaches it only when something on the page asks',
+  };
+}
+
+// cursorRequestComposedWithNoRelease is one cursor feature's translator handing
+// the composition no Release, whichever is selected. Its header is part of the
+// replaced text because the four position translators compose alike, so the line
+// alone occurs once in each.
+function cursorRequestComposedWithNoRelease(translator: string, what: string): SharedEdit {
+  const find = `function ${translator}(uri, lspPosition, documentContent, serverEncoding, selectedRelease) {\n    return (0, release_terms_1.inReleaseTerms)({ uri, position: convertPosition(documentContent, lspPosition, 'utf-16', serverEncoding) }, selectedRelease);`;
+  return {
+    file: TRANSLATOR, find, replace: find.replace(/, selectedRelease\);$/, ', null);'),
+    says: `${what} is asked with no Release whichever is selected`,
   };
 }
 

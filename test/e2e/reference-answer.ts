@@ -8,13 +8,18 @@ import { DEFAULT_SETTINGS } from '../../src/settings';
 // the answer: the compiler's own words for a request, taken outside the editor,
 // so a check can hold what the editor shows against them.
 //
-//   node reference-answer.js <binary> <workspace-root> <method> <params-json> [--build-on-inspect]
+//   node reference-answer.js <binary> <workspace-root> <method> <params-json> [--build-on-inspect] [--first <requests-json>]
 //
 // It speaks through the extension's own client, so the request reaches the
 // server framed and initialised exactly as the extension's does, and it is run by
 // the runner with the scenario's contained environment, which it passes on to
 // the server it starts. It prints one JSON line — the result, or the error the
 // server answered with — and exits.
+//
+// --first names requests, as a JSON array of { method, params }, sent to the
+// same server before the one asked. Their answers are not printed; one that is
+// refused ends the child with that refusal named, since the answer asked for
+// would then be about a server in a state the caller did not set up.
 //
 // The handshake is the one request the client makes by itself, as it starts, so
 // it is not sent a second time: asked for it, the child answers with what the
@@ -42,11 +47,18 @@ async function start(daemon: Daemon, root: string): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  const [binary, root, method, paramsJson, flag] = process.argv.slice(2);
-  const daemon = new Daemon({ ...DEFAULT_SETTINGS, binaryPath: binary, buildOnInspect: flag === '--build-on-inspect', respawnAttempts: 0 });
+  const [binary, root, method, paramsJson, ...flags] = process.argv.slice(2);
+  const at = flags.indexOf('--first');
+  const first = at === -1 ? [] : JSON.parse(flags[at + 1] ?? '[]') as { method: string; params: unknown }[];
+  const daemon = new Daemon({ ...DEFAULT_SETTINGS, binaryPath: binary, buildOnInspect: flags.includes('--build-on-inspect'), respawnAttempts: 0 });
   let out: unknown;
   try {
     await start(daemon, root);
+    for (const r of first) {
+      await daemon.request(r.method as never, r.params).catch((err: unknown) => {
+        throw new Error(`the request sent first, ${r.method}, was refused: ${err instanceof Error ? err.message : String(err)}`);
+      });
+    }
     const result = method === HANDSHAKE ? daemon.getServerInitMetadata() : await daemon.request(method as never, JSON.parse(paramsJson));
     out = { ok: true, result };
   } catch (err) {

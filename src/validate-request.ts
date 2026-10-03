@@ -1,16 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cognitio S.r.l.
 
+import { inReleaseTerms } from './release-terms';
 import { ValidateParams } from './types';
 
 // buildValidateParams composes the aggrega/validate request for one document
 // against the editor's selected Release.
 //
-// It is the single home for that composition, so every validation the editor
+// It is the single home for that request, so every validation the editor
 // performs — document open, debounced change, the startup sweep, the sweep that
-// follows a change of selection, the on-demand action, and the re-seed after a
+// follows a move of the selection, the on-demand action, and the re-seed after a
 // cache miss — sends the same request. A site that composed its own could send
-// the narrower one without anything reporting it.
+// the narrower one without anything reporting it. The Release is put on it by the
+// composition every request answered in a Release's terms goes through.
 //
 // Carrying the Release is what makes the answer the full one. A request naming
 // none is answered from the document alone — whether it parses, and whether its
@@ -27,9 +29,5 @@ export function buildValidateParams(
   content: string,
   selectedRelease: string | null,
 ): ValidateParams {
-  const params: ValidateParams = { file, content };
-  if (selectedRelease) {
-    params.release = selectedRelease;
-  }
-  return params;
+  return inReleaseTerms({ file, content }, selectedRelease);
 }

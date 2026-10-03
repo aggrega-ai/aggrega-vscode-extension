@@ -5,12 +5,14 @@ import * as assert from 'node:assert';
 import {
   convertPosition,
   hoverResponseToMarkup,
+  listedLocations,
   locationToLspLocation,
   lspCompletionToCompletion,
   lspDefinitionToResolve,
   lspHoverToHover,
   lspImplementationToFindImplementations,
   lspReferencesToFindReferences,
+  resolvedLocations,
 } from '../../src/translator';
 
 describe('convertPosition', () => {
@@ -47,28 +49,31 @@ describe('convertPosition', () => {
   });
 });
 
+// With no Release selected; the Release each one carries where one is selected is
+// asserted with the composition every such request goes through, in
+// release-terms.test.ts.
 describe('request-direction translators (utf-8 server)', () => {
   const uri = 'file:///workspace/release.yaml';
   const content = 'hello world';
   const pos = { line: 0, character: 6 };
 
   it('lspDefinitionToResolve threads encoded position', () => {
-    const out = lspDefinitionToResolve(uri, pos, content, 'utf-8');
+    const out = lspDefinitionToResolve(uri, pos, content, 'utf-8', null);
     assert.deepStrictEqual(out, { uri, position: { line: 0, character: 6 } });
   });
 
   it('lspReferencesToFindReferences mirrors definition shape', () => {
-    const out = lspReferencesToFindReferences(uri, pos, content, 'utf-8');
+    const out = lspReferencesToFindReferences(uri, pos, content, 'utf-8', null);
     assert.deepStrictEqual(out, { uri, position: { line: 0, character: 6 } });
   });
 
   it('lspImplementationToFindImplementations mirrors definition shape', () => {
-    const out = lspImplementationToFindImplementations(uri, pos, content, 'utf-8');
+    const out = lspImplementationToFindImplementations(uri, pos, content, 'utf-8', null);
     assert.deepStrictEqual(out, { uri, position: { line: 0, character: 6 } });
   });
 
   it('lspHoverToHover mirrors definition shape', () => {
-    const out = lspHoverToHover(uri, pos, content, 'utf-8');
+    const out = lspHoverToHover(uri, pos, content, 'utf-8', null);
     assert.deepStrictEqual(out, { uri, position: { line: 0, character: 6 } });
   });
 
@@ -80,7 +85,7 @@ describe('request-direction translators (utf-8 server)', () => {
   // because a check that the character is present somewhere would pass on exactly
   // the shape that loses it.
   it('lspCompletionToCompletion carries the trigger character where the compiler reads it', () => {
-    const out = lspCompletionToCompletion(uri, pos, content, 'utf-8', '/');
+    const out = lspCompletionToCompletion(uri, pos, content, 'utf-8', null, '/');
     assert.deepStrictEqual(out, {
       uri,
       position: { line: 0, character: 6 },
@@ -89,7 +94,7 @@ describe('request-direction translators (utf-8 server)', () => {
   });
 
   it('lspCompletionToCompletion omits trigger character when undefined', () => {
-    const out = lspCompletionToCompletion(uri, pos, content, 'utf-8', undefined);
+    const out = lspCompletionToCompletion(uri, pos, content, 'utf-8', null, undefined);
     assert.deepStrictEqual(out, { uri, position: { line: 0, character: 6 } });
   });
 });
@@ -137,6 +142,35 @@ describe('hoverResponseToMarkup', () => {
     ]) {
       assert.deepStrictEqual(hoverResponseToMarkup({ contents }), undefined, JSON.stringify(contents));
     }
+  });
+});
+
+// The navigation answers carry their locations under a member of their own, so a
+// reader taking the answer for a location finds no range in it and the editor
+// shows nothing; each reading below is over the answer as the server sends it.
+describe('the locations a navigation answer names', () => {
+  const at = { uri: 'file:///workspace/catalog/component/mariadb.yaml', range: { start: { line: 6, character: 8 }, end: { line: 6, character: 30 } } };
+
+  it('reads the one location a definition answer carries', () => {
+    assert.deepStrictEqual(resolvedLocations({ location: at }), [at]);
+  });
+
+  it('reads none where a definition answer carries null, or no answer came', () => {
+    assert.deepStrictEqual(resolvedLocations({ location: null }), []);
+    assert.deepStrictEqual(resolvedLocations(null), []);
+  });
+
+  it('reads none where a definition answer carries something that is not a location', () => {
+    for (const location of ['file:///x.yaml', { uri: 'file:///x.yaml' }, { uri: 7, range: at.range }, { uri: 'file:///x.yaml', range: { start: { line: 0 } } }]) {
+      assert.deepStrictEqual(resolvedLocations({ location }), [], JSON.stringify(location));
+    }
+  });
+
+  it('reads every location a references or implementations answer lists, and none for null', () => {
+    const other = { ...at, uri: 'file:///workspace/aggregate.yaml' };
+    assert.deepStrictEqual(listedLocations({ locations: [at, other] }), [at, other]);
+    assert.deepStrictEqual(listedLocations({ locations: null }), []);
+    assert.deepStrictEqual(listedLocations(null), []);
   });
 });
 

@@ -760,4 +760,15 @@
       canvas.classList.remove('panning');
     });
   }
+
+  // 🔴 THE EXTENSION IS TOLD THIS PANEL LISTENS ONLY ONCE IT DOES, AND IT SENDS
+  // NOTHING BEFORE THAT. The editor hands a message to this document whether or
+  // not this script has run yet, and a message arriving before the listener above
+  // is lost with nothing to say so. This script runs only after the layout library
+  // has loaded, which on a busy machine is after the drawing the reader asked for
+  // has already been sent — and the panel would then go on showing the sentence it
+  // opens with. So the extension holds what it has for this panel until this
+  // line, and this line is the last thing the script does: everything a message
+  // reaches is in place by then.
+  vscode.postMessage({ type: 'listening' });
 })();

@@ -70,7 +70,7 @@ export function endsAsWanted(e: Ending, want: string): boolean {
 }
 
 // shownOptions reads the choices the open Inspect menu draws, as their labels.
-function shownOptions(panel: WebviewDocument): Promise<string[]> {
+export function shownOptions(panel: WebviewDocument): Promise<string[]> {
   return panel.evaluate<string[]>(`[...document.querySelectorAll('.op-menu[data-menu-command="aggrega.op.inspect"]:not([hidden]) .op-menu-option')]
     .filter((o) => !o.hidden).map((o) => ((o.querySelector('.op-menu-label') || {}).innerText || '').trim())`);
 }

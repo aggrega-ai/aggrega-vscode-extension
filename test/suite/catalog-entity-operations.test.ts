@@ -273,10 +273,17 @@ describe('the subject a row of the workspace catalog supplies', () => {
 });
 
 describe('the invocations a workspace-catalog row composes', () => {
-  it('checks one entity by its path', () => {
+  it('checks one entity by its path, in the workspace\'s own terms where no Release is selected', () => {
     assert.deepStrictEqual(
-      catalogValidateArgs('catalog/components/api-server.yaml'),
+      catalogValidateArgs('catalog/components/api-server.yaml', null),
       ['validate', 'catalog/components/api-server.yaml'],
+    );
+  });
+
+  it('checks one entity in the selected Release\'s terms, naming it as the command line takes it', () => {
+    assert.deepStrictEqual(
+      catalogValidateArgs('catalog/components/api-server.yaml', 'envs/prod.yaml'),
+      ['validate', 'catalog/components/api-server.yaml', '--release', 'envs/prod.yaml'],
     );
   });
 
@@ -315,7 +322,8 @@ describe('the invocations a workspace-catalog row composes', () => {
     // why the composition refuses rather than defaulting, and it holds on both
     // transports: two of the three are requests and refuse on exactly the same
     // ground as the invocation beside them.
-    for (const compose of [catalogValidateArgs, entityLintSubject, publishEntityRequest]) {
+    const checkInSelectedTerms = (entityPath: string): string[] => catalogValidateArgs(entityPath, 'release.yaml');
+    for (const compose of [checkInSelectedTerms, entityLintSubject, publishEntityRequest]) {
       assert.throws(() => compose(''), /and none was given/);
       assert.throws(() => compose('   '), /and none was given/);
     }

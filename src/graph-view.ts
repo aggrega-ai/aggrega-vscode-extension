@@ -3,7 +3,7 @@
 
 import * as vscode from 'vscode';
 import { GraphRedactor, createGraphRedactor } from './graph-payload';
-import { makeGraphMessageHandler } from './graph-messages';
+import { PanelDelivery, holdUntilListening, makeGraphMessageHandler } from './graph-messages';
 import {
   AttachCandidatesRequest,
   AttachmentContainerRequest,
@@ -118,6 +118,10 @@ export interface GraphView {
 // view rather than stacking panels.
 export function activateGraphView(context: vscode.ExtensionContext, deps: GraphDeps): GraphView {
   let panel: vscode.WebviewPanel | null = null;
+  // How anything reaches the open panel's document: made and cleared with the
+  // panel, and the only path to it, so nothing is sent before the panel listens
+  // (holdUntilListening, graph-messages.ts).
+  let toPanel: PanelDelivery | null = null;
   // Built once per activation, against this installation's own files, and used
   // on every render.
   const redact = createGraphRedactor(context.extensionUri.fsPath);
@@ -154,8 +158,8 @@ export function activateGraphView(context: vscode.ExtensionContext, deps: GraphD
         return;
       }
 
-      if (!panel) {
-        panel = vscode.window.createWebviewPanel(
+      if (!panel || !toPanel) {
+        const created = vscode.window.createWebviewPanel(
           'aggrega.graph',
           'Aggrega Graph',
           vscode.ViewColumn.Active,
@@ -168,8 +172,14 @@ export function activateGraphView(context: vscode.ExtensionContext, deps: GraphD
             ],
           },
         );
+        panel = created;
+        // The one call that posts to the panel's document, behind the hold: the
+        // drawing this press asks for is often ready before the panel listens,
+        // and is sent when the panel says it does.
+        toPanel = holdUntilListening((message) => { void created.webview.postMessage(message); });
         panel.onDidDispose(() => {
           panel = null;
+          toPanel = null;
           shownRelease = null;
           shownSites = new Map();
         }, null, context.subscriptions);
@@ -181,8 +191,8 @@ export function activateGraphView(context: vscode.ExtensionContext, deps: GraphD
         // looking at reports a size like any other. So the one side that knows
         // says so, on every change, and the panel does not have to guess.
         panel.onDidChangeViewState(() => {
-          if (!panel) { return; }
-          void panel.webview.postMessage({ type: 'visibility', visible: panel.visible });
+          if (!panel || !toPanel) { return; }
+          toPanel.post({ type: 'visibility', visible: panel.visible });
         }, null, context.subscriptions);
         // The handler is registered once, with the panel, and the panel
         // outlives the anchor — so it reads the root through the getter on each
@@ -199,27 +209,27 @@ export function activateGraphView(context: vscode.ExtensionContext, deps: GraphD
               // The panel that asked is the panel answered. There is one, it is
               // reused, and it is cleared when it closes — so a request whose
               // panel is already gone has nowhere to report and is dropped.
-              if (!panel) { return; }
+              if (!toPanel) { return; }
               // Asked about the Release this panel's graph was drawn from, for
               // the reason the commit below is: the node id belongs to that
               // graph, and the selection may since have moved.
               if (!shownRelease) {
-                void panel.webview.postMessage({
+                toPanel.post({
                   type: 'attachCandidatesError', nodeId, requestId,
                   message: 'this panel is not showing a Release yet.',
                 });
                 return;
               }
-              void postAttachCandidates(panel, deps, nodeId, shownRelease, requestId);
+              void postAttachCandidates(toPanel, deps, nodeId, shownRelease, requestId);
             },
             attachFeature: (nodeId, featureName) => {
-              if (!panel) { return; }
+              if (!toPanel) { return; }
               // The site is looked up in this render's own table rather than
               // taken from the message, so a node the current graph does not
               // hold has nowhere to attach anything and says so.
               const site = shownSites.get(nodeId);
               if (!site) {
-                void postAttachOutcome(panel, nodeId,
+                postAttachOutcome(toPanel, nodeId,
                   `${nodeId} is not on the graph this panel drew.`, false);
                 return;
               }
@@ -229,12 +239,15 @@ export function activateGraphView(context: vscode.ExtensionContext, deps: GraphD
               // and asking about a different Release would answer about a
               // different graph.
               if (!shownRelease) {
-                void postAttachOutcome(panel, nodeId,
+                postAttachOutcome(toPanel, nodeId,
                   'This panel is not showing a Release yet.', false);
                 return;
               }
-              void attachFeature(panel, deps, site, featureName, shownRelease);
+              void attachFeature(toPanel, deps, site, featureName, shownRelease);
             },
+            // The panel's document now hears what is posted to it, so what was
+            // held for it is sent.
+            listening: () => { toPanel?.listening(); },
           }),
           null,
           context.subscriptions,
@@ -246,7 +259,7 @@ export function activateGraphView(context: vscode.ExtensionContext, deps: GraphD
 
       panel.title = `Aggrega Graph — ${release}`;
       shownRelease = release;
-      await renderGraph(panel, deps, redact, release, keepSites);
+      await renderGraph(toPanel, deps, redact, release, keepSites);
     }),
   );
 
@@ -255,10 +268,10 @@ export function activateGraphView(context: vscode.ExtensionContext, deps: GraphD
   // a view the user opens deliberately, so nothing here opens one on its own
   // or asks the language server for a graph nobody is looking at.
   const refresh = (): void => {
-    if (!panel || !shownRelease) { return; }
+    if (!toPanel || !shownRelease) { return; }
     // Quiet: the panel keeps showing the graph it has until the new one
     // replaces it, rather than flashing a layout notice on every recompile.
-    void renderGraph(panel, deps, redact, shownRelease, keepSites, { quiet: true });
+    void renderGraph(toPanel, deps, redact, shownRelease, keepSites, { quiet: true });
   };
 
   // A panel left open across a restart is showing a topology drawn by a server
@@ -270,7 +283,7 @@ export function activateGraphView(context: vscode.ExtensionContext, deps: GraphD
 
   // Read from the same two values refresh is guarded by, so the answer and what
   // a refresh would do cannot come apart.
-  const releaseOnPanel = (): string | null => (panel && shownRelease ? shownRelease : null);
+  const releaseOnPanel = (): string | null => (toPanel && shownRelease ? shownRelease : null);
 
   return { refresh, shownRelease: releaseOnPanel };
 }
@@ -287,7 +300,7 @@ export function activateGraphView(context: vscode.ExtensionContext, deps: GraphD
 // Withholding as the payload crosses is one guarantee that holds however the far
 // side is later written.
 async function renderGraph(
-  panel: vscode.WebviewPanel,
+  toPanel: PanelDelivery,
   deps: GraphDeps,
   redact: GraphRedactor,
   release: string,
@@ -295,7 +308,7 @@ async function renderGraph(
   opts: { quiet?: boolean } = {},
 ): Promise<void> {
   if (!opts.quiet) {
-    void panel.webview.postMessage({ type: 'loading', release });
+    toPanel.post({ type: 'loading', release });
   }
   try {
     // A render the reader asked for is watched and can be stopped, on the same
@@ -329,7 +342,7 @@ async function renderGraph(
     // they are reading and one they pressed for is how they get the whole
     // topology back; and on a refusal it decides whether the notice offering the
     // way past it may be held back.
-    void panel.webview.postMessage({ type: 'render', release, graph, asked: !opts.quiet, showsSensitiveValues });
+    toPanel.post({ type: 'render', release, graph, asked: !opts.quiet, showsSensitiveValues });
   } catch (err) {
     // A redaction that cannot be performed lands here with the request
     // failures, and is reported the same way. Nothing is posted, which is the
@@ -345,7 +358,7 @@ async function renderGraph(
       reportDaemonError: (thrown, fallbackPath, asker) => deps.reportDaemonError(thrown, fallbackPath, asker),
       logLine: (line) => { deps.output.appendLine(line); },
       notifyPanel: (message) => {
-        void panel.webview.postMessage({ type: 'error', release, message });
+        toPanel.post({ type: 'error', release, message });
       },
     });
   }
@@ -377,7 +390,7 @@ async function renderGraph(
 // order, so a refusal that is not echoed would be as capable of overwriting a
 // fresh answer as a stale answer is.
 async function postAttachCandidates(
-  panel: vscode.WebviewPanel,
+  toPanel: PanelDelivery,
   deps: GraphDeps,
   nodeId: string,
   release: string,
@@ -385,14 +398,14 @@ async function postAttachCandidates(
 ): Promise<void> {
   try {
     const result = await deps.requestAttachCandidates(attachCandidatesRequest(nodeId, release));
-    void panel.webview.postMessage({ type: 'attachCandidates', nodeId, requestId, result });
+    toPanel.post({ type: 'attachCandidates', nodeId, requestId, result });
   } catch (err) {
     // describeError is the extension's one home for rendering a thrown value as
     // a line for a reader, so a transport refusal and a language server that is
     // not running are worded here by the same rule they are worded everywhere.
     const message = describeError(err);
     deps.output.appendLine(`attachCandidates failed for ${nodeId}: ${message}`);
-    void panel.webview.postMessage({ type: 'attachCandidatesError', nodeId, requestId, message });
+    toPanel.post({ type: 'attachCandidatesError', nodeId, requestId, message });
   }
 }
 
@@ -436,7 +449,7 @@ async function postAttachCandidates(
 // with neither depending on this side knowing how an Aggregate spells its
 // nesting.
 async function attachFeature(
-  panel: vscode.WebviewPanel,
+  toPanel: PanelDelivery,
   deps: GraphDeps,
   site: AttachmentSite,
   featureName: string,
@@ -444,13 +457,13 @@ async function attachFeature(
 ): Promise<void> {
   const named = nameAttachment(site, featureName);
   if ('refusal' in named) {
-    void postAttachOutcome(panel, site.nodeId, named.refusal, false);
+    postAttachOutcome(toPanel, site.nodeId, named.refusal, false);
     return;
   }
 
   const root = deps.getWorkspaceRoot();
   if (root === null) {
-    void postAttachOutcome(panel, site.nodeId, NO_ANCHORED_WORKSPACE_MESSAGE, false);
+    postAttachOutcome(toPanel, site.nodeId, NO_ANCHORED_WORKSPACE_MESSAGE, false);
     return;
   }
 
@@ -459,7 +472,7 @@ async function attachFeature(
       await deps.requestAttachmentContainer(attachmentContainerRequest(site, release)),
     );
     if (located === null) {
-      void postAttachOutcome(panel, site.nodeId, attachRefusal(
+      postAttachOutcome(toPanel, site.nodeId, attachRefusal(
         'the compiler\'s answer about which document this belongs in is in a shape this cannot '
         + 'apply.'), false);
       return;
@@ -473,14 +486,14 @@ async function attachFeature(
     const answer = await deps.requestInsertionPoint(located.file, located.container ?? []);
     const insertion = readInsertion(answer);
     if (insertion === null) {
-      void postAttachOutcome(panel, site.nodeId, attachRefusal(
+      postAttachOutcome(toPanel, site.nodeId, attachRefusal(
         'the compiler\'s answer about where in that document this belongs is in a shape this '
         + 'cannot apply.'), false);
       return;
     }
     const shapeRefusal = refusesEntryShape(insertion);
     if (shapeRefusal) {
-      void postAttachOutcome(panel, site.nodeId, attachRefusal(shapeRefusal), false);
+      postAttachOutcome(toPanel, site.nodeId, attachRefusal(shapeRefusal), false);
       return;
     }
     // The answer names the document workspace-relative, as every other
@@ -495,7 +508,7 @@ async function attachFeature(
     // rather than an error anybody sees.
     const at = insertionPositionInDocument(doc.getText(), insertion);
     if (at === null) {
-      void postAttachOutcome(panel, site.nodeId, attachRefusal(
+      postAttachOutcome(toPanel, site.nodeId, attachRefusal(
         `the position is reported in ${insertion.positionEncoding || 'unstated'} units, which `
         + 'this cannot convert from.'), false);
       return;
@@ -509,7 +522,7 @@ async function attachFeature(
     const edit = new vscode.WorkspaceEdit();
     edit.insert(uri, new vscode.Position(at.line, at.character), text);
     if (!(await vscode.workspace.applyEdit(edit))) {
-      void postAttachOutcome(panel, site.nodeId, 'The editor did not apply the edit.', false);
+      postAttachOutcome(toPanel, site.nodeId, 'The editor did not apply the edit.', false);
       return;
     }
 
@@ -527,13 +540,13 @@ async function attachFeature(
     deps.output.appendLine(
       `attached ${featureName} to ${site.nodeId} as ${named.instanceName} in ${insertion.file}`,
     );
-    void postAttachOutcome(panel, site.nodeId,
+    postAttachOutcome(toPanel, site.nodeId,
       `Attached ${featureName} to ${site.nodeId} as ${named.instanceName}.${note}`, true);
   } catch (err) {
     deps.output.appendLine(
       `attaching ${featureName} to ${site.nodeId} failed: ${describeError(err)}`,
     );
-    void postAttachOutcome(panel, site.nodeId, attachFailureLine(err), false);
+    postAttachOutcome(toPanel, site.nodeId, attachFailureLine(err), false);
   }
 }
 
@@ -544,12 +557,12 @@ async function attachFeature(
 // about a place in a file, and nothing it can be refused for is a fault of the
 // file the reader would be sent to.
 function postAttachOutcome(
-  panel: vscode.WebviewPanel,
+  toPanel: PanelDelivery,
   nodeId: string,
   message: string,
   attached: boolean,
-): Thenable<boolean> {
-  return panel.webview.postMessage({ type: 'attachOutcome', nodeId, message, attached });
+): void {
+  toPanel.post({ type: 'attachOutcome', nodeId, message, attached });
 }
 
 // openSource opens the node's authoring file. The IR carries workspace-relative

@@ -101,6 +101,7 @@ import {
   terminalLine,
 } from './operation-outcome';
 import { withCancellableProgress } from './progress';
+import { catalogIndexParams, entityDefinitionParams } from './release-terms';
 import { getSettings } from './settings-vscode';
 import {
   BUILD_ON_INSPECT_KEY,
@@ -123,12 +124,14 @@ import { checkDaemonVersion, readDaemonVersion } from './version-check';
 import { ServerReading, VersionStandings } from './welcome-render';
 import {
   hoverResponseToMarkup,
+  listedLocations,
   lspCompletionToCompletion,
   lspDefinitionToResolve,
   lspHoverToHover,
   lspImplementationToFindImplementations,
   lspReferencesToFindReferences,
   locationToLspLocation,
+  resolvedLocations,
 } from './translator';
 import {
   ActiveReleaseResponse,
@@ -140,10 +143,13 @@ import {
   CacheStatusResponse,
   DaemonLocation,
   ERR_FILE_NOT_VALIDATED,
+  FindImplementationsResponse,
+  FindReferencesResponse,
   HoverResponse,
   PublishDiagnosticsParams,
   ReleaseCandidatesResponse,
   RequestMethod,
+  ResolveResponse,
   ScaffoldEntityResponse,
   ValidateParams,
   ValidateResponse,
@@ -311,8 +317,9 @@ let workspaceCatalogView: WorkspaceCatalogView | null = null;
 let lintRunner: LintRunner | null = null;
 // releaseSelection is the editor's one answer to "which Release are we talking
 // about". Every surface that acts on a Release reads it, and it travels on
-// every request, so the language server holds none of its own and changing the
-// selection needs no restart.
+// every request the language server answers in a Release's terms — through the
+// one composition in release-terms.ts — so the language server holds none of its
+// own and changing the selection needs no restart.
 let releaseSelection: ReleaseSelection | null = null;
 // readiness is the editor's one answer to "can the compiler be asked yet", and
 // every view renders from it. Built in activate() before any surface that reads
@@ -896,6 +903,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     getBinaryPath: () => getSettings().binaryPath,
     isLanguageServerRunning,
     requestCatalogIndex,
+    selectedRelease,
     // Asked with no kind named, as the drafting flow asks it: the answer names
     // the kinds, and what each row operation accepts a document of each kind for.
     entityKinds: () => requestSchema(),
@@ -907,6 +915,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     lintEntity: (entityPath) => lintRunner?.runEntity(entityPath) ?? Promise.resolve(),
     onReady: ready.onReady,
     output: outputChannel,
+  });
+
+  // 🔴 WHAT THE SELECTED RELEASE'S MOVE CHANGES IS ASKED FOR AGAIN HERE, ONCE PER
+  // MOVE, WHICHEVER WAY THE SELECTION MOVED. The Catalog panel's list and an open
+  // document's findings are the language server's answers in the selected
+  // Release's terms, so when the Release in force changes — a reader's choice, the
+  // remembered or default Release taken as a server connects, the default taken
+  // when the workspace's marker is written, or none left as a connection ends —
+  // the list is read again and the open documents are validated again. Followed
+  // from the reader's choice alone, the Release taken as a server connects would
+  // leave the documents already open with the findings asked for before it was
+  // taken, when no Release was yet in force. Every other surface reads the
+  // selection when it is next asked, and a graph panel keeps the Release it was
+  // shown with.
+  releaseSelection?.onMove(() => {
+    workspaceCatalogView?.refresh();
+    revalidateOpenDocuments();
   });
 
   // The welcome panel says what Aggrega is, then names what the extension still
@@ -1512,18 +1537,23 @@ function registerSelectReleaseCommand(context: vscode.ExtensionContext): void {
         void vscode.window.showInformationMessage(NO_ANCHORED_WORKSPACE_MESSAGE);
         return;
       }
+      const before = releaseSelection?.current() ?? null;
       const chosen = await releaseSelection?.choose();
       if (!chosen) { return; }
       // Nothing is restarted. The selection travels on the next request, so the
       // change is in force immediately.
       outputChannel?.appendLine(`selected Release: ${chosen}`);
-      void revalidateOpenDocuments();
+      // A choice that moved the selection has already had the open documents
+      // validated again by the follower of its moves. Choosing the Release already
+      // selected moves nothing, and is still the reader asking for the open
+      // documents to be read against it, so it is answered here.
+      if (chosen === before) { void revalidateOpenDocuments(); }
     }),
   );
 }
 
 // revalidateOpenDocuments re-validates every open YAML document against the
-// selection and the lockfile now in force. It runs when the selection changes,
+// selection and the lockfile now in force. It runs when the selection moves,
 // and when the selected Release's lockfile reaches disk, because validation reads
 // its pins and the withdrawal markers it reports from that lockfile. Without it
 // the Problems panel would go on showing findings computed against the previous
@@ -1881,37 +1911,44 @@ function registerCloseHandler(context: vscode.ExtensionContext, disk: DiskChange
   );
 }
 
+// registerLanguageFeatures wires the cursor features. Each is answered in the
+// selected Release's terms, read as the request is composed, so a reference
+// resolves to — and completion offers — what the Release the reader is working
+// on reads, rather than whatever the workspace as a whole declares first.
 function registerLanguageFeatures(context: vscode.ExtensionContext): void {
   const yamlSelector: vscode.DocumentSelector = { language: 'yaml' };
 
   context.subscriptions.push(vscode.languages.registerDefinitionProvider(yamlSelector, {
-    provideDefinition: (doc, position) => navigationRequest(
+    provideDefinition: (doc, position) => navigationRequest<ResolveResponse>(
       'aggrega/resolve',
       doc, position,
-      (uri, pos, content, enc) => lspDefinitionToResolve(uri, pos, content, enc),
+      (uri, pos, content, enc) => lspDefinitionToResolve(uri, pos, content, enc, selectedRelease()),
+      resolvedLocations,
     ),
   }));
 
   context.subscriptions.push(vscode.languages.registerReferenceProvider(yamlSelector, {
-    provideReferences: (doc, position) => navigationRequest(
+    provideReferences: (doc, position) => navigationRequest<FindReferencesResponse>(
       'aggrega/findReferences',
       doc, position,
-      (uri, pos, content, enc) => lspReferencesToFindReferences(uri, pos, content, enc),
+      (uri, pos, content, enc) => lspReferencesToFindReferences(uri, pos, content, enc, selectedRelease()),
+      listedLocations,
     ),
   }));
 
   context.subscriptions.push(vscode.languages.registerImplementationProvider(yamlSelector, {
-    provideImplementation: (doc, position) => navigationRequest(
+    provideImplementation: (doc, position) => navigationRequest<FindImplementationsResponse>(
       'aggrega/findImplementations',
       doc, position,
-      (uri, pos, content, enc) => lspImplementationToFindImplementations(uri, pos, content, enc),
+      (uri, pos, content, enc) => lspImplementationToFindImplementations(uri, pos, content, enc, selectedRelease()),
+      listedLocations,
     ),
   }));
 
   context.subscriptions.push(vscode.languages.registerHoverProvider(yamlSelector, {
     provideHover: async (doc, position) => {
       if (!daemon) { return undefined; }
-      const params = lspHoverToHover(doc.uri.toString(), position, doc.getText(), daemon.getServerEncoding());
+      const params = lspHoverToHover(doc.uri.toString(), position, doc.getText(), daemon.getServerEncoding(), selectedRelease());
       const result = await tryRequest<HoverResponse>('aggrega/hover', params, doc);
       const shown = hoverResponseToMarkup(result);
       if (!shown) { return undefined; }
@@ -1929,6 +1966,7 @@ function registerLanguageFeatures(context: vscode.ExtensionContext): void {
         position,
         doc.getText(),
         daemon.getServerEncoding(),
+        selectedRelease(),
         ctx.triggerCharacter,
       );
       const result = await tryRequest<{ items: Array<{ label: string; sortText?: string; detail?: string }> } | null>(
@@ -2360,11 +2398,16 @@ async function toggleBuildOnInspect(): Promise<void> {
   }
 }
 
-async function navigationRequest(
+// navigationRequest sends one of the three navigation requests and converts the
+// locations its answer names. Each answer carries its locations under a member of
+// its own — one under location for a definition, a list under locations for the
+// two others — so the reading is handed in beside the request it reads.
+async function navigationRequest<A>(
   method: RequestMethod,
   doc: vscode.TextDocument,
   position: vscode.Position,
   buildParams: (uri: string, pos: { line: number; character: number }, content: string, enc: 'utf-8' | 'utf-16') => unknown,
+  locationsOf: (answer: A | null) => DaemonLocation[],
 ): Promise<vscode.Location[] | undefined> {
   // Capture the daemon reference and its negotiated encoding up
   // front. Subsequent awaits cross deactivate-safe boundaries — VS
@@ -2380,9 +2423,9 @@ async function navigationRequest(
     doc.getText(),
     encoding,
   );
-  const result = await tryRequest<DaemonLocation[] | DaemonLocation | null>(method, params, doc);
+  const result = await tryRequest<A>(method, params, doc);
   if (!result) { return undefined; }
-  const locations = Array.isArray(result) ? result : [result];
+  const locations = locationsOf(result);
   return Promise.all(locations.map(async loc => {
     const targetContent = await loadTargetContent(loc.uri, encoding);
     const lspLoc = locationToLspLocation(loc, targetContent, encoding);
@@ -2650,13 +2693,17 @@ async function requestImport(
 // workspace walk of its own; this is the single source, for the same reason
 // Release detection is: a second walk would report a set the compiler is not
 // using whenever the two disagreed, and nothing would report the disagreement.
+// It is asked in the selected Release's terms, so where the workspace gives its
+// Releases catalog directories of their own it names what that Release reads,
+// and every surface offering the workspace's entities — the Catalog panel and the
+// Commands panel's choosers alike — offers the same set.
 // Throws when the server is not running, so a caller surfaces that state rather
 // than showing an empty workspace.
 async function requestCatalogIndex(signal?: CancellationSignal): Promise<CatalogIndexDoc> {
   if (!daemon || daemon.getState() !== DaemonState.Running) {
     throw new Error('the Aggrega language server is not running');
   }
-  return await daemon.request<CatalogIndexDoc>('aggrega/catalogIndex', {}, signal);
+  return await daemon.request<CatalogIndexDoc>('aggrega/catalogIndex', catalogIndexParams(selectedRelease()), signal);
 }
 
 // requestScaffoldEntity asks the language server to draft a starter document for
@@ -2677,8 +2724,9 @@ async function requestScaffoldEntity(kind: string, name: string): Promise<Scaffo
 }
 
 // requestEntityDefinition asks the language server what one entity resolves to.
-// It resolves through the session's own catalog view, so the answer is what a
-// build would resolve rather than what a second reader of the workspace would.
+// It resolves through the session's own catalog view, in the selected Release's
+// terms, so the answer is what a build of that Release would resolve rather than
+// what a second reader of the workspace would.
 // Throws when the server is not running, so a caller reports that state rather
 // than presenting an empty answer as an entity that resolves to nothing.
 async function requestEntityDefinition(
@@ -2688,7 +2736,7 @@ async function requestEntityDefinition(
   if (!daemon || daemon.getState() !== DaemonState.Running) {
     throw new Error('the Aggrega language server is not running');
   }
-  return await daemon.request<unknown>('aggrega/entityDefinition', { name }, signal);
+  return await daemon.request<unknown>('aggrega/entityDefinition', entityDefinitionParams(name, selectedRelease()), signal);
 }
 
 // requestEffectiveConfiguration asks the language server for the configuration

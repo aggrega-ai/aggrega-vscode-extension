@@ -174,6 +174,18 @@ export interface ReleaseSelection {
   forget(): void;
   // onChange registers a listener fired whenever the selection changes.
   onChange(listener: () => void): void;
+  // onMove registers a listener fired once each time the Release in force —
+  // what current() answers — becomes a different one: a Release taken where none
+  // was, one replaced by another, or none left where one was. It is handed the
+  // Release now in force, or null.
+  //
+  // It is narrower than onChange on purpose, and that is what it is for. A
+  // surface whose content is the language server's answer in the selected
+  // Release's terms must ask again when that Release moves and at no other time:
+  // the same Release chosen again, or an enumeration that changed only what is on
+  // offer, moves nothing the answer depends on, and a second request would redraw
+  // a surface with the answer it already shows.
+  onMove(listener: (release: string | null) => void): void;
 }
 
 // OfferedRelease is one Release an answer named: the workspace-relative form a
@@ -198,10 +210,20 @@ export function createReleaseSelection(deps: ReleaseSelectionDeps): ReleaseSelec
   // selection carried it, or null.
   let lockfile: string | null = null;
   const listeners: Array<() => void> = [];
+  const moveListeners: Array<(release: string | null) => void> = [];
+  // inForce is the Release the move listeners were last told of, so a move is
+  // told once and an announcement that moved nothing is told to none of them.
+  let inForce: string | null = null;
 
   const announce = (): void => {
     for (const listener of listeners) {
       listener();
+    }
+    const now = state.kind === 'selected' ? state.release : null;
+    if (now === inForce) { return; }
+    inForce = now;
+    for (const listener of moveListeners) {
+      listener(now);
     }
   };
 
@@ -468,6 +490,10 @@ export function createReleaseSelection(deps: ReleaseSelectionDeps): ReleaseSelec
 
     onChange: (listener: () => void): void => {
       listeners.push(listener);
+    },
+
+    onMove: (listener: (release: string | null) => void): void => {
+      moveListeners.push(listener);
     },
   };
 }

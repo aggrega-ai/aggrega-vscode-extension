@@ -405,7 +405,7 @@ describe('what the editor side tells the panel', () => {
       + 'plausible is exactly what a drawing then gets framed against',
     );
     assert.ok(
-      /postMessage\(\{\s*type: 'visibility', visible: panel\.visible \}\)/.test(view),
+      /toPanel\.post\(\{\s*type: 'visibility', visible: panel\.visible \}\)/.test(view),
       'the editor\'s own answer about whether the panel is showing is not what is sent, so what '
       + 'the panel acts on is something computed on its behalf',
     );

@@ -20,14 +20,24 @@ export type ReferenceAnswer =
   | { ok: true; result: unknown }
   | { ok: false; error: { code: unknown; message: string; data: unknown } };
 
+// ReferenceRequest is one request the reference child sends, by its method and
+// its parameters.
+export interface ReferenceRequest { method: string; params: unknown }
+
 // referenceAnswer runs the reference child with the scenario's environment,
 // records it and the server it starts in the scenario's process table, and
 // returns what the server answered.
+//
+// first names requests sent to the same server ahead of the one asked, in
+// order, whose answers are not returned: a request about a position in a
+// document is answered only once the server has validated that document, so the
+// validation the editor sends as the document opens is sent first here too.
 export function referenceAnswer(opts: {
   binary: string;
   root: string;
   method: string;
   params: unknown;
+  first?: ReferenceRequest[];
   buildOnInspect?: boolean;
   home: ScratchHome;
   table: ProcessTable;
@@ -38,6 +48,7 @@ export function referenceAnswer(opts: {
     const script = path.join(__dirname, 'reference-answer.js');
     const args = [script, opts.binary, opts.root, opts.method, JSON.stringify(opts.params)];
     if (opts.buildOnInspect) { args.push('--build-on-inspect'); }
+    if (opts.first !== undefined && opts.first.length > 0) { args.push('--first', JSON.stringify(opts.first)); }
     const child = spawn(process.execPath, args, { cwd: opts.root, env: cliEnvironment(opts.home), stdio: ['ignore', 'pipe', 'pipe'] });
     if (child.pid !== undefined) {
       try { opts.table.addRoot('reference', child.pid); } catch { /* already gone */ }

@@ -83,6 +83,8 @@ export type FindReferencesParams = wire.FindReferencesParams;
 export type FindImplementationsParams = wire.FindImplementationsParams;
 export type HoverParams = wire.HoverParams;
 export type CompletionParams = wire.CompletionParams;
+export type CatalogIndexParams = wire.CatalogIndexParams;
+export type EntityDefinitionParams = wire.EntityDefinitionParams;
 
 // JSON-RPC 2.0 framing types.
 export type JsonRpcRequest = wire.Request;
@@ -215,6 +217,17 @@ export type HoverResponse = wire.HoverResult;
 
 // MarkupContent is text to show together with the name of how it is marked up.
 export type MarkupContent = wire.MarkupContent;
+
+// ResolveResponse is the aggrega/resolve result: the one location a reference
+// is defined at, under location, or null there where none is found. The
+// published shape types it as unknown, so a reader narrows it before using it.
+export type ResolveResponse = wire.ResolveResult;
+
+// FindReferencesResponse and FindImplementationsResponse are the results of the
+// two listing requests: every location found, under locations, which the
+// published shape admits null for as well as an empty list.
+export type FindReferencesResponse = wire.FindReferencesResult;
+export type FindImplementationsResponse = wire.FindImplementationsResult;
 
 // ReleaseCandidatesResponse is the aggrega/releaseCandidates result: the
 // absolute paths of the workspace's Release-kind documents, determined by the

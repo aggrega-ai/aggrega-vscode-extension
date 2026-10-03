@@ -304,6 +304,77 @@ export function placeOwnCatalogs(docsCheckoutParent: string, dest: string, catal
   };
 }
 
+// The two entities the copy gains for the checks that read a request answered in
+// the selected Release's terms, beside the example's own. Every variant of the
+// example declares the same Component names, and the variants of the Component
+// most of its documents name hover alike in three Releases out of four, so the
+// copy as placed above would answer those checks the same way whichever Release
+// is selected — and a defect sending no Release would leave them green.
+//
+// SIZED_VOLUME is a workspace document under no catalog directory, so the Catalog
+// panel lists it whichever Release is selected and no Release reads it as part of
+// its catalog; its storage is composed from the DbSizing library, which only some
+// Releases' catalog directories declare, so checking it on its own passes in
+// those Releases' terms and is refused in the others'. In a catalog directory
+// every Release reads, the library it names would be missing from the catalog of
+// every Release that does not declare it, and those Releases would stop
+// resolving. CHART_ONLY sits in one Release's catalog directory alone, so
+// completion at a component's type offers it in that Release's terms and nowhere
+// a Release that does not read that directory is selected.
+export const SIZED_VOLUME = { name: 'local/datastore/sized-volume', file: path.join('components', 'sized-volume.yaml') };
+export const CHART_ONLY = { name: 'local/datastore/chart-only', file: path.join('catalog-helm-chart', 'component', 'chart-only.yaml') };
+export const SIZING_LIBRARY = 'DbSizing';
+
+const SIZED_VOLUME_DOCUMENT = `apiVersion: aggrega.ai/v1alpha1
+kind: Component
+metadata:
+  name: ${SIZED_VOLUME.name}
+  version: 1.0.0
+  description: A volume whose storage is sized by the shared ${SIZING_LIBRARY} library.
+  labels:
+    component.aggrega.ai/type: resource
+spec:
+  schema:
+    infra:
+      storage:
+        $ref: "${SIZING_LIBRARY}#/schemas/Storage"
+`;
+
+const CHART_ONLY_DOCUMENT = `apiVersion: aggrega.ai/v1alpha1
+kind: Component
+metadata:
+  name: ${CHART_ONLY.name}
+  version: 1.0.0
+  description: A Component one Release's catalog directory alone declares.
+  labels:
+    component.aggrega.ai/type: server
+spec:
+  schema:
+    values:
+      database:
+        type: string
+        description: Logical database name.
+`;
+
+// placeSelectionReadings writes the two entities into a copy placed by
+// placeOwnCatalogs, refusing where the copy already holds either file or holds no
+// catalog directory for CHART_ONLY to sit in, and reads both back.
+export function placeSelectionReadings(folder: string): FixtureProof {
+  const fixture = `selection readings in ${path.basename(folder)}`;
+  const chartCatalog = path.join(folder, CHART_ONLY.file.split(path.sep)[0]);
+  if (!fs.existsSync(chartCatalog)) { throw new FixtureError(fixture, `the copy holds no ${path.basename(chartCatalog)} directory to write ${CHART_ONLY.file} into`); }
+  const written: string[] = [];
+  for (const [entity, text] of [[SIZED_VOLUME, SIZED_VOLUME_DOCUMENT], [CHART_ONLY, CHART_ONLY_DOCUMENT]] as const) {
+    const file = path.join(folder, entity.file);
+    if (fs.existsSync(file)) { throw new FixtureError(fixture, `the copy already holds ${entity.file}`); }
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, text);
+    if (fs.readFileSync(file, 'utf8') !== text) { throw new FixtureError(fixture, `${entity.file} does not read back as written`); }
+    written.push(`${entity.file} declaring ${entity.name}`);
+  }
+  return { fixture, built: true, proof: `${written.join(' and ')}, each read back as written` };
+}
+
 // MYSQL_EXAMPLE is the documentation example with two Releases and no default,
 // by its path under the documentation checkout, and the line its configuration
 // names the standard library with, by its place beside that checkout.

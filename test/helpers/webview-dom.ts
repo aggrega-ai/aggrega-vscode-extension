@@ -136,6 +136,10 @@ export interface GraphWebview {
   post(message: Record<string, unknown>): void;
   // posted is what the renderer sent back the other way.
   posted: unknown[];
+  // listenersWhenPosted is, beside each message in posted, how many message
+  // listeners the renderer had subscribed when it sent it — what tells a panel
+  // that says it listens from one that says so first and listens after.
+  listenersWhenPosted: number[];
   // element returns one of the document's own elements by id.
   element(id: string): StubElement;
   // drawn counts the elements on the canvas, transitively.
@@ -175,6 +179,7 @@ export function loadGraphWebview(): GraphWebview {
   const messageHandlers: ((ev: { data: unknown }) => void)[] = [];
   const windowListeners = new Map<string, ((ev: unknown) => void)[]>();
   const posted: unknown[] = [];
+  const listenersWhenPosted: number[] = [];
 
   // What is watching which element for a change of size. The renderer installs
   // one of these to notice a drawing area that has become measurable, so a
@@ -208,7 +213,7 @@ export function loadGraphWebview(): GraphWebview {
         windowListeners.set(name, kept);
       },
     },
-    acquireVsCodeApi: () => ({ postMessage: (m: unknown) => { posted.push(m); } }),
+    acquireVsCodeApi: () => ({ postMessage: (m: unknown) => { posted.push(m); listenersWhenPosted.push(messageHandlers.length); } }),
   };
   sandbox.globalThis = sandbox;
   sandbox.self = sandbox;
@@ -279,6 +284,7 @@ export function loadGraphWebview(): GraphWebview {
 
   return {
     posted,
+    listenersWhenPosted,
     // A real postMessage structured-clones the payload into the webview's
     // realm. Reproducing that is not a nicety — see the realm note above.
     post: (message) => {

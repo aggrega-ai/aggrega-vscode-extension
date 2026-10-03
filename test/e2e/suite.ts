@@ -8,8 +8,8 @@ import { CheckResult, Checks, EnoughReported, tally } from './checks';
 import { makeScratchHome, ScratchHome } from './cli';
 import { createScenarioRoot, ScenarioRoot } from './editor';
 import {
-  copyLockfile, FixtureError, FixtureProof, MYSQL_CATALOG_LINE, MYSQL_EXAMPLE, placeDocsExample, placeEmptyBeneathWorkspace, placeFolder, placeOwnCatalogs, placeUnanchored,
-  placeWorkspaceAbove, proveMissing, proveUnreachable, readTree, Tree, UNREACHABLE_HOST, writeLockfile,
+  copyLockfile, FixtureError, FixtureProof, MYSQL_CATALOG_LINE, MYSQL_EXAMPLE, placeDocsExample, placeEmptyBeneathWorkspace, placeFolder, placeOwnCatalogs, placeSelectionReadings,
+  placeUnanchored, placeWorkspaceAbove, proveMissing, proveUnreachable, readTree, Tree, UNREACHABLE_HOST, writeLockfile,
 } from './fixtures';
 import { Inputs, REPO_ROOT } from './inputs';
 import { placeLayouts, POSTGRES_EXAMPLE, proveNothingAbove } from './layouts';
@@ -42,6 +42,7 @@ import { KILLED_CHECKS, KILLED_SETTINGS, killedChecks } from './suite-killed';
 import { LEVELS_CHECKS, levelsChecks } from './suite-levels';
 import { OFFLINE_RELEASES, OWN_CATALOGS_CHECKS, ownCatalogsChecks } from './suite-own-catalogs';
 import { PROBES_CHECKS, probesChecks } from './suite-probes';
+import { GRAPH_RELEASE, SELECTED_RELEASE_CHECKS, selectedReleaseChecks } from './suite-selected-release';
 import { READINESS_CHECKS, readinessChecks } from './suite-readiness';
 import { registryChecks, REGISTRY_CHECKS } from './suite-registry';
 import { storefrontChecks, STOREFRONT_CHECKS } from './suite-storefront';
@@ -75,6 +76,7 @@ export const SCENARIO_CHECKS: Readonly<Record<string, readonly string[]>> = {
   'storefront-killed-server': KILLED_CHECKS,
   'storefront-with-registries': REGISTRY_CHECKS,
   'releases-with-own-catalogs': OWN_CATALOGS_CHECKS,
+  'releases-with-own-catalogs-selected-release': SELECTED_RELEASE_CHECKS,
   'storefront-graph-panel': GRAPH_PANEL_CHECKS,
   'probes-nothing-may-attach': PROBES_CHECKS,
   'gateway-top-level-attach': TOP_LEVEL_ATTACH_CHECKS,
@@ -262,6 +264,23 @@ function plans(inputs: Inputs): ScenarioPlan[] {
         return { folder: layout.folder, fixtures, extra: { reference: reference.folder } };
       },
       body: (ctx, p) => ownCatalogsChecks(ctx, p.extra?.reference as string),
+    },
+    {
+      name: 'releases-with-own-catalogs-selected-release',
+      checks: SELECTED_RELEASE_CHECKS,
+      prepare: async (root, home, log) => {
+        const docs = path.resolve(REPO_ROOT, '..');
+        const layout = placeOwnCatalogs(docs, path.join(root.dir, 'workspace', 'mariadb-adminer'), inputs.catalog.dir);
+        const reference = placeOwnCatalogs(docs, path.join(root.dir, 'reference', 'mariadb-adminer'), inputs.catalog.dir);
+        const fixtures = [
+          layout.proof, placeSelectionReadings(layout.folder),
+          reference.proof, placeSelectionReadings(reference.folder),
+          await writeLockfile(bin, layout.folder, GRAPH_RELEASE, home, log),
+          copyLockfile(layout.folder, reference.folder, GRAPH_RELEASE),
+        ];
+        return { folder: layout.folder, fixtures, extra: { reference: reference.folder } };
+      },
+      body: (ctx, p) => selectedReleaseChecks(ctx, p.extra?.reference as string),
     },
     {
       name: 'storefront-graph-panel',

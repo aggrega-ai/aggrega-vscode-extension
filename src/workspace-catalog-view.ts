@@ -53,7 +53,12 @@ export interface WorkspaceCatalogDeps extends RendersOnReady, CliOperationDeps {
   getWorkspaceRoot(): string | null;
   getBinaryPath(): string;
   isLanguageServerRunning(): boolean;
+  // requestCatalogIndex asks for the entities the selected Release's terms hold,
+  // or the workspace's own where none is selected.
   requestCatalogIndex(): Promise<CatalogIndexDoc>;
+  // selectedRelease is the Release the row's correctness check is run in the
+  // terms of, read when the check is pressed, or null where none is selected.
+  selectedRelease(): string | null;
   // entityKinds asks the language server which kinds an author writes a document
   // of, and what each row operation accepts a document of each kind for. It is
   // read beside the index on every read of the list.
@@ -231,8 +236,9 @@ export function activateWorkspaceCatalogView(
   // states. Re-asking when the compiler becomes answerable is what supersedes
   // that row without the reader doing anything, and a document created, changed
   // or deleted on disk, or closed in the editor, has it re-asked through the view
-  // returned below; the refresh command stays an override a reader may press,
-  // rather than the way to obtain correct data the first time.
+  // returned below — as does a move of the selected Release, since the list is
+  // what that Release's terms hold; the refresh command stays an override a
+  // reader may press, rather than the way to obtain correct data the first time.
   deps.onReady(() => catalog.refresh());
   context.subscriptions.push(
     vscode.window.registerTreeDataProvider('aggrega.workspaceCatalog', catalog),
@@ -265,6 +271,11 @@ export function activateWorkspaceCatalogView(
     // one is named, over a Release's resolved closure. Those are two scopes of one
     // question, and a row names an entity rather than a buffer or a Release — so
     // there is nothing here to send the entity to yet.
+    //
+    // The command still names the selected Release, read as the row is pressed,
+    // so the entity is checked in the terms of the Release whose list the row was
+    // drawn from: what it refers to resolves through that Release's catalog
+    // directories rather than the workspace's own.
     vscode.commands.registerCommand(
       'aggrega.workspaceCatalog.validate',
       (node?: CatalogPanelNode) => onPath(node, (entityPath) =>
@@ -272,7 +283,7 @@ export function activateWorkspaceCatalogView(
           deps,
           `Aggrega: checking ${entityPath}`,
           'The check',
-          catalogValidateArgs(entityPath),
+          catalogValidateArgs(entityPath, deps.selectedRelease()),
           `checked ${entityPath}.`,
         )),
     ),
