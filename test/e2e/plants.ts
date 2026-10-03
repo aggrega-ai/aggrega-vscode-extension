@@ -500,6 +500,20 @@ export const PLANTS: readonly Plant[] = [
     says: 'a build that resolved its dependencies first lists nothing about the resolution, going straight from its opening line to its advisories and files',
   },
   {
+    name: 'resolution-source-not-named', scenario: 'workspace-above', checks: ['build.auto-pull-fills-the-lockfile-then-builds'], moves: 'red', target: 'extension',
+    file: 'out/src/build-report.js',
+    find: "    const source = ref.source ? `, source: ${ref.source}` : '';",
+    replace: "    const source = '';",
+    says: 'each reference a build\'s resolution pinned is listed without where the resolution took it from, although the answer names it',
+  },
+  {
+    name: 'pull-complete-counts-reordered', scenario: 'workspace-above', checks: ['build.auto-pull-fills-the-lockfile-then-builds'], moves: 'red', target: 'extension',
+    file: 'out/src/build-report.js',
+    find: '        + `source_artifacts=${report.sourceArtifacts}, external_inputs=${report.externalInputs}${trusted})`);',
+    replace: '        + `external_inputs=${report.externalInputs}, source_artifacts=${report.sourceArtifacts}${trusted})`);',
+    says: 'the line closing a build\'s resolution gives its external inputs before its source artifacts, unlike the command line\'s own line for the same pull',
+  },
+  {
     name: 'auto-pull-sent-off', scenario: 'workspace-above', checks: ['build.auto-pull-fills-the-lockfile-then-builds'], moves: 'red', target: 'extension',
     file: 'out/src/build-dials.js',
     find: '        [exports.AUTO_PULL_DIAL]: on.includes(exports.AUTO_PULL_DIAL),',

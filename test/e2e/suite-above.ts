@@ -9,6 +9,7 @@ import { RESTART_COMMAND } from '../../src/daemon-status';
 import type { BuildResponse, DependencyResolutionReport } from '../../src/types';
 import { outputParentFor } from '../../src/workspace';
 import { need } from './checks';
+import { runCompiler } from './cli';
 import { WebviewDocument } from './drivers';
 import { referenceAnswer } from './reference';
 import { capture, closeAllEditors, open, ready, run, save, send, SuiteContext, theServer } from './suite-context';
@@ -76,15 +77,24 @@ const pullEnding = (release: string): string => `The pull resolved the dependenc
 
 // What the channel lists for a build's own dependency resolution, composed from
 // the language server's own answer to the same build: each reference it pinned,
-// in the answer's order, then the command line's summary of the resolution. The
-// frame is held here as the words a reader is to meet, for the reason the words
-// above are; every value in it is the answer's.
+// in the answer's order, closed by the answer's word for where the resolution
+// took it from, then the command line's summary of the resolution. The frame is
+// held here as the words a reader is to meet, for the reason the words above
+// are; every value in it is the answer's.
 type PinnedReference = NonNullable<DependencyResolutionReport['entities']>[number];
-const pinnedLine = (r: PinnedReference): string => `pinned ${r.uri}${r.version ? ` at ${r.version}` : ''}${r.kind ? ` (${r.kind})` : ''}`;
+const pinnedLine = (r: PinnedReference): string => `pinned ${r.uri}${r.version ? ` at ${r.version}` : ''}${r.kind ? ` (${r.kind})` : ''}${r.source ? `, source: ${r.source}` : ''}`;
 const pullComplete = (r: DependencyResolutionReport): string =>
   `Pull complete: ${r.lockfile} (entities=${(r.entities ?? []).length}, source_artifacts=${r.sourceArtifacts}, external_inputs=${r.externalInputs}${r.trustedPlugins > 0 ? `, trusted_plugins=${r.trustedPlugins}` : ''})`;
 const resolutionLines = (r: DependencyResolutionReport): string[] =>
   [...[...(r.entities ?? []), ...(r.libraries ?? []), ...(r.plugins ?? [])].map(pinnedLine), pullComplete(r)];
+
+// The line that closes a completed pull, read in two parts: the lockfile's path,
+// and everything after it. The command line spells the path from the directory
+// it ran in and the language server from the workspace root it was started on,
+// so a line of each is compared as the file each path names and, after the
+// path, byte for byte. The frame composed above can drift with the extension's,
+// since both are typed; the command line's own line for the same pull cannot.
+const PULL_COMPLETE = /^Pull complete: (.+)( \(entities=[^)]*\))$/;
 
 // GRAPH_DRAWN identifies the graph panel's document once it has drawn a node.
 const GRAPH_DRAWN = `!!document.getElementById('canvas') && document.querySelectorAll('#canvas g, #canvas rect').length > 0`;
@@ -408,8 +418,8 @@ export async function aboveChecks(ctx: SuiteContext, layout: { root: string; ref
     return { passed, seen: `${seen.join('; ')}; the compiler's words "${words}"` };
   });
   await c.run('build.auto-pull-fills-the-lockfile-then-builds', {
-    expected: 'with the box ticked, Build resolves the dependencies first and completes, the lockfile is back beside the Release, and the channel lists what the resolution did before the files: each reference the language server\'s own answer to the same build reports pinned, as "pinned <reference> at <version> (<kind>)", in that answer\'s order, then "Pull complete: <lockfile> (entities=<n>, source_artifacts=<n>, external_inputs=<n>)" naming the lockfile that answer names',
-    plant: 'in the scratch copy, out/src/build-report.js made to list nothing for the resolution; or out/src/build-dials.js made to send the option as false',
+    expected: 'with the box ticked, Build resolves the dependencies first and completes, the lockfile is back beside the Release, and the channel lists what the resolution did before the files: each reference the language server\'s own answer to the same build reports pinned, as "pinned <reference> at <version> (<kind>), source: <source>" with that answer\'s own word for where the reference was taken from, in that answer\'s order, then "Pull complete: <lockfile> (entities=<n>, source_artifacts=<n>, external_inputs=<n>)" naming the lockfile that answer names — and that closing line is the one the command line prints for the same pull run in the Release\'s folder of a reference copy: its path names the same file, read from where each was written, and the rest is the same byte for byte',
+    plant: 'in the scratch copy, out/src/build-report.js made to list nothing for the resolution, to leave the source off each pinned line, or to give the closing line\'s counts in another order; or out/src/build-dials.js made to send the option as false',
   }, async () => {
     need(!fs.existsSync(lock), 'the lockfile is not aside, so there is nothing for the option to fill');
     // The server's own answer to the same build, over the reference copy, which
@@ -425,8 +435,23 @@ export async function aboveChecks(ctx: SuiteContext, layout: { root: string; ref
     const answered = ref.result as BuildResponse;
     const report = answered.dependencyResolution;
     need(report !== undefined && (report.entities ?? []).length > 0, `the compiler's own answer to the same build reports no resolution: ${JSON.stringify(answered).slice(0, 400)}`);
+    // Without a source in the answer the lines would carry none either, and a
+    // channel that dropped every source would match them.
+    need((report.entities ?? []).some((e) => e.source), `the compiler's own answer to the same build names no source for any reference, so a line carrying one is not shown to be read: ${JSON.stringify(report.entities).slice(0, 400)}`);
     const want = resolutionLines(report);
     const files = answered.files ?? [];
+    // The command line's own account of the same pull, run where a person in the
+    // opened folder would run it: in that folder of the reference copy, naming
+    // the Release by its file name, with the same scratch home. The lockfile it
+    // writes there is removed too.
+    const cli = await runCompiler(bin, ['build', '--release', RELEASE_FILE, '--auto-pull'], { cwd: refFolder, home: ctx.home, boundMs: 180000, log: ctx.cliLog });
+    fs.rmSync(refLock, { force: true });
+    const terminal = cli.stdout.split('\n').find((l) => l.startsWith('Pull complete: ')) ?? '';
+    const theirs = PULL_COMPLETE.exec(terminal);
+    need(cli.status === 0 && theirs !== null, `the command line did not complete the same pull over the reference copy: exit ${cli.status ?? cli.signal}; ${JSON.stringify(terminal || (cli.stderr || cli.stdout).trim().split('\n').slice(-3).join(' | '))}`);
+    // The file the command line's path names, read from the folder it ran in and
+    // placed where it stands in the workspace rather than in its copy.
+    const theirFile = path.join(layout.root, path.relative(layout.referenceRoot, path.resolve(refFolder, theirs[1])));
     await pressIn(ctx.d, panel, CARET);
     await menuOpen();
     await pressIn(ctx.d, panel, ROW);
@@ -448,9 +473,19 @@ export async function aboveChecks(ctx: SuiteContext, layout: { root: string; ref
     const asAnswered = at !== -1 && JSON.stringify(listed) === JSON.stringify(want);
     const beforeFiles = asAnswered && firstFile !== -1 && at + want.length <= firstFile;
     const back = fs.existsSync(lock);
+    // The channel's closing line against the command line's: the path the
+    // channel gives, read from the workspace root, and the command line's, read
+    // from the folder it ran in, both naming the lockfile beside the Release;
+    // and everything after the path the same.
+    const closing = between.find((l) => l.startsWith('Pull complete: ')) ?? '';
+    const ours = PULL_COMPLETE.exec(closing);
+    const ourFile = ours === null ? '' : path.resolve(layout.root, ours[1]);
+    const oneFile = ours !== null && ourFile === lock && theirFile === lock;
+    const sameRest = ours !== null && ours[2] === theirs[2];
+    const asAtTerminal = oneFile && sameRest;
     return {
-      passed: end !== -1 && back && asAnswered && beforeFiles,
-      seen: `${end !== -1 ? lines[end] : lines.find((l) => l.startsWith('The build')) ?? 'no ending'}; the lockfile ${back ? 'is back' : 'is not back'}; the compiler's answer gives ${want.length} line(s) for the resolution, from ${JSON.stringify(want[0])} to ${JSON.stringify(want[want.length - 1])}, and ${files.length} file(s); the channel ${asAnswered ? `lists them as answered${beforeFiles ? ', before the first file' : `, but not before the first file (at ${at}, the first file at ${firstFile})`}` : 'does not list them as answered'}; between the opening and the closing line: ${JSON.stringify(between.slice(0, Math.max(want.length + 2, 6)))}`,
+      passed: end !== -1 && back && asAnswered && beforeFiles && asAtTerminal,
+      seen: `${end !== -1 ? lines[end] : lines.find((l) => l.startsWith('The build')) ?? 'no ending'}; the lockfile ${back ? 'is back' : 'is not back'}; the compiler's answer gives ${want.length} line(s) for the resolution, from ${JSON.stringify(want[0])} to ${JSON.stringify(want[want.length - 1])}, and ${files.length} file(s); the channel ${asAnswered ? `lists them as answered${beforeFiles ? ', before the first file' : `, but not before the first file (at ${at}, the first file at ${firstFile})`}` : 'does not list them as answered'}; the command line, run in ${refFolder}, printed ${JSON.stringify(terminal)}, and the channel's closing line ${ours === null ? `is not a completed pull's: ${JSON.stringify(closing)}` : `${oneFile ? 'names the same file' : `names ${ourFile}, the command line's ${theirFile}, and the lockfile is ${lock}`} and ${sameRest ? 'reads the same after the path' : `reads ${JSON.stringify(ours[2])} after the path where the command line reads ${JSON.stringify(theirs[2])}`}`}; between the opening and the closing line: ${JSON.stringify(between.slice(0, Math.max(want.length + 2, 6)))}`,
     };
   });
   await c.run('preview.never-carries-auto-pull', {

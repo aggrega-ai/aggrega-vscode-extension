@@ -20,33 +20,36 @@ import { BuildPreviewResponse, BuildResponse, DependencyResolutionReport } from 
 
 // RESOLVED is shaped as the language server answers an auto-pull build of a
 // Release whose closure reaches every axis the report carries: a reference with a
-// kind, one without, one that resolved to no version, a library and a plugin.
+// kind, one without, one that resolved to no version, a library and a plugin —
+// each naming where this run took it from, between them in every word the
+// compiler prints for a source.
 const RESOLVED: DependencyResolutionReport = {
   lockfile: 'examples/demo/release-compose.lock',
   entities: [
-    { uri: 'aggregate', version: '' },
-    { uri: 'compose/adminer:1.0.0', version: '1.0.0', kind: 'Recipe' },
-    { uri: 'core/devtool/adminer', version: '1.0.0' },
-    { uri: 'manifest-compose', version: '' },
+    { uri: 'aggregate', version: '', source: 'external' },
+    { uri: 'compose/adminer:1.0.0', version: '1.0.0', kind: 'Recipe', source: 'local' },
+    { uri: 'core/devtool/adminer', version: '1.0.0', source: 'fetched-fresh' },
+    { uri: 'manifest-compose', version: '', source: 'external' },
   ],
-  libraries: [{ uri: 'core/schemas/common:2.0.0', version: '2.0.0', kind: 'SchemaLibrary' }],
-  plugins: [{ uri: 'provider/compose', version: '0.7.4', kind: 'Plugin' }],
+  libraries: [{ uri: 'core/schemas/common:2.0.0', version: '2.0.0', kind: 'SchemaLibrary', source: 'cache-reuse' }],
+  plugins: [{ uri: 'provider/compose', version: '0.7.4', kind: 'Plugin', source: 'in-binary' }],
   sourceArtifacts: 1,
   trustedPlugins: 0,
   externalInputs: 2,
 };
 
 // RULED_RESOLUTION is what the channel lists for RESOLVED: every pinned reference
-// in the report's order — entities, then libraries, then plugins — and then the
-// command line's own summary of a completed resolution, whose entity count is the
-// entities alone, as the command line counts it.
+// in the report's order — entities, then libraries, then plugins — each closed by
+// the answer's word for its source, and then the command line's own summary of a
+// completed resolution, whose entity count is the entities alone, as the command
+// line counts it.
 const RULED_RESOLUTION = [
-  '  pinned aggregate',
-  '  pinned compose/adminer:1.0.0 at 1.0.0 (Recipe)',
-  '  pinned core/devtool/adminer at 1.0.0',
-  '  pinned manifest-compose',
-  '  pinned core/schemas/common:2.0.0 at 2.0.0 (SchemaLibrary)',
-  '  pinned provider/compose at 0.7.4 (Plugin)',
+  '  pinned aggregate, source: external',
+  '  pinned compose/adminer:1.0.0 at 1.0.0 (Recipe), source: local',
+  '  pinned core/devtool/adminer at 1.0.0, source: fetched-fresh',
+  '  pinned manifest-compose, source: external',
+  '  pinned core/schemas/common:2.0.0 at 2.0.0 (SchemaLibrary), source: cache-reuse',
+  '  pinned provider/compose at 0.7.4 (Plugin), source: in-binary',
   '  Pull complete: examples/demo/release-compose.lock (entities=4, source_artifacts=1, external_inputs=2)',
 ];
 
@@ -76,6 +79,34 @@ describe('what a build answer puts on the output channel', () => {
       buildReportLines(answer({})),
       [...RULED_RESOLUTION, ...RULED_NOTICES, ...RULED_FILES],
       'a build that resolved its dependencies first is reported in some other order or other words',
+    );
+  });
+
+  it('🔴 names no source where the answer names none, and prints a word it has not met as it arrived', () => {
+    // A reference whose run recorded no source arrives with no word for it, and
+    // its line ends where the reference does: nothing is supplied in the word's
+    // place, and an empty word says no more than an absent one. A word outside
+    // the ones the compiler prints today is the compiler's to add, so it is shown
+    // as the answer spells it rather than dropped.
+    const report: DependencyResolutionReport = {
+      ...RESOLVED,
+      entities: [
+        { uri: 'core/devtool/adminer', version: '1.0.0' },
+        { uri: 'compose/adminer:1.0.0', version: '1.0.0', kind: 'Recipe', source: '' },
+        { uri: 'core/observability/prometheus', version: '1.0.0', source: 'mirrored' },
+      ],
+      libraries: null,
+      plugins: null,
+    };
+    assert.deepStrictEqual(
+      buildReportLines({ files: [], dependencyResolution: report }),
+      [
+        '  pinned core/devtool/adminer at 1.0.0',
+        '  pinned compose/adminer:1.0.0 at 1.0.0 (Recipe)',
+        '  pinned core/observability/prometheus at 1.0.0, source: mirrored',
+        '  Pull complete: examples/demo/release-compose.lock (entities=3, source_artifacts=1, external_inputs=2)',
+      ],
+      'a reference the answer names no source for is given one, or a word the answer carries is dropped or reworded',
     );
   });
 

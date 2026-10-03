@@ -54,9 +54,10 @@ function noticeLine(notice: BuildNotice): string {
 //
 // Every value is the report's own, printed as it arrived — the reference as the
 // report names it, the version it resolved to, the kind where the report names
-// one. Nothing is inferred from a reference's shape: the report carries no
-// account of where each reference was found, and a guess at it from the
-// spelling would state something the compiler never said.
+// one, and where this run took the reference from where the report names that.
+// Nothing is inferred from a reference's shape: a reference whose entry names no
+// source is listed without one, because a guess at it from the spelling would
+// state something the compiler never said.
 //
 // The closing line is the command line's own summary of a completed
 // resolution, in the same words, because the two surfaces perform one
@@ -90,8 +91,14 @@ function dependencyResolutionLines(report: DependencyResolutionReport | undefine
 // pinnedLine renders one reference the resolution pinned. A reference that
 // resolved to no version — the Release's own Aggregate and Manifest are such
 // references, pinned by their content — is named without one.
+//
+// The source closes the line in the answer's own word for it, the word
+// `aggrega pull --detail` prints for the same resolution, and any word the
+// answer carries is printed: the set is the compiler's to extend, so a word
+// this surface has not met is shown rather than dropped.
 function pinnedLine(ref: PinnedReference): string {
   const version = ref.version ? ` at ${ref.version}` : '';
   const kind = ref.kind ? ` (${ref.kind})` : '';
-  return `  pinned ${ref.uri}${version}${kind}`;
+  const source = ref.source ? `, source: ${ref.source}` : '';
+  return `  pinned ${ref.uri}${version}${kind}${source}`;
 }
