@@ -3,15 +3,23 @@
 // Copyright 2026 Cognitio S.r.l.
 
 // Builds the extension's installable package (a .vsix) and publishes a built one
-// to the Visual Studio Marketplace. `node scripts/vsix.js --help` states every
-// mode and option; that text is the contract, and this header only explains it.
+// to the Visual Studio Marketplace and to Open VSX. `node scripts/vsix.js --help`
+// states every mode and option; that text is the contract, and this header only
+// explains it.
 //
 // 🔴 THE PACKAGE IS BUILT ONCE, AND PUBLISHING ONLY EVER UPLOADS A FILE IT IS
-// GIVEN. Packaging and publishing are separate modes so that one built file can
-// be published to more than one marketplace, and so that what is published is
-// exactly what was built and inspected. The publish mode never asks the packager
-// to build: given no file it refuses, because the packager's own publish command,
-// given no file, packages the working folder and uploads that in one step.
+// GIVEN. Packaging and publishing are separate modes so that one built file is
+// published to both marketplaces, and so that what is published is exactly what
+// was built and inspected. A publish mode never asks a marketplace's tool to
+// build: given no file it refuses, because each marketplace's own publish
+// command, given no file, packages the working folder and uploads that in one step.
+//
+// 🔴 THE OPEN VSX TOKEN COMES FROM OVSX_PAT AND NOWHERE ELSE. The Open VSX client
+// treats an empty OVSX_PAT as no token at all, and then uses a token stored on the
+// machine, or asks for one at a prompt and stores it. So both Open VSX modes
+// refuse before starting it unless OVSX_PAT holds a token, and name the registry
+// on its command line, so that no setting in the environment sends the token
+// anywhere else.
 //
 // 🔴 THE PACKAGE IS BUILT FROM COMMITTED TREES, OUTSIDE THEM. The extension
 // compiles only beside two sibling checkouts — the wire contract it type-checks
@@ -29,9 +37,10 @@
 // and a question with nobody to answer it is not a refusal anyone can read. The
 // check runs on the committed tree first and names everything missing at once.
 //
-// The packager is the version package.json pins, run from the directory npm
-// installed it into from the lockfile — never fetched afresh at publish time,
-// since the publish step is the one that holds a credential.
+// The packager and the Open VSX client are each the version package.json pins,
+// run from the directory npm installed it into from the lockfile — never fetched
+// afresh at publish time, since the publish step is the one that holds a
+// credential.
 
 'use strict';
 
@@ -41,7 +50,13 @@ const os = require('os');
 const path = require('path');
 
 const EXTENSION_ROOT = path.resolve(__dirname, '..');
-const PACKAGER = '@vscode/vsce';
+
+// Each tool is a development dependency, named by its package and by the command
+// it installs.
+const PACKAGER = { name: '@vscode/vsce', command: 'vsce' };
+const OPEN_VSX_CLIENT = { name: 'ovsx', command: 'ovsx' };
+
+const OPEN_VSX = 'https://open-vsx.org';
 const MIN_NODE_MAJOR = 22;
 const MIN_ICON_SIDE = 128;
 const LICENSE_FILE = /^LICENSE(\.md|\.txt)?$/i;
@@ -85,16 +100,35 @@ modes:
                 Check that the sign-in may publish as package.json's publisher.
                 Publishes nothing.
 
+  publish-open-vsx <file.vsix>
+                Publish that already-built package to Open VSX, at ${OPEN_VSX},
+                into the namespace the package's publisher names. A listing there is
+                public from the moment this succeeds.
+
+  verify-open-vsx
+                Read package.json's publisher as a namespace from Open VSX and report
+                whether the registry has it, then check that the token may publish to
+                it. Publishes nothing. Refuses when either check fails.
+
 Signing in, for publish-marketplace and verify-marketplace: when VSCE_PAT is set and not
 empty in the environment, the packager signs in with that personal access token, which it
 reads from the environment itself; otherwise it signs in with Microsoft Entra ID
 (--azure-credential), which takes credentials from the environment, an Azure CLI sign-in
-or a managed identity. A token is never accepted as an argument or read from a file.
+or a managed identity.
 
-The packager is ${PACKAGER} at the exact version package.json pins under devDependencies,
-run from where npm installed it from the lockfile: the work directory's copy of the
-extension when packaging, this repository's node_modules when publishing or verifying
-(run npm ci first). Node ${MIN_NODE_MAJOR} or newer is required.
+Signing in, for publish-open-vsx and verify-open-vsx: the Open VSX client signs in with
+the personal access token in OVSX_PAT, which it reads from the environment itself. Both
+modes refuse before starting it when OVSX_PAT is unset or empty, and give it the
+registry's address, so it neither uses a token stored on the machine nor sends this one
+elsewhere.
+
+A token is never accepted as an argument or read from a file.
+
+The packager is ${PACKAGER.name} and the Open VSX client is ${OPEN_VSX_CLIENT.name}, each at the exact
+version package.json pins under devDependencies, run from where npm installed it from the
+lockfile: the work directory's copy of the extension when packaging, this repository's
+node_modules when publishing or verifying (run npm ci first). Node ${MIN_NODE_MAJOR} or newer
+is required.
 
 Exit status: 0 done; 1 refused or failed, with the reason printed; 2 usage error.
 `;
@@ -135,10 +169,10 @@ function capture(what, command, args, options = {}) {
   return result.stdout;
 }
 
-function requireNode() {
+function requireNode(tool) {
   const major = Number(process.versions.node.split('.')[0]);
   if (major < MIN_NODE_MAJOR) {
-    throw new Refusal(`${PACKAGER} needs Node ${MIN_NODE_MAJOR} or newer, and this is Node ${process.versions.node}`);
+    throw new Refusal(`${tool.name} needs Node ${MIN_NODE_MAJOR} or newer, and this is Node ${process.versions.node}`);
   }
 }
 
@@ -210,28 +244,38 @@ function listingGaps(root) {
   return gaps;
 }
 
-// packagerAt returns the packager's entry point as installed under root, after
-// checking that it is the exact version root's package.json pins.
-function packagerAt(root) {
-  const pin = readJson(path.join(root, 'package.json')).devDependencies?.[PACKAGER];
+// pinnedToolAt returns a tool's command as installed under root, after checking
+// that the installed copy is the exact version root's package.json pins.
+function pinnedToolAt(root, tool) {
+  const pin = readJson(path.join(root, 'package.json')).devDependencies?.[tool.name];
   if (typeof pin !== 'string' || !/^\d+\.\d+\.\d+$/.test(pin)) {
-    throw new Refusal(`package.json must pin ${PACKAGER} to one exact version under devDependencies, and it has ${JSON.stringify(pin)}`);
+    throw new Refusal(`package.json must pin ${tool.name} to one exact version under devDependencies, and it has ${JSON.stringify(pin)}`);
   }
-  const dir = path.join(root, 'node_modules', ...PACKAGER.split('/'));
+  const dir = path.join(root, 'node_modules', ...tool.name.split('/'));
   let installed;
   try {
     installed = readJson(path.join(dir, 'package.json'));
   } catch {
-    throw new Refusal(`${PACKAGER} ${pin} is not installed under ${root}; run npm ci there first`);
+    throw new Refusal(`${tool.name} ${pin} is not installed under ${root}; run npm ci there first`);
   }
   if (installed.version !== pin) {
-    throw new Refusal(`${root} has ${PACKAGER} ${installed.version} installed, not the ${pin} package.json pins; run npm ci there`);
+    throw new Refusal(`${root} has ${tool.name} ${installed.version} installed, not the ${pin} package.json pins; run npm ci there`);
   }
-  const bin = typeof installed.bin === 'string' ? installed.bin : installed.bin?.vsce;
+  const bin = typeof installed.bin === 'string' ? installed.bin : installed.bin?.[tool.command];
   if (typeof bin !== 'string') {
-    throw new Refusal(`${PACKAGER} ${pin} declares no vsce command`);
+    throw new Refusal(`${tool.name} ${pin} declares no ${tool.command} command`);
   }
   return path.join(dir, bin);
+}
+
+// manifestPublisher returns the publisher package.json names, which is both the
+// Marketplace publisher and the Open VSX namespace.
+function manifestPublisher() {
+  const publisher = readJson(path.join(EXTENSION_ROOT, 'package.json')).publisher;
+  if (typeof publisher !== 'string' || publisher === '') {
+    throw new Refusal('package.json names no publisher to verify');
+  }
+  return publisher;
 }
 
 // signIn chooses how the packager signs in to the Marketplace: the token in
@@ -245,6 +289,54 @@ function signIn() {
   const env = { ...process.env };
   delete env.VSCE_PAT;
   return { label: 'Microsoft Entra ID (--azure-credential)', args: ['--azure-credential'], env };
+}
+
+// requireOpenVsxToken refuses unless OVSX_PAT holds a token, which the Open VSX
+// client then reads from the environment itself. The client counts an empty
+// OVSX_PAT as no token and turns to a token stored on the machine, or to a
+// prompt whose answer it stores, so the check comes before it is started.
+function requireOpenVsxToken(mode) {
+  const token = process.env.OVSX_PAT;
+  if (typeof token !== 'string' || token === '') {
+    throw new Refusal(`${mode} signs in with the personal access token in OVSX_PAT, which is not set or is empty`);
+  }
+}
+
+// openVsxNamespace reads a namespace from Open VSX, which needs no sign-in, and
+// reports the registry's answer: the namespace and the extensions it holds, or
+// the registry's own message when it has none by that name. It returns whether
+// the namespace exists.
+async function openVsxNamespace(namespace) {
+  const address = `${OPEN_VSX}/api/${encodeURIComponent(namespace)}`;
+  let response;
+  let body;
+  try {
+    response = await fetch(address, { signal: AbortSignal.timeout(30_000) });
+    body = await response.text();
+  } catch (err) {
+    throw new Refusal(`reading ${address} failed: ${err.message}`);
+  }
+  let answer = {};
+  try {
+    const parsed = JSON.parse(body);
+    if (parsed !== null && typeof parsed === 'object') {
+      answer = parsed;
+    }
+  } catch {
+    // An answer that is not JSON is reported by its status below.
+  }
+  const message = answer.error ?? answer.message;
+  if (response.status === 404) {
+    console.log(`vsix: Open VSX has no namespace ${namespace}; the registry answers: ${message ?? `${response.status} ${response.statusText}`}`);
+    return false;
+  }
+  if (!response.ok) {
+    throw new Refusal(`reading ${address} failed: the registry answers ${response.status} ${response.statusText}${message ? `: ${message}` : ''}`);
+  }
+  const extensions = Object.keys(answer.extensions ?? {});
+  const holding = extensions.length > 0 ? `holding ${extensions.join(', ')}` : 'holding no extension';
+  console.log(`vsix: Open VSX has the namespace ${namespace}, ${answer.verified ? 'verified' : 'not verified'}, ${holding}`);
+  return true;
 }
 
 // checkOutCommitted places the commit a repository's HEAD names into a new
@@ -302,7 +394,7 @@ function packageMode(args) {
   if (positional.length > 0) {
     throw new UsageError(`package takes no positional argument, and was given ${positional.join(' ')}`);
   }
-  requireNode();
+  requireNode(PACKAGER);
 
   const source = path.resolve(options.source ?? EXTENSION_ROOT);
   const abi = path.resolve(options.abi ?? path.join(source, '..', 'aggrega-abi'));
@@ -345,7 +437,7 @@ function packageMode(args) {
   }
 
   run('npm ci', 'npm', ['ci', '--no-audit', '--no-fund'], { cwd: extension });
-  const packager = packagerAt(extension);
+  const packager = pinnedToolAt(extension, PACKAGER);
   const manifest = readJson(path.join(extension, 'package.json'));
   fs.mkdirSync(out, { recursive: true });
   const vsix = path.join(out, `${manifest.name}-${manifest.version}.vsix`);
@@ -355,7 +447,7 @@ function packageMode(args) {
   // The packager runs the manifest's prepublish step — the compile, which builds
   // the wire contract, type-checks, places the vendored assets and stamps the
   // build — and then packages.
-  run(`${PACKAGER} package`, process.execPath, [packager, 'package', '--out', vsix], { cwd: extension });
+  run(`${PACKAGER.name} package`, process.execPath, [packager, 'package', '--out', vsix], { cwd: extension });
 
   const stamp = readJson(path.join(extension, 'out', 'build-version.json'));
   const entries = vsixEntries(vsix);
@@ -367,54 +459,95 @@ function packageMode(args) {
   console.log(vsix);
 }
 
-function publishMode(args) {
+// builtPackage reads a publish mode's one argument, the package to publish, and
+// refuses anything but an existing .vsix, so that no publish command is ever
+// started without a file — which would package the working folder instead.
+function builtPackage(mode, args) {
   const { positional } = parseOptions(args, []);
   if (positional.length !== 1) {
-    throw new UsageError('publish-marketplace takes exactly one argument, the .vsix to publish');
+    throw new UsageError(`${mode} takes exactly one argument, the .vsix to publish`);
   }
   const vsix = path.resolve(positional[0]);
   if (path.extname(vsix) !== '.vsix') {
-    throw new Refusal(`${vsix} is not a .vsix; publish-marketplace publishes a package the package mode built`);
+    throw new Refusal(`${vsix} is not a .vsix; ${mode} publishes a package the package mode built`);
   }
   if (!fs.existsSync(vsix) || !fs.statSync(vsix).isFile()) {
     throw new Refusal(`${vsix} does not exist; build it with the package mode first`);
   }
-  requireNode();
-  const packager = packagerAt(EXTENSION_ROOT);
+  return vsix;
+}
+
+function noArguments(mode, args) {
+  const { positional } = parseOptions(args, []);
+  if (positional.length > 0) {
+    throw new UsageError(`${mode} takes no argument, and was given ${positional.join(' ')}`);
+  }
+}
+
+function publishMarketplaceMode(args) {
+  const vsix = builtPackage('publish-marketplace', args);
+  requireNode(PACKAGER);
+  const packager = pinnedToolAt(EXTENSION_ROOT, PACKAGER);
   const credential = signIn();
   console.log(`vsix: publishing ${vsix} to the Visual Studio Marketplace, signing in with ${credential.label}`);
-  run(`${PACKAGER} publish`, process.execPath, [packager, 'publish', '--packagePath', vsix, ...credential.args], {
+  run(`${PACKAGER.name} publish`, process.execPath, [packager, 'publish', '--packagePath', vsix, ...credential.args], {
     cwd: EXTENSION_ROOT,
     env: credential.env,
   });
 }
 
-function verifyMode(args) {
-  const { positional } = parseOptions(args, []);
-  if (positional.length > 0) {
-    throw new UsageError(`verify-marketplace takes no argument, and was given ${positional.join(' ')}`);
-  }
-  requireNode();
-  const publisher = readJson(path.join(EXTENSION_ROOT, 'package.json')).publisher;
-  if (typeof publisher !== 'string' || publisher === '') {
-    throw new Refusal('package.json names no publisher to verify');
-  }
-  const packager = packagerAt(EXTENSION_ROOT);
+function verifyMarketplaceMode(args) {
+  noArguments('verify-marketplace', args);
+  requireNode(PACKAGER);
+  const publisher = manifestPublisher();
+  const packager = pinnedToolAt(EXTENSION_ROOT, PACKAGER);
   const credential = signIn();
   console.log(`vsix: checking that ${credential.label} may publish as ${publisher}; nothing is published`);
-  run(`${PACKAGER} verify-pat`, process.execPath, [packager, 'verify-pat', publisher, ...credential.args], {
+  run(`${PACKAGER.name} verify-pat`, process.execPath, [packager, 'verify-pat', publisher, ...credential.args], {
     cwd: EXTENSION_ROOT,
     env: credential.env,
   });
+}
+
+// Both Open VSX modes give the client the registry before the command, which is
+// where it reads its own options, and an address given there outranks any the
+// environment names.
+function publishOpenVsxMode(args) {
+  const vsix = builtPackage('publish-open-vsx', args);
+  requireNode(OPEN_VSX_CLIENT);
+  const client = pinnedToolAt(EXTENSION_ROOT, OPEN_VSX_CLIENT);
+  requireOpenVsxToken('publish-open-vsx');
+  console.log(`vsix: publishing ${vsix} to Open VSX (${OPEN_VSX}), signing in with the personal access token in OVSX_PAT`);
+  run(`${OPEN_VSX_CLIENT.name} publish`, process.execPath, [client, '--registryUrl', OPEN_VSX, 'publish', vsix], {
+    cwd: EXTENSION_ROOT,
+  });
+}
+
+async function verifyOpenVsxMode(args) {
+  noArguments('verify-open-vsx', args);
+  requireNode(OPEN_VSX_CLIENT);
+  const namespace = manifestPublisher();
+  const client = pinnedToolAt(EXTENSION_ROOT, OPEN_VSX_CLIENT);
+  requireOpenVsxToken('verify-open-vsx');
+  const exists = await openVsxNamespace(namespace);
+  console.log(`vsix: checking that the personal access token in OVSX_PAT may publish to the namespace ${namespace}; nothing is published`);
+  run(`${OPEN_VSX_CLIENT.name} verify-pat`, process.execPath, [client, '--registryUrl', OPEN_VSX, 'verify-pat', namespace], {
+    cwd: EXTENSION_ROOT,
+  });
+  if (!exists) {
+    throw new Refusal(`Open VSX has no namespace ${namespace}, and nothing can be published to it until it is created`);
+  }
 }
 
 const MODES = {
   'package': packageMode,
-  'publish-marketplace': publishMode,
-  'verify-marketplace': verifyMode,
+  'publish-marketplace': publishMarketplaceMode,
+  'verify-marketplace': verifyMarketplaceMode,
+  'publish-open-vsx': publishOpenVsxMode,
+  'verify-open-vsx': verifyOpenVsxMode,
 };
 
-function main(argv) {
+async function main(argv) {
   const [mode, ...args] = argv;
   if (mode === '--help' || mode === '-h' || mode === 'help') {
     process.stdout.write(USAGE);
@@ -425,7 +558,7 @@ function main(argv) {
     if (handler === undefined) {
       throw new UsageError(mode === undefined ? 'no mode given' : `unknown mode ${mode}`);
     }
-    handler(args);
+    await handler(args);
     return 0;
   } catch (err) {
     if (err instanceof UsageError) {
@@ -440,4 +573,6 @@ function main(argv) {
   }
 }
 
-process.exitCode = main(process.argv.slice(2));
+main(process.argv.slice(2)).then((status) => {
+  process.exitCode = status;
+});

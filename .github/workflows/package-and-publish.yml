@@ -1,0 +1,388 @@
+name: Package and publish
+
+# Builds the extension's installable package (a .vsix) and publishes that one
+# file to the Visual Studio Marketplace and to Open VSX.
+#
+# The package job runs on every push and pull request to main and on a manual
+# run. It builds the package once, with scripts/vsix.js, and uploads it as this
+# run's artifact `vsix`. `node scripts/vsix.js --help` is the contract of every
+# step below that runs the script.
+#
+# 🔴 NOTHING HERE PUBLISHES UNLESS A PERSON ASKS IT TO. A listing on either
+# marketplace is public from the moment it is published. The two publish jobs
+# run only on a manual run (workflow_dispatch), and its `dry_run` input defaults
+# to true: a dry run checks each marketplace's sign-in and publishes nothing. A
+# publish happens only on a manual run started from main with `dry_run` set to
+# false, and it uploads the very file the package job of the same run built —
+# never a second build, and never the working folder, which each marketplace's
+# own publish command packages and uploads when it is handed no file. No release,
+# tag or push triggers a publish.
+#
+# Settings, by name:
+#   secrets   SUBMODULE_APP_CLIENT_ID    the organization App that reads the
+#             SUBMODULE_APP_PRIVATE_KEY  private sibling repositories
+#             AZURE_CLIENT_ID            the managed identity the Marketplace job
+#             AZURE_TENANT_ID            signs in as, through GitHub Actions'
+#             AZURE_SUBSCRIPTION_ID      OpenID Connect login
+#             VSCE_PAT                   a Marketplace personal access token, read
+#                                        only when none of the three above is set
+#             OVSX_PAT                   the Open VSX access token
+#   variables AGGREGA_RUNNER             the package job's runner label (optional,
+#                                        a hosted runner by default)
+#   environment marketplace-publish      the environment the Marketplace job runs
+#                                        in; the managed identity's federated
+#                                        credential names it as its subject
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Check each marketplace's sign-in and publish nothing. Set to false, on a run started from main, to publish the package this run builds to the Visual Studio Marketplace and to Open VSX."
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  # A newer push supersedes a package build still running for the same ref. A
+  # manual run is never cancelled, so a publish is never stopped half way.
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
+
+jobs:
+  package:
+    # Shared self-hosted-runner switch: set the AGGREGA_RUNNER org/repo variable to route here.
+    runs-on: ${{ vars.AGGREGA_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Mint org app token for private-sibling access
+        # The extension compiles only beside two private sibling repositories:
+        # the wire contract it type-checks against and the compiler, whose
+        # build-version recipe stamps the package. The token reads them.
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ secrets.SUBMODULE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.SUBMODULE_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
+      # Every checkout keeps its token out of the repository's configuration
+      # (persist-credentials: false): the build reads the checkouts and never
+      # fetches from GitHub again, so nothing later in the job, the installed
+      # npm packages included, finds a credential on disk.
+      - name: Check out the extension with full history and tags
+        # The package's build stamp names the release tag the commit carries,
+        # which needs the extension's history and tags.
+        uses: actions/checkout@v5
+        with:
+          path: aggrega-vscode-extension
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+
+      - name: Check out the wire contract beside it
+        uses: actions/checkout@v5
+        with:
+          repository: aggrega-ai/aggrega-abi
+          path: aggrega-abi
+          fetch-depth: 0
+          fetch-tags: true
+          token: ${{ steps.app-token.outputs.token }}
+          persist-credentials: false
+
+      - name: Check out the compiler beside it
+        uses: actions/checkout@v5
+        with:
+          repository: aggrega-ai/aggrega-cli
+          path: aggrega-cli
+          fetch-depth: 0
+          fetch-tags: true
+          token: ${{ steps.app-token.outputs.token }}
+          persist-credentials: false
+
+      - name: Set up Node
+        # 🔴 AN EXACT VERSION, BECAUSE THE INSTALL-SCRIPT POLICY DEPENDS ON ITS npm.
+        # package.json's allowScripts denies the install script of keytar, an
+        # optional native module the Open VSX client's dependencies bring, which
+        # would otherwise download a prebuilt binary the lockfile's integrity
+        # record does not cover. The npm this Node release bundles honours that
+        # denial; an npm that predates allowScripts ignores it and runs the
+        # script. Move this version only to one whose bundled npm honours it.
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24.21.0'
+
+      - name: Build the package
+        # Builds from the checkouts' commits in a work directory outside them, and
+        # writes the one .vsix into $RUNNER_TEMP/vsix.
+        run: |
+          set -euo pipefail
+          node aggrega-vscode-extension/scripts/vsix.js package \
+            --source aggrega-vscode-extension \
+            --abi aggrega-abi \
+            --cli aggrega-cli \
+            --work "$RUNNER_TEMP/vsix-work" \
+            --out "$RUNNER_TEMP/vsix"
+
+      - name: Upload the package
+        uses: actions/upload-artifact@v4
+        with:
+          name: vsix
+          path: ${{ runner.temp }}/vsix/*.vsix
+          if-no-files-found: error
+
+  publish-marketplace:
+    # Publishes to the Visual Studio Marketplace, or on a dry run checks that the
+    # sign-in may publish as package.json's publisher.
+    #
+    # It signs in with the managed identity when AZURE_CLIENT_ID, AZURE_TENANT_ID
+    # and AZURE_SUBSCRIPTION_ID are all set: GitHub Actions' OpenID Connect login
+    # signs the Azure CLI in as that identity, and the packager's Microsoft Entra ID
+    # sign-in takes its token from there. When none of the three is set it reads
+    # the token in VSCE_PAT instead; when only some are set, or neither the
+    # identity nor the token is, it refuses before anything runs.
+    #
+    # A hosted runner, whatever the package job uses: it carries the Azure CLI the
+    # sign-in goes through, and it is discarded after the job, so no sign-in
+    # outlives it.
+    needs: package
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: marketplace-publish
+    permissions:
+      contents: read
+      # Lets the job ask GitHub for the OpenID Connect token the managed
+      # identity's sign-in exchanges. This job only.
+      id-token: write
+    steps:
+      - name: Refuse a publish from a branch other than main
+        if: ${{ inputs.dry_run == false && github.ref != 'refs/heads/main' }}
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          echo "::error::a publish runs only on a manual run started from main, and this run was started from $REF; start it from main, or leave dry_run set" >&2
+          exit 1
+
+      - name: Choose how to sign in
+        id: sign-in
+        # Each value is only whether a secret is set; no secret's value reaches
+        # this step.
+        env:
+          HAS_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID != '' }}
+          HAS_TENANT_ID: ${{ secrets.AZURE_TENANT_ID != '' }}
+          HAS_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID != '' }}
+          HAS_TOKEN: ${{ secrets.VSCE_PAT != '' }}
+        run: |
+          set -euo pipefail
+          set_count=0
+          for has in "$HAS_CLIENT_ID" "$HAS_TENANT_ID" "$HAS_SUBSCRIPTION_ID"; do
+            if [ "$has" = true ]; then set_count=$((set_count + 1)); fi
+          done
+          if [ "$set_count" -eq 3 ]; then
+            echo "identity=true" >> "$GITHUB_OUTPUT"
+            echo "signing in with the managed identity AZURE_CLIENT_ID names"
+          elif [ "$set_count" -gt 0 ]; then
+            echo "::error::AZURE_CLIENT_ID, AZURE_TENANT_ID and AZURE_SUBSCRIPTION_ID are only partly set; set all three to sign in with the managed identity, or none of them to sign in with VSCE_PAT" >&2
+            exit 1
+          elif [ "$HAS_TOKEN" = true ]; then
+            echo "identity=false" >> "$GITHUB_OUTPUT"
+            echo "no managed identity is configured; signing in with the personal access token in VSCE_PAT"
+          else
+            echo "::error::no Marketplace sign-in is configured: set AZURE_CLIENT_ID, AZURE_TENANT_ID and AZURE_SUBSCRIPTION_ID for the managed identity, or VSCE_PAT for a personal access token" >&2
+            exit 1
+          fi
+
+      - name: Mint org app token for private-sibling access
+        # The publish runs the packager installed from the extension's lockfile,
+        # and installing the extension's dependencies needs the wire contract
+        # beside it.
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ secrets.SUBMODULE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.SUBMODULE_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
+      - name: Check out the extension
+        uses: actions/checkout@v5
+        with:
+          path: aggrega-vscode-extension
+          persist-credentials: false
+
+      - name: Check out the wire contract beside it
+        uses: actions/checkout@v5
+        with:
+          repository: aggrega-ai/aggrega-abi
+          path: aggrega-abi
+          token: ${{ steps.app-token.outputs.token }}
+          persist-credentials: false
+
+      - name: Set up Node
+        # The same exact version as the package job, for the same reason.
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24.21.0'
+
+      - name: Install the packager from the lockfile
+        working-directory: aggrega-vscode-extension
+        run: npm ci --no-audit --no-fund
+
+      - name: Download the package
+        uses: actions/download-artifact@v4
+        with:
+          name: vsix
+          path: ${{ runner.temp }}/vsix
+
+      - name: Find the package
+        # The artifact holds the one file the package job built; anything else
+        # refuses, so no publish can pick between two files.
+        id: package
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          files=("$RUNNER_TEMP"/vsix/*.vsix)
+          if [ "${#files[@]}" -ne 1 ]; then
+            echo "::error::the vsix artifact holds ${#files[@]} .vsix files, where the package job writes exactly one" >&2
+            exit 1
+          fi
+          echo "file=${files[0]}" >> "$GITHUB_OUTPUT"
+          echo "package: ${files[0]}"
+
+      - name: Sign in to Azure as the managed identity
+        if: ${{ steps.sign-in.outputs.identity == 'true' }}
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Check the sign-in (dry run)
+        if: ${{ inputs.dry_run != false }}
+        # 🔴 BOUNDED, BECAUSE THE ENTRA ID SIGN-IN WAITS MINUTES BEFORE IT REFUSES.
+        # With no usable sign-in it tries the managed-identity endpoint of an Azure
+        # machine, which does not answer here, and gives up only after several
+        # minutes; the bound makes that a failed step rather than a long silence.
+        timeout-minutes: 5
+        working-directory: aggrega-vscode-extension
+        env:
+          # The token reaches the script only when no managed identity is
+          # configured; otherwise it is empty, and the script signs in with
+          # Microsoft Entra ID.
+          VSCE_PAT: ${{ steps.sign-in.outputs.identity != 'true' && secrets.VSCE_PAT || '' }}
+        run: node scripts/vsix.js verify-marketplace
+
+      - name: Publish the package
+        if: ${{ inputs.dry_run == false && github.ref == 'refs/heads/main' }}
+        timeout-minutes: 10
+        working-directory: aggrega-vscode-extension
+        env:
+          VSCE_PAT: ${{ steps.sign-in.outputs.identity != 'true' && secrets.VSCE_PAT || '' }}
+          PACKAGE_FILE: ${{ steps.package.outputs.file }}
+        run: node scripts/vsix.js publish-marketplace "$PACKAGE_FILE"
+
+  publish-open-vsx:
+    # Publishes to Open VSX, or on a dry run reads the namespace package.json's
+    # publisher names and checks that the token may publish to it.
+    #
+    # 🔴 NO id-token PERMISSION, AND THAT IS WHAT KEEPS PUBLISHING TIED TO THE TOKEN.
+    # The Open VSX client publishes with no token at all whenever it is handed
+    # none, an OpenID Connect token is available to the job, and the extension is
+    # registered for token-free publishing. This job cannot ask for an OpenID
+    # Connect token, and the script refuses unless OVSX_PAT holds an access token,
+    # so a publish here always signs in with OVSX_PAT.
+    needs: package
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Refuse a publish from a branch other than main
+        if: ${{ inputs.dry_run == false && github.ref != 'refs/heads/main' }}
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          echo "::error::a publish runs only on a manual run started from main, and this run was started from $REF; start it from main, or leave dry_run set" >&2
+          exit 1
+
+      - name: Mint org app token for private-sibling access
+        # The publish runs the Open VSX client installed from the extension's
+        # lockfile, and installing the extension's dependencies needs the wire
+        # contract beside it.
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ secrets.SUBMODULE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.SUBMODULE_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
+      - name: Check out the extension
+        uses: actions/checkout@v5
+        with:
+          path: aggrega-vscode-extension
+          persist-credentials: false
+
+      - name: Check out the wire contract beside it
+        uses: actions/checkout@v5
+        with:
+          repository: aggrega-ai/aggrega-abi
+          path: aggrega-abi
+          token: ${{ steps.app-token.outputs.token }}
+          persist-credentials: false
+
+      - name: Set up Node
+        # The same exact version as the package job, for the same reason.
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24.21.0'
+
+      - name: Install the Open VSX client from the lockfile
+        working-directory: aggrega-vscode-extension
+        run: npm ci --no-audit --no-fund
+
+      - name: Download the package
+        uses: actions/download-artifact@v4
+        with:
+          name: vsix
+          path: ${{ runner.temp }}/vsix
+
+      - name: Find the package
+        # The artifact holds the one file the package job built; anything else
+        # refuses, so no publish can pick between two files.
+        id: package
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          files=("$RUNNER_TEMP"/vsix/*.vsix)
+          if [ "${#files[@]}" -ne 1 ]; then
+            echo "::error::the vsix artifact holds ${#files[@]} .vsix files, where the package job writes exactly one" >&2
+            exit 1
+          fi
+          echo "file=${files[0]}" >> "$GITHUB_OUTPUT"
+          echo "package: ${files[0]}"
+
+      - name: Check the token and the namespace (dry run)
+        if: ${{ inputs.dry_run != false }}
+        timeout-minutes: 5
+        working-directory: aggrega-vscode-extension
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+        run: node scripts/vsix.js verify-open-vsx
+
+      - name: Publish the package
+        if: ${{ inputs.dry_run == false && github.ref == 'refs/heads/main' }}
+        timeout-minutes: 10
+        working-directory: aggrega-vscode-extension
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+          PACKAGE_FILE: ${{ steps.package.outputs.file }}
+        run: node scripts/vsix.js publish-open-vsx "$PACKAGE_FILE"

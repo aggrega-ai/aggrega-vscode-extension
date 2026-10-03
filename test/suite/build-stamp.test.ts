@@ -230,6 +230,8 @@ describe('the extension\'s reading of its build has one source', () => {
       'src/build-stamp.ts',
       'build/copy-vendor-assets.js',
       'build/stamp-build-version.js',
+      'scripts/vsix.js',
+      '.github/workflows/package-and-publish.yml',
       'test/suite/build-stamp.test.ts',
       'test/helpers/build-stamp-census.ts',
       'test/helpers/launch-census.ts',

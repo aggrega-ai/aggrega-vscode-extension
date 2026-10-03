@@ -51,11 +51,19 @@ function listFiles(relativeDir: string): string[] {
 }
 
 // extensionOwnSources reads every file the extension authors that could carry a
-// build step or a reading of its own — the source modules, the build scripts,
-// everything under the tests, and the manifest whose scripts run the compile — as
-// [file, text] pairs.
+// build step or a reading of its own — the source modules, the build scripts, the
+// packaging and publishing scripts, the workflows that run them, everything under
+// the tests, and the manifest whose scripts run the compile — as [file, text]
+// pairs.
 export function extensionOwnSources(): Array<readonly [string, string]> {
-  const files = [...listFiles('src'), ...listFiles('build'), ...listFiles('test'), 'package.json'];
+  const files = [
+    ...listFiles('src'),
+    ...listFiles('build'),
+    ...listFiles('scripts'),
+    ...listFiles('.github'),
+    ...listFiles('test'),
+    'package.json',
+  ];
   return files.map((file) => [file, fs.readFileSync(path.join(EXTENSION_ROOT, file), 'utf8')] as const);
 }
 
