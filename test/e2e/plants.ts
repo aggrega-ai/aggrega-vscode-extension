@@ -365,6 +365,18 @@ export const PLANTS: readonly Plant[] = [
     says: 'a failure to start the binary is reported in a sentence naming no path, and not written to the channel',
   },
   {
+    name: 'refusal-kept-from-the-graph-panel', scenario: 'storefront', checks: ['settings-that-are-wrong.missing-catalog-and-unreachable-registry-are-named'], moves: 'red', target: 'extension',
+    file: GRAPH_FAILURE, find: '    sinks.notifyPanel(message);', replace: "    sinks.notifyPanel('The graph could not be drawn.');",
+    says: 'a failed drawing is reported to the panel in a sentence of the extension\'s own, without the language server\'s reason, while the channel and the Problems panel still carry it',
+  },
+  {
+    name: 'configuration-restart-offered-and-not-made', scenario: 'storefront', checks: ['settings-that-are-wrong.missing-catalog-and-unreachable-registry-are-named'], moves: 'red', target: 'extension',
+    file: EXTENSION,
+    find: '        if (choice === daemon_status_1.RESTART_SERVER_ACTION) {\n            void vscode.commands.executeCommand(daemon_status_1.RESTART_COMMAND);\n        }\n    },\n    restartForWrite:',
+    replace: '        void choice;\n    },\n    restartForWrite:',
+    says: 'pressing the restart on the warning that a configuration file changed restarts nothing, so the language server goes on answering under the configuration it started with',
+  },
+  {
     name: 'column-grips-not-resizable', scenario: 'storefront',
     checks: ['config-panel.setting-column-follows-its-grip-and-stops-at-its-floor', 'config-panel.source-column-follows-its-grip-and-keeps-its-paths-inside'],
     moves: 'red', target: 'extension',

@@ -9,7 +9,10 @@ import { buildValidateParams } from '../../src/validate-request';
 import { need } from './checks';
 import { runCompiler } from './cli';
 import { COMMANDS_PANEL_LABELS } from './commands-panel';
+import { WebviewDocument } from './drivers';
 import { UNREACHABLE_HOST } from './fixtures';
+import { NoticeReading, noticeReadings, watchNotice } from './graph-drawing';
+import { findGraphPanel } from './graph-panel';
 import { referenceAnswer } from './reference';
 import { CACHE_MISS_CHECKS, cacheMissChecks } from './suite-cache-miss';
 import { CONFIG_PANEL_CHECKS, configPanelChecks } from './suite-config-panel';
@@ -20,7 +23,7 @@ import {
 import { contextRowsCheck } from './suite-gateway';
 import { INSPECTION_CHECKS, inspectionChecks } from './suite-inspection';
 import {
-  commandsPanel, describeRowMenu, documentWith, guard, holds, NOT_RUNNING, operationButtons, paneState, pickQuickInputRow, pressIn, pressKeyIn, pressMenuItem, pressOperation, pressPaneHeader,
+  commandsPanel, describeRowMenu, guard, holds, NOT_RUNNING, operationButtons, paneState, pickQuickInputRow, pressIn, pressKeyIn, pressMenuItem, pressOperation, pressPaneHeader,
   pressPanelAction, pressToastButton, QuickInput, quickInput, rowMenu, RUNNING, sleep, stated, statusLog, STARTING, toasts, toastsSince, TreeRow,
   treeRowCentre, treeRows, until, waitQuickInput, waitStatus, waitToast,
 } from './workbench';
@@ -858,9 +861,10 @@ export async function storefrontChecks(ctx: SuiteContext, referenceFolder: strin
   // ---- settings that are wrong ----
   const said: string[] = [];
   const original = fs.readFileSync(config, 'utf8');
+  const missingCatalog = path.join(ctx.folder, 'no-such-catalog');
   await c.run('settings-that-are-wrong.missing-catalog-and-unreachable-registry-are-named', {
-    expected: `with "- ./no-such-catalog" under catalog_dirs and a top-level registries list holding "${UNREACHABLE_HOST}", the extension says so: something it draws or writes to its channel names the missing catalog directory, and something names ${UNREACHABLE_HOST}; the language server still runs and the graph still draws`,
-    plant: 'in the scratch copy, out/src/extension.js made to write nothing to the channel',
+    expected: `with "- ./no-such-catalog" under catalog_dirs and a top-level registries list holding "${UNREACHABLE_HOST}" saved, the restart the warning offers (or, where none is offered, the restart command) brings up a new language server that runs; Graph then opens a panel that draws no card and names the refusal "${RELEASE}: code=<n> <message>" — <n> and <message> being the language server's own answer to the same graph request over a reference copy configured the same way, whose message names ${missingCatalog} — and the Registries panel names ${UNREACHABLE_HOST}`,
+    plant: 'in the scratch copy, out/src/graph-failure.js made to tell the panel a sentence of its own in place of the refusal; or out/src/extension.js made to restart nothing when the warning\'s restart is pressed',
   }, async () => {
     const mark = ctx.out.mark();
     const toastMark = (await toasts(ctx.d)).length;
@@ -868,30 +872,76 @@ export async function storefrontChecks(ctx: SuiteContext, referenceFolder: strin
     await ctx.probe.request('document.edit', { path: config, start: { line: catalogLine.index + 1, character: 0 }, text: `    - ./no-such-catalog\nregistries:\n  - host: ${UNREACHABLE_HOST}\n` });
     await save(ctx, config);
     // A changed configuration is read by the server when it starts; the
-    // extension offers the restart, which is pressed where offered.
+    // extension offers the restart, which is pressed where offered. A restart
+    // that brings up no new server ends the check there and says how it was
+    // asked for: everything read after it would be the old configuration's.
     const before = await theServer(ctx);
     const offer = await waitToast(ctx.d, 'the change being noticed', toastMark, (x) => x.buttons.includes(RESTART_SERVER_ACTION), 15000).catch(() => null);
-    if (offer) { await pressToastButton(ctx.d, offer.message.slice(0, 40), RESTART_SERVER_ACTION); } else { await send(ctx, RESTART_COMMAND); }
-    await theServer(ctx, 30000, before.pid).catch(() => undefined);
-    await waitStatus(ctx.d, RUNNING, 60000).catch(() => undefined);
-    await pressOperation(ctx.d, await commandsPanel(ctx.d), 'aggrega.graph.show').catch(() => undefined);
-    const graph = await documentWith(ctx.d, 'the graph drawing', `!!document.getElementById('canvas') && document.querySelectorAll('#canvas g, #canvas rect').length > 0`, 30000).then(() => true, () => false);
+    let restartedBy: string;
+    if (offer === null) {
+      restartedBy = 'no warning offered the restart within 15 s, so the restart command was run';
+      await send(ctx, RESTART_COMMAND);
+    } else if (await pressToastButton(ctx.d, offer.message.slice(0, 40), RESTART_SERVER_ACTION)) {
+      restartedBy = `"${RESTART_SERVER_ACTION}" pressed on the warning`;
+    } else {
+      restartedBy = `the warning drew no "${RESTART_SERVER_ACTION}" button to press`;
+    }
+    const after = await theServer(ctx, 30000, before.pid).catch((err: unknown) => {
+      throw new Error(`${restartedBy}, and no language server other than ${before.pid} came up: ${err instanceof Error ? err.message : String(err)}`);
+    });
+    await waitStatus(ctx.d, RUNNING, 60000);
+    // The graph request refuses a catalog directory the configuration lists and
+    // the folder does not hold, as `aggrega inspect` refuses it, so nothing is
+    // drawn: what names the directory is that refusal, which the panel shows in
+    // place of a drawing. Its words are the language server's own for the same
+    // request over the reference copy, given the same configuration while asked.
+    const refConfig = path.join(referenceFolder, '.aggrega-config.yaml');
+    need(fs.readFileSync(refConfig, 'utf8') === original, 'the reference copy\'s configuration is not the folder\'s as it was found');
+    fs.writeFileSync(refConfig, fs.readFileSync(config, 'utf8'));
+    const ref = await (async () => {
+      try {
+        return await referenceAnswer({ binary: bin, root: referenceFolder, method: 'aggrega/irGraph', params: { release: RELEASE }, home: ctx.home, table: ctx.s.table, log: ctx.cliLog });
+      } finally {
+        fs.writeFileSync(refConfig, original);
+      }
+    })();
+    need(!ref.ok, 'the language server drew the reference copy configured with a catalog directory it does not hold');
+    const words = `code=${String(ref.error.code)} ${ref.error.message.split(referenceFolder).join(ctx.folder)}`;
+    const refusal = `${RELEASE}: ${words}`;
+    const directoryNamed = words.includes(missingCatalog);
+    need(await findGraphPanel(ctx) === null, 'a graph panel is open before Graph is pressed, so the panel read would not be the one the press opens');
+    await pressOperation(ctx.d, await commandsPanel(ctx.d), 'aggrega.graph.show');
+    const panel = await until('the graph panel opening', 30000, () => findGraphPanel(ctx), (x) => x !== null) as WebviewDocument;
+    await watchNotice(panel);
+    // The press ends in a failure the panel names after the Release, or in a
+    // drawing; either ends the wait, and the words are judged after it, so a
+    // panel ending in other words is read at once rather than waited out.
+    await until('the graph panel ending the press', 60000, () => noticeReadings(panel), (v) => v.some((x) => x.text.startsWith(`${RELEASE}: `) || x.nodes > 0)).catch(() => undefined);
+    const panelNamed = (await noticeReadings(panel)).some((x) => x.text === refusal);
+    const drewNothing = (v: NoticeReading[]): boolean => v.every((x) => x.nodes === 0 && !x.outOfDate);
+    const quiet = panelNamed ? await holds(3000, () => noticeReadings(panel), drewNothing) : null;
+    const notices = await noticeReadings(panel);
     await run(ctx, 'workbench.view.extension.aggrega');
     await pressViewAction(ctx, 'Registries', 'Refresh registries').catch(() => undefined);
     const views = async (title: string): Promise<string[]> => ((await treeRows(ctx.d, title)) ?? []).map((r) => `${title} view: ${r.label}${r.description ? ` ${r.description}` : ''}${r.aria && r.aria !== r.label ? ` (${r.aria.replace(/\s+/g, ' ')})` : ''}`);
-    const everything = async (): Promise<string[]> => [
+    const registries = await until(`the Registries panel naming ${UNREACHABLE_HOST}`, 10000, () => views('Registries'), (l) => l.some((x) => x.includes(UNREACHABLE_HOST))).catch(() => views('Registries'));
+    const hostNamed = registries.some((x) => x.includes(UNREACHABLE_HOST));
+    const lines = [
       ...(await toastsSince(ctx.d, toastMark)).map((t) => `notification: ${t.message}`),
       ...ctx.out.since(mark).split('\n').filter((l) => l.trim() !== '').map((l) => `channel: ${l}`),
       ...(await ctx.probe.request<{ path: string; diagnostics: { message: string }[] }[]>('diagnostics.list')).flatMap((e) => e.diagnostics.map((d) => `problem in ${path.basename(e.path)}: ${d.message}`)),
-      ...(await views('Registries')),
+      ...notices.filter((x) => x.text !== '').map((x) => `graph panel: ${x.text}`),
+      ...registries,
     ];
-    const named = (l: string[]): boolean => l.some((x) => x.includes('no-such-catalog')) && l.some((x) => x.includes(UNREACHABLE_HOST));
-    const lines = await until('the extension naming the missing catalog and the unreachable registry', 10000, everything, named).catch(() => everything());
     said.push(...lines);
-    const catalogNamed = lines.some((l) => l.includes('no-such-catalog'));
-    const hostNamed = lines.some((l) => l.includes(UNREACHABLE_HOST));
     const running = (await statusLog(ctx.d)).slice(-1)[0]?.reading === RUNNING;
-    return { passed: catalogNamed && hostNamed && running && graph, seen: `the missing catalog named ${catalogNamed}; ${UNREACHABLE_HOST} named ${hostNamed}; the server ${running ? 'running' : 'not running'}; the graph ${graph ? 'drew' : 'did not draw'}`, evidence: { said: lines } };
+    const nothingDrawn = drewNothing(notices) && quiet !== null && quiet.held;
+    const shown = notices.filter((x) => x.text !== '').map((x) => x.text);
+    return {
+      passed: running && panelNamed && nothingDrawn && directoryNamed && hostNamed,
+      seen: `${restartedBy}: language server ${before.pid} replaced by ${after.pid}, the status bar ${running ? 'running' : 'not running'}; the graph panel ${panelNamed ? 'named the refusal as the language server words it' : `read ${JSON.stringify(shown)}, not "${refusal}"`}, ${nothingDrawn ? 'drawing no card up to 3 s after' : `its readings ${JSON.stringify(notices.map((x) => `${x.nodes} cards${x.outOfDate ? ' [dimmed]' : ''}`))}`}; the language server's own answer "${words}" ${directoryNamed ? 'names' : 'does not name'} ${missingCatalog}; ${UNREACHABLE_HOST} ${hostNamed ? 'named' : 'not named'} in the Registries panel`,
+      evidence: { said: lines, refusal, notices },
+    };
   });
   // Put the configuration back and let the server read it.
   fs.writeFileSync(config, original);
