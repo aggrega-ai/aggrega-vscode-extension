@@ -37,6 +37,11 @@ const ON_SCREEN = { width: 800, height: 600 };
 const REPORTS_NOTHING = { width: 0, height: 0 };
 const REPORTS_COLLAPSED = { width: 16, height: 9 };
 
+// A legend over the lower left of that drawing area, tall enough to leave a
+// third of the height above it — so a drawing fitted to the whole area runs
+// under it, and one fitted to the room above it does not.
+const LEGEND = { left: 8, top: 200, width: 300, height: 392 };
+
 // A third node, so a refresh can carry a topology that genuinely differs rather
 // than the same one twice.
 const GROWN_GRAPH = {
@@ -111,6 +116,40 @@ function scaleOf(frame: string | null): number {
   return Number(found[1]);
 }
 
+// panOf reads where a frame puts the laid-out graph's origin in the panel.
+function panOf(frame: string | null): { x: number; y: number } {
+  const found = /translate\(([-0-9.e]+),([-0-9.e]+)\)/.exec(frame ?? '');
+  assert.ok(found, `no pan in the frame: ${frame}`);
+  return { x: Number(found[1]), y: Number(found[2]) };
+}
+
+// drawnSpan is the smallest box holding every box of the drawing, in the panel's
+// own coordinates under the frame it carries — where a reader sees it drawn.
+function drawnSpan(view: GraphWebview): { left: number; top: number; right: number; bottom: number } {
+  const frame = view.frame();
+  const scale = scaleOf(frame);
+  const pan = panOf(frame);
+  const span = { left: Infinity, top: Infinity, right: -Infinity, bottom: -Infinity };
+  const walk = (node: StubElement): void => {
+    if (node.tag === 'rect') {
+      const x = Number(node.getAttribute('x'));
+      const y = Number(node.getAttribute('y'));
+      span.left = Math.min(span.left, x);
+      span.top = Math.min(span.top, y);
+      span.right = Math.max(span.right, x + Number(node.getAttribute('width')));
+      span.bottom = Math.max(span.bottom, y + Number(node.getAttribute('height')));
+    }
+    for (const child of node.children) { walk(child); }
+  };
+  walk(view.element('canvas'));
+  return {
+    left: pan.x + span.left * scale,
+    top: pan.y + span.top * scale,
+    right: pan.x + span.right * scale,
+    bottom: pan.y + span.bottom * scale,
+  };
+}
+
 // extent is how far the drawing reaches in the laid-out graph's own
 // coordinates. Multiplied by the zoom it is how much of the panel the drawing
 // asks for, which is what "the whole topology is on screen" is measured
@@ -179,6 +218,34 @@ describe('what a redraw does to what the reader is looking at', () => {
     assert.ok(
       /translate\((?!0,0\))/.test(frame),
       `the first drawing was not centred in the panel. Its frame is ${frame}`,
+    );
+  });
+
+  it('fits a first drawing to the room above the legend, centred from side to side', async () => {
+    const view = openedOnScreen();
+    view.element('legend').box = LEGEND;
+    await drawOnce(view);
+
+    const at = drawnSpan(view);
+    const above = LEGEND.top - at.bottom;
+    assert.ok(
+      above >= 0,
+      `the first drawing reaches ${(-above).toFixed(1)} px under the top of the legend, which stays over `
+      + `the panel's lower left whatever the reader does, so what it covers is hidden from the first `
+      + `look. The drawing spans ${JSON.stringify(at)} and the legend's top is at ${LEGEND.top}`,
+    );
+    const left = at.left;
+    const right = ON_SCREEN.width - at.right;
+    assert.ok(
+      Math.abs(left - right) <= 1,
+      `the first drawing is not centred from side to side: ${left.toFixed(1)} px are left empty at its `
+      + `left and ${right.toFixed(1)} at its right`,
+    );
+    assert.ok(
+      Math.abs(at.top - above) <= 1,
+      `the first drawing is not fitted to the room above the legend: ${at.top.toFixed(1)} px are left `
+      + `empty above it and ${above.toFixed(1)} between it and the legend, where a drawing fitted to `
+      + 'that room leaves the two even',
     );
   });
 

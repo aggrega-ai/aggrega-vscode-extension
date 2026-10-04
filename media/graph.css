@@ -73,7 +73,9 @@ html, body {
 }
 
 /* The legend, lower left. It sits outside the pan/zoom group so it stays put
-   and stays the same size whatever the reader does to the canvas, and it names
+   and stays the same size whatever the reader does to the canvas — which is why
+   a drawing's frame is fitted to the room above it, read off its box as drawn
+   (aboveTheLegend in graph.js), rather than to the whole canvas — and it names
    the parts of the drawing that cannot be worked out by looking: which box is
    which kind and what the box holding nodes in none holds, which end of an edge
    is its target, which type each accent colour stands for, and what those

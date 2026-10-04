@@ -147,6 +147,15 @@ const GRAPH_FAILURE_TOLD = '    sinks.notifyPanel({ message, line });';
 // language-server refusal.
 const ERROR_TEXT = 'out/src/error-text.js';
 const REFUSAL_LINE = '        return err.message || exports.REFUSAL_WITHOUT_WORDS;';
+// The drawing's line fitting a frame to the room above the legend, made to fit
+// it to the whole drawing area again — so whatever the frame puts in the panel's
+// lower left is drawn under the legend.
+const FIT_OVER_THE_LEGEND = {
+  file: GRAPH_SCRIPT,
+  find: '        frameToFit(unframedLayout, aboveTheLegend(box));',
+  replace: '        frameToFit(unframedLayout, box);',
+  says: 'a drawing\'s frame is fitted to the whole drawing area again, legend and all, so what falls in the panel\'s lower left is drawn under the legend',
+} as const;
 const ATTACHMENTS_MODEL = 'media/attachments-model.js';
 const CANDIDATES_MODEL = 'media/candidates-model.js';
 const GRAPH_VIEW = 'out/src/graph-view.js';
@@ -1160,6 +1169,11 @@ export const PLANTS: readonly Plant[] = [
     file: GRAPH_SCRIPT, find: '      const box = readableBox();', replace: '      const box = readableBox() || { width: 300, height: 150 };',
     says: 'a drawing that arrives while the panel is off screen is framed against a size of the panel\'s own choosing',
   },
+  {
+    name: 'first-fit-under-the-legend', scenario: 'storefront-graph-drawing',
+    checks: ['graph.first-opening-frames-the-whole-topology', 'graph.first-fit-places-the-drawing-above-the-legend'], moves: 'red', target: 'extension',
+    ...FIT_OVER_THE_LEGEND,
+  },
   // ---- the storefront folder at rest, with aggrega.server.buildOnInspect on ----
   { name: 'context-row-renamed-graph-idle', scenario: 'storefront-graph-idle', checks: ['commands-panel.context-rows-name-the-opened-folder'], moves: 'red', target: 'extension', ...CONTEXT_ROW_LABEL },
   {
@@ -1185,6 +1199,11 @@ export const PLANTS: readonly Plant[] = [
     name: 'groupings-left-stacked', scenario: 'fleet-graph-first-fit', checks: ['graph.large-topology-first-fit-uses-the-panel-width'], moves: 'red', target: 'extension',
     file: GRAPH_MODEL, find: "    'elk.layered.layering.strategy': 'COFFMAN_GRAHAM',\n", replace: '',
     says: 'sibling groupings are left in the default layering, which stacks the tall ones in one column, so the first fit is set by that column\'s height and most of the panel\'s width is left empty',
+  },
+  {
+    name: 'first-fit-under-the-legend-fleet', scenario: 'fleet-graph-first-fit',
+    checks: ['graph.large-topology-arrives-whole-in-its-first-drawing', 'graph.large-topology-first-fit-places-the-drawing-above-the-legend'], moves: 'red', target: 'extension',
+    ...FIT_OVER_THE_LEGEND,
   },
   // ---- the storefront folder with boundaries declared inside boundaries ----
   { name: 'context-row-renamed-graph-nested-boundaries', scenario: 'storefront-graph-nested-boundaries', checks: ['commands-panel.context-rows-name-the-opened-folder'], moves: 'red', target: 'extension', ...CONTEXT_ROW_LABEL },
@@ -1470,6 +1489,11 @@ export const PLANTS: readonly Plant[] = [
     says: 'a window\'s sole open folder is not taken as the Project folder, so the row waits on a choice with nothing to choose between',
   },
   { name: 'context-row-renamed-two-releases', scenario: 'two-releases-context-rows', checks: ['context-rows.three-rows-on-lines-of-their-own'], moves: 'red', target: 'extension', ...CONTEXT_ROW_LABEL },
+  {
+    name: 'release-hover-drops-the-servers-reason', scenario: 'two-releases-context-rows', checks: ['release-row.hover-gives-the-servers-reason-for-naming-no-default'], moves: 'red', target: 'extension',
+    file: 'out/src/release-selection.js', find: "            const because = state.reason ? ` ${state.reason}` : '';", replace: "            const because = '';",
+    says: 'the Release row\'s hover with none selected leaves out the language server\'s reason for naming no default',
+  },
   {
     name: 'create-gap-left-out', scenario: 'two-releases-context-rows', checks: ['context-rows.create-controls-beside-the-workspace-and-release-rows'], moves: 'red', target: 'extension',
     file: RENDER, find: `        ? '<span class="selector-create-gap" aria-hidden="true"></span>'`, replace: "        ? ''",

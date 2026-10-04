@@ -44,7 +44,12 @@ export interface StubElement {
     contains(c: string): boolean;
   };
   getComputedTextLength(): number;
-  getBoundingClientRect(): { left: number; top: number; width: number; height: number };
+  getBoundingClientRect(): StubBox;
+  // box is what getBoundingClientRect reports. A spec sets it where the place an
+  // element is drawn is part of the question — the legend's, which a frame is
+  // fitted above. By default every element reports the same 800 × 600 at the
+  // origin.
+  box: StubBox;
   clientWidth: number;
   clientHeight: number;
   // fire delivers one event to whatever the renderer subscribed to this
@@ -53,6 +58,9 @@ export interface StubElement {
   // half of every question here undrivable.
   fire(name: string, event?: Record<string, unknown>): void;
 }
+
+// StubBox is where an element is drawn, as a document reports it.
+export interface StubBox { left: number; top: number; width: number; height: number }
 
 function makeElement(tag: string): StubElement {
   const classes = new Set<string>();
@@ -98,7 +106,8 @@ function makeElement(tag: string): StubElement {
     // the same contract with an arithmetic answer, so what the layout exercises
     // is the sizing rule rather than a font.
     getComputedTextLength() { return text.length * 7; },
-    getBoundingClientRect() { return { left: 0, top: 0, width: 800, height: 600 }; },
+    box: { left: 0, top: 0, width: 800, height: 600 } as StubBox,
+    getBoundingClientRect() { return { ...el.box }; },
   } as unknown as StubElement;
 
   Object.defineProperty(el, 'firstChild', { get: () => children[0] ?? null });

@@ -502,11 +502,17 @@ function plans(inputs: Inputs): ScenarioPlan[] {
       observers: LEVEL_OBSERVERS,
       prepare: async (root) => {
         const folder = path.join(root.dir, 'workspace', 'two-releases');
+        const reference = path.join(root.dir, 'reference', 'two-releases');
         const missing = path.join(root.dir, 'no-such-compiler', 'aggrega');
-        const fixtures = [placeFolder(inputs.extension.dir, 'two-releases', folder, inputs.catalog.dir), proveNothingAbove(folder), proveMissing(missing)];
-        return { folder, fixtures, extra: { missing } };
+        const fixtures = [
+          placeFolder(inputs.extension.dir, 'two-releases', folder, inputs.catalog.dir),
+          placeFolder(inputs.extension.dir, 'two-releases', reference, inputs.catalog.dir),
+          proveNothingAbove(folder),
+          proveMissing(missing),
+        ];
+        return { folder, fixtures, extra: { missing, reference } };
       },
-      body: (ctx, p) => levelsChecks(ctx, p.extra?.missing as string),
+      body: (ctx, p) => levelsChecks(ctx, p.extra?.missing as string, p.extra?.reference as string),
     },
     {
       name: 'two-workspaces-context-rows',

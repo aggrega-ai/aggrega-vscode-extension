@@ -109,10 +109,11 @@ export interface DrawnNode { id: string; component: string | null; card: Rect; i
 // is stroked — or null where none follows it.
 export interface DrawnEdge { from: string; to: string; points: Point[]; stroke: Stroke; mark: { points: Point[]; stroke: Stroke } | null }
 
-// Drawing is everything above, the canvas it is drawn on, and what could not be
+// Drawing is everything above, the canvas it is drawn on, the box of the legend
+// drawn over that canvas — or null where none is shown — and what could not be
 // read as one of them, so a shape the reading missed is reported rather than
 // silently left out.
-export interface Drawing { canvas: Rect; containers: DrawnContainer[]; nodes: DrawnNode[]; edges: DrawnEdge[]; unread: string[] }
+export interface Drawing { canvas: Rect; legend: Rect | null; containers: DrawnContainer[]; nodes: DrawnNode[]; edges: DrawnEdge[]; unread: string[] }
 
 const DRAWING = `(() => {
   const canvas = document.getElementById('canvas');
@@ -147,7 +148,9 @@ const DRAWING = `(() => {
     const mark = k && k.matches('polygon.edge-mark') ? { points: [...k.points].map(at), stroke: stroke(k) } : null;
     edges.push({ from: ends[0], to: ends[1], points, stroke: stroke(p), mark });
   }
-  return { canvas: box(canvas), containers, nodes, edges, unread };
+  const l = document.getElementById('legend');
+  const legend = l && !l.classList.contains('hidden') && l.getBoundingClientRect().height > 0 ? box(l) : null;
+  return { canvas: box(canvas), legend, containers, nodes, edges, unread };
 })()`;
 
 // readDrawing reads the drawing on the panel's canvas. The panel must be on
@@ -391,9 +394,26 @@ export function union(boxes: readonly Rect[]): Rect {
 }
 
 // Framing is how a drawing sits in the canvas: whether every card is inside it,
-// the margins its drawn shapes leave on each side, and whether those margins are
-// even, which is what a drawing framed whole to the panel shows.
-export interface Framing { whole: boolean; outside: string[]; margins: { left: number; right: number; top: number; bottom: number }; centred: boolean }
+// the margins its drawn shapes leave on each side, whether the left and right
+// margins are even, and what of the drawing meets the legend drawn over the
+// canvas. A drawing framed whole to the panel is fitted to the room above the
+// legend and centred from side to side, so it shows every card inside the
+// canvas, even side margins and nothing under the legend — however many rows the
+// legend carries, which is why its top and bottom margins are not read as a pair.
+//
+// clear holds where nothing drawn meets the legend's box, and where no legend is
+// drawn; underLegend names each thing that meets it; above is how far the
+// drawing's lowest box ends above the legend's top — below it where negative —
+// or null where no legend is drawn.
+export interface Framing {
+  whole: boolean;
+  outside: string[];
+  margins: { left: number; right: number; top: number; bottom: number };
+  centredAcross: boolean;
+  clear: boolean;
+  underLegend: string[];
+  above: number | null;
+}
 
 // CENTRED_WITHIN is how far apart two opposite margins may be for a drawing to
 // read as centred: a pixel of rounding on each side.
@@ -408,14 +428,39 @@ export function framingOf(d: Drawing): Framing {
     top: drawn.y - d.canvas.y,
     bottom: d.canvas.y + d.canvas.height - (drawn.y + drawn.height),
   };
-  const centred = Math.abs(margins.left - margins.right) <= CENTRED_WITHIN && Math.abs(margins.top - margins.bottom) <= CENTRED_WITHIN;
-  return { whole: d.nodes.length > 0 && outside.length === 0, outside, margins, centred };
+  const centredAcross = Math.abs(margins.left - margins.right) <= CENTRED_WITHIN;
+  const underLegend = d.legend === null ? [] : meeting(d, d.legend);
+  return {
+    whole: d.nodes.length > 0 && outside.length === 0,
+    outside,
+    margins,
+    centredAcross,
+    clear: underLegend.length === 0,
+    underLegend,
+    above: d.legend === null ? null : d.legend.y - (drawn.y + drawn.height),
+  };
+}
+
+// meeting names what a drawing draws that meets a box: each card and each
+// grouping's box sharing an area with it, and each edge whose line or mark runs
+// into it. A line or a mark meeting the box only along its border does not count.
+function meeting(d: Drawing, r: Rect): string[] {
+  const closed = (points: readonly Point[]): Point[] => (points.length > 0 ? [...points, points[0]] : []);
+  return [
+    ...d.nodes.filter((n) => overlaps(n.card, r)).map((n) => `the card of ${n.id} ${rect(n.card)}`),
+    ...d.containers.filter((k) => overlaps(k.box, r)).map((k) => `the box "${k.title}" ${rect(k.box)}`),
+    ...d.edges.filter((e) => lineEnters(e.points, r)).map((e) => `the line of ${e.from} → ${e.to}`),
+    ...d.edges.filter((e) => e.mark !== null && lineEnters(closed(e.mark.points), r)).map((e) => `the mark of ${e.from} → ${e.to}`),
+  ];
 }
 
 // describeFraming words a framing for a check's report.
-export function describeFraming(f: Framing): string {
+export function describeFraming(f: Framing, d: Drawing): string {
   const m = f.margins;
-  return `${f.whole ? 'every card inside the canvas' : `cards outside the canvas: ${JSON.stringify(f.outside)}`}; margins left ${m.left.toFixed(1)}, right ${m.right.toFixed(1)}, top ${m.top.toFixed(1)}, bottom ${m.bottom.toFixed(1)} (${f.centred ? 'centred' : 'not centred'})`;
+  const legend = d.legend === null
+    ? 'no legend drawn'
+    : `the legend at ${rect(d.legend)}, the drawing ending ${(f.above ?? 0).toFixed(1)} px above its top; ${f.clear ? 'nothing drawn under it' : `under it: ${f.underLegend.join(', ')}`}`;
+  return `${f.whole ? 'every card inside the canvas' : `cards outside the canvas: ${JSON.stringify(f.outside)}`}; margins left ${m.left.toFixed(1)}, right ${m.right.toFixed(1)}, top ${m.top.toFixed(1)}, bottom ${m.bottom.toFixed(1)} (${f.centredAcross ? 'centred from side to side' : 'not centred from side to side'}); ${legend}`;
 }
 
 // readFrame reads the pan and zoom the drawing is shown at: the transform the

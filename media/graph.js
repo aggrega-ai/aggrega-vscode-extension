@@ -430,7 +430,9 @@
   // explain.
   //
   // It sits outside the pan/zoom group, so it stays put and stays readable
-  // whatever the reader does to the canvas. What it names is the part of the
+  // whatever the reader does to the canvas. It is filled before the drawing is
+  // framed, because a frame is fitted above it and reads its height to do so
+  // (aboveTheLegend). What it names is the part of the
   // drawing a reader cannot work out by looking: which document declares each
   // grouping and what the box holding the nodes in none holds, which end of an
   // edge is its target, which type each node colour stands for, and that those
@@ -763,7 +765,7 @@
     if (!framed && unframedLayout !== null) {
       const box = readableBox();
       if (box !== null) {
-        frameToFit(unframedLayout, box);
+        frameToFit(unframedLayout, aboveTheLegend(box));
         unframedLayout = null;
         framed = true;
       }
@@ -771,8 +773,29 @@
     applyView();
   }
 
+  // aboveTheLegend is the part of the drawing area a frame is fitted to: the
+  // area's whole width, and its height down to the top of the legend.
+  //
+  // The legend stays over the canvas at its lower left whatever the reader
+  // does, so a drawing fitted to the whole area puts whatever falls in that
+  // corner under it — and how much falls there depends on how many rows this
+  // drawing's legend carries, which no fixed margin can know. So the legend's
+  // own box is read, as drawn, at the moment the frame is computed, and the
+  // drawing is fitted above it: centred from side to side across the whole
+  // width, and from top to bottom in the room above the legend.
+  //
+  // Where the legend leaves no room above it, in a panel shorter than the legend
+  // is tall, the frame is fitted to the whole area, as it is where no legend is
+  // drawn.
+  function aboveTheLegend(box) {
+    const legend = legendEl.getBoundingClientRect();
+    if (!(legend.height > 0)) { return box; }
+    const room = legend.top - canvas.getBoundingClientRect().top;
+    return room > 0 ? { width: box.width, height: Math.min(room, box.height) } : box;
+  }
+
   // frameToFit scales and centres one laid-out graph inside one drawing area.
-  // It is only ever handed an area that exists.
+  // It is only ever handed an area that exists, whose top is the canvas's.
   function frameToFit(laid, box) {
     const w = laid.width || 1;
     const h = laid.height || 1;

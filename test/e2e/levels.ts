@@ -798,6 +798,17 @@ export function releaseHover(absolute: string): string {
   return `Aggrega selected Release: ${absolute}\n\nClick to choose a different Release.`;
 }
 
+// noReleaseSelectedHover is the Release row's hover where the language server
+// names no default and the workspace offers Releases to choose between: the
+// server's own reason for naming none, between the row's opening sentence and
+// its invitation, which closes it on a line of its own. The reason is the
+// server's to word, so a check takes it from the server's own answer rather than
+// from here.
+export const SELECT_ONE = 'Click to select one.';
+export function noReleaseSelectedHover(reason: string): string {
+  return `Aggrega: no Release is selected. ${reason}\n${SELECT_ONE}`;
+}
+
 // The interruption raised where the Aggrega workspace sits outside the folder
 // opened: its message, the two lines beneath it, and its three buttons.
 export const ABOVE_MESSAGE = 'Aggrega is using a workspace from outside the folder you opened.';

@@ -10,7 +10,7 @@ import { need } from './checks';
 import { WebviewDocument } from './drivers';
 import { FixtureError, FixtureProof } from './fixtures';
 import {
-  boundaryTitle, contains, containsPoint, describeFraming, Drawing, DrawnContainer, DrawnNode, drawnText, framingOf, layoutModel, legendFor, LegendRow, lineEnters,
+  boundaryTitle, contains, containsPoint, describeFraming, Drawing, DrawnContainer, DrawnNode, drawnText, Framing, framingOf, layoutModel, legendFor, LegendRow, lineEnters,
   NONE_DECLARED, noticeReadings, onBorder, overlaps, Point, readDrawing, readFrame, readLegend, rect, sameRect, shownDrawing, subsystemTitle, told, union,
   visibilityReadings, watchNotice, watchVisibility,
 } from './graph-drawing';
@@ -26,7 +26,8 @@ import { ADMIN, CACHE, GATEWAY, RELEASE, staleDrawing, yamlOf } from './suite-gr
 import { Bound, commandsPanel, guard, holds, pressOperation, stated, toasts, toastsSince, until, WaitExpired } from './workbench';
 
 // The checks run in the storefront folder with the topology graph open: what the
-// first drawing measures — the whole topology framed to the panel, no two labels
+// first drawing measures — the whole topology framed to the panel above its
+// legend, no two labels
 // over one another, each component name inside its card, the Release's
 // boundaries and the Aggregate's subsystems drawn as declared, the imported
 // module's component in its boundary, each edge between the boxes of its two
@@ -43,6 +44,7 @@ import { Bound, commandsPanel, guard, holds, pressOperation, stated, toasts, toa
 export const GRAPH_DRAWING_CHECKS = [
   'commands-panel.context-rows-name-the-opened-folder',
   'graph.first-opening-frames-the-whole-topology',
+  'graph.first-fit-places-the-drawing-above-the-legend',
   'graph.no-two-labels-overlap',
   'graph.component-names-drawn-whole-inside-their-cards',
   'graph.release-boundaries-drawn-holding-what-they-place',
@@ -107,6 +109,15 @@ const ZOOM_TURNS = 12;
 // How long after a drawing its absences are still watched: a notice, a second
 // drawing or a dimming landing just after it falls inside this window.
 const SETTLE_MS = 3000;
+
+// What a drawing framed whole to the panel shows, as every framing check reads
+// it (framingOf in graph-drawing.ts): the frame is fitted to the room above the
+// legend and centred from side to side, so how far the drawing ends from the
+// panel's foot depends on how tall the legend is, and its top and bottom margins
+// are not read as a pair.
+const CLEAR_OF_THE_LEGEND = 'no card, no grouping\'s box and no edge\'s line or mark of the drawing meets the box of the legend drawn over the panel\'s lower left';
+const FRAMED_WHOLE = `framed whole: every node's card inside the canvas, the drawing's boxes leaving margins left and right within 2 px of each other, and ${CLEAR_OF_THE_LEGEND}`;
+const framedWhole = (f: Framing): boolean => f.whole && f.centredAcross && f.clear;
 
 // ---- what the folder declares, and what the language server answers ---------
 
@@ -378,18 +389,29 @@ export async function graphDrawingChecks(ctx: SuiteContext, reference: string): 
   let doc: WebviewDocument | null = null;
   let first: Drawing | null = null;
   await c.run('graph.first-opening-frames-the-whole-topology', {
-    expected: 'the first press of Graph in the window opens the panel on a drawing framed whole: every node\'s card inside the canvas, and the drawing\'s boxes leaving margins left and right, and top and bottom, within 2 px of each other',
-    plant: 'in the scratch copy, media/graph.js made to frame a drawing pushed to the right of the panel',
+    expected: `the first press of Graph in the window opens the panel on a drawing ${FRAMED_WHOLE}`,
+    plant: 'in the scratch copy, media/graph.js made to frame a drawing pushed to the right of the panel; or made to fit the first drawing to the whole canvas again, legend and all',
   }, async () => {
     need((await findGraphPanel(ctx)) === null, 'a graph panel is already open, so this is not its first opening');
     doc = await showGraph(ctx);
     first = await shownDrawing(doc);
     const f = framingOf(first);
     return {
-      passed: f.whole && f.centred && first.unread.length === 0,
-      seen: `${first.nodes.length} cards, ${first.containers.length} containers and ${first.edges.length} edges on a canvas ${rect(first.canvas)}; ${describeFraming(f)}${first.unread.length > 0 ? `; not read: ${first.unread.join('; ')}` : ''}`,
+      passed: framedWhole(f) && first.unread.length === 0,
+      seen: `${first.nodes.length} cards, ${first.containers.length} containers and ${first.edges.length} edges on a canvas ${rect(first.canvas)}; ${describeFraming(f, first)}${first.unread.length > 0 ? `; not read: ${first.unread.join('; ')}` : ''}`,
       evidence: { drawing: first },
     };
+  });
+
+  await c.run('graph.first-fit-places-the-drawing-above-the-legend', {
+    expected: `at the first drawing the legend is drawn over the panel, and ${CLEAR_OF_THE_LEGEND}, with the drawing centred from side to side, its left and right margins within 2 px of each other`,
+    plant: 'in the scratch copy, media/graph.js made to fit the first drawing to the whole canvas again, legend and all',
+  }, async () => {
+    need(first !== null, 'the graph was not drawn');
+    const d = first;
+    need(d.legend !== null, 'no legend is drawn over the first drawing, so there is nothing for the drawing to be clear of');
+    const f = framingOf(d);
+    return { passed: f.clear && f.centredAcross, seen: `${d.nodes.length} cards, ${d.containers.length} boxes and ${d.edges.length} edges on a canvas ${rect(d.canvas)}; ${describeFraming(f, d)}` };
   });
 
   await c.run('graph.no-two-labels-overlap', {
@@ -887,17 +909,18 @@ export async function graphDrawingChecks(ctx: SuiteContext, reference: string): 
   });
 
   await c.run('graph.press-frames-the-whole-topology-afresh', {
-    expected: 'from a view zoomed so that cards lie past the canvas\'s edges, pressing Graph draws the topology framed whole: every card inside the canvas, the drawing\'s margins even within 2 px',
+    expected: `from a view zoomed so that cards lie past the canvas's edges, pressing Graph draws the topology ${FRAMED_WHOLE}`,
     plant: 'in the scratch copy, media/graph.js made never to frame a drawing afresh once it has been framed',
   }, async () => {
     need(doc !== null && zoomed !== null, 'the panel was not zoomed into a node');
-    const before = framingOf(await readDrawing(doc));
+    const zoomedDrawing = await readDrawing(doc);
+    const before = framingOf(zoomedDrawing);
     need(!before.whole, 'the zoomed view still holds every card inside the canvas, so a press framing afresh cannot be told from one leaving the view');
     const d = await pressedDrawing(ctx, doc);
     doc = d;
     const after = await shownDrawing(d);
     const f = framingOf(after);
-    return { passed: f.whole && f.centred, seen: `before the press ${describeFraming(before)}; after it ${describeFraming(f)}` };
+    return { passed: framedWhole(f), seen: `before the press ${describeFraming(before, zoomedDrawing)}; after it ${describeFraming(f, after)}` };
   });
 
   // ---- a redraw that fails ----
@@ -1003,7 +1026,7 @@ export async function graphDrawingChecks(ctx: SuiteContext, reference: string): 
   });
   // ---- a drawing that lands behind another tab ----
   await c.run('graph.first-drawing-behind-another-tab-framed-on-return', {
-    expected: `the panel just opened on the faulty Release, having drawn nothing, is put behind the Aggregate's tab and told it is off screen; mending ${ADMIN}'s type and saving there draws the panel's first drawing while it is behind — read in its document before it is brought back — and once it is brought back and told it is on screen that drawing is framed whole: every card inside the canvas, the margins even within 2 px, card for card where a press of Graph with the panel in front frames it`,
+    expected: `the panel just opened on the faulty Release, having drawn nothing, is put behind the Aggregate's tab and told it is off screen; mending ${ADMIN}'s type and saving there draws the panel's first drawing while it is behind — read in its document before it is brought back — and once it is brought back and told it is on screen that drawing is ${FRAMED_WHOLE}, card for card where a press of Graph with the panel in front frames it`,
     plant: 'in the scratch copy, media/graph.js made to frame a drawing that arrives off screen against a size of its own choosing',
   }, async () => {
     need(doc !== null && (await graphState(doc)).nodes.length === 0 && fs.readFileSync(aggregate, 'utf8').includes(ADMIN_BROKEN), 'no panel is open on the faulty Release having drawn nothing');
@@ -1028,8 +1051,8 @@ export async function graphDrawingChecks(ctx: SuiteContext, reference: string): 
     const framed = await shownDrawing(pressed);
     const differs = back.nodes.filter((n) => { const m = framed.nodes.find((x) => x.id === n.id); return m === undefined || !sameRect(n.card, m.card); }).map((n) => n.id);
     return {
-      passed: stillBehind && f.whole && f.centred && differs.length === 0 && back.nodes.length === framed.nodes.length,
-      seen: `the first drawing landed ${stillBehind ? 'while the panel was behind the tab' : 'once the panel was back in front'}; on return ${describeFraming(f)}; against a press with the panel in front, ${differs.length === 0 ? 'every card in the same place' : `cards elsewhere: ${differs.map((id) => `${id} ${rect(cardOf(back, id))} against ${rect(cardOf(framed, id))}`).join('; ')}`}`,
+      passed: stillBehind && framedWhole(f) && differs.length === 0 && back.nodes.length === framed.nodes.length,
+      seen: `the first drawing landed ${stillBehind ? 'while the panel was behind the tab' : 'once the panel was back in front'}; on return ${describeFraming(f, back)}; against a press with the panel in front, ${differs.length === 0 ? 'every card in the same place' : `cards elsewhere: ${differs.map((id) => `${id} ${rect(cardOf(back, id))} against ${rect(cardOf(framed, id))}`).join('; ')}`}`,
     };
   });
 
@@ -1191,12 +1214,14 @@ export async function graphIdleChecks(ctx: SuiteContext): Promise<void> {
 
 // The checks run in a folder of a few dozen components grouped in subsystems
 // inside boundaries: the first drawing showing the whole shape fitted to the
-// panel, however small that makes its names, that first fit using the panel's
-// width rather than a narrow column of it, and whether that trade reads right.
+// panel above its legend, however small that makes its names, that first fit
+// using the panel's width rather than a narrow column of it, and whether that
+// trade reads right.
 
 export const FLEET_CHECKS = [
   'commands-panel.context-rows-name-the-opened-folder',
   'graph.large-topology-arrives-whole-in-its-first-drawing',
+  'graph.large-topology-first-fit-places-the-drawing-above-the-legend',
   'graph.large-topology-first-fit-uses-the-panel-width',
   'graph.large-topology-arriving-small-reads-right',
 ] as const;
@@ -1216,8 +1241,8 @@ export async function fleetChecks(ctx: SuiteContext): Promise<void> {
   await contextRowsCheck(ctx);
   let first: Drawing | null = null;
   await c.run('graph.large-topology-arrives-whole-in-its-first-drawing', {
-    expected: `the first drawing of the ${placed.length} components the Release places shows the whole shape fitted to the panel: every one of their cards drawn and inside the canvas, the margins even within 2 px, at whatever size that takes`,
-    plant: 'in the scratch copy, media/graph.js made to hold a first fit to a smallest zoom, so a large topology runs past the panel\'s edges',
+    expected: `the first drawing of the ${placed.length} components the Release places shows the whole shape fitted to the panel, every one of their cards drawn, at whatever size that takes: ${FRAMED_WHOLE}`,
+    plant: 'in the scratch copy, media/graph.js made to hold a first fit to a smallest zoom, so a large topology runs past the panel\'s edges; or made to fit the first drawing to the whole canvas again, legend and all',
   }, async () => {
     need(placed.length > 0, 'the Release places no component');
     const doc = await showGraph(ctx);
@@ -1227,10 +1252,20 @@ export async function fleetChecks(ctx: SuiteContext): Promise<void> {
     const missing = placed.filter((id) => !d.nodes.some((n) => n.id === id));
     const card = d.nodes[0];
     return {
-      passed: missing.length === 0 && f.whole && f.centred,
-      seen: `${d.nodes.length} cards drawn${missing.length > 0 ? `, missing ${JSON.stringify(missing)}` : ''}; ${describeFraming(f)}; a card drawn ${card === undefined ? '-' : `${card.card.width.toFixed(1)}×${card.card.height.toFixed(1)}, its id ${card.idBox.height.toFixed(1)} px high`}`,
+      passed: missing.length === 0 && framedWhole(f),
+      seen: `${d.nodes.length} cards drawn${missing.length > 0 ? `, missing ${JSON.stringify(missing)}` : ''}; ${describeFraming(f, d)}; a card drawn ${card === undefined ? '-' : `${card.card.width.toFixed(1)}×${card.card.height.toFixed(1)}, its id ${card.idBox.height.toFixed(1)} px high`}`,
       evidence: { drawing: d },
     };
+  });
+  await c.run('graph.large-topology-first-fit-places-the-drawing-above-the-legend', {
+    expected: `at the first drawing of the ${placed.length} components the legend is drawn over the panel, and ${CLEAR_OF_THE_LEGEND}, with the drawing centred from side to side, its left and right margins within 2 px of each other`,
+    plant: 'in the scratch copy, media/graph.js made to fit the first drawing to the whole canvas again, legend and all',
+  }, async () => {
+    need(first !== null, 'the graph was not drawn');
+    const d = first;
+    need(d.legend !== null, 'no legend is drawn over the first drawing, so there is nothing for the drawing to be clear of');
+    const f = framingOf(d);
+    return { passed: f.clear && f.centredAcross, seen: `${d.nodes.length} cards, ${d.containers.length} boxes and ${d.edges.length} edges on a canvas ${rect(d.canvas)}; ${describeFraming(f, d)}` };
   });
   await c.run('graph.large-topology-first-fit-uses-the-panel-width', {
     expected: `on a canvas ${STACKED_FIT.canvasWidth} px wide, the first drawing of the ${placed.length} components leaves less than ${STACKED_FIT.margin} px empty at its left and at its right, and draws every card taller than ${STACKED_FIT.cardHeight} px — the margin and the card height its first fit measured with its tall sibling groupings stacked in one column`,
@@ -1244,7 +1279,7 @@ export async function fleetChecks(ctx: SuiteContext): Promise<void> {
     const heights = d.nodes.map((n) => n.card.height);
     return {
       passed: d.nodes.length > 0 && f.margins.left < STACKED_FIT.margin && f.margins.right < STACKED_FIT.margin && short.length === 0,
-      seen: `${describeFraming(f)}; cards drawn ${Math.min(...heights).toFixed(1)} to ${Math.max(...heights).toFixed(1)} px tall${short.length > 0 ? `, not taller than ${STACKED_FIT.cardHeight} px: ${JSON.stringify(short)}` : ''}; containers ${d.containers.map((k) => `${k.title} ${rect(k.box)}`).join(', ')}`,
+      seen: `${describeFraming(f, d)}; cards drawn ${Math.min(...heights).toFixed(1)} to ${Math.max(...heights).toFixed(1)} px tall${short.length > 0 ? `, not taller than ${STACKED_FIT.cardHeight} px: ${JSON.stringify(short)}` : ''}; containers ${d.containers.map((k) => `${k.title} ${rect(k.box)}`).join(', ')}`,
     };
   });
   await c.forPerson('graph.large-topology-arriving-small-reads-right', {
@@ -1255,7 +1290,7 @@ export async function fleetChecks(ctx: SuiteContext): Promise<void> {
     need(first !== null, 'the graph was not drawn');
     const d = first;
     const lines = [
-      `${d.nodes.length} cards on a canvas ${rect(d.canvas)}; ${describeFraming(framingOf(d))}`,
+      `${d.nodes.length} cards on a canvas ${rect(d.canvas)}; ${describeFraming(framingOf(d), d)}`,
       ...d.containers.map((k) => `${k.title} ${rect(k.box)}`),
       ...d.nodes.map((n) => `${n.id}${n.component === null ? '' : ` / ${n.component}`} ${rect(n.card)}`),
     ];

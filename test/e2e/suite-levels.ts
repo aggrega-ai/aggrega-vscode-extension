@@ -5,14 +5,16 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { RESTART_COMMAND } from '../../src/daemon-status';
+import { ActiveReleaseResponse } from '../../src/types';
 import { CONFIG_FILENAME } from '../../src/workspace';
 import { need } from './checks';
 import { drawnPanel } from './commands-panel';
 import {
   ADD_ENTRY, closeChooser, CREATE_RELEASE, CREATE_WORKSPACE, describeRows, droppedRelease, HOVER_LINES_NO_ROW_CARRIES, LEVEL_OBSERVERS, LevelRow, linesOf,
-  LONG_LABEL_VALUE_WIDTH, NAME_PROMPT, needRows, OPEN_ENTRY, PLACEHOLDER, pickersSeen, pressRowControl, projectHover, releaseHover, reloadWindow, ROW_LABELS, rowChooser,
-  rowsNow, rowValues, SENTENCES_NO_SURFACE_DRAWS, serverStarts, statusHover, takeChooserRow, ToastLedger, waitRows, WIDEN_ANOTHER, workspaceHover,
+  LONG_LABEL_VALUE_WIDTH, NAME_PROMPT, needRows, noReleaseSelectedHover, OPEN_ENTRY, PLACEHOLDER, pickersSeen, pressRowControl, projectHover, releaseHover, reloadWindow, ROW_LABELS,
+  rowChooser, rowsNow, rowValues, SELECT_ONE, SENTENCES_NO_SURFACE_DRAWS, serverStarts, statusHover, takeChooserRow, ToastLedger, waitRows, WIDEN_ANOTHER, workspaceHover,
 } from './levels';
+import { referenceAnswer } from './reference';
 import { capture, languageServers, ready, reopen, send, SuiteContext, theServer } from './suite-context';
 import { setBinaryPath } from './suite-killed';
 import { commandsPanel, holds, NOT_RUNNING, RUNNING, STARTING, statusItems, statusLog, toasts, toastsSince, until, waitStatus, waitToast } from './workbench';
@@ -20,14 +22,17 @@ import { commandsPanel, holds, NOT_RUNNING, RUNNING, STARTING, statusItems, stat
 // The checks run in a folder that is its own Aggrega workspace and holds two
 // Releases with no default: the three rows that say which folder, which Aggrega
 // workspace and which Release the editor works on, as drawn, as hovered and as
-// pressed; that a level with one candidate is taken with no chooser, and that
-// choosing where the editor already is restarts nothing; and that the Release
-// chosen is remembered for the window through a reload and a reopen, and said to
-// be dropped when it stops being offered.
+// pressed — the Release row's hover, with none selected, carrying the language
+// server's own reason for naming no default, as the server gives it over a
+// reference copy of the folder; that a level with one candidate is taken with no
+// chooser, and that choosing where the editor already is restarts nothing; and
+// that the Release chosen is remembered for the window through a reload and a
+// reopen, and said to be dropped when it stops being offered.
 
 export const LEVELS_CHECKS = [
   'context-rows.sole-candidates-taken-without-a-chooser',
   'context-rows.three-rows-on-lines-of-their-own',
+  'release-row.hover-gives-the-servers-reason-for-naming-no-default',
   'context-rows.values-read-whole-at-the-default-width',
   'context-rows.workspace-label-drawn-short-giving-the-values-room',
   'context-rows.create-controls-beside-the-workspace-and-release-rows',
@@ -50,7 +55,7 @@ const STAGING = 'release-staging.yaml';
 // being stopped or started.
 const QUIET_MS = 5000;
 
-export async function levelsChecks(ctx: SuiteContext, missing: string): Promise<void> {
+export async function levelsChecks(ctx: SuiteContext, missing: string, reference: string): Promise<void> {
   const c = ctx.checks;
   const bin = ctx.inputs.compiler.path;
   const base = path.basename(ctx.folder);
@@ -91,6 +96,26 @@ export async function levelsChecks(ctx: SuiteContext, missing: string): Promise<
     return {
       passed: JSON.stringify(labels) === JSON.stringify(ROW_LABELS) && stacked && oneLine && JSON.stringify(values) === JSON.stringify([base, base, 'none selected']) && !labels.includes('Workspace'),
       seen: `${describeRows(three)}; ${stacked ? 'each on a line of its own' : `drawn at ${JSON.stringify(three.map((r) => r.row))}`}; values ${oneLine ? 'each on one line' : `drawn on ${JSON.stringify(three.map((r) => r.valueLines))} lines`}`,
+    };
+  });
+
+  await c.run('release-row.hover-gives-the-servers-reason-for-naming-no-default', {
+    expected: `with two Releases and no default, the Release row reads "none selected" and its hover reads, line for line, ${JSON.stringify(noReleaseSelectedHover('<reason>'))} — <reason> being the reason the language server's own aggrega/activeRelease answer gives over a reference copy of the folder, carried whole`,
+    plant: 'in the scratch copy, out/src/release-selection.js with the Release row\'s hover leaving out the language server\'s reason',
+  }, async () => {
+    const ref = await referenceAnswer({ binary: bin, root: reference, method: 'aggrega/activeRelease', params: {}, home: ctx.home, table: ctx.s.table, log: ctx.cliLog });
+    need(ref.ok, `the language server gave no answer over the reference copy: ${ref.ok ? '' : ref.error.message}`);
+    const answer = ref.result as Partial<ActiveReleaseResponse>;
+    need(answer.release === '' && typeof answer.reason === 'string' && answer.reason !== '', `the language server's own answer over the reference copy is ${JSON.stringify(answer)}, which names a Release or gives no reason`);
+    const want = noReleaseSelectedHover(answer.reason);
+    // The hover is read once the row has settled on a count of Releases to choose
+    // between, which is when it closes on its invitation; the reason it carries
+    // is then compared, rather than waited for.
+    const rows = keep(await waitRows(ctx, 'the Release row settled on none selected among Releases on offer', (r) => r[2]?.value === 'none selected' && (r[2]?.title ?? '').endsWith(`\n${SELECT_ONE}`)));
+    needRows(rows);
+    return {
+      passed: rows[2].value === 'none selected' && rows[2].title === want,
+      seen: `the Release row reads ${JSON.stringify(rows[2].value)}, its hover ${JSON.stringify(rows[2].title)}; the language server's reason over the reference copy ${JSON.stringify(answer.reason)}`,
     };
   });
 
