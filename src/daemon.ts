@@ -22,8 +22,8 @@ import { StartFailure, startFailureReason, startFailureWords } from './start-fai
 // buildServeArgs assembles the argv for `aggrega serve` from the
 // effective settings. The --build-on-inspect flag is appended only when
 // buildOnInspect is true; left off, the daemon applies its own default
-// (the build's analysis is not run while inspecting a graph), which is
-// also what the serve.build_on_inspect config key sets.
+// (the artifact-rendering stage is not run while inspecting a graph), which
+// is also what the serve.build_on_inspect config key sets.
 export function buildServeArgs(settings: Settings): string[] {
   const args = ['serve'];
   if (settings.buildOnInspect) {

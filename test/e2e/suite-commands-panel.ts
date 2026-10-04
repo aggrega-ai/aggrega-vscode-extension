@@ -25,7 +25,9 @@ import { chooser, LevelRow, levelRows, waitChooser } from './levels';
 import { dragSash } from './suite-above';
 import { capture, closeAllEditors, commandTitle, languageServers, open, ready, run, send, SuiteContext, theServer } from './suite-context';
 import { paletteTitle } from './suite-first-day';
-import { contextRowsCheck, openSettingsOn, settingLabel, settingsScreen, settingValue } from './suite-gateway';
+import {
+  codeIn, contextRowsCheck, declaredDescription, declaredMarkdown, drawnFromMarkdown, openSettingsOn, SETTING_LINK, SettingItem, settingLabel, settingsScreen, settingValue,
+} from './suite-gateway';
 import { BINARY_PATH_SEARCH, notExecutableAt, OPEN_BINARY_PATH_SETTING, setBinaryPath, START_FAILED_OPENING } from './suite-killed';
 import { ADD_REGISTRY_TITLE } from './suite-registry';
 import { DRAFT_PLACEHOLDER, SEARCH_TITLE } from './suite-storefront';
@@ -72,11 +74,16 @@ export const COMMANDS_PANEL_CHECKS = [
   'settings.preference-is-the-users-and-a-workspace-value-is-ignored',
   'settings.binary-path-description-names-the-two-files',
   'settings.binary-path-description-read-by-someone-new',
+  'settings.binary-path-description-draws-its-code-as-code',
+  'settings.restart-grace-names-the-binary-path-as-the-settings-screen-does',
   'commands-panel.server-only-operations-stay-enabled-with-the-server-stopped',
   'commands-panel.enabled-but-inert-with-the-server-stopped',
 ] as const;
 
 const BINARY_PATH = 'aggrega.server.binaryPath';
+// The setting holding how long a change to the binary path waits before the
+// language server is restarted, whose description names the binary path.
+const RESTART_GRACE = 'aggrega.server.restartGraceSeconds';
 
 // The words and the icons a reader is to meet, held as written because they are
 // what a reader is told to expect rather than a rule some declaration states: the
@@ -478,6 +485,9 @@ export async function commandsPanelChecks(ctx: SuiteContext, notABinary: string,
     }
     const start = sweep[0];
     const faults = new Set<string>();
+    // Each row's level as its hover names it: in the long form, whatever the row draws
+    // as its label, held as written.
+    const levelNames = ['Project folder', 'Aggrega workspace', 'Release'];
     // Where a label gave way, for the report: the narrowest widths are where one
     // is owed to.
     const labelsCut = new Set<string>();
@@ -498,7 +508,7 @@ export async function commandsPanelChecks(ctx: SuiteContext, notABinary: string,
           const l = w.panel.rows[i]?.label ?? null;
           if (l !== null && l.clipped && l.overflow !== 'ellipsis') { faults.add(`at ${s.width} px the ${r.label} row's label is cut short without an ellipsis`); }
           if (l !== null && l.clipped && r.valueBox.width > 1) { faults.add(`at ${s.width} px the ${r.label} row's label is cut short while its value is drawn ${Math.round(r.valueBox.width)} px wide`); }
-          if (!r.title.includes(r.label)) { faults.add(`at ${s.width} px the ${r.label} row's hover does not name its level`); }
+          if (!r.title.includes(levelNames[i])) { faults.add(`at ${s.width} px the ${r.label} row's hover does not name its level, ${levelNames[i]}`); }
         });
         const starts = w.rows.slice(0, 3).map((r) => Math.round(r.valueBox.x));
         if (starts.some((x) => Math.abs(x - starts[0]) > 1)) { faults.add(`at ${s.width} px the values start at ${JSON.stringify(starts)} px`); }
@@ -1017,15 +1027,18 @@ export async function commandsPanelChecks(ctx: SuiteContext, notABinary: string,
     }
   });
 
-  const binaryLabel = settingLabel(ctx.manifest.contributes.configuration.title, BINARY_PATH);
-  const binaryDeclared = manifest.contributes.configuration.properties[BINARY_PATH]?.description ?? '';
+  const settingsTitle = ctx.manifest.contributes.configuration.title;
+  const binaryLabel = settingLabel(settingsTitle, BINARY_PATH);
+  const binaryDeclared = declaredDescription(ctx, BINARY_PATH);
   let binaryDrawn = '';
+  let binaryItem: SettingItem | null = null;
   await c.run('settings.binary-path-description-names-the-two-files', {
     expected: `the settings screen draws "${binaryLabel}" with the description the manifest declares, which names the project's \`.aggrega-config.yaml\` and its \`workspace:\` block, calls the file on the machine the global file and gives its location — the location the welcome page's workspace step gives — and says nothing of credentials or of a machine-wide file`,
     plant: 'in the scratch copy\'s package.json, the binary path\'s description calling the file on the machine machine-wide',
   }, async () => {
     const item = await openSettingsOn(ctx, 'binaryPath', binaryLabel);
     binaryDrawn = item.description;
+    binaryItem = item;
     await closeAllEditors(ctx);
     const plain = (s: string): string => s.replace(/`/g, '');
     const located = [...binaryDeclared.matchAll(/`([^`]*config\.yaml)`/g)].map((m) => m[1]).filter((f) => f !== '.aggrega-config.yaml');
@@ -1051,6 +1064,47 @@ export async function commandsPanelChecks(ctx: SuiteContext, notABinary: string,
     const shot = await capture(ctx, 'settings-binary-path');
     await closeAllEditors(ctx);
     return { screenshot: shot, drawnText: binaryDrawn };
+  });
+
+  // ---- code drawn as code, and a setting named as the screen names it ----
+  // The two files a reader is to recognise in the binary path's description,
+  // held as written: each is drawn as code, not wrapped in backticks.
+  const BINARY_PATH_FILES = ['.aggrega-config.yaml', '~/.config/aggrega/config.yaml'];
+  const binaryCode = codeIn(declaredMarkdown(ctx, BINARY_PATH));
+  await c.run('settings.binary-path-description-draws-its-code-as-code', {
+    expected: `the settings screen draws "${binaryLabel}"'s description as Markdown: no backtick among its drawn words, and each piece of code the manifest's Markdown description declares — ${JSON.stringify(binaryCode)} — drawn as code, in that order, ${BINARY_PATH_FILES.map((f) => `"${f}"`).join(' and ')} among them`,
+    plant: 'in the scratch copy\'s package.json, the binary path\'s description declared as a plain description',
+  }, async () => {
+    const item = binaryItem as SettingItem | null;
+    need(item !== null, 'the binary path\'s entry was not drawn above');
+    const asCode = binaryCode.length > 0 && JSON.stringify(item.code) === JSON.stringify(binaryCode);
+    const files = BINARY_PATH_FILES.filter((f) => !item.code.includes(f));
+    const ticks = item.description.includes('`');
+    return {
+      passed: item.markdown && !ticks && asCode && files.length === 0,
+      seen: `drawn ${item.markdown ? 'as Markdown' : 'as plain text'}${ticks ? ', with a backtick among its drawn words' : ', with no backtick'}; drawn as code ${JSON.stringify(item.code)}, the manifest declaring ${JSON.stringify(binaryCode)}${files.length > 0 ? `; not drawn as code: ${files.join(', ')}` : ''}`,
+    };
+  });
+
+  const graceLabel = settingLabel(settingsTitle, RESTART_GRACE);
+  await c.run('settings.restart-grace-names-the-binary-path-as-the-settings-screen-does', {
+    expected: `the settings screen draws "${graceLabel}" with its Markdown description, as declared, naming the setting whose change it waits on by the editor's own link: a link reading the label the screen draws for ${BINARY_PATH} — read above — and leading to that setting; no drawn word of it is that setting's id, whole or by its last segment, and none a backtick`,
+    plant: 'in the scratch copy\'s package.json, the restart grace\'s description naming the binary path by its id',
+  }, async () => {
+    const binary = binaryItem as SettingItem | null;
+    need(binary !== null, 'the binary path\'s entry was not drawn above, so the label the screen gives it is not known');
+    const shown = `${binary.category}${binary.label}`.trim();
+    const item = await openSettingsOn(ctx, 'restartGraceSeconds', graceLabel);
+    await closeAllEditors(ctx);
+    const declared = declaredMarkdown(ctx, RESTART_GRACE);
+    const asDeclared = declared !== '' && item.description === drawnFromMarkdown(declared, settingsTitle);
+    const linked = item.links.filter((l) => l.text === shown && (l.target.endsWith(`#${BINARY_PATH}`) || l.title === BINARY_PATH));
+    const byId = [BINARY_PATH, BINARY_PATH.split('.').pop() ?? BINARY_PATH].filter((id) => item.description.includes(id));
+    const ticks = item.description.includes('`');
+    return {
+      passed: item.markdown && asDeclared && linked.length === 1 && byId.length === 0 && !ticks,
+      seen: `drawn ${item.markdown ? 'as Markdown' : 'as plain text'}, ${asDeclared ? 'as declared' : `"${item.description}"${declared === '' ? ', the manifest declaring no Markdown description' : ''}`}; the screen labels the binary path "${shown}"; links drawn ${JSON.stringify(item.links)}, the manifest linking ${JSON.stringify([...declared.matchAll(SETTING_LINK)].map((m) => m[1]))}${byId.length > 0 ? `; the drawn words name ${byId.join(' and ')}` : ''}${ticks ? '; a backtick among its drawn words' : ''}`,
+    };
   });
 
   // ---- with the language server stopped ----

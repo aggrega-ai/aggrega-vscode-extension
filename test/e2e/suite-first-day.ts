@@ -48,7 +48,8 @@ export const AUTHORING_RELEASE_CHECKS = [
 const NO_WORKSPACE = 'Aggrega: no Aggrega workspace is available in this project. Open a Project folder holding .aggrega-config.yaml or a Release file, or create an Aggrega workspace.';
 const CREATED = 'Aggrega: .aggrega-config.yaml created; this folder is now the workspace root.';
 const ALREADY = 'Aggrega: .aggrega-config.yaml already exists here, so it was opened rather than replaced.';
-const toggleSentence = (on: boolean): string => `Aggrega: the build's analysis ${on ? 'will run' : 'will not run'} while inspecting a graph. The language server reads this setting when it starts, so restart it to apply the change.`;
+const TOGGLE_OPENING = 'Aggrega: the artifact-rendering stage';
+const toggleSentence = (on: boolean): string => `${TOGGLE_OPENING} ${on ? 'will run' : 'will not run'} while inspecting a graph. The language server reads this setting when it starts, so restart it to apply the change.`;
 const RESTART_SERVER = 'Restart server';
 const NO_ENTITIES = 'No entities in this workspace.';
 const CREATE_CONTROL = 'button.step-action[data-command="aggrega.getStarted.createWorkspace"]';
@@ -185,7 +186,7 @@ export async function noWorkspaceChecks(ctx: SuiteContext): Promise<void> {
       }
       const mark = (await toasts(ctx.d)).length;
       await pickQuickInputRow(ctx.d, toggleTitle);
-      const told = await endingSince(ctx, 'the toggle answering', mark, (t) => t.message.startsWith('Aggrega: the build'));
+      const told = await endingSince(ctx, 'the toggle answering', mark, (t) => t.message.startsWith(TOGGLE_OPENING));
       const value = await until('the setting written', 10000, setting, (v) => v === on).catch(setting);
       const ok = told !== null && told.message === toggleSentence(on) && told.buttons.includes(RESTART_SERVER) && value === on;
       all = all && ok;

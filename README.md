@@ -264,7 +264,7 @@ answering: everything it offers is an action on a running language server, and y
 list a command that cannot run there. It comes back the moment one is answering.
 
 **A command that works without one stays in the command index**, even though it concerns the server.
-**Aggrega: Toggle the build's analysis while inspecting** writes a preference, and the server reads
+**Aggrega: Toggle the artifact-rendering stage while inspecting** writes a preference, and the server reads
 that preference when it starts — so a stopped server is the most useful moment to set it, not a
 reason to withhold it.
 
@@ -343,7 +343,7 @@ they write `.aggrega/active-release` or `.aggrega-config.yaml` rather than an ed
 | `aggrega.server.respawnAttempts` | `5` | How many times, within the window below, the language server is started again after it stops without being asked to, before the extension leaves it stopped and raises the stopped-responding notification. A server started again that stops before it has answered counts the same as one that stops while running. See [Lifecycle](#lifecycle). |
 | `aggrega.server.respawnWindowSeconds` | `180` | Sliding window, in seconds, over which those restarts are counted. |
 | `aggrega.server.restartGraceSeconds` | `5` | Grace window before the extension automatically restarts the daemon after a `binaryPath` change. The status bar shows a countdown; the quick-action menu offers Restart now and Cancel restart. |
-| `aggrega.server.buildOnInspect` | `false` | Run the build's analysis while inspecting a graph, so the findings `aggrega build` reports also appear as editor problems. Inspecting costs more when it runs; nothing is written to disk. |
+| `aggrega.server.buildOnInspect` | `false` | Run the artifact-rendering stage while inspecting a graph, so the advisories `aggrega build` raises while rendering also appear as editor problems. It adds none of the checks a build halts on. Inspecting costs more when it runs; nothing is written to disk. |
 | `aggrega.graph.showSensitiveValues` | `false` | Show the values a Feature declares sensitive in the topology graph, displaying a by-value credential in the clear. Left off, those values are removed before the graph is drawn. |
 | `aggrega.operations.layout` | `buttons` | How the Commands panel draws its groups — `buttons` puts every operation in one wrapping flow of buttons with nothing drawn between one group and the next, `sections` makes each group a section you open under its own title. Same groups, same operations, same order either way. |
 | `aggrega.notifications.toastDebounceMode` | `time` | How often the notice that a Release has no lockfile is shown again for work you did not ask for, such as an open graph redrawn after a save: `time` shows it again once `toastThrottleSeconds` have passed since the last one closed, `session` shows it once until the language server restarts. A Build, a Preview or a graph you open that is refused for a missing lockfile always shows the notice. |
@@ -543,7 +543,7 @@ Others read the drawing itself, and when it is drawn again:
   the drawing and saying it is out of date the same way whether a save or a
   press reached it, and a panel that never drew saying only what went wrong;
   and a redraw landing while the panel is behind another tab.
-- `storefront-graph-idle` turns the build's analysis on and misspells one of the
+- `storefront-graph-idle` turns `aggrega.server.buildOnInspect` on and misspells one of the
   storefront's sockets by a character, so every compile files an advisory, then
   shows the graph once and watches it for a minute with nothing touched: it is
   not drawn again, and the language server spends less than half the CPU time

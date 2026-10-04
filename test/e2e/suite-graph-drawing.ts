@@ -1065,8 +1065,8 @@ export async function graphDrawingChecks(ctx: SuiteContext, reference: string): 
 
 // ---- the open graph at rest ---------------------------------------------------
 
-// The checks run in the storefront folder with the build's analysis on, so a
-// graph request compiles and renders the Release, and with one of its sockets
+// The checks run in the storefront folder with aggrega.server.buildOnInspect on,
+// so a graph request compiles and renders the Release, and with one of its sockets
 // misspelled by a character, so every compile files the same advisory again: the
 // open graph compiling once and then resting for a minute with nothing touched,
 // and the advisory leaving once the spelling is put right and saved.
@@ -1077,10 +1077,11 @@ export const GRAPH_IDLE_CHECKS = [
   'problems.misspelled-socket-leaves-once-it-is-put-right',
 ] as const;
 
-// BUILD_ON_INSPECT is the setting that turns the build's analysis on, spelled as
-// the extension reads it, and GRAPH_IDLE_SETTINGS the scenario's one change to
-// the settings baseline: the analysis is what makes a graph request compile and
-// render, which is what an open panel would turn on if it asked again.
+// BUILD_ON_INSPECT is the setting that runs the artifact-rendering stage while a
+// graph is inspected, spelled as the extension reads it, and GRAPH_IDLE_SETTINGS
+// the scenario's one change to the settings baseline: that stage is what makes a
+// graph request compile and render, which is what an open panel would turn on if
+// it asked again.
 const BUILD_ON_INSPECT = `${SERVER_CONFIG_SECTION}.${BUILD_ON_INSPECT_KEY}`;
 export const GRAPH_IDLE_SETTINGS: Readonly<Record<string, unknown>> = { [BUILD_ON_INSPECT]: true };
 
@@ -1112,10 +1113,10 @@ export async function graphIdleChecks(ctx: SuiteContext): Promise<void> {
   // the save that put the spelling right.
   let leaving: { w: Waited<Filings>; ms: number } | null = null;
   await c.run('graph.open-panel-compiles-once-then-rests', {
-    expected: `with the build's analysis on and the socket "${SOCKET.slice(0, -1)}" misspelled "${SOCKET_MISSPELLED.slice(0, -1)}" and saved, showing the graph compiles the Release and files a near-miss for the socket under both "${LAYERS[0]}" and "${LAYERS[1]}"; then, with nothing touched for ${QUIET_MS / 1000} s, the drawing is not drawn again and the language server spends less than half the CPU time over the whole minute that the one compile that drew the graph spent; the control, read by the same two readings: putting the spelling right and saving draws the graph again, and the language server spends at least that half doing it, which the save's own validation without a compile does not reach`,
+    expected: `with ${BUILD_ON_INSPECT} on and the socket "${SOCKET.slice(0, -1)}" misspelled "${SOCKET_MISSPELLED.slice(0, -1)}" and saved, showing the graph compiles the Release and files a near-miss for the socket under both "${LAYERS[0]}" and "${LAYERS[1]}"; then, with nothing touched for ${QUIET_MS / 1000} s, the drawing is not drawn again and the language server spends less than half the CPU time over the whole minute that the one compile that drew the graph spent; the control, read by the same two readings: putting the spelling right and saving draws the graph again, and the language server spends at least that half doing it, which the save's own validation without a compile does not reach`,
     plant: 'in the scratch copy, out/src/extension.js made to redraw an open graph on every set of findings the compiler pushes',
   }, async () => {
-    need((await ctx.probe.request<{ value: unknown }>('configuration.inspect', { key: BUILD_ON_INSPECT })).value === true, 'the build\'s analysis is not on');
+    need((await ctx.probe.request<{ value: unknown }>('configuration.inspect', { key: BUILD_ON_INSPECT })).value === true, `${BUILD_ON_INSPECT} is not on`);
     await savedAs(ctx, await rewriteLine(ctx, aggregate, SOCKET, SOCKET_MISSPELLED));
     // The saved document's own validation is let finish before the compile is
     // timed, so what is counted is the compile the panel asked for.

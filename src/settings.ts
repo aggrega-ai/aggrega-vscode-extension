@@ -177,10 +177,21 @@ export function binaryPathSettingPress(): PanelActionPress {
   };
 }
 
+// BUILD_ON_INSPECT_STAGE names what the setting runs while a graph is inspected,
+// in the command line's own words for it: the flag's help calls it the
+// artifact-rendering stage, and says it adds the advisories a build raises while
+// rendering and none of the checks a build halts on. Every surface naming the
+// setting — the command's title, the menu entry, the confirmation and the
+// setting's description — names it the same way, so a reader meets one thing
+// under one name. The description also carries the help's qualifier, because a
+// reader who turns the setting on to see in the editor what a build would refuse
+// is told there that it does not.
+export const BUILD_ON_INSPECT_STAGE = 'the artifact-rendering stage';
+
 // BUILD_ON_INSPECT_MENU_LABEL is the toggle's entry in the quick-action menu. It
 // is the same in both states so the menu dispatches on one label; which way
 // selecting it would flip the setting is carried in the description beside it.
-export const BUILD_ON_INSPECT_MENU_LABEL = "Run the build's analysis while inspecting";
+export const BUILD_ON_INSPECT_MENU_LABEL = `Run ${BUILD_ON_INSPECT_STAGE} while inspecting`;
 
 // buildOnInspectMenuDescription reads the setting's current value and says what
 // selecting the entry does next. Phrased as the action rather than the state,
@@ -197,5 +208,5 @@ export function buildOnInspectConfirmation(next: boolean): string {
   const outcome = next
     ? "will run while inspecting a graph"
     : "will not run while inspecting a graph";
-  return `Aggrega: the build's analysis ${outcome}. The language server reads this setting when it starts, so restart it to apply the change.`;
+  return `Aggrega: ${BUILD_ON_INSPECT_STAGE} ${outcome}. The language server reads this setting when it starts, so restart it to apply the change.`;
 }

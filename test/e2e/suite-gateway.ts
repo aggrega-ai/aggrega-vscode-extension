@@ -14,13 +14,13 @@ import {
   capture, closeAllEditors, commandTitle, deleteLine, describeDiagnostics, diagnostics, Line, open, putBack, ready, run, save, send, SuiteContext, theServer,
 } from './suite-context';
 import {
-  commandsPanel, documentWith, holds, pressIn, pressOperation, pressToastButton, RUNNING, selectorRows, stated, toasts, until, waitStatus, waitToast,
+  commandsPanel, documentWith, holds, paletteRows, pressIn, pressOperation, pressToastButton, quickInput, RUNNING, selectorRows, stated, toasts, until, waitStatus, waitToast,
 } from './workbench';
 
 // The checks run in the gateway folder: which build of the extension and of the
-// compiler is under test, then the build-analysis setting — its label, where it
-// is kept, what it does to the language server's command line — and the two
-// layers of diagnostics it separates, with when each one moves.
+// compiler is under test, then the build-on-inspect setting — its label, what it
+// says it adds, where it is kept, what it does to the language server's command
+// line — and the two layers of diagnostics it separates, with when each one moves.
 
 // GATEWAY_CHECKS names this scenario's checks in the order they run.
 export const GATEWAY_CHECKS = [
@@ -29,6 +29,7 @@ export const GATEWAY_CHECKS = [
   'commands-panel.context-rows-name-the-opened-folder',
   'settings.build-on-inspect-label-is-derived-from-its-key',
   'settings.build-on-inspect-description-states-its-three-facts',
+  'settings.build-on-inspect-says-what-it-adds-in-the-command-lines-words',
   'settings.build-on-inspect-toggle-is-kept-in-the-user-settings',
   'settings.build-on-inspect-toggle-in-a-remote-window',
   'language-server.inspection-flag-follows-the-setting',
@@ -47,10 +48,23 @@ const BUILD_ON_INSPECT = 'aggrega.server.buildOnInspect';
 const UNDECLARED_KEY = 'aggrega.server.renderDiagnostics';
 const INSPECTION_FLAG = '--build-on-inspect';
 
-// TOGGLE_ON_NOTICE is the sentence the toggle raises when it turns the analysis
+// TOGGLE_ON_NOTICE is the sentence the toggle raises when it turns the setting
 // on, held here as the words a reader is to meet, so a change of wording is a
 // change the check reports rather than follows.
-const TOGGLE_ON_NOTICE = "Aggrega: the build's analysis will run while inspecting a graph. The language server reads this setting when it starts, so restart it to apply the change.";
+const TOGGLE_ON_NOTICE = 'Aggrega: the artifact-rendering stage will run while inspecting a graph. The language server reads this setting when it starts, so restart it to apply the change.';
+
+// What the setting runs, named as the command line's help for its flag names it,
+// and the help's sentence saying what it does not add — held as written for the
+// same reason: they are what the setting's description and the toggle's title
+// are to say.
+const STAGE = 'the artifact-rendering stage';
+const QUALIFIER = 'It adds none of the checks a build halts on.';
+
+// sentencesOf splits drawn text into its sentences, each ending at its full stop,
+// so one can be matched whole rather than as a fragment of a longer one.
+function sentencesOf(text: string): string[] {
+  return text.split(/(?<=\.)\s+/).map((s) => s.trim()).filter((s) => s !== '');
+}
 
 // CONTEXT_ROW_LABELS are the three context rows' labels as drawn, in the order
 // they are drawn — the Aggrega workspace row's shortened.
@@ -72,22 +86,72 @@ export function settingLabel(title: string, key: string): string {
   return `${title} › ${segments.map(humanise).join(' › ')}: ${humanise(leaf)}`;
 }
 
-export interface SettingItem { category: string; label: string; description: string; checked: string | null; html: string }
+// SettingItem is one setting as the settings editor draws it: its category and
+// label, its description's drawn text, whether that description is drawn as
+// Markdown, the text of each piece of code it draws as code, and each link it
+// draws — its words and where it leads.
+export interface SettingItem {
+  category: string;
+  label: string;
+  description: string;
+  markdown: boolean;
+  code: string[];
+  links: { text: string; target: string; title: string }[];
+  checked: string | null;
+  html: string;
+}
 
 const SETTING_ITEMS = `(() => {
   const e = document.querySelector('.settings-editor');
   if (!e || e.getBoundingClientRect().height === 0) { return null; }
   return [...e.querySelectorAll('.setting-item-contents')].map((i) => {
     const c = i.querySelector('.setting-value-checkbox');
+    const d = i.querySelector('.setting-item-description, .setting-item-value-description');
     return {
       category: ((i.querySelector('.setting-item-category') || {}).innerText || ''),
       label: ((i.querySelector('.setting-item-label') || {}).innerText || ''),
-      description: ((i.querySelector('.setting-item-description, .setting-item-value-description') || {}).innerText || '').trim(),
+      description: ((d || {}).innerText || '').trim(),
+      markdown: !!d && !!d.querySelector('.setting-item-markdown'),
+      code: d ? [...d.querySelectorAll('code')].map((x) => (x.innerText || '').trim()) : [],
+      links: d ? [...d.querySelectorAll('a')].map((a) => ({ text: (a.innerText || '').trim(), target: a.getAttribute('data-href') || a.getAttribute('href') || '', title: a.getAttribute('title') || '' })) : [],
       checked: c ? (c.getAttribute('aria-checked') || (c.classList.contains('checked') ? 'true' : 'false')) : null,
       html: i.outerHTML.slice(0, 1200),
     };
   });
 })()`;
+
+// SETTING_LINK is how a Markdown setting description names another setting: its
+// id between `#` marks inside backticks, which the settings editor draws as a
+// link reading the name it gives that setting and leading to it.
+export const SETTING_LINK = /`#([^#\s`]+)#`/g;
+
+// declaredMarkdown is a setting's Markdown description as the manifest declares
+// it, or the empty string where it declares none.
+export function declaredMarkdown(ctx: SuiteContext, key: string): string {
+  return ctx.manifest.contributes.configuration.properties[key]?.markdownDescription ?? '';
+}
+
+// declaredDescription is a setting's description as the manifest declares it, in
+// whichever of the two forms it is declared, for a check about what it says
+// rather than about how it is drawn.
+export function declaredDescription(ctx: SuiteContext, key: string): string {
+  const p = ctx.manifest.contributes.configuration.properties[key];
+  return p?.markdownDescription ?? p?.description ?? '';
+}
+
+// drawnFromMarkdown is the text a Markdown description draws, for the plain shape
+// these descriptions take: each link to a setting reads the label the settings
+// editor gives that setting, and each piece of code its words without the marks
+// around them.
+export function drawnFromMarkdown(markdown: string, title: string): string {
+  return markdown.replace(SETTING_LINK, (_m, key: string) => settingLabel(title, key)).replace(/`([^`]*)`/g, '$1');
+}
+
+// codeIn is each piece of code a Markdown description declares, in order, leaving
+// out the links to settings, which are drawn as links rather than as code.
+export function codeIn(markdown: string): string[] {
+  return [...markdown.replace(SETTING_LINK, '').matchAll(/`([^`]*)`/g)].map((m) => m[1]);
+}
 
 // SettingsScreen is what the settings editor draws: the text in its search box,
 // its count of the settings that search finds, and the key of every setting it
@@ -225,23 +289,51 @@ export async function gatewayChecks(ctx: SuiteContext, referenceFolder: string):
   // ---- the setting's label, and where it is kept ----
   const title = ctx.manifest.contributes.configuration.title;
   const label = settingLabel(title, BUILD_ON_INSPECT);
-  const declared = ctx.manifest.contributes.configuration.properties[BUILD_ON_INSPECT]?.description ?? '';
+  const declared = declaredMarkdown(ctx, BUILD_ON_INSPECT);
+  const declaredAsDrawn = drawnFromMarkdown(declared, title);
   let drawnDescription = '';
   await c.run('settings.build-on-inspect-label-is-derived-from-its-key', {
-    expected: `searching the settings editor for "buildOnInspect" draws the label "${label}" — the configuration's title "${title}" and the key path ${BUILD_ON_INSPECT} as the editor words it, with no title of the property's own — and beside it the description the manifest declares`,
-    plant: 'in the scratch copy\'s package.json, a markdown description given to the property, which the settings editor draws in place of the declared one',
+    expected: `searching the settings editor for "buildOnInspect" draws the label "${label}" — the configuration's title "${title}" and the key path ${BUILD_ON_INSPECT} as the editor words it, with no title of the property's own — and beside it the Markdown description the manifest declares, drawn as Markdown: its code as code, with no backtick left in the drawn words`,
+    plant: 'in the scratch copy\'s package.json, the property\'s description declared as a plain description, which the settings editor draws with its backticks',
   }, async () => {
     const item = await openSettingsOn(ctx, 'buildOnInspect', label);
     drawnDescription = item.description;
-    return { passed: item.description === declared, seen: `label "${item.category}${item.label}"; description ${item.description === declared ? 'as declared' : `"${item.description}"`}`, evidence: { item } };
+    const asDeclared = declared !== '' && item.description === declaredAsDrawn;
+    const passed = asDeclared && item.markdown && !item.description.includes('`');
+    return {
+      passed,
+      seen: `label "${item.category}${item.label}"; description drawn ${item.markdown ? 'as Markdown' : 'as plain text'}, ${asDeclared ? 'as declared' : `"${item.description}"${declared === '' ? ', the manifest declaring no Markdown description' : ''}`}${item.description.includes('`') ? ', with a backtick in its drawn words' : ''}; code drawn ${JSON.stringify(item.code)}`,
+      evidence: { item },
+    };
   });
   await c.forPerson('settings.build-on-inspect-description-states-its-three-facts', {
-    expected: 'the description states that the analysis runs while inspecting an IR graph, that inspecting costs more when it runs, and that nothing is written to disk',
+    expected: `the description states that ${STAGE} runs while inspecting an IR graph, that inspecting costs more when it runs, and that nothing is written to disk`,
     plant: 'none: this is a judgement of the wording',
     question: 'Does the drawn description convey the three facts — while inspecting an IR graph, it costs more, and nothing is written to disk?',
   }, async () => {
     need(drawnDescription !== '', 'the setting was not drawn, so there is no description to judge');
     return { screenshot: await capture(ctx, 'settings-build-on-inspect'), drawnText: drawnDescription };
+  });
+
+  // ---- what the setting says it adds, in the command line's words ----
+  const toggleTitle = commandTitle(ctx.manifest, TOGGLE_BUILD_ON_INSPECT_COMMAND);
+  await c.run('settings.build-on-inspect-says-what-it-adds-in-the-command-lines-words', {
+    expected: `the setting's drawn description holds "${QUALIFIER}" as a sentence of its own — the command line's help for ${INSPECTION_FLAG} saying what the stage does not add — and names what the setting runs "${STAGE}", as that help does; and the command palette, searched for the toggle's title "${toggleTitle}" (the manifest's title for ${TOGGLE_BUILD_ON_INSPECT_COMMAND}), draws that row, naming "${STAGE}" too`,
+    plant: 'in the scratch copy\'s package.json, the qualifier taken out of the setting\'s description; or the toggle titled in other words',
+  }, async () => {
+    need(drawnDescription !== '', 'the setting was not drawn above, so there is no description to read');
+    const sentences = sentencesOf(drawnDescription);
+    const qualified = sentences.includes(QUALIFIER);
+    const describedAs = drawnDescription.includes(STAGE);
+    const palette = await paletteRows(ctx.d, (cmd) => send(ctx, cmd), toggleTitle);
+    await ctx.d.press('Escape');
+    await until('the palette closing', 5000, () => quickInput(ctx.d), (x) => x === null).catch(() => undefined);
+    const row = palette.rows.find((r) => r.label === toggleTitle);
+    const titled = row !== undefined && row.label.includes(STAGE);
+    return {
+      passed: qualified && describedAs && titled,
+      seen: `the drawn description ${qualified ? `holds "${QUALIFIER}" as a sentence` : `holds no sentence "${QUALIFIER}"; its sentences ${JSON.stringify(sentences)}`}, and ${describedAs ? 'names' : 'does not name'} "${STAGE}"; the palette, searched for "${toggleTitle}", ${row === undefined ? `draws no such row among ${JSON.stringify(palette.rows.map((r) => r.label))}` : `draws the row "${row.label}", ${titled ? 'naming' : 'not naming'} "${STAGE}"`}`,
+    };
   });
 
   const userSettings = path.join(ctx.s.root.userData, 'User', 'settings.json');
@@ -288,12 +380,12 @@ export async function gatewayChecks(ctx: SuiteContext, referenceFolder: string):
   const advisoryOn = async (): Promise<boolean> => (await diagnostics(ctx, aggregate)).some((d) => d.source === 'aggrega-build' && refs.advisory.includes(d.message));
   let layersReady = false;
   await c.run('problems.authoring-complaint-and-render-advisory-under-two-sources', {
-    expected: 'with the analysis on, breaking a Component the Release does not use and showing the graph puts the authoring complaint on that file under the source "aggrega" and the render advisory on the Aggregate under "aggrega-build", each in the compiler\'s own words; turning the analysis off, restarting and showing the graph again takes the render advisory out of "aggrega-build"',
+    expected: 'with the setting on, breaking a Component the Release does not use and showing the graph puts the authoring complaint on that file under the source "aggrega" and the render advisory on the Aggregate under "aggrega-build", each in the compiler\'s own words; turning the setting off, restarting and showing the graph again takes the render advisory out of "aggrega-build"',
     plant: 'in the scratch copy, out/src/diagnostics.js made to file the build layer under the source "aggrega"; or out/src/server-turnover.js made to forget nothing, and have nothing validated again, as a new language server comes up',
   }, async () => {
     need(refs.complaint.length > 0, `the compiler gave no reference words for the complaint (validate answered no diagnostic)`);
     need(refs.advisory.length === 1, `the compiler gave ${refs.advisory.length} render warnings for the folder, not the one advisory`);
-    need((await theServer(ctx)).cmd === commandLineFor(bin, true), 'the language server is not running with the analysis on');
+    need((await theServer(ctx)).cmd === commandLineFor(bin, true), 'the language server is not running with the setting on');
     const removed = await deleteLine(ctx, scratch, 'version: 1.0.0');
     const panel = await commandsPanel(ctx.d);
     await pressOperation(ctx.d, panel, 'aggrega.graph.show');
@@ -303,19 +395,19 @@ export async function gatewayChecks(ctx: SuiteContext, referenceFolder: string):
     const complaint = both.scratch.find((d) => refs.complaint.includes(d.message));
     const advisory = both.aggregate.find((d) => refs.advisory.includes(d.message));
     const twoSources = complaint?.source === 'aggrega' && advisory?.source === 'aggrega-build';
-    // The control: the analysis off, restarted, the graph shown again.
+    // The control: the setting off, restarted, the graph shown again.
     const off = await toggleAndRestart(ctx);
     await pressOperation(ctx.d, await commandsPanel(ctx.d), 'aggrega.graph.show');
     const left = await until('the render advisory leaving "aggrega-build"', 30000, advisoryOn, (v) => !v).then(() => true, () => false);
     // Back on, for the checks that follow, with the graph panel still open.
     const on = await toggleAndRestart(ctx);
     await pressOperation(ctx.d, await commandsPanel(ctx.d), 'aggrega.graph.show');
-    layersReady = await until('the render advisory back after the analysis is on again', 60000, advisoryOn, (v) => v).then(() => true, () => false);
+    layersReady = await until('the render advisory back after the setting is on again', 60000, advisoryOn, (v) => v).then(() => true, () => false);
     await putBack(ctx, scratch, removed);
     await save(ctx, scratch);
     return {
       passed: twoSources && left && off.server.cmd === commandLineFor(bin, false),
-      seen: `complaint ${describeDiagnostics(scratch, complaint ? [complaint] : [])}; advisory ${describeDiagnostics(aggregate, advisory ? [advisory] : [])}; with the analysis off (${off.server.cmd}) the advisory ${left ? 'left' : 'stayed under'} "aggrega-build"; back on (${on.server.cmd}) it ${layersReady ? 'returned' : 'did not return'}`,
+      seen: `complaint ${describeDiagnostics(scratch, complaint ? [complaint] : [])}; advisory ${describeDiagnostics(aggregate, advisory ? [advisory] : [])}; with the setting off (${off.server.cmd}) the advisory ${left ? 'left' : 'stayed under'} "aggrega-build"; back on (${on.server.cmd}) it ${layersReady ? 'returned' : 'did not return'}`,
       evidence: { references: refs, complaint, advisory },
     };
   });
@@ -327,7 +419,7 @@ export async function gatewayChecks(ctx: SuiteContext, referenceFolder: string):
     expected: 'with the graph panel open behind another tab, deleting the Recipe\'s liveness probe without saving leaves the render advisory under "aggrega-build" (watched for 8 s), and saving takes it out within 20 s with no press on Graph',
     plant: 'in the scratch copy, out/src/extension.js made not to redraw an open graph when a document changes on disk',
   }, async () => {
-    need(layersReady, 'the render advisory was not standing under "aggrega-build" with the analysis on');
+    need(layersReady, 'the render advisory was not standing under "aggrega-build" with the setting on');
     recipeLine = await deleteLine(ctx, recipe, 'live: { tcp: {{ .infra.port }} }');
     const unsaved = await holds(8000, advisoryOn, (v) => v);
     observations.push(`an unsaved edit of the Recipe ${unsaved.held ? 'left the advisory standing' : `took the advisory out after ${unsaved.atMs} ms`}`);

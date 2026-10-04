@@ -19,7 +19,7 @@ import { commandsPanel, documentWith, openTabs, OutputLog, RUNNING, scrollTreeTo
 export interface Manifest {
   contributes: {
     commands: { command: string; title: string; category?: string }[];
-    configuration: { title: string; properties: Record<string, { description?: string; default?: unknown }> };
+    configuration: { title: string; properties: Record<string, { description?: string; markdownDescription?: string; default?: unknown }> };
   };
 }
 

@@ -244,6 +244,7 @@ function manifest(): {
     default?: unknown;
     scope?: unknown;
     description?: unknown;
+    markdownDescription?: unknown;
   }>;
   viewsWelcome: unknown[];
 } {
@@ -2577,7 +2578,7 @@ describe('the welcome panel', () => {
     // documents — a description naming a path the product does not use would
     // otherwise satisfy the first check forever, and a reader will type it.
     it('names both configuration files in the settings description a reader opens', function () {
-      const description = String(manifest().properties['aggrega.server.binaryPath']?.description ?? '');
+      const description = String(manifest().properties['aggrega.server.binaryPath']?.markdownDescription ?? '');
       const unnamed = CONFIGURATION_FILE_LOCATIONS.filter((where) => !description.includes(where));
       assert.deepStrictEqual(
         unnamed,
@@ -2677,7 +2678,7 @@ describe('the welcome panel', () => {
     // form must account for every occurrence of the bare one.
     it('calls the shared configuration file global on both surfaces, and keeps the teaching', () => {
       const html = renderedPanel(stepReadings(NOTHING_MET));
-      const description = String(manifest().properties['aggrega.server.binaryPath']?.description ?? '');
+      const description = String(manifest().properties['aggrega.server.binaryPath']?.markdownDescription ?? '');
 
       // Occurrences, not matching lines and not a substring test: both of those
       // report "present" for a surface that names the file twice and got it

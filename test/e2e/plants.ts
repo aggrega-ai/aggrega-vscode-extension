@@ -178,19 +178,37 @@ export const PLANTS: readonly Plant[] = [
     says: 'the language server is started by the binary\'s file name alone, so what runs is whatever that name finds on the path rather than the configured file',
   },
   { name: 'context-row-renamed', scenario: 'gateway', checks: ['commands-panel.context-rows-name-the-opened-folder'], moves: 'red', target: 'extension', ...CONTEXT_ROW_LABEL },
+  // The setting's description is a Markdown one, and the check reads what it
+  // calls declared from the same scratch copy the editor loads, so a second
+  // description planted beside it would move both sides of the comparison. The
+  // plant declares it plain instead: the editor then draws its code's backticks.
   {
     name: 'setting-drawn-with-another-description', scenario: 'gateway', checks: ['settings.build-on-inspect-label-is-derived-from-its-key'], moves: 'red', target: 'extension',
     file: 'package.json',
-    find: '        "aggrega.server.buildOnInspect": {\n          "type": "boolean",',
-    replace: '        "aggrega.server.buildOnInspect": {\n          "markdownDescription": "A description other than the one the manifest declares.",\n          "type": "boolean",',
-    says: 'the setting is given a markdown description, which the settings editor draws in place of the declared one',
+    find: '          "markdownDescription": "When true, the language server runs the artifact-rendering stage while inspecting an IR graph',
+    replace: '          "description": "When true, the language server runs the artifact-rendering stage while inspecting an IR graph',
+    says: 'the setting\'s description is declared as a plain description, which the settings editor draws with its backticks rather than as Markdown',
   },
   {
     name: 'setting-on-by-default', scenario: 'gateway', checks: ['settings.build-on-inspect-toggle-is-kept-in-the-user-settings'], moves: 'red', target: 'extension',
     file: 'package.json',
-    find: '          "default": false,\n          "description": "When true, the daemon runs the build\'s analysis while inspecting an IR graph',
-    replace: '          "default": true,\n          "description": "When true, the daemon runs the build\'s analysis while inspecting an IR graph',
-    says: 'the build-analysis setting is declared on by default',
+    find: '          "default": false,\n          "markdownDescription": "When true, the language server runs the artifact-rendering stage while inspecting an IR graph',
+    replace: '          "default": true,\n          "markdownDescription": "When true, the language server runs the artifact-rendering stage while inspecting an IR graph',
+    says: 'the build-on-inspect setting is declared on by default',
+  },
+  {
+    name: 'setting-description-without-its-qualifier', scenario: 'gateway', checks: ['settings.build-on-inspect-says-what-it-adds-in-the-command-lines-words'], moves: 'red', target: 'extension',
+    file: 'package.json',
+    find: ' raises while rendering also appear as editor problems. It adds none of the checks a build halts on. Inspecting',
+    replace: ' raises while rendering also appear as editor problems. Inspecting',
+    says: 'the setting\'s description leaves out the command line\'s qualifier, that it adds none of the checks a build halts on',
+  },
+  {
+    name: 'toggle-titled-in-other-terms', scenario: 'gateway', checks: ['settings.build-on-inspect-says-what-it-adds-in-the-command-lines-words'], moves: 'red', target: 'extension',
+    file: 'package.json',
+    find: '        "title": "Aggrega: Toggle the artifact-rendering stage while inspecting"',
+    replace: '        "title": "Aggrega: Toggle the build\'s analysis while inspecting"',
+    says: 'the toggle command is titled in terms other than the setting\'s description, as the build\'s analysis',
   },
   {
     name: 'inspection-flag-always', scenario: 'gateway', checks: ['language-server.inspection-flag-follows-the-setting'], moves: 'red', target: 'extension',
@@ -1121,7 +1139,7 @@ export const PLANTS: readonly Plant[] = [
     file: GRAPH_SCRIPT, find: '      const box = readableBox();', replace: '      const box = readableBox() || { width: 300, height: 150 };',
     says: 'a drawing that arrives while the panel is off screen is framed against a size of the panel\'s own choosing',
   },
-  // ---- the storefront folder at rest, with the build's analysis on ----
+  // ---- the storefront folder at rest, with aggrega.server.buildOnInspect on ----
   { name: 'context-row-renamed-graph-idle', scenario: 'storefront-graph-idle', checks: ['commands-panel.context-rows-name-the-opened-folder'], moves: 'red', target: 'extension', ...CONTEXT_ROW_LABEL },
   {
     name: 'graph-redrawn-on-every-push', scenario: 'storefront-graph-idle', checks: ['graph.open-panel-compiles-once-then-rests'], moves: 'red', target: 'extension',
@@ -1340,9 +1358,9 @@ export const PLANTS: readonly Plant[] = [
   {
     name: 'toggle-unavailable-while-nothing-answers', scenario: 'no-workspace-first-day', checks: ['palette.build-analysis-toggle-works-with-no-server'], moves: 'red', target: 'extension',
     file: 'package.json',
-    find: '        "command": "aggrega.server.toggleBuildOnInspect",\n        "title": "Aggrega: Toggle the build\'s analysis while inspecting"',
-    replace: '        "command": "aggrega.server.toggleBuildOnInspect",\n        "title": "Aggrega: Toggle the build\'s analysis while inspecting",\n        "enablement": "aggrega.compilerAnswerable"',
-    says: 'the build-analysis toggle is made unavailable while nothing is answerable',
+    find: '        "command": "aggrega.server.toggleBuildOnInspect",\n        "title": "Aggrega: Toggle the artifact-rendering stage while inspecting"',
+    replace: '        "command": "aggrega.server.toggleBuildOnInspect",\n        "title": "Aggrega: Toggle the artifact-rendering stage while inspecting",\n        "enablement": "aggrega.compilerAnswerable"',
+    says: 'the build-on-inspect toggle is made unavailable while nothing is answerable',
   },
   {
     name: 'item-says-no-root-as-if-anchored', scenario: 'no-workspace-first-day', checks: ['status-bar.lifecycle-item-says-there-is-nothing-to-attach-to'], moves: 'red', target: 'extension',
@@ -2123,6 +2141,16 @@ export const PLANTS: readonly Plant[] = [
     name: 'binary-path-says-machine-wide', scenario: 'gateway-commands-panel', checks: ['settings.binary-path-description-names-the-two-files'], moves: 'red', target: 'extension',
     file: 'package.json', find: '`~/.config/aggrega/config.yaml`, the global file on your machine,', replace: '`~/.config/aggrega/config.yaml`, the machine-wide file,',
     says: 'the binary path\'s description calls the file on the machine the machine-wide file',
+  },
+  {
+    name: 'binary-path-description-declared-plain', scenario: 'gateway-commands-panel', checks: ['settings.binary-path-description-draws-its-code-as-code'], moves: 'red', target: 'extension',
+    file: 'package.json', find: '          "markdownDescription": "Path to the `aggrega` binary.', replace: '          "description": "Path to the `aggrega` binary.',
+    says: 'the binary path\'s description is declared as a plain description, which the settings screen draws with its backticks and no code',
+  },
+  {
+    name: 'restart-grace-names-the-setting-by-its-id', scenario: 'gateway-commands-panel', checks: ['settings.restart-grace-names-the-binary-path-as-the-settings-screen-does'], moves: 'red', target: 'extension',
+    file: 'package.json', find: 'after a change to `#aggrega.server.binaryPath#`. The status bar', replace: 'after a binaryPath change. The status bar',
+    says: 'the restart grace\'s description names the binary path by its id rather than by the editor\'s link to it',
   },
   {
     name: 'validate-answers-in-other-words', scenario: 'gateway-commands-panel', checks: ['commands-panel.server-only-operations-stay-enabled-with-the-server-stopped'], moves: 'red', target: 'extension',
