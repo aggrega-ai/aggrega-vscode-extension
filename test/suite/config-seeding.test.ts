@@ -241,6 +241,29 @@ describe('a completed seeding says what was seeded and where', () => {
     );
   });
 
+  it('names the official hub as not reached where the answer says so, on both of its branches', () => {
+    // The hub asked online and not reached: the answer carries the baseline, the
+    // not-advertised mark and the field saying the hub was not reached. The
+    // sentence keeps the baseline and names the hub as not reached ahead of the
+    // reason, whether the answer wrote the file or only reported it.
+    const reason = 'registrytrust: fetch trust config from hub.aggrega.ai: Get '
+      + '"https://hub.aggrega.ai/.well-known/aggrega-trust": dial tcp: lookup hub.aggrega.ai: no such host';
+    const trust = { pinned: false, notAdvertised: true, unreachable: true, baseline: true, reason };
+    assert.strictEqual(
+      seedingDetail(answer({ trust })),
+      'registered hub.aggrega.ai in /home/reader/.config/aggrega/config.yaml, the global file '
+      + 'shared by every project on this machine. The built-in trust baseline was pinned instead '
+      + `of an advertised policy. hub.aggrega.ai could not be reached: ${reason}`,
+    );
+    assert.strictEqual(
+      seedingDetail(answer({ written: false, trust })),
+      'reported the configuration for hub.aggrega.ai without writing '
+      + '/home/reader/.config/aggrega/config.yaml, the global file shared by every project on '
+      + 'this machine. The built-in trust baseline was pinned instead of an advertised policy. '
+      + `hub.aggrega.ai could not be reached: ${reason}`,
+    );
+  });
+
   it('reports a fetch that was not attempted, and never as a failure', () => {
     const detail = seedingDetail(answer({ trust: { pinned: false, skipped: true } }));
     assert.ok(detail.includes('No advertised signature trust policy was fetched.'));
@@ -271,6 +294,8 @@ describe('a completed seeding says what was seeded and where', () => {
       { trust: { pinned: false, notAdvertised: true } },
       { trust: { pinned: false, baseline: true } },
       { trust: { pinned: false, notAdvertised: true, baseline: true } },
+      { trust: { pinned: false, notAdvertised: true, unreachable: true } },
+      { trust: { pinned: false, notAdvertised: true, unreachable: true, baseline: true } },
       { trust: { pinned: true } },
     ];
     for (const over of shapes) {

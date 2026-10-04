@@ -276,11 +276,12 @@ export function activateRegistriesView(
     // this side waiting — and reporting that as a stop would tell a reader the
     // compiler stopped when it did not.
     //
-    // 🔴 WHERE THE REGISTRY ADVERTISES NO TRUST POLICY, THE READER IS ASKED FOR ONE
-    // TO PIN BY HAND — AFTER THE ENDING, NEVER BEFORE THE REQUEST. That is the one
-    // case in which the command line takes identities or a key, and the same case
-    // met offline, where a registry other than the official hub is refused for want
-    // of one. The ending is put in front of the reader first, so the question
+    // 🔴 WHERE NO ADVERTISED TRUST POLICY CAME BACK — THE REGISTRY ADVERTISES NONE,
+    // OR IT COULD NOT BE REACHED — THE READER IS ASKED FOR ONE TO PIN BY HAND,
+    // AFTER THE ENDING, NEVER BEFORE THE REQUEST. That is the one case in which the
+    // command line takes identities or a key, and the same case met offline, where
+    // a registry other than the official hub is refused for want of one. The ending
+    // is put in front of the reader first, so the question
     // follows the sentence saying why it is asked; it is not waited on, because a
     // refusal's notification stays until the reader answers it. What the reader
     // supplies is sent as a second registration of the same host at the same

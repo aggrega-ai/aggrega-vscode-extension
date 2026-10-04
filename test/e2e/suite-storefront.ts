@@ -866,9 +866,16 @@ export async function storefrontChecks(ctx: SuiteContext, referenceFolder: strin
   const said: string[] = [];
   const original = fs.readFileSync(config, 'utf8');
   const missingCatalog = path.join(ctx.folder, 'no-such-catalog');
+  // The documents a failing dependency resolution is reported on: the Release, the
+  // Aggregate and the Manifest it names, and the workspace configuration, which the
+  // language server reads as an Aggrega document by its name. Every other document
+  // carrying an entry in this state is an entity file, which the language server
+  // checks one at a time against the catalog directories.
+  const resolutionDocuments = [RELEASE, 'aggregate.yaml', 'manifest-compose.yaml', '.aggrega-config.yaml'];
+  const resolutionPaths = resolutionDocuments.map((name) => path.join(ctx.folder, name));
   await c.run('settings-that-are-wrong.missing-catalog-and-unreachable-registry-are-named', {
-    expected: `with "- ./no-such-catalog" under catalog_dirs and a top-level registries list holding "${UNREACHABLE_HOST}" saved, the restart the warning offers (or, where none is offered, the restart command) brings up a new language server that runs; Graph then opens a panel that draws no card and names the refusal "${graphCouldNotBeDrawn(RELEASE, '<message>')}", and the channel says the same line — <message> being the language server's own answer to the same graph request over a reference copy configured the same way, whose message names ${missingCatalog}; no line the channel or the panel draws carries "irGraph failed" or a "code=<n>"; and the Registries panel names ${UNREACHABLE_HOST}`,
-    plant: 'in the scratch copy, out/src/graph-failure.js made to tell the panel a sentence of its own in place of the refusal; or out/src/extension.js made to restart nothing when the warning\'s restart is pressed; or out/src/error-text.js made to put the transport\'s code ahead of a refusal\'s words; or out/src/graph-failure.js made to name the request on the channel',
+    expected: `with "- ./no-such-catalog" under catalog_dirs and a top-level registries list holding "${UNREACHABLE_HOST}" saved, the restart the warning offers (or, where none is offered, the restart command) brings up a new language server that runs; Graph then opens a panel that draws no card and names the refusal "${graphCouldNotBeDrawn(RELEASE, '<message>')}", and the channel says the same line — <message> being the language server's own answer to the same graph request over a reference copy configured the same way, whose message names ${missingCatalog}; no line the channel or the panel draws carries "irGraph failed" or a "code=<n>"; the Registries panel names ${UNREACHABLE_HOST}; and, with the Feature opened, its Problems entry reads exactly the language server's own answer to the same document over that reference copy, and it and every other entity file's entry — every entry on a document other than ${resolutionDocuments.join(', ')} — names ${missingCatalog}, says it does not exist and names \`workspace.catalog_dirs\``,
+    plant: 'in the scratch copy, out/src/graph-failure.js made to tell the panel a sentence of its own in place of the refusal; or out/src/extension.js made to restart nothing when the warning\'s restart is pressed; or out/src/error-text.js made to put the transport\'s code ahead of a refusal\'s words; or out/src/graph-failure.js made to name the request on the channel; or out/src/diagnostics-shape.js made to cut a finding at its first clause',
   }, async () => {
     const mark = ctx.out.mark();
     const toastMark = (await toasts(ctx.d)).length;
@@ -899,17 +906,24 @@ export async function storefrontChecks(ctx: SuiteContext, referenceFolder: strin
     // drawn: what names the directory is that refusal, which the panel shows in
     // place of a drawing. Its words are the language server's own for the same
     // request over the reference copy, given the same configuration while asked.
+    // The Feature's entry is held against the language server's own answer for the
+    // same document over that reference copy, asked in the same window.
     const refConfig = path.join(referenceFolder, '.aggrega-config.yaml');
     need(fs.readFileSync(refConfig, 'utf8') === original, 'the reference copy\'s configuration is not the folder\'s as it was found');
     fs.writeFileSync(refConfig, fs.readFileSync(config, 'utf8'));
-    const ref = await (async () => {
+    const [ref, featureRef] = await (async () => {
       try {
-        return await referenceAnswer({ binary: bin, root: referenceFolder, method: 'aggrega/irGraph', params: { release: RELEASE }, home: ctx.home, table: ctx.s.table, log: ctx.cliLog });
+        return [
+          await referenceAnswer({ binary: bin, root: referenceFolder, method: 'aggrega/irGraph', params: { release: RELEASE }, home: ctx.home, table: ctx.s.table, log: ctx.cliLog }),
+          await referenceAnswer({ binary: bin, root: referenceFolder, method: 'aggrega/validate', params: buildValidateParams(referenceFeature, fs.readFileSync(feature, 'utf8'), RELEASE), home: ctx.home, table: ctx.s.table, log: ctx.cliLog }),
+        ] as const;
       } finally {
         fs.writeFileSync(refConfig, original);
       }
     })();
     need(!ref.ok, 'the language server drew the reference copy configured with a catalog directory it does not hold');
+    need(featureRef.ok, `the language server gave no reference answer for the Feature: ${featureRef.ok ? '' : featureRef.error.message}`);
+    const featureWords = ((featureRef.result as { diagnostics?: { message: string }[] | null }).diagnostics ?? []).map((d) => d.message.split(referenceFolder).join(ctx.folder));
     const words = ref.error.message.split(referenceFolder).join(ctx.folder);
     const channelLine = graphCouldNotBeDrawn(RELEASE, words);
     const refusal = channelLine;
@@ -934,10 +948,17 @@ export async function storefrontChecks(ctx: SuiteContext, referenceFolder: strin
     const views = async (title: string): Promise<string[]> => ((await treeRows(ctx.d, title)) ?? []).map((r) => `${title} view: ${r.label}${r.description ? ` ${r.description}` : ''}${r.aria && r.aria !== r.label ? ` (${r.aria.replace(/\s+/g, ' ')})` : ''}`);
     const registries = await until(`the Registries panel naming ${UNREACHABLE_HOST}`, 10000, () => views('Registries'), (l) => l.some((x) => x.includes(UNREACHABLE_HOST))).catch(() => views('Registries'));
     const hostNamed = registries.some((x) => x.includes(UNREACHABLE_HOST));
+    // The Feature, opened now, is checked by the server that reads this
+    // configuration; its entries are read once they carry the server's words, or as
+    // they stand when the wait runs out.
+    await open(ctx, feature);
+    await until('the Feature carrying the language server\'s own entry', 20000, () => diagnostics(ctx, feature), (v) => v.some((d) => featureWords.includes(d.message))).catch(() => undefined);
+    const featureEntries = (await diagnostics(ctx, feature)).map((d) => d.message);
+    const listed = await ctx.probe.request<{ path: string; diagnostics: { message: string }[] }[]>('diagnostics.list');
     const lines = [
       ...(await toastsSince(ctx.d, toastMark)).map((t) => `notification: ${t.message}`),
       ...ctx.out.since(mark).split('\n').filter((l) => l.trim() !== '').map((l) => `channel: ${l}`),
-      ...(await ctx.probe.request<{ path: string; diagnostics: { message: string }[] }[]>('diagnostics.list')).flatMap((e) => e.diagnostics.map((d) => `problem in ${path.basename(e.path)}: ${d.message}`)),
+      ...listed.flatMap((e) => e.diagnostics.map((d) => `problem in ${path.basename(e.path)}: ${d.message}`)),
       ...notices.filter((x) => x.text !== '').map((x) => `graph panel: ${x.text}`),
       ...registries,
     ];
@@ -950,10 +971,23 @@ export async function storefrontChecks(ctx: SuiteContext, referenceFolder: strin
     // panel drew; the language server's own words are read here too, so a code
     // the server put in its message would show up rather than pass.
     const coded = lines.filter((l) => (l.startsWith('channel: ') || l.startsWith('graph panel: ')) && /irGraph failed|\bcode=-?\d+/.test(l));
+    // The Feature's entries are the server's, carried whole: the same set of
+    // messages its own answer gives. Each entity file's entry then says what is
+    // wrong — the directory, that it does not exist, and the setting listing it —
+    // read on every entry drawn on a document other than the ones a failing
+    // dependency resolution is reported on, the Feature's among them, so the
+    // reading is never over nothing.
+    const featureCarried = featureWords.length > 0 && featureEntries.length > 0
+      && featureEntries.every((m) => featureWords.includes(m)) && featureWords.every((w) => featureEntries.includes(w));
+    const entityEntries = listed.filter((e) => !resolutionPaths.includes(e.path))
+      .flatMap((e) => e.diagnostics.map((d) => ({ file: path.basename(e.path), message: d.message })));
+    const saysWhatIsWrong = (m: string): boolean => m.includes(missingCatalog) && m.includes('does not exist') && m.includes('`workspace.catalog_dirs`');
+    const unsaid = entityEntries.filter((e) => !saysWhatIsWrong(e.message));
+    const entitiesSay = featureEntries.length > 0 && entityEntries.length > 0 && unsaid.length === 0;
     return {
-      passed: running && panelNamed && nothingDrawn && directoryNamed && hostNamed && channelNamed && coded.length === 0,
-      seen: `${restartedBy}: language server ${before.pid} replaced by ${after.pid}, the status bar ${running ? 'running' : 'not running'}; the graph panel ${panelNamed ? 'said the topology could not be drawn, in the server\'s words' : `read ${JSON.stringify(shown)}, not "${refusal}"`}, ${nothingDrawn ? 'drawing no card up to 3 s after' : `its readings ${JSON.stringify(notices.map((x) => `${x.nodes} cards${x.outOfDate ? ' [dimmed]' : ''}`))}`}; the channel ${channelNamed ? 'says the topology could not be drawn, in the server\'s words' : `does not carry "${channelLine}"`}; ${coded.length === 0 ? 'no line carries a code-facing label' : `code-facing labels on ${JSON.stringify(coded)}`}; the language server's own answer "${words}" ${directoryNamed ? 'names' : 'does not name'} ${missingCatalog}; ${UNREACHABLE_HOST} ${hostNamed ? 'named' : 'not named'} in the Registries panel`,
-      evidence: { said: lines, refusal, channelLine, notices },
+      passed: running && panelNamed && nothingDrawn && directoryNamed && hostNamed && channelNamed && coded.length === 0 && featureCarried && entitiesSay,
+      seen: `${restartedBy}: language server ${before.pid} replaced by ${after.pid}, the status bar ${running ? 'running' : 'not running'}; the graph panel ${panelNamed ? 'said the topology could not be drawn, in the server\'s words' : `read ${JSON.stringify(shown)}, not "${refusal}"`}, ${nothingDrawn ? 'drawing no card up to 3 s after' : `its readings ${JSON.stringify(notices.map((x) => `${x.nodes} cards${x.outOfDate ? ' [dimmed]' : ''}`))}`}; the channel ${channelNamed ? 'says the topology could not be drawn, in the server\'s words' : `does not carry "${channelLine}"`}; ${coded.length === 0 ? 'no line carries a code-facing label' : `code-facing labels on ${JSON.stringify(coded)}`}; the language server's own answer "${words}" ${directoryNamed ? 'names' : 'does not name'} ${missingCatalog}; ${UNREACHABLE_HOST} ${hostNamed ? 'named' : 'not named'} in the Registries panel; the Feature's entries ${JSON.stringify(featureEntries)} ${featureCarried ? 'are' : 'are not'} the language server's own answer for it, ${JSON.stringify(featureWords)}; ${entityEntries.length} entity-file entr${entityEntries.length === 1 ? 'y' : 'ies'} on ${JSON.stringify([...new Set(entityEntries.map((e) => e.file))])}, ${unsaid.length === 0 ? 'each naming the directory, saying it does not exist and naming `workspace.catalog_dirs`' : `of which these do not say all three: ${JSON.stringify(unsaid)}`}`,
+      evidence: { said: lines, refusal, channelLine, notices, featureEntries, featureWords, entityEntries },
     };
   });
   // Put the configuration back and let the server read it.

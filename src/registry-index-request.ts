@@ -3,6 +3,7 @@
 
 import type * as wire from '@aggrega-ai/aggrega-abi/dist/servewire_gen';
 import { CancellationSignal } from './cancellation';
+import { couldNotBeReached, refusedAsNotReached } from './not-reached';
 import { OperationOutcome, outcomeOf } from './operation-outcome';
 
 // This module is the whole of what building the searchable index means on this
@@ -24,7 +25,8 @@ import { OperationOutcome, outcomeOf } from './operation-outcome';
 // nothing here reaches a registry, and nothing here re-words what the compiler
 // says about it: every closing sentence is composed from the answer's own fields,
 // and a refusal travels through the extension's one rendering home with the
-// compiler's text unaltered.
+// compiler's text unaltered — named as a registry not reached, ahead of that text,
+// only where the refusal's data says so.
 //
 // 🔴 THIS ONE CAN BE STOPPED, AND THAT IS READ OFF THE COMPILER RATHER THAN
 // ASSUMED. The request's own context reaches the walk: it is observed ahead of
@@ -58,8 +60,8 @@ import { OperationOutcome, outcomeOf } from './operation-outcome';
 //
 // The two scopes do differ in how a host-level failure is reported, and that is
 // the compiler's decision too: a walk over every registry answers with the ones
-// it could not reach named, while a walk over one named registry has no partial
-// result to hand back and refuses outright. Both endings are composed below.
+// that failed named, while a walk over one named registry has no partial result
+// to hand back and refuses outright. Both endings are composed below.
 //
 // The other field the operation accepts — a full re-read that ignores what is
 // already cached — is not declared, because a declared field is a field a later
@@ -94,8 +96,18 @@ export type DeprecationMet = wire.DeprecationNote;
 // and "this run had no trust basis to judge one" are different facts, and a
 // reader shown only a zero cannot tell them apart.
 //
-// error carries a host-level failure as text, so a walk over several registries
-// reports which of them failed without a reader having to correlate anything.
+// error carries a host-level failure in the compiler's own words, so a walk over
+// several registries reports which of them failed without a reader having to
+// correlate anything.
+//
+// 🔴 unreachable SAYS WHETHER THE REGISTRY WAS REACHED AT ALL, AND IT IS THE ONLY
+// THING THAT SAYS SO. It stands beside error where the registry's name did not
+// resolve, a connection to it was refused or could not be opened, or a secure
+// connection could not be established, and is absent for a registry that
+// answered, whatever it answered. The compiler decides it from the failure itself;
+// the words of error are never read for it, because they differ by machine and by
+// compiler version — a name the resolver completes with a search domain fails as a
+// refused connection rather than as a name that does not exist.
 export type IndexedHost = wire.HostUpdate;
 
 // RegistryUpdateResult is the answer an index build produces.
@@ -221,10 +233,14 @@ export function deprecationLine(met: DeprecationMet): string {
 //
 // A failed host reports the compiler's own error and nothing else: there is no
 // walk to describe, and a count of zero beside it would read as a registry that
-// held nothing.
+// held nothing. A host the answer says could not be reached is named as such
+// ahead of those words; any other failure — a registry that answered, and whose
+// answer could not be indexed — is named by the compiler's words alone.
 export function hostLines(host: IndexedHost): readonly string[] {
   if (host.error) {
-    return [`  ${host.host}: ${host.error}`];
+    return host.unreachable === true
+      ? [`  ${couldNotBeReached(host.host, host.error)}`]
+      : [`  ${host.host}: ${host.error}`];
   }
   const lines: string[] = [];
   // Every collection in this answer reaches the wire as null when it is empty,
@@ -286,7 +302,7 @@ export function indexBuildLines(result: RegistryUpdateResult): readonly string[]
 
 // --- how it ends ---------------------------------------------------------
 
-// indexedEntities totals what the walk recorded across the registries it reached.
+// indexedEntities totals what the walk recorded across the registries it indexed.
 //
 // It is summed from the per-host answers rather than read from a total the answer
 // does not carry, and the hosts that failed contribute nothing — a failed host
@@ -295,15 +311,36 @@ function indexedEntities(hosts: readonly IndexedHost[]): number {
   return hosts.reduce((total, host) => total + (host.error ? 0 : host.indexed), 0);
 }
 
+// missedPhrase names the registries a walk missed, those not reached ahead of
+// those not indexed; the second group drops its noun where the first has named
+// it already. At least one of the two holds a registry.
+function missedPhrase(notReached: readonly string[], notIndexed: readonly string[]): string {
+  const notReachedPart = notReached.length === 0 ? null
+    : `${countOf(notReached.length, 'registry', 'registries')} could not be reached (${notReached.join(', ')})`;
+  if (notIndexed.length === 0) {
+    return notReachedPart ?? '';
+  }
+  const listed = `(${notIndexed.join(', ')})`;
+  return notReachedPart === null
+    ? `${countOf(notIndexed.length, 'registry', 'registries')} could not be indexed ${listed}`
+    : `${notReachedPart} and ${notIndexed.length} could not be indexed ${listed}`;
+}
+
 // indexBuildOutcome is the sentence an index build ends in.
 //
 // 🔴 EVERY FACT IN IT IS READ OFF THE ANSWER RATHER THAN OFF THE REQUEST, and the
-// partial walk is the case that makes the difference visible. A walk that reached
+// partial walk is the case that makes the difference visible. A walk that indexed
 // some registries and not others is reported as an operation that did not
 // complete, naming which registries were missed — which is what the command line
 // reports for the same walk, as a non-zero exit, because a shell has no other
 // channel. Reporting it as done would tell a reader their index is current when
 // part of it is not.
+//
+// The registries it missed are named in two groups, each in parentheses, in the
+// order the answer lists them: the ones the answer says could not be reached
+// first, then every other failure as a registry that could not be indexed — "1
+// registry could not be reached (a) and 1 could not be indexed (b)". A group with
+// no member is not mentioned.
 //
 // The zero case is a sentence rather than an absence: a workspace with no
 // configured registry is a result, and leaving it unsaid reads exactly like an
@@ -316,25 +353,26 @@ export function indexBuildOutcome(result: RegistryUpdateResult): OperationOutcom
     };
   }
   const hosts = result.hosts ?? [];
-  const reached = hosts.filter((host) => !host.error);
-  const missed = hosts.filter((host) => host.error).map((host) => host.host);
+  const walked = hosts.filter((host) => !host.error);
+  const failed = hosts.filter((host) => host.error);
+  const notReached = failed.filter((host) => host.unreachable === true).map((host) => host.host);
+  const notIndexed = failed.filter((host) => host.unreachable !== true).map((host) => host.host);
   const entityCount = indexedEntities(hosts);
   const entities = countOf(entityCount, 'entity', 'entities');
-  if (missed.length > 0) {
-    const indexed = reached.length === 0
+  if (failed.length > 0) {
+    const indexed = walked.length === 0
       ? 'nothing was indexed'
       : `${entities} ${entityCount === 1 ? 'was' : 'were'} indexed from `
-        + `${countOf(reached.length, 'registry', 'registries')}`;
+        + `${countOf(walked.length, 'registry', 'registries')}`;
     return {
       kind: 'failed',
-      message: `${countOf(missed.length, 'registry', 'registries')} could not be indexed`
-        + ` (${missed.join(', ')}); ${indexed}.`,
+      message: `${missedPhrase(notReached, notIndexed)}; ${indexed}.`,
     };
   }
   return {
     kind: 'ok',
     detail: `indexed ${entities} from `
-      + `${countOf(reached.length, 'registry', 'registries')}, into ${result.indexRoot}.`,
+      + `${countOf(walked.length, 'registry', 'registries')}, into ${result.indexRoot}.`,
   };
 }
 
@@ -356,18 +394,28 @@ export function indexBuildOutcome(result: RegistryUpdateResult): OperationOutcom
 // escaping the command handler with nothing to render it.
 //
 // A refusal is returned as it arrived: the compiler's own text is the whole of
-// what the reader gets, and for a named registry that text is what says the token
-// matched nothing or the registry could not be reached.
+// what the reader gets — what says the token matched nothing, or why the walk of
+// the one registry failed. Where the refusal's data says the registry the request
+// named could not be reached, the ending names that registry as not reached ahead
+// of the same text; it is the registry as the request named it, since the
+// refusal's data says only that it was not reached.
 export async function runIndexBuild(
   deps: RegistryIndexDeps,
   registry?: string,
   signal?: CancellationSignal,
 ): Promise<RegistryIndexReport> {
   let result: RegistryUpdateResult;
+  let named: string | undefined;
   try {
-    result = await deps.updateRegistryIndex(indexBuildRequest(registry), signal);
+    const request = indexBuildRequest(registry);
+    named = request.registry;
+    result = await deps.updateRegistryIndex(request, signal);
   } catch (err) {
-    return { outcome: outcomeOf(err), lines: [] };
+    const outcome = outcomeOf(err);
+    if (outcome.kind === 'failed' && named !== undefined && refusedAsNotReached(err)) {
+      return { outcome: { kind: 'failed', message: couldNotBeReached(named, outcome.message) }, lines: [] };
+    }
+    return { outcome, lines: [] };
   }
   return { outcome: indexBuildOutcome(result), lines: indexBuildLines(result) };
 }

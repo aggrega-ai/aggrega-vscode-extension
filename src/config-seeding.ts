@@ -162,5 +162,5 @@ export function seedingDetail(result: ConfigInitResult): string {
   }
   const where = `${result.scope.configFile}, ${reachPhrase(result.scope)}`;
   return `reported the configuration for ${result.host} without writing ${where}. `
-    + trustPhrase(result.trust);
+    + trustPhrase(result.host, result.trust);
 }

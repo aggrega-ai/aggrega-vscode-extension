@@ -32,13 +32,15 @@ import {
 // registries is registered beside those two — one whose repository listing never
 // ends and a well-behaved one — and Update index is pressed over all four: its
 // progress ends, and the channel and the ending name the registry whose listing
-// repeats in the compiler's words and report the one beside it indexed. After
-// them, registrations made through Add registry — online, and then with the
-// offline posture taken — and what each one's closing line says about the trust
-// the entry was given, or how the refusal reads; and, where the registry
-// advertises no trust policy or is refused offline for want of one, the question
-// asking for a policy to pin by hand, what each answer to it writes, and what a
-// reader is shown of a file chosen as the key that is not a public key.
+// repeats in the compiler's words, name the unreachable one as not reached and
+// that one as not, and report the one beside it indexed. After them,
+// registrations made through Add registry — online, and then with the offline
+// posture taken — and what each one's closing line says about the trust the entry
+// was given, a registry not reached named as such, or how the refusal reads; and,
+// where the registry advertises no trust policy, could not be reached, or is
+// refused offline for want of one, the question asking for a policy to pin by
+// hand, what each answer to it writes, and what a reader is shown of a file chosen
+// as the key that is not a public key.
 
 export const REGISTRY_CHECKS = [
   'catalog-search.lists-matches-and-copies-a-reference',
@@ -52,7 +54,9 @@ export const REGISTRY_CHECKS = [
   'registries-panel.update-index-ends-with-a-registry-whose-listing-repeats',
   'registries-panel.update-index-names-the-registry-whose-listing-repeats-in-the-compilers-words',
   'registries-panel.update-index-reports-the-registry-beside-it-indexed',
+  'registries-panel.update-index-names-a-registry-it-could-not-reach',
   'registration.says-an-entry-carries-no-trust-where-none-is-advertised',
+  'registration.names-a-registry-it-could-not-reach',
   'registration.asks-for-a-trust-policy-where-the-registry-advertises-none',
   'registration.declined-writes-what-the-command-line-writes',
   'registration.refuses-a-malformed-identity-in-the-compilers-words',
@@ -116,12 +120,15 @@ async function searchFor(ctx: SuiteContext, query: string): Promise<QuickInput |
 export const ADD_REGISTRY_TITLE = 'Aggrega: add a registry';
 export const GLOBAL_DESTINATION = CONFIG_WRITE_DESTINATIONS.find((d) => d.value === 'global')?.label ?? '';
 
-// The trust clauses a registration's closing line carries for the two outcomes
-// the checks below reach, held as the words a reader is to meet, so a change of
-// wording is a change these checks report. The reason that follows each is the
-// server's own, and is read from its answer rather than written here.
+// The trust clauses a registration's closing line carries for the outcomes the
+// checks below reach, and the sentence naming a registry that could not be
+// reached ahead of the server's reason, held as the words a reader is to meet, so
+// a change of wording is a change these checks report. The reason that follows
+// each is the server's own, and is read from its answer rather than written here.
 const NO_POLICY_CLAUSE = 'It advertises no signature trust policy, and this registration names no identity or key, so the entry carries none.';
+const NOT_REACHED_CLAUSE = 'No signature trust policy could be fetched from it, and this registration names no identity or key, so the entry carries none.';
 const BASELINE_CLAUSE = 'The built-in trust baseline was pinned instead of an advertised policy.';
+const notReachedSentence = (host: string, words: string): string => `${host} could not be reached: ${words}`;
 const BOTH_BY_HAND_CLAUSE = 'Its signature trust policy is the keyless identity and the public key this registration supplied, so no advertised policy was fetched.';
 
 // The rows of the question asking for a trust policy to pin by hand, held as the
@@ -134,9 +141,12 @@ const PINNED_IDENTITY = { identity: 'editor-suite@example.test', issuer: 'https:
 const MALFORMED_IDENTITY = 'not-an-identity-pair';
 
 // The hosts registered. The two loopback ports are ones nothing listens on: the
-// first is asked for its advertised policy while the posture is online and the ask
-// is refused on this machine, so it never leaves it; the second is named once the
-// posture is offline, where a registry other than the hub is not asked at all.
+// first is asked for its advertised policy while the posture is online and the
+// connection is refused on this machine, so the ask never leaves it and the answer
+// marks the registry not reached; the second is named once the posture is offline,
+// where a registry other than the hub is not asked at all. A registry that is
+// reached and answers with no policy is the well-behaved stub, which answers every
+// path it does not serve, its trust endpoint among them, with "not found".
 const HUB = 'hub.aggrega.ai';
 const UNLISTENED_ONLINE = 'localhost:1';
 const UNLISTENED_OFFLINE = 'localhost:2';
@@ -409,7 +419,7 @@ const INDEX_BUILD_INCOMPLETE = 'The index build did not complete: ';
 
 // IndexHost and IndexAnswer are the part of the server's answer to an index
 // build these checks read.
-interface IndexHost { host: string; indexed: number; error?: string }
+interface IndexHost { host: string; indexed: number; error?: string; unreachable?: boolean }
 interface IndexAnswer { hosts: IndexHost[]; failed: string[] }
 
 // configurePair registers the stub's two registries in the global configuration,
@@ -462,12 +472,16 @@ function runLines(channel: string): string[] {
   return end === -1 ? rest : rest.slice(0, end);
 }
 
-// notIndexedIn reads the registries an ending names as not indexed: the hosts
-// listed between its first pair of parentheses.
-function notIndexedIn(ending: string): string[] {
-  const m = /\(([^)]*)\)/.exec(ending);
+// notIndexedIn and notReachedIn read the registries an ending names as not
+// indexed and as not reached: the hosts listed in the parentheses after "could not
+// be indexed" and after "could not be reached", the ending's two groups of the
+// registries it missed. A group the ending does not carry reads as none.
+function listedAfter(ending: string, words: string): string[] {
+  const m = new RegExp(`${words} \\(([^)]*)\\)`).exec(ending);
   return m ? m[1].split(', ').filter((h) => h !== '') : [];
 }
+const notIndexedIn = (ending: string): string[] => listedAfter(ending, 'could not be indexed');
+const notReachedIn = (ending: string): string[] => listedAfter(ending, 'could not be reached');
 
 export const sameSet = (a: readonly string[], b: readonly string[]): boolean => JSON.stringify([...a].sort()) === JSON.stringify([...b].sort());
 
@@ -662,7 +676,7 @@ export async function registryChecks(ctx: SuiteContext, registry: ScratchRegistr
   });
 
   await c.run('registries-panel.update-index-names-the-registry-whose-listing-repeats-in-the-compilers-words', {
-    expected: `in that build, the channel carries "  ${stubs.repeating}: <reason>", <reason> being, unaltered, the error the server's own answer to the same aggrega/registryUpdate request, asked outside the editor over the same registries, gives for ${stubs.repeating}; and the build ends in a line opening "${INDEX_BUILD_INCOMPLETE}" whose parentheses name exactly the registries that answer names as failed, ${stubs.repeating} among them, raised as an error notification carrying the same line`,
+    expected: `in that build, the channel carries "  ${stubs.repeating}: <reason>", <reason> being, unaltered, the error the server's own answer to the same aggrega/registryUpdate request, asked outside the editor over the same registries, gives for ${stubs.repeating}; and the build ends in a line opening "${INDEX_BUILD_INCOMPLETE}" whose two groups — the registries after "could not be reached" and those after "could not be indexed" — together name exactly the registries that answer names as failed, ${stubs.repeating} among those not indexed, raised as an error notification carrying the same line`,
     plant: 'in the scratch copy, out/src/registry-index-request.js made to read a build that left registries unindexed as one that completed',
   }, async () => {
     const run0 = pressed;
@@ -675,14 +689,15 @@ export async function registryChecks(ctx: SuiteContext, registry: ScratchRegistr
     const hostLine = `  ${stubs.repeating}: ${reason}`;
     const toast = await waitToast(ctx.d, 'the index build raising its ending', run0.toastMark, (t) => t.message === ending, 15000).catch(() => null);
     const named = notIndexedIn(ending);
+    const missed = [...notReachedIn(ending), ...named];
     return {
-      passed: lines.includes(hostLine) && ending.startsWith(INDEX_BUILD_INCOMPLETE) && sameSet(named, answer.failed) && toast !== null && toast.severity === 'error',
-      seen: `the channel's run: ${JSON.stringify(lines)}; its ending "${ending}"; named as not indexed ${JSON.stringify(named)}; the notification: ${toast ? `"${toast.message}" (${toast.severity})` : 'none carrying the ending'}; the server's own answer names ${JSON.stringify(answer.failed)} as failed and gives ${stubs.repeating} the reason "${reason}"`,
+      passed: lines.includes(hostLine) && ending.startsWith(INDEX_BUILD_INCOMPLETE) && sameSet(missed, answer.failed) && named.includes(stubs.repeating) && toast !== null && toast.severity === 'error',
+      seen: `the channel's run: ${JSON.stringify(lines)}; its ending "${ending}"; named as not reached ${JSON.stringify(notReachedIn(ending))}, as not indexed ${JSON.stringify(named)}; the notification: ${toast ? `"${toast.message}" (${toast.severity})` : 'none carrying the ending'}; the server's own answer names ${JSON.stringify(answer.failed)} as failed and gives ${stubs.repeating} the reason "${reason}"`,
     };
   });
 
   await c.run('registries-panel.update-index-reports-the-registry-beside-it-indexed', {
-    expected: `in that build, the channel carries "  ${stubs.wellBehaved}: <n> entity" ("entities" where <n> is not one), <n> being the count the server's own answer to the same request gives for ${stubs.wellBehaved}, at least one; and the ending, whose parentheses name ${stubs.repeating} as not indexed, does not name ${stubs.wellBehaved} there`,
+    expected: `in that build, the channel carries "  ${stubs.wellBehaved}: <n> entity" ("entities" where <n> is not one), <n> being the count the server's own answer to the same request gives for ${stubs.wellBehaved}, at least one; and the ending, whose parentheses after "could not be indexed" name ${stubs.repeating}, does not name ${stubs.wellBehaved} there`,
     plant: 'in the scratch copy, out/src/registry-index-request.js made to name every registry walked as not indexed',
   }, async () => {
     const run0 = pressed;
@@ -703,20 +718,67 @@ export async function registryChecks(ctx: SuiteContext, registry: ScratchRegistr
     };
   });
 
+  await c.run('registries-panel.update-index-names-a-registry-it-could-not-reach', {
+    expected: `in that build, the channel carries "  ${notReachedSentence(UNREACHABLE_HOST, '<reason>')}", <reason> being, unaltered, the error the server's own answer to the same request gives for ${UNREACHABLE_HOST}, which that answer marks as not reached, and the ending names ${UNREACHABLE_HOST} in its parentheses after "could not be reached"; while ${stubs.repeating}, which the same answer gives an error and does not mark as not reached — a registry that answered, and failed otherwise — is named as not reached nowhere: its line reads "  ${stubs.repeating}: <its reason>", and the ending names it after "could not be indexed" alone (the control: the reading that finds ${UNREACHABLE_HOST} named as not reached is the one that finds ${stubs.repeating} not named so)`,
+    plant: 'in the scratch copy, out/src/registry-index-request.js made to name a registry the answer marks not reached by the compiler\'s words alone; or made to name every registry that failed as not reached',
+  }, async () => {
+    const run0 = pressed;
+    need(run0 !== null, 'Update index was not pressed');
+    const unreached = hostIn(answer, UNREACHABLE_HOST);
+    const repeating = hostIn(answer, stubs.repeating);
+    need(answer !== null && unreached !== undefined && (unreached.error ?? '') !== '' && unreached.unreachable === true,
+      `the server's own answer to the same request does not mark ${UNREACHABLE_HOST} as not reached beside its error: ${answerRaw}`);
+    need(repeating !== undefined && (repeating.error ?? '') !== '' && repeating.unreachable !== true,
+      `the server's own answer to the same request does not give ${stubs.repeating} an error with no mark that it was not reached, so there is no control: ${answerRaw}`);
+    const channel = await ctx.out.waitFor('the index build writing its ending', run0.outMark, (t) => endingOf(t) !== null, 30000);
+    const ending = endingOf(channel) ?? '';
+    const lines = runLines(channel);
+    const unreachedLine = `  ${notReachedSentence(UNREACHABLE_HOST, unreached.error ?? '')}`;
+    const repeatingLine = `  ${stubs.repeating}: ${repeating.error ?? ''}`;
+    const notReachedNamed = notReachedIn(ending);
+    const notIndexedNamed = notIndexedIn(ending);
+    const readsTheUnreached = lines.includes(unreachedLine) && notReachedNamed.includes(UNREACHABLE_HOST) && !notIndexedNamed.includes(UNREACHABLE_HOST);
+    const controlHolds = lines.includes(repeatingLine) && !lines.some((l) => l.startsWith(`  ${stubs.repeating} could not be reached`))
+      && !notReachedNamed.includes(stubs.repeating) && notIndexedNamed.includes(stubs.repeating);
+    return {
+      passed: readsTheUnreached && controlHolds,
+      seen: `the channel's run: ${JSON.stringify(lines)}; its ending "${ending}"; named as not reached ${JSON.stringify(notReachedNamed)}, as not indexed ${JSON.stringify(notIndexedNamed)}; the server's own answer marks ${UNREACHABLE_HOST} not reached with the error "${unreached.error ?? ''}", and gives ${stubs.repeating} the error "${repeating.error ?? ''}" with no such mark`,
+    };
+  });
+
   // ---- what a registration says about the trust it took ----
   const file = globalConfiguration(ctx.home);
+  const answeredNone = stubs.wellBehaved;
   await c.run('registration.says-an-entry-carries-no-trust-where-none-is-advertised', {
-    expected: `Add registry, given ${UNLISTENED_ONLINE} (a loopback port nothing listens on) and the global file, online, ends in a channel line opening "${REGISTRATION_SUBJECT} registered ${UNLISTENED_ONLINE} in ${file}, " whose trust clause reads "${NO_POLICY_CLAUSE}" followed, unaltered, by the reason the server's own answer to the same request gives, with nothing after it but the sentence saying the change is in effect; an information notification carries the same line (the question for a trust policy to pin by hand that follows it is pressed away)`,
+    expected: `Add registry, given ${answeredNone} (the well-behaved stub registry, which is reached and answers its trust endpoint with "not found") and the global file, online, ends in a channel line opening "${REGISTRATION_SUBJECT} registered ${answeredNone} in ${file}, " whose trust clause reads "${NO_POLICY_CLAUSE}" followed, unaltered, by the reason the server's own answer to the same request gives — an answer saying the registry was asked and advertises nothing, and not marking it as not reached — with nothing after it but the sentence saying the change is in effect; an information notification carries the same line (the question for a trust policy to pin by hand that follows it is pressed away)`,
     plant: 'in the scratch copy, out/src/registration-outcome.js made to drop the answer\'s reason from the trust clause',
   }, async () => {
-    const ref = await referenceRegistration(ctx, UNLISTENED_ONLINE, 'no-policy');
+    const ref = await referenceRegistration(ctx, answeredNone, 'no-policy');
     const trust = ref.trust;
-    need(trust !== null && trust.notAdvertised === true && !trust.pinned && !trust.baseline && (trust.reason ?? '') !== '', `the server's own answer to the same request is not a registry asked and advertising nothing, with its reason: ${ref.raw}`);
-    const ending = await registerThrough(ctx, UNLISTENED_ONLINE, PRESSED_AWAY);
+    need(trust !== null && trust.notAdvertised === true && trust.unreachable !== true && !trust.pinned && !trust.baseline && (trust.reason ?? '') !== '', `the server's own answer to the same request is not a registry asked and advertising nothing, reached, with its reason: ${ref.raw}`);
+    const ending = await registerThrough(ctx, answeredNone, PRESSED_AWAY);
     const reason = trust.reason ?? '';
     return {
-      passed: readsCompleted(ending.line, UNLISTENED_ONLINE, file, NO_POLICY_CLAUSE, reason) && ending.toast?.message === ending.line && ending.toast.severity === 'info',
+      passed: readsCompleted(ending.line, answeredNone, file, NO_POLICY_CLAUSE, reason) && ending.toast?.message === ending.line && ending.toast.severity === 'info',
       seen: `${describeEnding(ending)}; the server's reason "${reason}"; ${describeQuestion(ending.question)}`,
+    };
+  });
+
+  await c.run('registration.names-a-registry-it-could-not-reach', {
+    expected: `Add registry, given ${UNLISTENED_ONLINE} (a loopback port nothing listens on, so the connection is refused) and the global file, online, ends in a channel line opening "${REGISTRATION_SUBJECT} registered ${UNLISTENED_ONLINE} in ${file}, " whose trust clause reads "${NOT_REACHED_CLAUSE}" followed by "${notReachedSentence(UNLISTENED_ONLINE, '<reason>')}", <reason> being, unaltered, the reason the server's own answer to the same request gives — an answer marking the registry as not reached — with nothing after it but the sentence saying the change is in effect, and nowhere "${NO_POLICY_CLAUSE}"; an information notification carries the same line; and it is followed, as a registry advertising nothing is, by the question titled "${trustByHandTitle(UNLISTENED_ONLINE)}" with the rows ${TRUST_BY_HAND_ROWS.map((r) => `"${r}"`).join(', ')}, first seen with that line already in the channel, which is pressed away`,
+    plant: 'in the scratch copy, out/src/registration-outcome.js made to read an answer marking the registry not reached as one saying it advertises no policy',
+  }, async () => {
+    const ref = await referenceRegistration(ctx, UNLISTENED_ONLINE, 'not-reached');
+    const trust = ref.trust;
+    need(trust !== null && trust.unreachable === true && !trust.pinned && !trust.baseline && (trust.reason ?? '') !== '', `the server's own answer to the same request does not mark the registry as not reached, with its reason: ${ref.raw}`);
+    const ending = await registerThrough(ctx, UNLISTENED_ONLINE, PRESSED_AWAY);
+    const reason = notReachedSentence(UNLISTENED_ONLINE, trust.reason ?? '');
+    const q = ending.question;
+    return {
+      passed: readsCompleted(ending.line, UNLISTENED_ONLINE, file, NOT_REACHED_CLAUSE, reason) && !ending.line.includes(NO_POLICY_CLAUSE)
+        && ending.toast?.message === ending.line && ending.toast.severity === 'info'
+        && q !== null && q.lineFirst && JSON.stringify(q.rows) === JSON.stringify(TRUST_BY_HAND_ROWS),
+      seen: `${describeEnding(ending)}; the server's answer marks it not reached, with the reason "${trust.reason ?? ''}"; ${describeQuestion(q)}`,
     };
   });
 

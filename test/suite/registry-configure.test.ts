@@ -312,6 +312,8 @@ const OFFLINE_REFUSAL =
 const MALFORMED_IDENTITY_REFUSAL =
   'aggrega registry add: --identity "not-an-identity-pair" must be in the form identity=issuer';
 const NOT_ADVERTISED = 'registrytrust: registry advertises no trust config';
+const NOT_REACHED = 'registrytrust: fetch trust config from localhost:1: Get '
+  + '"http://localhost:1/.well-known/aggrega-trust": dial tcp [::1]:1: connect: connection refused';
 
 const IDENTITY_A = 'dev@example.com=https://accounts.google.com';
 const IDENTITY_B = 'ci@example.com=https://token.actions.githubusercontent.com';
@@ -326,6 +328,16 @@ describe('the reader is asked for a trust policy to pin by hand exactly where th
     assert.strictEqual(ending.host, 'normalised.example.test');
   });
 
+  it('asks where the registry could not be reached, as the command line takes a policy by hand for it too', async () => {
+    // The answer reports an unreachable registry as not advertising, with the field
+    // saying it was not reached beside it. The entry carries no policy either way,
+    // and a policy stated by hand needs no fetch, so the question stands.
+    const answer = addAnswer({ trust: { pinned: false, notAdvertised: true, unreachable: true, reason: NOT_REACHED } });
+    assert.strictEqual(asksForTrust(answer), true);
+    const ending = await runRegistryAdd(recorder({ add: answer }), 'registry.example.test', 'global');
+    assert.strictEqual(ending.asksForTrust, true);
+  });
+
   it('never asks where a policy was taken: an advertised one pinned, or the hub\'s baseline', async () => {
     // 🔴 A policy supplied by hand takes the place of the one the answer reports,
     // so asking in any of these would invite a reader to replace trust the entry
@@ -335,6 +347,7 @@ describe('the reader is asked for a trust policy to pin by hand exactly where th
       { pinned: true, identities: 2 },
       { pinned: false, baseline: true, reason: 'offline' },
       { pinned: false, notAdvertised: true, baseline: true, reason: NOT_ADVERTISED },
+      { pinned: false, notAdvertised: true, unreachable: true, baseline: true, reason: NOT_REACHED },
       { pinned: false, skipped: true },
       { pinned: false },
     ];
@@ -625,6 +638,23 @@ describe('a completed registration says what was registered and where', () => {
       [{ pinned: false, notAdvertised: true },
         'It advertises no signature trust policy, and this registration names no identity or '
         + 'key, so the entry carries none.'],
+      // A registry that could not be reached carries notAdvertised as well, and the
+      // field beside it is what is read: the sentence says no policy could be
+      // fetched and names the registry as not reached, ahead of the answer's reason.
+      [{ pinned: false, notAdvertised: true, unreachable: true, reason: NOT_REACHED },
+        'No signature trust policy could be fetched from it, and this registration names no '
+        + 'identity or key, so the entry carries none. registry.example.test could not be '
+        + `reached: ${NOT_REACHED}`],
+      [{ pinned: false, notAdvertised: true, unreachable: true },
+        'No signature trust policy could be fetched from it, and this registration names no '
+        + 'identity or key, so the entry carries none. registry.example.test could not be '
+        + 'reached.'],
+      // The control for that reading: the same refused connection in the reason, with
+      // no field saying the registry was not reached, reads as a registry that
+      // answered — the words are never searched.
+      [{ pinned: false, notAdvertised: true, reason: NOT_REACHED },
+        'It advertises no signature trust policy, and this registration names no identity or '
+        + `key, so the entry carries none. ${NOT_REACHED}`],
       [{ pinned: false, skipped: true },
         'No advertised signature trust policy was fetched.'],
       [{ pinned: false },
@@ -660,11 +690,18 @@ describe('a completed registration says what was registered and where', () => {
       + 'the machine does not have, run `aggrega pull --release <release>` from a connected '
       + 'environment first to populate the cache';
     const notFound = 'registrytrust: registry advertises no trust config';
+    const unreached = 'registrytrust: fetch trust config from hub.aggrega.ai: Get '
+      + '"https://hub.aggrega.ai/.well-known/aggrega-trust": dial tcp: lookup hub.aggrega.ai: no such host';
     const cases: Array<[RegistryAddResult['trust'], string]> = [
       [{ pinned: false, baseline: true, reason: offline },
         `The built-in trust baseline was pinned instead of an advertised policy. ${offline}`],
       [{ pinned: false, notAdvertised: true, baseline: true, reason: notFound },
         `The built-in trust baseline was pinned instead of an advertised policy. ${notFound}`],
+      // The hub asked online and not reached: the entry carries the baseline, and the
+      // reason names the hub as not reached ahead of the answer's own words.
+      [{ pinned: false, notAdvertised: true, unreachable: true, baseline: true, reason: unreached },
+        'The built-in trust baseline was pinned instead of an advertised policy. hub.aggrega.ai '
+        + `could not be reached: ${unreached}`],
       [{ pinned: false, baseline: true },
         'The built-in trust baseline was pinned instead of an advertised policy.'],
     ];

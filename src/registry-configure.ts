@@ -230,9 +230,10 @@ export const TRUST_BY_HAND_CHOICES: readonly TrustByHandChoice[] = [
 ];
 
 // trustByHandTitle and TRUST_BY_HAND_PLACEHOLDER are how the question is put.
-// One wording serves both cases it is asked in — a registry that advertises
-// nothing, and one refused offline for want of a policy — because the ending
-// in front of the reader has already said which it was.
+// One wording serves every case it is asked in — a registry that advertises
+// nothing, one that could not be reached, and one refused offline for want of a
+// policy — because the ending in front of the reader has already said which it
+// was.
 export function trustByHandTitle(host: string): string {
   return `Aggrega: pin a signature trust policy for ${host} by hand?`;
 }
@@ -271,8 +272,11 @@ export const KEY_DIALOG_BUTTON = 'Pin this key';
 export const OFFLINE_REGISTRATION_WITHOUT_TRUST_POLICY = 'E0310';
 
 // asksForTrust says whether a completed registration leaves the reader a trust
-// policy to pin by hand: the registry was asked and advertised none, and no
-// built-in baseline was pinned in its place.
+// policy to pin by hand: the registry was asked and no advertised policy came
+// back — it advertised none, or it could not be reached, which the answer reports
+// as not advertised with unreachable beside it — and no built-in baseline was
+// pinned in its place. The entry carries no policy either way, and a policy stated
+// by hand needs no fetch, so the question is the same for both.
 //
 // 🔴 IT IS DECIDED ON THE ANSWER, NEVER BEFORE THE REQUEST. A policy supplied by
 // hand takes the place of the advertised one, so a question asked first would

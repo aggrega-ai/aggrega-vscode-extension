@@ -55,6 +55,9 @@ const RENDER = 'out/src/operations-render.js';
 const PANEL_SCRIPT = 'media/operations.js';
 const REGISTRATION_OUTCOME = 'out/src/registration-outcome.js';
 const INDEX_REQUEST = 'out/src/registry-index-request.js';
+// The compiled line deciding whether an index build's line for a failed registry
+// names it as not reached, read off the answer's field.
+const HOST_LINE_READS_REACH = '        return host.unreachable === true';
 
 // The compiled lines deciding whether a registration is followed by the question
 // for a trust policy to pin by hand, naming the offline refusal that is, and
@@ -466,6 +469,11 @@ export const PLANTS: readonly Plant[] = [
     says: 'pressing the restart on the warning that a configuration file changed restarts nothing, so the language server goes on answering under the configuration it started with',
   },
   {
+    name: 'finding-cut-at-its-first-clause', scenario: 'storefront', checks: ['settings-that-are-wrong.missing-catalog-and-unreachable-registry-are-named'], moves: 'red', target: 'extension',
+    file: 'out/src/diagnostics-shape.js', find: '        message: d.message,', replace: "        message: d.message.split('; ')[0],",
+    says: 'a finding\'s message is cut at its first clause, so an entity file\'s entry for a missing catalog directory drops where the directory is listed and what to do about it',
+  },
+  {
     name: 'column-grips-not-resizable', scenario: 'storefront',
     checks: ['config-panel.setting-column-follows-its-grip-and-stops-at-its-floor', 'config-panel.source-column-follows-its-grip-and-keeps-its-paths-inside'],
     moves: 'red', target: 'extension',
@@ -730,20 +738,35 @@ export const PLANTS: readonly Plant[] = [
   },
   {
     name: 'unindexed-registries-read-as-complete', scenario: 'storefront-with-registries', checks: ['registries-panel.update-index-names-the-registry-whose-listing-repeats-in-the-compilers-words'], moves: 'red', target: 'extension',
-    file: INDEX_REQUEST, find: '    if (missed.length > 0) {', replace: '    if (false) {',
+    file: INDEX_REQUEST, find: '    if (failed.length > 0) {', replace: '    if (false) {',
     says: 'an index build whose answer names registries it could not index ends as one that completed',
   },
   {
     name: 'every-registry-named-unindexed', scenario: 'storefront-with-registries', checks: ['registries-panel.update-index-reports-the-registry-beside-it-indexed'], moves: 'red', target: 'extension',
     file: INDEX_REQUEST,
-    find: '    const missed = hosts.filter((host) => host.error).map((host) => host.host);',
-    replace: '    const missed = hosts.map((host) => host.host);',
-    says: 'an index build\'s ending names every registry it walked as not indexed, the ones it indexed included',
+    find: '    const failed = hosts.filter((host) => host.error);',
+    replace: '    const failed = hosts;',
+    says: 'an index build\'s ending names every registry it walked as missed, the ones it indexed included',
+  },
+  {
+    name: 'unreached-registry-named-in-the-compilers-words-alone', scenario: 'storefront-with-registries', checks: ['registries-panel.update-index-names-a-registry-it-could-not-reach'], moves: 'red', target: 'extension',
+    file: INDEX_REQUEST, find: HOST_LINE_READS_REACH, replace: '        return false',
+    says: 'an index build\'s line for a registry the answer marks not reached names it by the compiler\'s words alone, as any other failure',
+  },
+  {
+    name: 'failed-registry-read-as-not-reached', scenario: 'storefront-with-registries', checks: ['registries-panel.update-index-names-a-registry-it-could-not-reach'], moves: 'red', target: 'extension',
+    file: INDEX_REQUEST, find: HOST_LINE_READS_REACH, replace: '        return true',
+    says: 'an index build\'s line for every registry that failed names it as not reached, the one that answered and failed otherwise included',
   },
   {
     name: 'trust-reason-dropped', scenario: 'storefront-with-registries', checks: ['registration.says-an-entry-carries-no-trust-where-none-is-advertised'], moves: 'red', target: 'extension',
-    file: REGISTRATION_OUTCOME, find: "    const because = trust.reason ? ` ${trust.reason}` : '';", replace: "    const because = '';",
+    file: REGISTRATION_OUTCOME, find: "        : trust.reason ? ` ${trust.reason}` : '';", replace: "        : '';",
     says: 'a registration\'s trust clause drops the answer\'s own account of why no advertised policy was taken',
+  },
+  {
+    name: 'unreached-registration-read-as-not-advertising', scenario: 'storefront-with-registries', checks: ['registration.names-a-registry-it-could-not-reach'], moves: 'red', target: 'extension',
+    file: REGISTRATION_OUTCOME, find: '    if (trust.unreachable === true) {', replace: '    if (false) {',
+    says: 'a registration whose answer marks the registry not reached says it advertises no trust policy, an answer the registry never gave',
   },
   {
     name: 'baseline-unread', scenario: 'storefront-with-registries', checks: ['registration.says-the-hub-took-its-built-in-baseline-offline'], moves: 'red', target: 'extension',
