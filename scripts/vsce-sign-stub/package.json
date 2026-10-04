@@ -1,0 +1,8 @@
+{
+  "name": "@vscode/vsce-sign",
+  "version": "0.0.0",
+  "description": "A local stand-in for @vscode/vsce-sign that refuses every signing call; see index.js.",
+  "private": true,
+  "license": "Apache-2.0",
+  "main": "index.js"
+}

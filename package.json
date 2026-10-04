@@ -599,6 +599,7 @@
     "@vscode/test-cli": "^0.0.10",
     "@vscode/test-electron": "^2.4.0",
     "@vscode/vsce": "4.0.0",
+    "@vscode/vsce-sign": "file:scripts/vsce-sign-stub",
     "mocha": "^10.0.0",
     "ovsx": "1.2.0",
     "playwright-core": "1.63.0",
@@ -608,6 +609,9 @@
     "elkjs": "^0.12.0",
     "js-yaml": "^4.1.1",
     "semver": "^7.6.0"
+  },
+  "overrides": {
+    "@vscode/vsce-sign": "$@vscode/vsce-sign"
   },
   "allowScripts": {
     "keytar": false
