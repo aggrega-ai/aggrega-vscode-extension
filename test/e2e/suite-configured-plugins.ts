@@ -8,7 +8,7 @@ import { loadAll } from 'js-yaml';
 
 import { commandIdFor, PANEL_ACTIONS } from '../../src/operation-groups';
 import { REMOVAL_SUBJECT } from '../../src/plugin-removal';
-import { CONFIGURED_GROUP_LABEL, EMBEDDED_GROUP_LABEL, FAILURE_LABEL as PLUGIN_LIST_FAILED_ROW, PluginListDoc, pluginRemovalConfigTarget, rowForPlugin } from '../../src/plugins-run';
+import { CONFIGURED_GROUP_LABEL, EMBEDDED_GROUP_LABEL, PluginListDoc, pluginRemovalConfigTarget, rowForPlugin } from '../../src/plugins-run';
 import { shortUri } from '../../src/uri-display';
 import { need } from './checks';
 import { runCompiler } from './cli';
@@ -278,6 +278,9 @@ export async function configuredPluginsChecks(ctx: SuiteContext, opts: { referen
   // reading waited for is one taken after it, never the one standing before.
   const beforeStop = await statusMark(ctx);
   await setBinaryPath(ctx, bin, opts.missing);
+  // The row a listing draws when its command could not be started, held as
+  // written: what is wrong with the path the setting names.
+  const PLUGIN_LIST_FAILED_ROW = `The plugin list could not run: the compiler at ${opts.missing} was not found.`;
   await c.run('plugins-panel.no-removal-on-the-row-a-failed-listing-draws', {
     expected: `with the binary setting pointed at ${opts.missing}, which does not exist, and the status bar reading "${NOT_RUNNING}" after it changed, the Plugins panel's Refresh draws "${PLUGIN_LIST_FAILED_ROW}" — its listing being the compiler run as a command — where it was not drawn before the press, and a right-click on it reaches the row and offers none of ${pluginOps.map((t) => `"${t}"`).join(', ')}, the reading of the configured entry the compiler describes, earlier in this scenario, having offered "${removeTitle}"`,
     plant: 'in the scratch copy, out/src/plugins-view.js with the row a failed listing draws carrying the value a configured entry carries',

@@ -11,7 +11,7 @@ import { runCompiler } from './cli';
 import { WebviewDocument } from './drivers';
 import { changeSince, Tree } from './fixtures';
 import {
-  findGraphPanel, graphState, Panel, panelReadings, pointAtNode, postFromPanel, pressAttach, pressNode, readPanel, revealGraphTab,
+  findGraphPanel, graphCouldNotBeDrawn, graphState, Panel, panelReadings, pointAtNode, postFromPanel, pressAttach, pressNode, readPanel, revealGraphTab,
   settledPanel, showGraph,
 } from './graph-panel';
 import { referenceAnswer } from './reference';
@@ -712,7 +712,7 @@ export async function graphPanelChecks(ctx: SuiteContext, reference: string, sna
   const refAside = `${refLock}.aside`;
   let lockAside = false;
   await c.run('graph.failed-render-names-its-reason-in-the-panel-and-the-channel', {
-    expected: `with the Release's lockfile moved aside and a drawing on screen, pressing Graph writes "irGraph failed for ${RELEASE}: code=<n> <message>" to the channel and draws "${staleDrawing(RELEASE)} code=<n> <message>" over the dimmed drawing, <n> and <message> being the language server's own answer to the same graph request over a reference copy without its lockfile; and it raises the one missing-lockfile notice, "${lockfileNoticeOpening(RELEASE)} <message>" with a "${LOCKFILE_PULL_BUTTON}" button`,
+    expected: `with the Release's lockfile moved aside and a drawing on screen, pressing Graph writes "${graphCouldNotBeDrawn(RELEASE, '<message>')}" to the channel and draws "${staleDrawing(RELEASE)} <message>" over the dimmed drawing, <message> being the language server's own answer to the same graph request over a reference copy without its lockfile; and it raises the one missing-lockfile notice, "${lockfileNoticeOpening(RELEASE)} <message>" with a "${LOCKFILE_PULL_BUTTON}" button`,
     plant: 'in the scratch copy, out/src/graph-failure.js made to write the failure as the thrown value rendered as a string',
   }, async () => {
     need(fs.existsSync(lock) && fs.existsSync(refLock), 'the Release has no lockfile to move aside');
@@ -721,7 +721,7 @@ export async function graphPanelChecks(ctx: SuiteContext, reference: string, sna
     fs.renameSync(refAside, refLock);
     need(!ref.ok, 'the language server drew the reference copy\'s graph although it has no lockfile');
     const message = ref.error.message.split(reference).join(ctx.folder);
-    const words = `code=${String(ref.error.code)} ${message}`;
+    const words = message;
     doc = (await findGraphPanel(ctx)) ?? await showGraph(ctx);
     await revealGraphTab(ctx);
     need((await graphState(doc)).nodes.length > 0, 'no drawing is on screen for the failure to leave in place');
@@ -730,16 +730,16 @@ export async function graphPanelChecks(ctx: SuiteContext, reference: string, sna
     const mark = ctx.out.mark();
     const toastMark = (await toasts(ctx.d)).length;
     await pressOperation(ctx.d, await commandsPanel(ctx.d), 'aggrega.graph.show');
-    const channel = await ctx.out.waitFor('the failure on the channel', mark, (t) => t.split('\n').some((l) => l.startsWith(`irGraph failed for ${RELEASE}:`)), 60000).catch(() => ctx.out.since(mark));
-    const line = channel.split('\n').find((l) => l.startsWith(`irGraph failed for ${RELEASE}:`)) ?? '';
+    const channel = await ctx.out.waitFor('the failure on the channel', mark, (t) => t.split('\n').some((l) => l.startsWith(graphCouldNotBeDrawn(RELEASE, ''))), 60000).catch(() => ctx.out.since(mark));
+    const line = channel.split('\n').find((l) => l.startsWith(graphCouldNotBeDrawn(RELEASE, ''))) ?? '';
     const state = await until('the panel naming the failure', 15000, () => graphState(doc), (s) => s.status !== '' && !s.status.startsWith('Laying out')).catch(() => graphState(doc));
     const notice = await waitToast(ctx.d, 'the missing-lockfile notice', toastMark, (t) => t.message.startsWith(lockfileNoticeOpening(RELEASE)), 15000).catch(() => null);
-    const passed = line === `irGraph failed for ${RELEASE}: ${words}` && state.status === `${staleDrawing(RELEASE)} ${words}` && state.outOfDate
+    const passed = line === graphCouldNotBeDrawn(RELEASE, words) && state.status === `${staleDrawing(RELEASE)} ${words}` && state.outOfDate
       && notice !== null && notice.message === `${lockfileNoticeOpening(RELEASE)} ${message}` && notice.buttons.includes(LOCKFILE_PULL_BUTTON);
     return { passed, seen: `the channel: "${line}"; the panel: "${state.status}"${state.outOfDate ? ', the drawing dimmed' : ', the drawing not dimmed'}; the notice ${notice === null ? 'not drawn' : `"${notice.message}" with ${JSON.stringify(notice.buttons)}`}; the language server's answer "${words}"` };
   });
   await c.run('attach.refusal-carries-the-compilers-words', {
-    expected: `with the lockfile still aside and ${STORE}'s list still drawn, pressing Attach on ${LOCAL_FEATURE} draws "${CANNOT_ATTACH}code=<n> <message>" as a failure, <n> and <message> being the language server's own answer to the same container request over a reference copy without its lockfile, writes "attaching ${LOCAL_FEATURE} to ${STORE} failed: code=<n> <message>" to the channel, and changes no document`,
+    expected: `with the lockfile still aside and ${STORE}'s list still drawn, pressing Attach on ${LOCAL_FEATURE} draws "${CANNOT_ATTACH}<message>" as a failure, <message> being the language server's own answer to the same container request over a reference copy without its lockfile, writes "attaching ${LOCAL_FEATURE} to ${STORE} failed: <message>" to the channel, and changes no document`,
     plant: 'in the scratch copy, out/src/attachment-edit.js made to word a declined attach in the extension\'s own sentence',
   }, async () => {
     need(lockAside, 'the lockfile was not moved aside');
@@ -747,7 +747,7 @@ export async function graphPanelChecks(ctx: SuiteContext, reference: string, sna
     const ref = await referenceAnswer({ binary: bin, root: reference, method: 'aggrega/attachmentContainer', params: { graphNode: STORE, release: RELEASE }, home: ctx.home, table: ctx.s.table, log: ctx.cliLog });
     fs.renameSync(refAside, refLock);
     need(!ref.ok, `the language server reported a container for ${STORE} over a reference copy with no lockfile`);
-    const words = `code=${String(ref.error.code)} ${ref.error.message.split(reference).join(ctx.folder)}`;
+    const words = ref.error.message.split(reference).join(ctx.folder);
     const p = await readPanel(doc);
     need(p !== null && p.title === STORE && (p.candidates?.rows ?? []).some((r) => r.name === LOCAL_FEATURE), `the panel does not still show ${STORE}'s list with ${LOCAL_FEATURE} on it: ${JSON.stringify(p?.title)}`);
     // The line the panel drew for the attach before this one is still standing,
@@ -821,7 +821,7 @@ export async function graphPanelChecks(ctx: SuiteContext, reference: string, sna
     return { passed, seen: `the list reads ${JSON.stringify(p?.candidates?.body ?? null)}; the channel: "${line}"` };
   });
   await c.run('graph.failed-render-with-the-server-stopped-names-the-extensions-reason', {
-    expected: `with the language server stopped and a drawing on screen, showing the graph writes "irGraph failed for ${RELEASE}: ${NOT_RUNNING_REASON}" to the channel, the extension's own sentence carrying no code, and draws "${staleDrawing(RELEASE)} ${NOT_RUNNING_REASON}" over the dimmed drawing`,
+    expected: `with the language server stopped and a drawing on screen, showing the graph writes "${graphCouldNotBeDrawn(RELEASE, NOT_RUNNING_REASON)}" to the channel, the extension's own sentence carrying no code, and draws "${staleDrawing(RELEASE)} ${NOT_RUNNING_REASON}" over the dimmed drawing`,
     plant: 'in the scratch copy, out/src/graph-failure.js made to write the failure as the thrown value rendered as a string',
   }, async () => {
     need(stopped, 'the server was not stopped');
@@ -830,10 +830,10 @@ export async function graphPanelChecks(ctx: SuiteContext, reference: string, sna
     const mark = ctx.out.mark();
     const graphButton = (await operationButtons(await commandsPanel(ctx.d))).find((b) => b.command === 'aggrega.graph.show');
     if (graphButton && !graphButton.disabled) { await pressOperation(ctx.d, await commandsPanel(ctx.d), 'aggrega.graph.show'); } else { await send(ctx, 'aggrega.graph.show'); }
-    const channel = await ctx.out.waitFor('the failure on the channel', mark, (t) => t.includes(`irGraph failed for ${RELEASE}:`), 20000).catch(() => ctx.out.since(mark));
-    const line = channel.split('\n').find((l) => l.startsWith(`irGraph failed for ${RELEASE}:`)) ?? '';
+    const channel = await ctx.out.waitFor('the failure on the channel', mark, (t) => t.includes(graphCouldNotBeDrawn(RELEASE, '')), 20000).catch(() => ctx.out.since(mark));
+    const line = channel.split('\n').find((l) => l.startsWith(graphCouldNotBeDrawn(RELEASE, ''))) ?? '';
     const state = await until('the panel naming the failure', 10000, () => graphState(d), (s) => s.status !== '' && !s.status.startsWith('Laying out')).catch(() => graphState(d));
-    const passed = line === `irGraph failed for ${RELEASE}: ${NOT_RUNNING_REASON}` && state.status === `${staleDrawing(RELEASE)} ${NOT_RUNNING_REASON}` && state.outOfDate;
+    const passed = line === graphCouldNotBeDrawn(RELEASE, NOT_RUNNING_REASON) && state.status === `${staleDrawing(RELEASE)} ${NOT_RUNNING_REASON}` && state.outOfDate;
     return { passed, seen: `pressed ${graphButton && !graphButton.disabled ? 'the Graph button' : 'the command, the button being greyed'}; the channel: "${line}"; the panel: "${state.status}"${state.outOfDate ? ', dimmed' : ''}` };
   });
   // The binary put back, and the server running again.

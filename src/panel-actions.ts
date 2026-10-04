@@ -26,15 +26,18 @@ import {
 // assertable without an extension host. The views map a row onto a tree item and
 // decide nothing.
 
-// PanelActionPress is what activating a row runs. It carries no argument, so an
-// operation that asks a question asks it exactly as it does when invoked from
-// the editor's own command index.
+// PanelActionPress is what activating a row runs. An operation's row carries no
+// argument, so an operation that asks a question asks it exactly as it does when
+// invoked from the editor's own command index.
 export interface PanelActionPress {
   command: string;
   // title is required by the editor on a binding and drawn nowhere on the row;
   // it reaches a reader only through the editor's own command surfaces, and it is
   // the operation's name.
   title: string;
+  // arguments are handed to the command as it runs. Only a row taking a reader to
+  // one place carries any — the settings screen opened on one setting.
+  arguments?: readonly unknown[];
 }
 
 // PanelActionRow is one operation drawn at the head of a list panel, with every

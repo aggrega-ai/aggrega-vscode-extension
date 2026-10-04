@@ -98,7 +98,7 @@ const GRAPH_BOUND_MS = 60000;
 // GRAPH_REFUSED is the line the Aggrega output channel carries each time a graph
 // is asked for and refused; the lines it matches are carried into the report as
 // they stand.
-const GRAPH_REFUSED = /^irGraph failed for /m;
+const GRAPH_REFUSED = /^The topology of .* could not be drawn: /m;
 
 // releaseFilesUnder lists every Release document beneath a directory: each file
 // named release…yaml or release…yml, other than a lockfile, whose text declares

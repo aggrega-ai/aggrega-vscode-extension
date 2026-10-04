@@ -6,12 +6,13 @@ import * as path from 'path';
 
 import { need } from './checks';
 import { capture, closeAllEditors, open, ready, run, serverNow, SuiteContext } from './suite-context';
-import { setBinaryPath } from './suite-killed';
+import { settingsScreen, SettingsScreen } from './suite-gateway';
+import { BINARY_PATH_SEARCH, notFoundAt, setBinaryPath, START_FAILED_OPENING } from './suite-killed';
 import { HOVER_NOT_RUNNING_ANCHORED, LIFECYCLE_PLACEHOLDER, lifecycleReadings, RESTART_ACTION, START_ACTION } from './suite-readiness';
 import { killServer, pressViewAction, STOPPED_RESPONDING } from './suite-storefront';
 import {
-  commandsPanel, holds, hoverAt, NOT_RUNNING, pickQuickInputRow, quickInput, revealTreeRow, RUNNING, selectorRows, sleep, StatusItem, statusItems, statusNow, toasts,
-  toastsSince, treeRowCentre, treeRows, until, waitQuickInput, waitStatus,
+  commandsPanel, holds, hoverAt, NOT_RUNNING, pickQuickInputRow, quickInput, revealTreeRow, RUNNING, selectorRows, sleep, StatusItem, statusItems, statusNow, Toast, toasts,
+  toastsSince, treeRowCentre, treeRows, until, waitQuickInput, waitStatus, waitToast,
 } from './workbench';
 
 // The checks run in a folder that is a workspace root and holds nothing else:
@@ -36,7 +37,6 @@ export const EMPTY_WORKSPACE_CHECKS = [
 const NO_ENTITIES = 'No entities in this workspace.';
 const SERVER_STOPPED = 'The Aggrega language server is not running.';
 const NO_REGISTRIES = 'No registries configured.';
-const STOPPED_WORDS = 'the Aggrega language server is not running';
 const CATALOG_HEAD = ['Search catalog', 'Draft entity'];
 const REGISTRIES_HEAD = ['Add registry', 'Update index'];
 const EMBEDDED = /^Embedded \(\d+\)$/;
@@ -121,48 +121,72 @@ export async function emptyWorkspaceChecks(ctx: SuiteContext, missing: string): 
   const stopped = await waitStatus(ctx.d, NOT_RUNNING, 60000).then(() => true, () => false);
   let registriesRow = '';
   let registriesHover = '';
-  let channelWords: string[] = [];
+  let registriesPress = '';
+  const failedStart = `${START_FAILED_OPENING}${notFoundAt(missing)}`;
+  const pluginsRow = `The plugin list could not run: the compiler at ${missing} was not found.`;
+  const pluginsHover = `The plugin list could not run: ${notFoundAt(missing)} Click to open that setting.`;
   await c.run('list-panels.stopped-server-reads-apart-from-an-empty-answer', {
-    expected: `with the language server stopped — the binary setting pointed at ${missing}, which does not exist, and the status bar reading "${NOT_RUNNING}" — pressing each list panel's Refresh draws a row different from its empty answer: the Catalog panel "${SERVER_STOPPED}", and the Registries panel a row other than "${NO_REGISTRIES}", each press of it writing to the channel a line naming ${STOPPED_WORDS}, so it asks again every time; what the Plugins panel draws in that state is recorded beside the verdict`,
-    plant: 'in the scratch copy, out/src/workspace-catalog-run.js with a stopped language server answered as an empty workspace',
+    expected: `with the language server stopped — the binary setting pointed at ${missing}, which does not exist, and the status bar reading "${NOT_RUNNING}" — pressing each list panel's Refresh draws a row different from its empty answer: the Catalog panel and the Registries panel each the one row "${SERVER_STOPPED}", the Registries panel at each of two presses, each row's hover reading "${HOVER_NOT_RUNNING_ANCHORED}" and each row, pressed, starting the language server — which fails again, with an error notification reading "${failedStart}"; and the Plugins panel, whose listing runs the compiler as a command, the row "${pluginsRow}", its hover reading "${pluginsHover}" and its press opening the settings screen searching "${BINARY_PATH_SEARCH}" and drawing that one setting`,
+    plant: 'in the scratch copy, out/src/workspace-catalog-run.js with a stopped language server answered as an empty workspace; or out/src/registries-run.js asking a stopped language server for the listing; or out/src/workspace-catalog-run.js with the stopped row offering nothing to press; or out/src/plugins-run.js with a compiler that could not be started read as a listing that failed',
   }, async () => {
     need(stopped, `the status bar did not read "${NOT_RUNNING}" after the binary setting named a file that does not exist`);
     await closeAllEditors(ctx);
     await run(ctx, 'workbench.view.extension.aggrega');
     await pressViewAction(ctx, 'Catalog', 'Refresh workspace catalog');
     const catalog = await until('the Catalog panel redrawn', 15000, () => beneathHead(ctx, 'Catalog', CATALOG_HEAD), (v) => v.length > 0 && !v.includes(NO_ENTITIES)).catch(() => beneathHead(ctx, 'Catalog', CATALOG_HEAD));
-    const presses: string[] = [];
-    let registries: string[] = [];
+    const readings: string[][] = [];
     for (const n of [1, 2]) {
-      const mark = ctx.out.mark();
       await pressViewAction(ctx, 'Registries', 'Refresh registries');
-      const said = await ctx.out.waitFor(`press ${n} writing to the channel`, mark, (t) => t.includes(STOPPED_WORDS), 10000).catch(() => ctx.out.since(mark));
-      presses.push(said.split('\n').filter((l) => l.includes(STOPPED_WORDS)).join(' | '));
-      registries = await until('the Registries panel redrawn', 10000, () => beneathHead(ctx, 'Registries', REGISTRIES_HEAD), (v) => v.length > 0 && !v.includes(NO_REGISTRIES)).catch(() => beneathHead(ctx, 'Registries', REGISTRIES_HEAD));
+      readings.push(await until(`the Registries panel redrawn by press ${n}`, 10000, () => beneathHead(ctx, 'Registries', REGISTRIES_HEAD), (v) => v.length > 0 && !v.includes(NO_REGISTRIES)).catch(() => beneathHead(ctx, 'Registries', REGISTRIES_HEAD)));
     }
-    await pressViewAction(ctx, 'Plugins', 'Refresh plugins');
-    await sleep(2000);
-    const plugins = ((await treeRows(ctx.d, 'Plugins')) ?? []).map((r) => r.label);
+    const registries = readings[readings.length - 1];
     registriesRow = registries[0] ?? '';
-    const at = registriesRow === '' ? null : await treeRowCentre(ctx.d, 'Registries', registriesRow);
-    registriesHover = at === null ? '' : await hoverAt(ctx.d, at);
-    channelWords = presses;
+    // Each stopped row: its hover, then a press of it, read by the start the press
+    // makes — which the missing compiler ends in the failed start's own words.
+    const offer = async (panel: string): Promise<{ hover: string; start: Toast | null }> => {
+      const at = await treeRowCentre(ctx.d, panel, SERVER_STOPPED);
+      if (at === null) { return { hover: '', start: null }; }
+      const hover = await hoverAt(ctx.d, at);
+      await ctx.d.moveTo({ x: 1, y: 1 });
+      const mark = (await toasts(ctx.d)).length;
+      await ctx.d.click(at);
+      const start = await waitToast(ctx.d, `the start the ${panel} row's press made`, mark, (t) => t.severity === 'error' && t.message.startsWith(START_FAILED_OPENING), 30000).catch(() => null as Toast | null);
+      return { hover, start };
+    };
+    const catalogOffer = await offer('Catalog');
+    const registriesOffer = await offer('Registries');
+    registriesHover = registriesOffer.hover;
+    registriesPress = registriesOffer.start === null ? 'started nothing' : `started the language server, which answered "${registriesOffer.start.message}"`;
+    // The Plugins panel: its row, its hover and what its press opens.
+    await pressViewAction(ctx, 'Plugins', 'Refresh plugins');
+    const plugins = await until('the Plugins panel saying why its listing could not run', 15000, async () => ((await treeRows(ctx.d, 'Plugins')) ?? []).map((r) => r.label), (v) => v.includes(pluginsRow)).catch(async () => ((await treeRows(ctx.d, 'Plugins')) ?? []).map((r) => r.label));
+    const pluginsAt = await treeRowCentre(ctx.d, 'Plugins', pluginsRow);
+    const pluginsHoverRead = pluginsAt === null ? '' : await hoverAt(ctx.d, pluginsAt);
+    let screen: SettingsScreen | null = null;
+    if (pluginsAt !== null) {
+      await ctx.d.moveTo({ x: 1, y: 1 });
+      await ctx.d.click(pluginsAt);
+      screen = await settingsScreen(ctx);
+      await closeAllEditors(ctx);
+    }
     const catalogApart = JSON.stringify(catalog) === JSON.stringify([SERVER_STOPPED]);
-    const registriesApart = registries.length === 1 && registries[0] !== NO_REGISTRIES;
-    const asked = presses.length === 2 && presses.every((p) => p.includes(STOPPED_WORDS));
+    const registriesStopped = readings.length === 2 && readings.every((r) => JSON.stringify(r) === JSON.stringify([SERVER_STOPPED]));
+    const offered = [catalogOffer, registriesOffer].every((o) => o.hover === HOVER_NOT_RUNNING_ANCHORED && o.start !== null && o.start.message === failedStart);
+    const pluginsSaid = plugins.includes(pluginsRow) && pluginsHoverRead === pluginsHover
+      && screen !== null && screen.search === BINARY_PATH_SEARCH && JSON.stringify(screen.keys) === JSON.stringify(['aggrega.server.binaryPath']);
     return {
-      passed: catalogApart && registriesApart && asked,
-      seen: `the Catalog panel draws ${JSON.stringify(catalog)}; the Registries panel ${JSON.stringify(registries)} (hover ${JSON.stringify(registriesHover.slice(0, 200))}); its two presses wrote ${JSON.stringify(presses)}; the Plugins panel, whose listing runs the same binary, draws ${JSON.stringify(plugins)}`,
+      passed: catalogApart && registriesStopped && offered && pluginsSaid,
+      seen: `the Catalog panel draws ${JSON.stringify(catalog)}; the Registries panel ${JSON.stringify(readings)} at its two presses; the Catalog row's hover ${JSON.stringify(catalogOffer.hover)} and its press ${catalogOffer.start === null ? 'started nothing' : `answered "${catalogOffer.start.message}"`}; the Registries row's hover ${JSON.stringify(registriesOffer.hover)} and its press ${registriesOffer.start === null ? 'started nothing' : `answered "${registriesOffer.start.message}"`}; the Plugins panel draws ${JSON.stringify(plugins)}, the row's hover ${JSON.stringify(pluginsHoverRead)}, its press ${screen === null ? 'drew no settings screen' : `opened the settings screen searching "${screen.search}" and drawing ${JSON.stringify(screen.keys)}`}`,
     };
   });
   await c.forPerson('registries-panel.stopped-server-row-reads-as-a-fault-to-chase', {
-    expected: `with the language server stopped, the Registries panel has no row of its own for that state and draws a failure row, with ${STOPPED_WORDS} in its hover and on the channel`,
+    expected: `with the language server stopped, the Registries panel draws the Catalog panel's row for that state, "${SERVER_STOPPED}", with the status bar's hover for it, and pressing the row starts the language server`,
     plant: 'none: this is a judgement of the wording',
-    question: 'With the language server stopped, the Registries panel draws the row below, with the hover and the channel line below it. Does that read to you as a fault to chase?',
+    question: 'With the language server stopped, the Registries panel draws the row below, with the hover below it; pressing the row does what is written beneath. Does that read to you as a fault to chase?',
   }, async () => {
     need(registriesRow !== '', 'the Registries panel drew no row with the server stopped, so there is nothing to judge');
     await run(ctx, 'aggrega.registries.focus');
-    return { screenshot: await capture(ctx, 'registries-with-the-server-stopped'), drawnText: `row: ${registriesRow}\nhover: ${registriesHover}\nchannel: ${channelWords.join('\n')}` };
+    return { screenshot: await capture(ctx, 'registries-with-the-server-stopped'), drawnText: `row: ${registriesRow}\nhover: ${registriesHover}\npressed: ${registriesPress}` };
   });
 
   // ---- the status bar's item in that state ----

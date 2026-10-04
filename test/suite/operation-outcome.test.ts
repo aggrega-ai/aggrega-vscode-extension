@@ -80,7 +80,7 @@ describe('a thrown value is classified by type, not by wording', () => {
     const outcome = outcomeOf({ code: -32602, message: compilerText });
     assert.deepStrictEqual(outcome, {
       kind: 'failed',
-      message: `code=-32602 ${compilerText}`,
+      message: compilerText,
     });
   });
 });

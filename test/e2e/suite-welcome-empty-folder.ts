@@ -535,7 +535,7 @@ export async function welcomeEmptyFolderChecks(ctx: SuiteContext, opts: { regist
       // because seeding the hub would reach it over the network.
       return { passed: false, seen: `the server seeded the hub over a copy of the file rather than refusing, so the page was not pressed: ${JSON.stringify(answer).slice(0, 300)}` };
     }
-    const expected = `${SEEDING_REFUSED}code=${String(answer.error.code)} ${answer.error.message.split(refFile).join(global)}`;
+    const expected = `${SEEDING_REFUSED}${answer.error.message.split(refFile).join(global)}`;
     const mark = (await toasts(ctx.d)).length;
     await pressWayThrough(ctx, 'registry', WAYS_THROUGH.registry[0]);
     const told = await waitToast(ctx.d, 'the seeding ending', mark, (t) => t.message.startsWith(`${SEEDING_SUBJECT} `), 60000).catch(() => null);

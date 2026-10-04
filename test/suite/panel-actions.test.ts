@@ -108,8 +108,8 @@ function assertHead(head: PanelActionNode[], expected: Head, anchored: boolean, 
 
 // --- the Registries panel ------------------------------------------------
 
-function registriesDeps(root: string | null, answer: () => Promise<RegistryListDoc>) {
-  return { getWorkspaceRoot: () => root, runRegistryList: answer, log: new FakeLog() };
+function registriesDeps(root: string | null, answer: () => Promise<RegistryListDoc>, running = true) {
+  return { getWorkspaceRoot: () => root, isLanguageServerRunning: () => running, runRegistryList: answer, log: new FakeLog() };
 }
 
 const ONE_REGISTRY: RegistryListDoc = {
@@ -120,6 +120,7 @@ const ONE_REGISTRY: RegistryListDoc = {
 const REGISTRIES_STATES: Array<{
   state: string;
   root: string | null;
+  running?: boolean;
   answer: () => Promise<RegistryListDoc>;
   first: (node: RegistriesPanelNode) => boolean;
 }> = [
@@ -128,6 +129,13 @@ const REGISTRIES_STATES: Array<{
     root: null,
     answer: () => Promise.resolve(ONE_REGISTRY),
     first: (node) => node.kind === 'message' && node.label === NO_ANCHORED_WORKSPACE_TREE_LABEL,
+  },
+  {
+    state: 'language server not running',
+    root: '/ws',
+    running: false,
+    answer: () => Promise.resolve(ONE_REGISTRY),
+    first: (node) => node.kind === 'message' && node.label === 'The Aggrega language server is not running.',
   },
   {
     state: 'nothing configured',
@@ -150,13 +158,13 @@ const REGISTRIES_STATES: Array<{
 ];
 
 describe('the Registries panel is headed by its own operations in every state', () => {
-  for (const { state, root, answer, first } of REGISTRIES_STATES) {
+  for (const { state, root, running, answer, first } of REGISTRIES_STATES) {
     it(`opens with Add registry then Update index — ${state}`, async () => {
-      const { head, rest } = headOf(await registriesPanelNodes(registriesDeps(root, answer)));
+      const { head, rest } = headOf(await registriesPanelNodes(registriesDeps(root, answer, running)));
       assertHead(head, REGISTRIES_HEAD, root !== null, state);
       assert.ok(rest.length > 0 && first(rest[0]), `in the ${state} state the list after the head is not the one this state draws`);
       // The list is the listing's own answer, untouched by what heads it.
-      assert.deepStrictEqual(rest, await registryNodes(registriesDeps(root, answer)));
+      assert.deepStrictEqual(rest, await registryNodes(registriesDeps(root, answer, running)));
     });
   }
 });
@@ -243,7 +251,15 @@ describe('the Catalog panel is headed by its own operations in every state', () 
 // --- the Plugins panel ---------------------------------------------------
 
 function pluginsDeps(root: string | null, answer: () => Promise<{ doc: PluginListDoc; stderr: string }>) {
-  return { getWorkspaceRoot: () => root, runPluginListJson: answer, log: new FakeLog() };
+  return { getWorkspaceRoot: () => root, getBinaryPath: () => '/opt/aggrega/bin/aggrega', runPluginListJson: answer, log: new FakeLog() };
+}
+
+// notStarted is the runtime's failure to start a program that is not at its
+// path, with the fields the runtime attaches to it.
+function notStarted(): Error {
+  return Object.assign(new Error('spawn /opt/aggrega/bin/aggrega ENOENT'), {
+    code: 'ENOENT', syscall: 'spawn /opt/aggrega/bin/aggrega', path: '/opt/aggrega/bin/aggrega',
+  });
 }
 
 const PLUGINS_STATES: Array<{
@@ -257,6 +273,12 @@ const PLUGINS_STATES: Array<{
     root: null,
     answer: () => Promise.resolve({ doc: {}, stderr: '' }),
     first: (node) => node.kind === 'message' && node.label === NO_ANCHORED_WORKSPACE_TREE_LABEL,
+  },
+  {
+    state: 'compiler not started',
+    root: '/ws',
+    answer: () => Promise.reject(notStarted()),
+    first: (node) => node.kind === 'message' && node.label === 'The plugin list could not run: the compiler at /opt/aggrega/bin/aggrega was not found.',
   },
   {
     state: 'listing failed',
@@ -299,6 +321,7 @@ describe('the head and the list are drawn from one reading of the anchored folde
     let reads = 0;
     const deps = {
       getWorkspaceRoot: (): string | null => (reads++ === 0 ? '/ws' : null),
+      isLanguageServerRunning: () => true,
       runRegistryList: () => Promise.resolve(ONE_REGISTRY),
       log: new FakeLog(),
     };

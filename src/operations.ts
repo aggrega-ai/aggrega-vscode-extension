@@ -77,7 +77,7 @@ import { panelControlCommand } from './panel-control';
 import { withCancellableProgress } from './progress';
 import { SelectionState } from './release-selection';
 import { RendersOnReady } from './readiness';
-import { EXTENSION_ID, SETTINGS_COMMAND, extensionSettingsQuery } from './settings';
+import { EXTENSION_ID, OPEN_SETTINGS_COMMAND, SETTINGS_COMMAND, extensionSettingsQuery } from './settings';
 import {
   OPEN_WORKSPACE_ROOT_COMMAND,
   SelectorCandidates,
@@ -713,7 +713,7 @@ export function activateOperations(
   context.subscriptions.push(
     vscode.commands.registerCommand(SETTINGS_COMMAND, () => {
       void vscode.commands.executeCommand(
-        'workbench.action.openSettings',
+        OPEN_SETTINGS_COMMAND,
         extensionSettingsQuery(EXTENSION_ID),
       );
     }),

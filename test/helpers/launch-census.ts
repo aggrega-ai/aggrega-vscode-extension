@@ -260,12 +260,13 @@ export function launchFacilityModules(): string[] {
 
 // RECORDED_LAUNCH_FACILITY_MODULES is that set as the surface stands: the
 // transport, the version probe, the two helper declarations, the shared child
-// runner they both drive, and two modules that only describe the facility in
-// prose or declare it as an injected seam.
+// runner they both drive, and a module that declares the facility as an injected
+// seam rather than calling it.
 //
-// Those last two are members deliberately. Excluding them would mean deciding
-// which mentions are real, which needs a parser rather than a reading — and a
-// member that turns out to be prose costs a look at a failing comparison, while a
+// That last one is a member deliberately, as a module that only described the
+// facility in prose would be. Excluding such members would mean deciding which
+// mentions are real, which needs a parser rather than a reading — and a member
+// that turns out to be prose costs a look at a failing comparison, while a
 // missing member costs a launch nobody noticed. A new module that merely
 // mentions the facility therefore fails this comparison, and reading the diff is
 // how it is resolved.
@@ -275,6 +276,5 @@ export const RECORDED_LAUNCH_FACILITY_MODULES: readonly string[] = [
   'cli-run.ts',
   'daemon.ts',
   'extension.ts',
-  'notifications.ts',
   'version-check.ts',
 ];

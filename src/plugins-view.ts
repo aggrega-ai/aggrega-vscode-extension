@@ -30,7 +30,7 @@ import {
   pluginRemovalSubject,
   pluginRowContext,
 } from './plugins-run';
-import { panelActionItem } from './panel-action-item';
+import { panelActionItem, panelMessageItem } from './panel-action-item';
 import { PluginsPanelNode, pluginsPanelNodes } from './panel-actions';
 import { withCancellableProgress } from './progress';
 import { RendersOnReady } from './readiness';
@@ -71,11 +71,7 @@ class PluginsTreeProvider implements vscode.TreeDataProvider<PluginsPanelNode> {
       return panelActionItem(node.row);
     }
     if (node.kind === 'message') {
-      const item = new vscode.TreeItem(node.label, vscode.TreeItemCollapsibleState.None);
-      if (node.detail) {
-        item.tooltip = node.detail;
-      }
-      return item;
+      return panelMessageItem(node);
     }
     if (node.kind === 'group') {
       const item = new vscode.TreeItem(
@@ -113,6 +109,7 @@ class PluginsTreeProvider implements vscode.TreeDataProvider<PluginsPanelNode> {
     // reason. There is nothing here waiting on the compiler.
     return pluginsPanelNodes({
       getWorkspaceRoot: this.deps.getWorkspaceRoot,
+      getBinaryPath: this.deps.getBinaryPath,
       runPluginListJson: () =>
         runCliJson<PluginListDoc>(this.deps, ['plugin', 'list', '-o', 'json']),
       log: { appendLine: (text) => this.deps.output.appendLine(text) },

@@ -2,6 +2,8 @@
 // Copyright 2026 Cognitio S.r.l.
 
 import { DEFAULT_OPERATIONS_LAYOUT, OperationsLayout } from './operation-groups';
+import type { PanelActionPress } from './panel-actions';
+import { BINARY_PATH_SETTING, OPEN_BINARY_PATH_SETTING_ACTION } from './start-failure';
 
 export interface Settings {
   binaryPath: string;
@@ -151,6 +153,28 @@ export const EXTENSION_ID = 'aggrega-ai.aggrega-vscode-extension';
 // query, which is the part that could be got wrong.
 export function extensionSettingsQuery(extensionId: string): string {
   return `@ext:${extensionId}`;
+}
+
+// OPEN_SETTINGS_COMMAND is the editor's own command opening its settings screen
+// on a search, which is how every surface here takes a reader to a setting.
+export const OPEN_SETTINGS_COMMAND = 'workbench.action.openSettings';
+
+// settingQuery builds the filter that narrows the editor's settings to the one
+// setting a key names, so the screen opens on that setting and nothing beside it.
+export function settingQuery(key: string): string {
+  return `@id:${key}`;
+}
+
+// binaryPathSettingPress is what pressing "Open binary path setting" runs: the
+// settings screen narrowed to the setting naming the compiler. It is the one
+// composition of that act, so a notification's button and a list panel's row
+// that offer it open the same screen.
+export function binaryPathSettingPress(): PanelActionPress {
+  return {
+    command: OPEN_SETTINGS_COMMAND,
+    title: OPEN_BINARY_PATH_SETTING_ACTION,
+    arguments: [settingQuery(BINARY_PATH_SETTING)],
+  };
 }
 
 // BUILD_ON_INSPECT_MENU_LABEL is the toggle's entry in the quick-action menu. It

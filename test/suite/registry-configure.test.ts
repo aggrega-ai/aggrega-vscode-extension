@@ -354,7 +354,7 @@ describe('the reader is asked for a trust policy to pin by hand exactly where th
     // before the question.
     assert.strictEqual(
       terminalLine(REGISTRATION_SUBJECT, ending.outcome),
-      `The registration did not complete: code=-32602 ${OFFLINE_REFUSAL}`,
+      `The registration did not complete: ${OFFLINE_REFUSAL}`,
     );
   });
 
@@ -487,7 +487,7 @@ describe('a registration carrying a policy pinned by hand sends what was supplie
     );
     assert.strictEqual(
       terminalLine(REGISTRATION_SUBJECT, outcome),
-      `The registration did not complete: code=-32602 ${MALFORMED_IDENTITY_REFUSAL}`,
+      `The registration did not complete: ${MALFORMED_IDENTITY_REFUSAL}`,
     );
   });
 
@@ -834,7 +834,7 @@ describe('a refused operation carries the compiler\'s own diagnostic', () => {
     assert.strictEqual(outcome.kind, 'failed');
     assert.strictEqual(
       terminalLine(REGISTRATION_SUBJECT, outcome),
-      'The registration did not complete: code=-32602 registry add: host is required (the '
+      'The registration did not complete: registry add: host is required (the '
       + 'registry to register, such as registry.example.com)',
     );
   });
@@ -849,7 +849,7 @@ describe('a refused operation carries the compiler\'s own diagnostic', () => {
     assert.strictEqual(outcome.kind, 'failed');
     assert.strictEqual(
       terminalLine(REGISTRY_REMOVAL_SUBJECT, outcome),
-      'The removal did not complete: code=-32602 registry remove: no registry matching '
+      'The removal did not complete: registry remove: no registry matching '
       + '"gone.example.test" is configured in /home/reader/.config/aggrega/config.yaml; the '
       + 'configuration was left untouched',
     );
@@ -861,7 +861,7 @@ describe('a refused operation carries the compiler\'s own diagnostic', () => {
     assert.strictEqual(outcome.kind, 'failed');
     assert.strictEqual(
       terminalLine(CREDENTIAL_REMOVAL_SUBJECT, outcome),
-      'The credential removal did not complete: code=-32602 logout: registry is required (the '
+      'The credential removal did not complete: logout: registry is required (the '
       + 'registry host whose stored credential to remove)',
     );
   });
@@ -879,10 +879,10 @@ describe('a refused operation carries the compiler\'s own diagnostic', () => {
       [REGISTRY_REMOVAL_SUBJECT, REMOVE_REFUSAL],
       [CREDENTIAL_REMOVAL_SUBJECT, LOGOUT_REFUSAL],
     ]) {
-      const line = terminalLine(subject, { kind: 'failed', message: `code=-32602 ${message}` });
+      const line = terminalLine(subject, { kind: 'failed', message });
       assert.strictEqual(
         line,
-        `${subject} did not complete: code=-32602 ${message}`,
+        `${subject} did not complete: ${message}`,
         'the compiler\'s sentence is no longer one unbroken run in the rendered line',
       );
     }

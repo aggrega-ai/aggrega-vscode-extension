@@ -45,6 +45,10 @@ export interface Plant {
 
 const DAEMON = 'out/src/daemon.js';
 const EXTENSION = 'out/src/extension.js';
+const NOTIFICATIONS = 'out/src/notifications.js';
+// The compiled lines in a list panel's view handing a row that says why there is
+// nothing to list to the one mapping of such a row.
+const MESSAGE_ROW_MAPPED = "        if (node.kind === 'message') {\n            return (0, panel_action_item_1.panelMessageItem)(node);";
 const SEARCH_RUN = 'out/src/catalog-search-run.js';
 const OPERATIONS = 'out/src/operations.js';
 const RENDER = 'out/src/operations-render.js';
@@ -120,6 +124,12 @@ const GRAPH_SCRIPT = 'media/graph.js';
 const GRAPH_MODEL = 'media/graph-model.js';
 const GRAPH_STYLE = 'media/graph.css';
 const GRAPH_FAILURE = 'out/src/graph-failure.js';
+// The compiled line writing a failed drawing to the channel.
+const GRAPH_FAILURE_LINE = '    sinks.logLine(graphFailureLine(release, message));';
+// The module rendering a thrown value as a reader's line, and its line for a
+// language-server refusal.
+const ERROR_TEXT = 'out/src/error-text.js';
+const REFUSAL_LINE = '        return err.message || exports.REFUSAL_WITHOUT_WORDS;';
 const ATTACHMENTS_MODEL = 'media/attachments-model.js';
 const CANDIDATES_MODEL = 'media/candidates-model.js';
 const GRAPH_VIEW = 'out/src/graph-view.js';
@@ -368,14 +378,36 @@ export const PLANTS: readonly Plant[] = [
   {
     name: 'spawn-error-without-its-path', scenario: 'storefront', checks: ['settings-that-are-wrong.missing-compiler-is-named'], moves: 'red', target: 'extension',
     file: DAEMON,
-    find: '        this.log(`subprocess error: ${err.message}`);\n        this.rejectPending(err);',
-    replace: "        this.rejectPending(new Error('the language server could not be started'));",
-    says: 'a failure to start the binary is reported in a sentence naming no path, and not written to the channel',
+    find: '    handleSpawnError(err) {\n        this.rejectPending(err);\n    }',
+    replace: "    handleSpawnError(err) {\n        this.rejectPending(new Error('the language server could not be started'));\n    }",
+    says: 'a failure to start the binary is handed on as a sentence of the client\'s own, without the fields the runtime attached to it, so what is wrong with the path cannot be told',
+  },
+  {
+    name: 'spawn-error-narrated-in-the-runtimes-terms', scenario: 'storefront', checks: ['settings-that-are-wrong.missing-compiler-is-named'], moves: 'red', target: 'extension',
+    file: DAEMON,
+    find: '    handleSpawnError(err) {\n        this.rejectPending(err);',
+    replace: '    handleSpawnError(err) {\n        this.log(`subprocess error: ${err.message}`);\n        this.rejectPending(err);',
+    says: 'a failure to start the binary is written to the channel in the runtime\'s own terms as well, beside the sentence saying what is wrong',
+  },
+  {
+    name: 'binary-path-button-opens-the-extensions-settings', scenario: 'storefront', checks: ['settings-that-are-wrong.missing-compiler-is-named'], moves: 'red', target: 'extension',
+    file: 'out/src/settings.js', find: '    return `@id:${key}`;', replace: "    return '@ext:aggrega-ai.aggrega-vscode-extension';",
+    says: 'the button that opens the setting naming the compiler opens the settings narrowed to the extension instead of to that one setting',
   },
   {
     name: 'refusal-kept-from-the-graph-panel', scenario: 'storefront', checks: ['settings-that-are-wrong.missing-catalog-and-unreachable-registry-are-named'], moves: 'red', target: 'extension',
     file: GRAPH_FAILURE, find: '    sinks.notifyPanel(message);', replace: "    sinks.notifyPanel('The graph could not be drawn.');",
     says: 'a failed drawing is reported to the panel in a sentence of the extension\'s own, without the language server\'s reason, while the channel and the Problems panel still carry it',
+  },
+  {
+    name: 'refusal-carries-the-transport-code', scenario: 'storefront', checks: ['settings-that-are-wrong.missing-catalog-and-unreachable-registry-are-named'], moves: 'red', target: 'extension',
+    file: ERROR_TEXT, find: REFUSAL_LINE, replace: '        return `code=${err.code} ${err.message}`;',
+    says: 'a language-server refusal reaches the reader with the transport\'s numeric code ahead of its words',
+  },
+  {
+    name: 'graph-failure-line-names-the-request', scenario: 'storefront', checks: ['settings-that-are-wrong.missing-catalog-and-unreachable-registry-are-named'], moves: 'red', target: 'extension',
+    file: GRAPH_FAILURE, find: GRAPH_FAILURE_LINE, replace: '    sinks.logLine(`irGraph failed for ${release}: ${message}`);',
+    says: 'the channel\'s line for a drawing that could not be made names the request carrying it rather than the topology a reader asked for',
   },
   {
     name: 'configuration-restart-offered-and-not-made', scenario: 'storefront', checks: ['settings-that-are-wrong.missing-catalog-and-unreachable-registry-are-named'], moves: 'red', target: 'extension',
@@ -653,9 +685,9 @@ export const PLANTS: readonly Plant[] = [
   },
   {
     name: 'refusal-short-code-cut', scenario: 'storefront-with-registries', checks: ['registration.refusal-carries-the-servers-words'], moves: 'red', target: 'extension',
-    file: 'out/src/error-surfaces.js',
-    find: '        return `code=${err.code} ${err.message}`;',
-    replace: "        return `code=${err.code} ${err.message.replace(/^E\\d{4}: /, '')}`;",
+    file: ERROR_TEXT,
+    find: REFUSAL_LINE,
+    replace: "        return err.message.replace(/^E\\d{4}: /, '') || exports.REFUSAL_WITHOUT_WORDS;",
     says: 'a language-server refusal reaches the reader with the short code it opens with cut off',
   },
   {
@@ -879,7 +911,7 @@ export const PLANTS: readonly Plant[] = [
   {
     name: 'graph-failure-written-as-a-string', scenario: 'storefront-graph-panel',
     checks: ['graph.failed-render-names-its-reason-in-the-panel-and-the-channel', 'graph.failed-render-with-the-server-stopped-names-the-extensions-reason'], moves: 'red', target: 'extension',
-    file: GRAPH_FAILURE, find: '    sinks.logLine(`irGraph failed for ${release}: ${message}`);', replace: '    sinks.logLine(`irGraph failed for ${release}: ${String(err)}`);',
+    file: GRAPH_FAILURE, find: GRAPH_FAILURE_LINE, replace: '    sinks.logLine(graphFailureLine(release, String(err)));',
     says: 'a failed drawing is written to the channel as the thrown value rendered as a string, which reads "[object Object]" for a refusal the language server answered',
   },
   {
@@ -1139,7 +1171,7 @@ export const PLANTS: readonly Plant[] = [
   },
   {
     name: 'refusal-cut-to-its-first-clause', scenario: 'gateway-cache', checks: ['cache.unreadable-cap-comes-back-in-the-compilers-words'], moves: 'red', target: 'extension',
-    file: 'out/src/error-surfaces.js', find: '        return `code=${err.code} ${err.message}`;', replace: "        return `code=${err.code} ${err.message.split(':')[0]}`;",
+    file: ERROR_TEXT, find: REFUSAL_LINE, replace: "        return err.message.split(':')[0] || exports.REFUSAL_WITHOUT_WORDS;",
     says: 'a language-server refusal reaches the reader cut at its first colon, dropping the part saying what a size cap looks like',
   },
   {
@@ -1198,8 +1230,25 @@ export const PLANTS: readonly Plant[] = [
   },
   {
     name: 'stopped-server-read-as-empty', scenario: 'empty-workspace', checks: ['list-panels.stopped-server-reads-apart-from-an-empty-answer'], moves: 'red', target: 'extension',
-    file: CATALOG_RUN, find: "        return [{ kind: 'message', label: exports.SERVER_STOPPED_LABEL }];", replace: "        return [{ kind: 'message', label: exports.EMPTY_LABEL }];",
+    file: CATALOG_RUN, find: '        return [serverStoppedNode()];', replace: "        return [{ kind: 'message', label: exports.EMPTY_LABEL }];",
     says: 'a language server that is not running is drawn as an empty workspace',
+  },
+  {
+    name: 'stopped-server-asked-for-its-registries', scenario: 'empty-workspace', checks: ['list-panels.stopped-server-reads-apart-from-an-empty-answer'], moves: 'red', target: 'extension',
+    file: 'out/src/registries-run.js',
+    find: '    if (!deps.isLanguageServerRunning()) {\n        return [(0, workspace_catalog_run_1.serverStoppedNode)()];\n    }',
+    replace: '    if (false) {\n        return [];\n    }',
+    says: 'the Registries panel asks a language server that is not running for its listing, and draws the failure row the refusal ends in',
+  },
+  {
+    name: 'stopped-row-offers-no-start', scenario: 'empty-workspace', checks: ['list-panels.stopped-server-reads-apart-from-an-empty-answer'], moves: 'red', target: 'extension',
+    file: CATALOG_RUN, find: '        press: (0, daemon_status_1.startServerPress)(),', replace: '        press: undefined,',
+    says: 'the row a list panel draws for a language server that is not running runs nothing when pressed',
+  },
+  {
+    name: 'listing-not-started-read-as-failed', scenario: 'empty-workspace', checks: ['list-panels.stopped-server-reads-apart-from-an-empty-answer'], moves: 'red', target: 'extension',
+    file: 'out/src/plugins-run.js', find: '        if ((0, start_failure_1.isStartFailure)(err)) {', replace: '        if (false) {',
+    says: 'a plugin listing whose command could not be started is drawn as a listing that failed, pointing at the channel',
   },
   {
     name: 'not-running-drawn-without-alarm', scenario: 'empty-workspace', checks: ['status-bar.lifecycle-item-reads-not-running-in-red-and-says-why'], moves: 'red', target: 'extension',
@@ -2021,8 +2070,27 @@ export const PLANTS: readonly Plant[] = [
   },
   {
     name: 'validate-answers-in-other-words', scenario: 'gateway-commands-panel', checks: ['commands-panel.server-only-operations-stay-enabled-with-the-server-stopped'], moves: 'red', target: 'extension',
-    file: EXTENSION, find: "        void vscode.window.showWarningMessage('Aggrega: the language server is not running.');", replace: "        void vscode.window.showWarningMessage('Aggrega: nothing to validate against.');",
-    says: 'Validate answers in other words when the language server is not running',
+    file: EXTENSION,
+    find: '        (0, notifications_1.warnNotRunning)(lastStartFailure(), (0, daemon_status_1.daemonStanding)(client?.getState() ?? null), showOutputChannel);',
+    replace: "        void vscode.window.showWarningMessage('Aggrega: nothing to validate against.');",
+    says: 'Validate answers in other words, and with nothing to press, when the language server is not running',
+  },
+  {
+    name: 'not-running-warning-without-its-buttons', scenario: 'gateway-commands-panel', checks: ['commands-panel.server-only-operations-stay-enabled-with-the-server-stopped'], moves: 'red', target: 'extension',
+    file: NOTIFICATIONS,
+    find: '    void vscode.window.showWarningMessage(warning.message, ...warning.actions).then((choice) => {',
+    replace: '    void vscode.window.showWarningMessage(warning.message).then((choice) => {',
+    says: 'the warning an operation answers with while the language server is not running carries no button',
+  },
+  {
+    name: 'not-running-warning-start-runs-nothing', scenario: 'gateway-commands-panel', checks: ['commands-panel.server-only-operations-stay-enabled-with-the-server-stopped'], moves: 'red', target: 'extension',
+    file: NOTIFICATIONS, find: '            void vscode.commands.executeCommand(daemon_status_1.RESTART_COMMAND);', replace: '            void 0;',
+    says: 'the warning\'s Start button, pressed, starts nothing',
+  },
+  {
+    name: 'unrunnable-file-read-as-any-failure', scenario: 'gateway-commands-panel', checks: ['commands-panel.server-only-operations-stay-enabled-with-the-server-stopped'], moves: 'red', target: 'extension',
+    file: 'out/src/start-failure.js', find: "        case 'EACCES':\n            return 'notExecutable';", replace: "        case 'EACCES-unread':\n            return 'notExecutable';",
+    says: 'a file at the binary path that cannot be run is reported as any other failure to start, in the runtime\'s own terms',
   },
 
   // ---- a documentation example naming no default Release ----
@@ -2200,8 +2268,8 @@ export const PLANTS: readonly Plant[] = [
     name: 'registry-message-rows-carry-a-registry-value', scenario: 'gateway-list-panel-operations',
     checks: ['registries-panel.no-row-operation-on-the-head-or-the-empty-answer', 'list-panels.no-row-operation-on-the-rows-a-stopped-server-draws', 'list-panels.no-row-operation-on-the-rows-saying-no-workspace'],
     moves: 'red', target: 'extension',
-    file: 'out/src/registries-view.js', find: "        if (node.kind === 'message') {\n            const item = new vscode.TreeItem(node.label, vscode.TreeItemCollapsibleState.None);",
-    replace: "        if (node.kind === 'message') {\n            const item = new vscode.TreeItem(node.label, vscode.TreeItemCollapsibleState.None);\n            item.contextValue = registries_run_1.REGISTRY_ROW_CONTEXT;",
+    file: 'out/src/registries-view.js', find: MESSAGE_ROW_MAPPED,
+    replace: "        if (node.kind === 'message') {\n            const item = (0, panel_action_item_1.panelMessageItem)(node);\n            item.contextValue = registries_run_1.REGISTRY_ROW_CONTEXT;\n            return item;",
     says: 'a row saying why the Registries panel lists no registry carries the value a registry\'s row carries',
   },
 
@@ -2242,8 +2310,8 @@ export const PLANTS: readonly Plant[] = [
   },
   {
     name: 'failed-listing-row-offers-removal', scenario: 'configured-plugins-removal', checks: ['plugins-panel.no-removal-on-the-row-a-failed-listing-draws'], moves: 'red', target: 'extension',
-    file: 'out/src/plugins-view.js', find: "        if (node.kind === 'message') {\n            const item = new vscode.TreeItem(node.label, vscode.TreeItemCollapsibleState.None);",
-    replace: "        if (node.kind === 'message') {\n            const item = new vscode.TreeItem(node.label, vscode.TreeItemCollapsibleState.None);\n            item.contextValue = plugins_run_1.PLUGIN_CONFIG_ENTRY_ROW_CONTEXT;",
+    file: 'out/src/plugins-view.js', find: MESSAGE_ROW_MAPPED,
+    replace: "        if (node.kind === 'message') {\n            const item = (0, panel_action_item_1.panelMessageItem)(node);\n            item.contextValue = plugins_run_1.PLUGIN_CONFIG_ENTRY_ROW_CONTEXT;\n            return item;",
     says: 'the row a failed plugin listing draws carries the value a configured entry carries',
   },
 
@@ -2414,7 +2482,7 @@ function declaringDocumentBranchRemoved(): SharedEdit {
     file: 'out/src/inspection-request.js',
     find: '    if ((0, error_surfaces_1.isJsonRpcError)(err) && err.code === types_1.ERR_ENTITY_NOT_RESOLVABLE && err.data?.file) {',
     replace: '    if (false) {',
-    says: 'an inspection refused because of the document declaring the entity ends as any failed operation does, "The inspection did not complete: code=1004 …" with its "Show output" button',
+    says: 'an inspection refused because of the document declaring the entity ends as any failed operation does, "The inspection did not complete: …" with its "Show output" button',
   };
 }
 

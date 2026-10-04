@@ -15,6 +15,7 @@ import {
 } from '../../src/registries-run';
 import { indexBuildRequest } from '../../src/registry-index-request';
 import { NO_ANCHORED_WORKSPACE_TREE_LABEL } from '../../src/workspace';
+import { workspaceCatalogNodes } from '../../src/workspace-catalog-run';
 
 // The published listing shape says an entry always carries its default flag, its
 // credential state and its trust posture, so a fixture omitting one of them is
@@ -43,6 +44,7 @@ interface Harness {
 function harness(
   root: string | null,
   answer: () => Promise<RegistryListDoc>,
+  running = true,
 ): Harness {
   const log = new FakeLog();
   let calls = 0;
@@ -52,6 +54,7 @@ function harness(
     nodes: () =>
       registryNodes({
         getWorkspaceRoot: () => root,
+        isLanguageServerRunning: () => running,
         runRegistryList: () => {
           calls++;
           return answer();
@@ -224,6 +227,29 @@ describe('registryNodes', () => {
     assert.strictEqual(h.invocations(), 0);
   });
 
+  it('asks nothing of a language server that is not running, and draws the Catalog panel’s row offering to start it', async () => {
+    const h = harness('/ws', ok(MEASURED_DOCUMENT), false);
+    const nodes = await h.nodes();
+
+    assert.deepStrictEqual(nodes, [{
+      kind: 'message',
+      label: 'The Aggrega language server is not running.',
+      detail: 'The Aggrega language server is not running, so the operations that ask it a question are unavailable. Click to start it.',
+      press: { command: 'aggrega.server.restart', title: 'Start the Aggrega language server' },
+    }]);
+    assert.strictEqual(h.invocations(), 0);
+    assert.deepStrictEqual(h.log.lines, [], 'a state is not a failure, so nothing is written to the channel');
+    // The same row the Catalog panel draws for the same state, by equality.
+    const catalog = await workspaceCatalogNodes({
+      getWorkspaceRoot: () => '/ws',
+      isLanguageServerRunning: () => false,
+      requestCatalogIndex: () => Promise.reject(new Error('not asked')),
+      entityKinds: () => Promise.reject(new Error('not asked')),
+      log: new FakeLog(),
+    });
+    assert.deepStrictEqual(nodes, catalog);
+  });
+
   it('asks again on every enumeration, so a refresh repopulates from the compiler', async () => {
     let doc: RegistryListDoc = {
       registries: [fromANonConformingPeer({ host: 'a.example.test' })],
@@ -253,8 +279,7 @@ describe('registryNodes', () => {
       message: 'the daemon holds no resolved workspace to report configured registries for',
     }));
     const nodes = await h.nodes();
-    const rendered =
-      'code=-32603 the daemon holds no resolved workspace to report configured registries for';
+    const rendered = 'the daemon holds no resolved workspace to report configured registries for';
 
     assert.deepStrictEqual(nodes, [
       { kind: 'message', label: FAILURE_LABEL, detail: rendered },

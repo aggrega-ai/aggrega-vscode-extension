@@ -18,8 +18,11 @@
 // test hands it a recorder and reads back what an operator would have seen.
 
 import type * as vscode from 'vscode';
-import { DaemonState } from './daemon';
+import { DaemonState } from './daemon-state';
+import { SHOW_OUTPUT_ACTION } from './operation-outcome';
+import type { PanelActionPress } from './panel-actions';
 import { COMPILER_ANSWERABLE_CONTEXT_KEY } from './readiness';
+import { OPEN_BINARY_PATH_SETTING_ACTION, StartFailure, startFailureReason } from './start-failure';
 import { versionPhrase } from './version-words';
 
 // The commands whose availability this state decides, named once here so the
@@ -290,6 +293,52 @@ export const DAEMON_ACTION_DETAIL: Record<DaemonStandingAction, string> = {
   start: 'Start the Aggrega language server',
   restart: 'Stop the Aggrega language server and start a fresh one',
 };
+
+// startServerPress is what a row offering to start the language server runs:
+// the command the indicator's start runs, under the indicator's own words for it.
+export function startServerPress(): PanelActionPress {
+  return { command: RESTART_COMMAND, title: DAEMON_ACTION_DETAIL.start };
+}
+
+// startFailedMessage is what a reader is told when the language server could not
+// be started: the failed-start reading in the words every surface uses for it,
+// then what is wrong and what to do about it.
+export function startFailedMessage(failure: StartFailure): string {
+  return `Aggrega language server ${DAEMON_READING_WORDS.failedToStart}: ${startFailureReason(failure)}`;
+}
+
+// NOT_RUNNING_WARNING is what an operation that asks the language server a
+// question answers with while it is not running and nothing has said why.
+export const NOT_RUNNING_WARNING = 'Aggrega: the language server is not running.';
+
+// NotRunningWarning is that answer as it is raised: the sentence, the buttons
+// beside it in the order they are drawn, and which of them is the start or
+// restart, whose label follows the standing.
+export interface NotRunningWarning {
+  message: string;
+  actions: string[];
+  start: string;
+}
+
+// notRunningWarning composes it from what is known about the server: whether
+// its last start failed, and with what, and what it is doing now.
+//
+// It carries the three acts a reader can take from it, because a warning with
+// none is a dead end: the output, where the server's own account is; the setting
+// naming the compiler, which is what most often keeps it from starting; and the
+// start or restart, named as the indicator names it in the same standing, so the
+// same act reads the same wherever it is offered. Where the last start failed,
+// the sentence says why in the words the failure was reported in.
+export function notRunningWarning(
+  lastFailure: StartFailure | null,
+  standing: DaemonStanding,
+): NotRunningWarning {
+  const message = lastFailure === null
+    ? NOT_RUNNING_WARNING
+    : `${NOT_RUNNING_WARNING} Its last start failed: ${startFailureReason(lastFailure)}`;
+  const start = DAEMON_ACTION_LABEL[daemonStandingAction(standing)];
+  return { message, actions: [SHOW_OUTPUT_ACTION, OPEN_BINARY_PATH_SETTING_ACTION, start], start };
+}
 
 // DAEMON_ACTION_PLACEHOLDER heads the offer the indicator opens on click.
 //

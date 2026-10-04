@@ -71,7 +71,9 @@ import { recoverFromCacheMiss } from './cache-miss';
 import {
   notifyDaemonStartupFailed,
   notifyStoppedResponding,
+  warnNotRunning,
 } from './notifications';
+import { BINARY_PATH_SETTING, StartFailure } from './start-failure';
 import {
   COMPILER_ANSWERABLE_CONTEXT_KEY,
   Readiness,
@@ -349,17 +351,30 @@ let refreshGetStarted: (() => void) | null = null;
 // reads as can have moved: the one lifecycle subscription, and the places that
 // drop or settle the client outside it.
 let welcomeFollowsLifecycle: (() => void) | null = null;
-// droppedOnFailedStart records that there is no client because the last one
-// was dropped when its start failed.
+// droppedStartFailure records that there is no client because the last one was
+// dropped when its start failed, and what that start failed with.
 //
 // 🔴 IT IS A FACT ABOUT THIS EXTENSION'S OWN ACT, NOT A COPY OF THE CLIENT'S.
 // While a client exists it answers for its own most recent attempt, and that is
 // what is read. The one place a client is thrown away because its start failed
 // is the first start, and after that there is no client left to ask — so what
-// remains to be said, that the server failed to start and none has run since,
-// is said by this. A new client replaces it, and a deliberate teardown clears
-// it, because the extension then decided to run nothing here.
-let droppedOnFailedStart = false;
+// remains to be said, that the server failed to start, why, and that none has
+// run since, is said by this. A new client replaces it, and a deliberate teardown
+// clears it, because the extension then decided to run nothing here.
+let droppedStartFailure: StartFailure | null = null;
+
+// lastStartFailure is the most recent attempt to start a language server here,
+// where it failed: the client's own record while there is a client, and the
+// record of the dropped one where there is not.
+function lastStartFailure(): StartFailure | null {
+  return daemon ? daemon.lastStartFailure() : droppedStartFailure;
+}
+
+// showOutputChannel brings the Aggrega output channel into view without taking
+// the focus from where the reader is working.
+function showOutputChannel(): void {
+  outputChannel?.show(true);
+}
 
 // anchoredWorkspaceRoot is the folder the language server reported having
 // anchored to, or null before it has reported one.
@@ -406,7 +421,7 @@ function languageServerReading(): ServerReading {
   return {
     reading: daemonReading(
       daemon?.getState() ?? null,
-      daemon ? daemon.lastStartFailed() : droppedOnFailedStart,
+      lastStartFailure() !== null,
     ),
     version: daemon?.getServerInitMetadata()?.version ?? null,
   };
@@ -888,8 +903,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // the registries, and it carries the reader's stop into that walk.
   //
   // No binary path is passed, because nothing on this surface starts a process.
+  // Whether the language server is running is, because the enumeration is its
+  // answer and a stopped server is a state of its own rather than a failure.
   activateRegistriesView(context, {
     getWorkspaceRoot: () => workspaceRootForCommands,
+    isLanguageServerRunning,
     runRegistryList: requestRegistryList,
     addRegistry: requestRegistryAdd,
     removeRegistry: requestRegistryRemove,
@@ -1365,7 +1383,7 @@ async function ensureDaemonAt(
   );
 
   daemon = new Daemon(getSettings(), msg => outputChannel?.appendLine(msg));
-  droppedOnFailedStart = false;
+  droppedStartFailure = null;
   // The notification names the command that starts the server again, under the
   // title the loaded manifest declares for it; commandTitle says why the title is
   // read rather than written here.
@@ -1433,7 +1451,7 @@ async function ensureDaemonAt(
           return;
         }
         daemon.updateSettings(getSettings());
-        if (e.affectsConfiguration('aggrega.server.binaryPath')) {
+        if (e.affectsConfiguration(BINARY_PATH_SETTING)) {
           scheduleBinaryPathRestart();
         }
       }),
@@ -1452,11 +1470,15 @@ async function ensureDaemonAt(
     // that resolves from a terminal would then fail to resolve here.
     await daemon.start(anchoring.workspaceRoot);
   } catch (err) {
-    notifyDaemonStartupFailed((err as Error).message);
+    // The client's own record names the path its attempt tried. A start refused
+    // before any attempt was made has no record, and is reported against the
+    // path the setting names now.
+    const failure = daemon?.lastStartFailure() ?? { reason: err, binaryPath: getSettings().binaryPath };
+    notifyDaemonStartupFailed(failure, showOutputChannel);
     daemon = null;
     // The client is dropped, and with it the record of its failed attempt; this
-    // is what goes on saying it, for the reason droppedOnFailedStart states.
-    droppedOnFailedStart = true;
+    // is what goes on saying it, for the reason droppedStartFailure states.
+    droppedStartFailure = failure;
     activeAnchored = null;
     return;
   }
@@ -1513,7 +1535,7 @@ async function stopDaemon(): Promise<void> {
   //
   // The teardown is deliberate, so whatever the last start did, what the page
   // reports now is a server the extension decided not to run.
-  droppedOnFailedStart = false;
+  droppedStartFailure = null;
   daemonStatusBar?.refresh();
   welcomeFollowsLifecycle?.();
 }
@@ -1814,7 +1836,7 @@ async function validateActiveDocument(): Promise<void> {
   }
   const client = daemon;
   if (!client || client.getState() !== DaemonState.Running) {
-    void vscode.window.showWarningMessage('Aggrega: the language server is not running.');
+    warnNotRunning(lastStartFailure(), daemonStanding(client?.getState() ?? null), showOutputChannel);
     return;
   }
   const doc = editor.document;
@@ -2122,11 +2144,15 @@ function registerRestartCommand(context: vscode.ExtensionContext): void {
 // two can never come to restart differently.
 async function replaceLanguageServer(): Promise<boolean> {
   if (!daemon) { return false; }
+  const client = daemon;
   try {
-    await daemon.restart();
+    await client.restart();
     return true;
   } catch (err) {
-    notifyDaemonStartupFailed((err as Error).message);
+    notifyDaemonStartupFailed(
+      client.lastStartFailure() ?? { reason: err, binaryPath: getSettings().binaryPath },
+      showOutputChannel,
+    );
     return false;
   }
 }

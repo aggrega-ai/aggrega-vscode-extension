@@ -46,7 +46,7 @@ const START_WINDOW_MS = 5000;
 // ending on the server's exit, which the attempt to start writes whatever follows
 // it — that is what lets it stand as the evidence that a kill landed inside the
 // handshake. The others are what the supervision says about that end.
-const HANDSHAKE_ENDED_BY_EXIT = 'initialize failed: daemon exited';
+const HANDSHAKE_ENDED_BY_EXIT = 'the language server did not start: the language server stopped unexpectedly';
 const ENDED_UNEXPECTEDLY = 'the language server stopped unexpectedly';
 const RESTART_DID_NOT_COME_UP = 'the language server started again did not come up';
 const STARTING_AGAIN = 'starting the language server again';
@@ -71,6 +71,20 @@ async function handshakeVersion(ctx: SuiteContext): Promise<{ version: string | 
 
 // BINARY_PATH_SETTING is the setting a start is taken away with and given back by.
 const BINARY_PATH_SETTING = 'aggrega.server.binaryPath';
+
+// The words a failure to start the compiler is reported in, held here as written
+// for the reason the channel's words above are: what is wrong with the path, the
+// remedy naming the setting, the notification's opening, the button that opens
+// the setting and the search that button opens the settings screen on.
+export const notFoundAt = (binary: string): string => `the compiler at ${binary} was not found. Set ${BINARY_PATH_SETTING} to the aggrega binary.`;
+export const notExecutableAt = (binary: string): string => `${binary} is not an executable file. Set ${BINARY_PATH_SETTING} to the aggrega binary.`;
+export const START_FAILED_OPENING = 'Aggrega language server failed to start: ';
+export const OPEN_BINARY_PATH_SETTING = 'Open binary path setting';
+export const BINARY_PATH_SEARCH = `@id:${BINARY_PATH_SETTING}`;
+
+// RUNTIME_WORDS are the runtime's own terms for a failure to start a program and
+// the client's former labels for it, none of which a reader is to meet.
+export const RUNTIME_WORDS = /\bENOENT\b|\bEACCES\b|\bspawn\b|subprocess error|falling back to UTF-16/;
 
 // setBinaryPath rewrites the user settings' one line naming the binary, in the
 // editor as a person edits it, and saves it. The line is found by its key and

@@ -286,7 +286,7 @@ describe('the anchoring census over the wiring', () => {
   it('drops both facts together when the language server goes', () => {
     assert.deepStrictEqual(
       nulledIn('src/extension.ts', 'async function stopDaemon('),
-      ['activeAnchored', 'daemon', 'openedProjectFolder', 'workspaceRootForCommands'],
+      ['activeAnchored', 'daemon', 'droppedStartFailure', 'openedProjectFolder', 'workspaceRootForCommands'],
       'a root cleared while the folder stood would leave one row naming somewhere nothing is '
       + 'working in while the row below it reported nothing in use',
     );

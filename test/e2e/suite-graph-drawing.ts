@@ -785,7 +785,7 @@ export async function graphDrawingChecks(ctx: SuiteContext, reference: string): 
   let words = '';
   let failedSave: { text: string; outOfDate: boolean; nodes: number } | null = null;
   await c.run('graph.failed-redraw-after-a-save-dims-the-drawing-and-says-so', {
-    expected: `with a good drawing on screen, pointing ${ADMIN}'s type at "${componentOf(ADMIN_BROKEN)}" and saving leaves the drawing on the canvas, dimmed, under the notice "${staleDrawing(RELEASE)} code=<n> <message>" — <n> and <message> being the language server's own answer to the same graph request over a reference copy broken the same way; the dimming and the words are read apart`,
+    expected: `with a good drawing on screen, pointing ${ADMIN}'s type at "${componentOf(ADMIN_BROKEN)}" and saving leaves the drawing on the canvas, dimmed, under the notice "${staleDrawing(RELEASE)} <message>" — <message> being the language server's own answer to the same graph request over a reference copy broken the same way; the dimming and the words are read apart`,
     plant: 'in the scratch copy, media/graph.js made not to dim a drawing the compiler could not rebuild; or out/src/graph-failure.js made to send the panel the thrown value rendered as a string',
   }, async () => {
     need(doc !== null, 'the graph was not drawn');
@@ -803,7 +803,7 @@ export async function graphDrawingChecks(ctx: SuiteContext, reference: string): 
     const ref = await referenceAnswer({ binary: ctx.inputs.compiler.path, root: reference, method: 'aggrega/irGraph', params: { release: RELEASE }, home: ctx.home, table: ctx.s.table, log: ctx.cliLog });
     fs.writeFileSync(refAggregate, refText);
     need(!ref.ok, 'the language server drew the reference copy with the admin console\'s type broken');
-    words = `code=${String(ref.error.code)} ${ref.error.message.split(reference).join(ctx.folder)}`;
+    words = ref.error.message.split(reference).join(ctx.folder);
     const ids = (await drawnText(d)).map((n) => n.id);
     const from = await watchNotice(d);
     await savedAs(ctx, await rewriteLine(ctx, aggregate, ADMIN_TYPE, ADMIN_BROKEN));
@@ -859,7 +859,7 @@ export async function graphDrawingChecks(ctx: SuiteContext, reference: string): 
   });
 
   await c.run('graph.failure-with-nothing-drawn-claims-no-drawing-out-of-date', {
-    expected: `with the panel closed and the fault saved again, pressing Graph opens a panel that names the failure as "${RELEASE}: code=<n> <message>" — the language server's own words for the same fault over the reference copy broken the same way — and that, from its opening until ${SETTLE_MS / 1000} s after it names the failure, draws no card and is never dimmed, so it claims no drawing out of date; read by the observer the dimming of the failed redraw is read by in this scenario`,
+    expected: `with the panel closed and the fault saved again, pressing Graph opens a panel that names the failure as "${RELEASE}: <message>" — the language server's own words for the same fault over the reference copy broken the same way — and that, from its opening until ${SETTLE_MS / 1000} s after it names the failure, draws no card and is never dimmed, so it claims no drawing out of date; read by the observer the dimming of the failed redraw is read by in this scenario`,
     plant: 'in the scratch copy, media/graph.js made to read the canvas as holding a drawing whether or not it does',
   }, async () => {
     need(doc !== null && words !== '', 'the language server\'s words for the fault were not read');

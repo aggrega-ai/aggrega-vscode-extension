@@ -11,7 +11,7 @@ import { ListPanelId, PANEL_ACTIONS, PanelActionId, panelActionLabel } from '../
 import { ATTACHMENT_SUBJECT, attachmentProgressTitle } from '../../src/plugin-attachment';
 import { GEN_CATALOG_SCOPES } from '../../src/plugins-run';
 import { PUBLICATION_SUBJECT, publicationOpeningLine } from '../../src/publication-request';
-import { EMPTY_LABEL as NO_REGISTRIES_ROW, FAILURE_LABEL as REGISTRY_LIST_FAILED_ROW } from '../../src/registries-run';
+import { EMPTY_LABEL as NO_REGISTRIES_ROW } from '../../src/registries-run';
 import {
   CREDENTIAL_REMOVAL_SUBJECT, REGISTRATION_DESTINATION_PROMPT, REGISTRATION_SUBJECT, REGISTRY_REMOVAL_SUBJECT, REMOVAL_DESTINATION_PROMPT, removalConsentDetail, trustByHandTitle,
 } from '../../src/registry-configure';
@@ -919,7 +919,7 @@ export async function listPanelOperationsChecks(ctx: SuiteContext, opts: { regis
   const beforeStop = await statusMark(ctx);
   await setBinaryPath(ctx, bin, opts.missing);
   await c.run('list-panels.no-row-operation-on-the-rows-a-stopped-server-draws', {
-    expected: `with the language server stopped — the binary setting pointed at ${opts.missing}, which does not exist, and the status bar reading "${NOT_RUNNING}" after it changed — the Registries panel's Refresh draws "${REGISTRY_LIST_FAILED_ROW}" and the Catalog panel's "${SERVER_STOPPED_LABEL}", neither drawn before its Refresh was pressed, and a right-click on each reaches the row and offers none of its panel's row operations — the readings of the ${host} row and the "${DECLARED_ROW}" row, earlier in this scenario, having offered them`,
+    expected: `with the language server stopped — the binary setting pointed at ${opts.missing}, which does not exist, and the status bar reading "${NOT_RUNNING}" after it changed — the Registries panel's Refresh and the Catalog panel's each draw "${SERVER_STOPPED_LABEL}", neither drawn before its Refresh was pressed, and a right-click on each reaches the row and offers none of its panel's row operations — the readings of the ${host} row and the "${DECLARED_ROW}" row, earlier in this scenario, having offered them`,
     plant: 'in the scratch copy, out/src/registries-view.js with a row saying why there is no registry carrying the value a registry\'s row carries',
   }, () => restoring(async () => {
     const registryControl = registryRow as RowMenu | null;
@@ -934,12 +934,12 @@ export async function listPanelOperationsChecks(ctx: SuiteContext, opts: { regis
     // is shown drawn by the press rather than standing from before it.
     const registriesBefore = await panelLabels(ctx, 'Registries');
     await run(ctx, 'aggrega.registries.refresh');
-    await until(`the Registries panel reading "${REGISTRY_LIST_FAILED_ROW}"`, 20000, () => panelLabels(ctx, 'Registries'), (v) => v.includes(REGISTRY_LIST_FAILED_ROW));
+    await until(`the Registries panel reading "${SERVER_STOPPED_LABEL}"`, 20000, () => panelLabels(ctx, 'Registries'), (v) => v.includes(SERVER_STOPPED_LABEL));
     const catalogBefore = await panelLabels(ctx, 'Catalog');
     await run(ctx, 'aggrega.workspaceCatalog.refresh');
     await until(`the Catalog panel reading "${SERVER_STOPPED_LABEL}"`, 20000, () => panelLabels(ctx, 'Catalog'), (v) => v.includes(SERVER_STOPPED_LABEL));
-    const standing = [registriesBefore.includes(REGISTRY_LIST_FAILED_ROW) ? `"${REGISTRY_LIST_FAILED_ROW}"` : '', catalogBefore.includes(SERVER_STOPPED_LABEL) ? `"${SERVER_STOPPED_LABEL}"` : ''].filter((x) => x !== '');
-    const registries = await rowsOffering(ctx, 'Registries', [REGISTRY_LIST_FAILED_ROW], registryOps);
+    const standing = [registriesBefore.includes(SERVER_STOPPED_LABEL) ? `the Registries panel's "${SERVER_STOPPED_LABEL}"` : '', catalogBefore.includes(SERVER_STOPPED_LABEL) ? `the Catalog panel's "${SERVER_STOPPED_LABEL}"` : ''].filter((x) => x !== '');
+    const registries = await rowsOffering(ctx, 'Registries', [SERVER_STOPPED_LABEL], registryOps);
     const catalog = await rowsOffering(ctx, 'Catalog', [SERVER_STOPPED_LABEL], catalogOps);
     const offering = [...registries.offering, ...catalog.offering];
     if (offering.length === 0 && standing.length === 0) { need([...registries.unreached, ...catalog.unreached].length === 0, `the right-click never reached ${[...registries.unreached, ...catalog.unreached].join('; ')}`); }

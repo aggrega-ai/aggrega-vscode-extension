@@ -204,9 +204,11 @@ describe('the outer level is a decision and never an outcome', () => {
     // quietly joining or leaving, and the claim is about what is dropped as one
     // thing and what is not dropped at all.
     const dropped = nulledIn('src/extension.ts', 'async function stopDaemon(');
+    // The record of a start that failed is among them: a teardown the extension
+    // chose leaves nothing it ran to have failed.
     assert.deepStrictEqual(
       dropped,
-      ['activeAnchored', 'daemon', 'openedProjectFolder', 'workspaceRootForCommands'],
+      ['activeAnchored', 'daemon', 'droppedStartFailure', 'openedProjectFolder', 'workspaceRootForCommands'],
       'the set of values dropped with the language server has moved',
     );
     assert.ok(

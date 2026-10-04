@@ -3,6 +3,7 @@
 
 import { execFile } from 'child_process';
 import { CancellationSignal, OperationCancelled } from './cancellation';
+import { isStartFailure } from './start-failure';
 
 // CliJsonDeps is the slice of extension state a structured CLI capture needs:
 // the anchored workspace root the command runs in, and the configured binary
@@ -90,6 +91,12 @@ function excerpt(text: string): string {
 //   - a zero exit whose stdout is not JSON, which happens when a command
 //     answers a configuration question in prose instead of data.
 //
+// A third is the compiler not starting at all — nothing at the path, or nothing
+// runnable there — and there is no product text to carry. The runtime's own
+// failure is handed on unchanged instead, because the fields it carries are what
+// tell a caller which of those it was, and a fresh error with only its message
+// would leave the caller to read that from words.
+//
 // A zero exit with parsable stdout resolves with the parsed document and the
 // raw stderr alongside it.
 //
@@ -130,7 +137,7 @@ export function runCliJson<T>(
         // arrival never overwrites the stopped-by-the-reader answer with a
         // failure the reader would read as something having gone wrong.
         if (err) {
-          finish(() => reject(new Error(stderr?.trim() || err.message)));
+          finish(() => reject(isStartFailure(err) ? err : new Error(stderr?.trim() || err.message)));
           return;
         }
         try {

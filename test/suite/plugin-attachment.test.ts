@@ -409,7 +409,7 @@ describe('a refusal reaches the reader as the compiler wrote it', () => {
     const outcome = await runPluginAttachment(r.deps, { type: 'governance', query: 'cel', role: 'ir-verdict' });
     assert.strictEqual(
       terminalLine(ATTACHMENT_SUBJECT, outcome),
-      'The attachment did not complete: code=-32602 aggrega plugin add: "cel" matches 2 '
+      'The attachment did not complete: aggrega plugin add: "cel" matches 2 '
       + 'governance plugins (plugin/governance/cel-guard, plugin/governance/cel-policy); '
       + 'narrow the query to one',
     );
@@ -423,7 +423,7 @@ describe('a refusal reaches the reader as the compiler wrote it', () => {
     const outcome = await runPluginAttachment(r.deps, { type: 'linter', query: 'publishing' });
     assert.strictEqual(
       terminalLine(ATTACHMENT_SUBJECT, outcome),
-      `${ATTACHMENT_SUBJECT} did not complete: code=${REFUSAL_CODE} ${COMPILER_REFUSAL}`,
+      `${ATTACHMENT_SUBJECT} did not complete: ${COMPILER_REFUSAL}`,
     );
   });
 

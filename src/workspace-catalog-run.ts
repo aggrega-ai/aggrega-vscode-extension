@@ -10,7 +10,9 @@ import {
   acceptanceFor,
   readEntityKinds,
 } from './entity-kinds';
+import { daemonStandingTooltip, startServerPress } from './daemon-status';
 import { outcomeOf, terminalLine } from './operation-outcome';
+import type { PanelActionPress } from './panel-actions';
 import { NO_ANCHORED_WORKSPACE_TREE_LABEL } from './workspace';
 
 // --- the workspace entity index, as the compiler publishes it -------------
@@ -81,6 +83,24 @@ export const FAILURE_LABEL =
 // that has not started yet is an ordinary transient state, and wording it as a
 // failure would send a reader looking for a fault that is not there.
 export const SERVER_STOPPED_LABEL = 'The Aggrega language server is not running.';
+
+// serverStoppedNode is that row as every list panel draws it whose list is the
+// language server's answer: the line above, the hover the status bar's indicator
+// gives for the same state, and a press that starts the server — the act the
+// indicator offers for it, so the row leads somewhere rather than only saying
+// where things stand.
+//
+// It is the one composition of the row. The Registries panel draws it as this
+// panel does, because its list is the language server's answer too and the state
+// is the same one; two compositions would come to word one state two ways.
+export function serverStoppedNode(): { kind: 'message'; label: string; detail: string; press: PanelActionPress } {
+  return {
+    kind: 'message',
+    label: SERVER_STOPPED_LABEL,
+    detail: daemonStandingTooltip('notRunning', true),
+    press: startServerPress(),
+  };
+}
 
 // CATALOG_ORIGIN_LABEL is the row's note for an entity that came from one of
 // the catalog directories the workspace configures rather than from a document
@@ -194,7 +214,7 @@ export interface WorkspaceEntityRow {
 export type WorkspaceCatalogNode =
   | { kind: 'group'; label: string; rows: WorkspaceEntityRow[] }
   | { kind: 'entry'; row: WorkspaceEntityRow }
-  | { kind: 'message'; label: string; detail?: string };
+  | { kind: 'message'; label: string; detail?: string; press?: PanelActionPress };
 
 // labelSegments renders an entity's labels as key=value, in the order they
 // arrived. The server emits them in a deterministic order, so preserving it
@@ -347,7 +367,7 @@ export async function workspaceCatalogNodes(
     return [{ kind: 'message', label: NO_ANCHORED_WORKSPACE_TREE_LABEL }];
   }
   if (!deps.isLanguageServerRunning()) {
-    return [{ kind: 'message', label: SERVER_STOPPED_LABEL }];
+    return [serverStoppedNode()];
   }
   let doc: CatalogIndexDoc;
   try {

@@ -12,7 +12,7 @@ import { COMMANDS_PANEL_LABELS } from './commands-panel';
 import { WebviewDocument } from './drivers';
 import { UNREACHABLE_HOST } from './fixtures';
 import { NoticeReading, noticeReadings, watchNotice } from './graph-drawing';
-import { findGraphPanel } from './graph-panel';
+import { findGraphPanel, graphCouldNotBeDrawn } from './graph-panel';
 import { referenceAnswer } from './reference';
 import { CACHE_MISS_CHECKS, cacheMissChecks } from './suite-cache-miss';
 import { CONFIG_PANEL_CHECKS, configPanelChecks } from './suite-config-panel';
@@ -20,13 +20,17 @@ import {
   capture, catalogPanelAtItsHead, closeAllEditors, commandTitle, deleteLine, describeDiagnostics, diagnostics, lineOf, open, putBack, ready, run, save,
   send, SuiteContext, theServer,
 } from './suite-context';
-import { contextRowsCheck } from './suite-gateway';
+import { contextRowsCheck, settingsScreen } from './suite-gateway';
 import { INSPECTION_CHECKS, inspectionChecks } from './suite-inspection';
+import { BINARY_PATH_SEARCH, notFoundAt, OPEN_BINARY_PATH_SETTING, RUNTIME_WORDS, START_FAILED_OPENING } from './suite-killed';
 import {
   commandsPanel, describeRowMenu, guard, holds, NOT_RUNNING, operationButtons, paneState, pickQuickInputRow, pressIn, pressKeyIn, pressMenuItem, pressOperation, pressPaneHeader,
-  pressPanelAction, pressToastButton, QuickInput, quickInput, rowMenu, RUNNING, sleep, stated, statusLog, STARTING, toasts, toastsSince, TreeRow,
+  pressPanelAction, pressToastButton, QuickInput, quickInput, rowMenu, RUNNING, sleep, stated, statusLog, STARTING, Toast, toasts, toastsSince, TreeRow,
   treeRowCentre, treeRows, until, waitQuickInput, waitStatus, waitToast,
 } from './workbench';
+
+// BINARY_PATH is the setting naming the compiler, as its key.
+const BINARY_PATH = 'aggrega.server.binaryPath';
 
 // The checks run in the storefront folder: the capabilities walked end to end —
 // the configuration panel's resizable columns, the language server recovering
@@ -863,8 +867,8 @@ export async function storefrontChecks(ctx: SuiteContext, referenceFolder: strin
   const original = fs.readFileSync(config, 'utf8');
   const missingCatalog = path.join(ctx.folder, 'no-such-catalog');
   await c.run('settings-that-are-wrong.missing-catalog-and-unreachable-registry-are-named', {
-    expected: `with "- ./no-such-catalog" under catalog_dirs and a top-level registries list holding "${UNREACHABLE_HOST}" saved, the restart the warning offers (or, where none is offered, the restart command) brings up a new language server that runs; Graph then opens a panel that draws no card and names the refusal "${RELEASE}: code=<n> <message>" — <n> and <message> being the language server's own answer to the same graph request over a reference copy configured the same way, whose message names ${missingCatalog} — and the Registries panel names ${UNREACHABLE_HOST}`,
-    plant: 'in the scratch copy, out/src/graph-failure.js made to tell the panel a sentence of its own in place of the refusal; or out/src/extension.js made to restart nothing when the warning\'s restart is pressed',
+    expected: `with "- ./no-such-catalog" under catalog_dirs and a top-level registries list holding "${UNREACHABLE_HOST}" saved, the restart the warning offers (or, where none is offered, the restart command) brings up a new language server that runs; Graph then opens a panel that draws no card and names the refusal "${RELEASE}: <message>", and the channel says "${graphCouldNotBeDrawn(RELEASE, '<message>')}" — <message> being the language server's own answer to the same graph request over a reference copy configured the same way, whose message names ${missingCatalog}; no line the channel or the panel draws carries "irGraph failed" or a "code=<n>"; and the Registries panel names ${UNREACHABLE_HOST}`,
+    plant: 'in the scratch copy, out/src/graph-failure.js made to tell the panel a sentence of its own in place of the refusal; or out/src/extension.js made to restart nothing when the warning\'s restart is pressed; or out/src/error-text.js made to put the transport\'s code ahead of a refusal\'s words; or out/src/graph-failure.js made to name the request on the channel',
   }, async () => {
     const mark = ctx.out.mark();
     const toastMark = (await toasts(ctx.d)).length;
@@ -906,8 +910,9 @@ export async function storefrontChecks(ctx: SuiteContext, referenceFolder: strin
       }
     })();
     need(!ref.ok, 'the language server drew the reference copy configured with a catalog directory it does not hold');
-    const words = `code=${String(ref.error.code)} ${ref.error.message.split(referenceFolder).join(ctx.folder)}`;
+    const words = ref.error.message.split(referenceFolder).join(ctx.folder);
     const refusal = `${RELEASE}: ${words}`;
+    const channelLine = graphCouldNotBeDrawn(RELEASE, words);
     const directoryNamed = words.includes(missingCatalog);
     need(await findGraphPanel(ctx) === null, 'a graph panel is open before Graph is pressed, so the panel read would not be the one the press opens');
     await pressOperation(ctx.d, await commandsPanel(ctx.d), 'aggrega.graph.show');
@@ -937,10 +942,15 @@ export async function storefrontChecks(ctx: SuiteContext, referenceFolder: strin
     const running = (await statusLog(ctx.d)).slice(-1)[0]?.reading === RUNNING;
     const nothingDrawn = drewNothing(notices) && quiet !== null && quiet.held;
     const shown = notices.filter((x) => x.text !== '').map((x) => x.text);
+    const channelNamed = lines.includes(`channel: ${channelLine}`);
+    // The labels a reader cannot act on, read on every line the channel and the
+    // panel drew; the language server's own words are read here too, so a code
+    // the server put in its message would show up rather than pass.
+    const coded = lines.filter((l) => (l.startsWith('channel: ') || l.startsWith('graph panel: ')) && /irGraph failed|\bcode=-?\d+/.test(l));
     return {
-      passed: running && panelNamed && nothingDrawn && directoryNamed && hostNamed,
-      seen: `${restartedBy}: language server ${before.pid} replaced by ${after.pid}, the status bar ${running ? 'running' : 'not running'}; the graph panel ${panelNamed ? 'named the refusal as the language server words it' : `read ${JSON.stringify(shown)}, not "${refusal}"`}, ${nothingDrawn ? 'drawing no card up to 3 s after' : `its readings ${JSON.stringify(notices.map((x) => `${x.nodes} cards${x.outOfDate ? ' [dimmed]' : ''}`))}`}; the language server's own answer "${words}" ${directoryNamed ? 'names' : 'does not name'} ${missingCatalog}; ${UNREACHABLE_HOST} ${hostNamed ? 'named' : 'not named'} in the Registries panel`,
-      evidence: { said: lines, refusal, notices },
+      passed: running && panelNamed && nothingDrawn && directoryNamed && hostNamed && channelNamed && coded.length === 0,
+      seen: `${restartedBy}: language server ${before.pid} replaced by ${after.pid}, the status bar ${running ? 'running' : 'not running'}; the graph panel ${panelNamed ? 'named the refusal as the language server words it' : `read ${JSON.stringify(shown)}, not "${refusal}"`}, ${nothingDrawn ? 'drawing no card up to 3 s after' : `its readings ${JSON.stringify(notices.map((x) => `${x.nodes} cards${x.outOfDate ? ' [dimmed]' : ''}`))}`}; the channel ${channelNamed ? 'says the topology could not be drawn, in the server\'s words' : `does not carry "${channelLine}"`}; ${coded.length === 0 ? 'no line carries a code-facing label' : `code-facing labels on ${JSON.stringify(coded)}`}; the language server's own answer "${words}" ${directoryNamed ? 'names' : 'does not name'} ${missingCatalog}; ${UNREACHABLE_HOST} ${hostNamed ? 'named' : 'not named'} in the Registries panel`,
+      evidence: { said: lines, refusal, channelLine, notices },
     };
   });
   // Put the configuration back and let the server read it.
@@ -954,9 +964,10 @@ export async function storefrontChecks(ctx: SuiteContext, referenceFolder: strin
   const missing = path.join(ctx.s.root.dir, 'no-such-compiler', 'aggrega');
   const userSettings = path.join(ctx.s.root.userData, 'User', 'settings.json');
   let errorToasts = 0;
+  const failedStart = `${START_FAILED_OPENING}${notFoundAt(missing)}`;
   await c.run('settings-that-are-wrong.missing-compiler-is-named', {
-    expected: `aggrega.server.binaryPath pointed at a file that does not exist (${missing}) is said: the status bar reads "${NOT_RUNNING}" and something the extension draws or writes names that path`,
-    plant: 'in the scratch copy, out/src/daemon.js made to swallow the spawn error, reporting a failure to start in a sentence naming no path',
+    expected: `aggrega.server.binaryPath pointed at a file that does not exist (${missing}) is said: the status bar reads "${NOT_RUNNING}"; an error notification reads "${failedStart}" with a "${OPEN_BINARY_PATH_SETTING}" button, which, pressed, opens the settings screen searching "${BINARY_PATH_SEARCH}" and drawing that one setting; and no notification or channel line the change produced carries ENOENT, EACCES, the word spawn, "subprocess error" or "falling back to UTF-16"`,
+    plant: 'in the scratch copy, out/src/daemon.js made to hand a failure to start the binary on as a sentence of its own, without the fields the runtime attached to it; or out/src/settings.js made to open the settings narrowed to the extension rather than to the one setting',
   }, async () => {
     need(!fs.existsSync(missing), `${missing} exists`);
     const mark = ctx.out.mark();
@@ -969,6 +980,7 @@ export async function storefrontChecks(ctx: SuiteContext, referenceFolder: strin
     await ctx.probe.request('document.edit', { path: userSettings, start: { line: at.index, character: 0 }, end: { line: at.index + 1, character: 0 }, text: `${at.text.replace(JSON.stringify(bin), JSON.stringify(missing))}\n` });
     await save(ctx, userSettings);
     const stopped = await waitStatus(ctx.d, NOT_RUNNING, 60000).then(() => true, () => false);
+    const told = await waitToast(ctx.d, 'the failed start being told', toastMark, (t) => t.severity === 'error' && t.message.startsWith(START_FAILED_OPENING), 30000).catch(() => null as Toast | null);
     const read = async (): Promise<string[]> => [
       ...(await toastsSince(ctx.d, toastMark)).map((t) => `notification (${t.severity}): ${t.message}`),
       ...ctx.out.since(mark).split('\n').filter((l) => l.trim() !== '').map((l) => `channel: ${l}`),
@@ -976,14 +988,28 @@ export async function storefrontChecks(ctx: SuiteContext, referenceFolder: strin
     const lines = await until('the extension naming the missing compiler', 10000, read, (l) => l.some((x) => x.includes(missing))).catch(() => read());
     said.push(...lines);
     errorToasts = (await toastsSince(ctx.d, toastMark)).filter((t) => t.severity === 'error').length;
-    const named = lines.some((l) => l.includes(missing));
+    // The runtime's terms are read with the scenario's own paths taken out: a
+    // scratch directory is named after the run, and a run's name can hold one of
+    // those words without anything the extension said holding it.
+    const runtimeWords = lines.filter((l) => RUNTIME_WORDS.test(l.split(ctx.s.root.dir).join('')));
+    // The button is pressed with the settings file put away, so the settings
+    // screen the press opens is the only editor drawn when it is read.
+    await closeAllEditors(ctx);
+    const pressed = told !== null && await pressToastButton(ctx.d, told.message.slice(0, 40), OPEN_BINARY_PATH_SETTING);
+    const screen = pressed ? await settingsScreen(ctx) : null;
+    await closeAllEditors(ctx);
+    const opened = screen !== null && screen.search === BINARY_PATH_SEARCH && JSON.stringify(screen.keys) === JSON.stringify([BINARY_PATH]);
     // Put the binary back.
     await open(ctx, userSettings);
     const back = await lineOf(ctx, userSettings, at.text.replace(JSON.stringify(bin), JSON.stringify(missing)));
     await ctx.probe.request('document.edit', { path: userSettings, start: { line: back.index, character: 0 }, end: { line: back.index + 1, character: 0 }, text: `${at.text}\n` });
     await save(ctx, userSettings);
     await closeAllEditors(ctx);
-    return { passed: stopped && named, seen: `status ${stopped ? `read "${NOT_RUNNING}"` : 'did not read not running'}; the path named ${named}; ${errorToasts} error notification(s)`, evidence: { said: lines } };
+    return {
+      passed: stopped && told !== null && told.message === failedStart && told.buttons.includes(OPEN_BINARY_PATH_SETTING) && opened && runtimeWords.length === 0,
+      seen: `status ${stopped ? `read "${NOT_RUNNING}"` : 'did not read not running'}; ${told === null ? 'no error notification opened with the failed start' : `the error notification read "${told.message}" with ${JSON.stringify(told.buttons)}`}; ${!pressed ? `no "${OPEN_BINARY_PATH_SETTING}" button was pressed` : screen === null ? 'the press drew no settings screen' : `the press opened the settings screen searching "${screen.search}" and drawing ${JSON.stringify(screen.keys)}`}; ${runtimeWords.length === 0 ? 'no line carries the runtime\'s terms' : `the runtime's terms on ${JSON.stringify(runtimeWords)}`}; ${errorToasts} error notification(s)`,
+      evidence: { said: lines },
+    };
   });
   await c.forPerson('settings-that-are-wrong.what-the-extension-says-is-enough', {
     expected: 'what the extension says about a missing catalog, an unreachable registry and a missing compiler is enough for a new user to act on',

@@ -7,8 +7,9 @@ import { EventEmitter } from 'node:events';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { Daemon, DaemonState, RespawnNarration, ShutdownNarration } from '../../src/daemon';
+import { Daemon, DaemonState, RespawnNarration, ShutdownNarration, StartNarration } from '../../src/daemon';
 import { settingsFromObject } from '../../src/settings';
+import { startFailureWords } from '../../src/start-failure';
 import { PublishDiagnosticsParams } from '../../src/types';
 
 // How the client supervises a language server that ends without being asked to,
@@ -284,12 +285,17 @@ const endedWithCode1 = [
 function restartOf(made: number, limit: number): string[] {
   return [`log: ${RespawnNarration.restarting(made, limit, WINDOW_SECONDS)}`];
 }
-function handshakeFailed(reason: string): string[] {
+// handshakeFailed is what a server started again writes when it ends, as `code`
+// and `signal` say, before it has answered: the failed start in the words a
+// reader is told it in, the position it leaves, and the restart that did not
+// come up.
+function handshakeFailed(code: number | null, signal: NodeJS.Signals | null): string[] {
+  const failure = { reason: new Error(RespawnNarration.ended(code, signal)), binaryPath: process.execPath };
   return [
-    `log: initialize failed: ${reason}; falling back to UTF-16`,
+    `log: ${StartNarration.failed(failure)}`,
     'state: Starting -> Stopping',
     'state: Stopping -> Stopped',
-    `log: ${RespawnNarration.restartFailed(reason)}`,
+    `log: ${RespawnNarration.restartFailed(startFailureWords(failure))}`,
   ];
 }
 const started = ['state: Stopped -> Starting', 'state: Starting -> Running'];
@@ -326,7 +332,7 @@ describe('Daemon supervision of a server that ends unasked', function () {
       ...restartOf(1, 5),
       ...fromRunning,
       ...endedBySigterm,
-      ...handshakeFailed('daemon exited (code=null, signal=SIGTERM)'),
+      ...handshakeFailed(null, 'SIGTERM'),
       ...restartOf(2, 5),
       'state: Stopped -> Starting',
       'state: Starting -> Running',
@@ -388,9 +394,9 @@ describe('Daemon supervision of a server that ends unasked', function () {
     assert.deepStrictEqual(s.seen, [
       ...started,
       ...endedBySigterm, ...restartOf(1, 2), ...fromRunning,
-      ...endedWithCode1, ...handshakeFailed('daemon exited (code=1, signal=null)'),
+      ...endedWithCode1, ...handshakeFailed(1, null),
       ...restartOf(2, 2), 'state: Stopped -> Starting',
-      ...endedWithCode1, ...handshakeFailed('daemon exited (code=1, signal=null)'),
+      ...endedWithCode1, ...handshakeFailed(1, null),
       `log: ${RespawnNarration.boundSpent(2, WINDOW_SECONDS)}`,
       'stoppedResponding',
     ]);

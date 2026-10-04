@@ -2,6 +2,9 @@
 // Copyright 2026 Cognitio S.r.l.
 
 import { withSubject } from './operation-groups';
+import type { PanelActionPress } from './panel-actions';
+import { binaryPathSettingPress } from './settings';
+import { StartFailure, isStartFailure, startFailureReason, startFailureWords } from './start-failure';
 import { shortUri } from './uri-display';
 import { NO_ANCHORED_WORKSPACE_TREE_LABEL } from './workspace';
 
@@ -63,11 +66,39 @@ const READINESS_READY = 'ready';
 export const EMBEDDED_GROUP_LABEL = 'Embedded';
 export const CONFIGURED_GROUP_LABEL = 'Configured';
 
-// FAILURE_LABEL points at the channel carrying the product's own message. The
-// row stays one short line because a tree row is not a place to render a
-// diagnostic; the full text reaches the reader through the channel and through
-// this row's detail.
+// FAILURE_LABEL points at the channel carrying the product's own message, for a
+// listing the compiler ran and could not produce. The row stays one short line
+// because a tree row is not a place to render a diagnostic; the full text reaches
+// the reader through the channel and through this row's detail. A compiler that
+// could not be started at all is not such a failure: its row says what is wrong
+// with the path instead — see listingNotStartedNode.
 export const FAILURE_LABEL = 'plugin list failed — see the Aggrega output channel.';
+
+// LISTING_NOT_STARTED_OPENING heads the row drawn when the listing's command
+// could not be started, ahead of what is wrong.
+export const LISTING_NOT_STARTED_OPENING = 'The plugin list could not run';
+
+// listingNotStartedNode is the row for a listing whose command could not be
+// started — the compiler not at the path the setting names, or not runnable
+// there. The listing runs the compiler as a command rather than asking the
+// language server, so a server that is stopped is not what keeps it from
+// running; the path is, and the row says what is wrong with it in the words
+// every failure to start the compiler is reported in, with the remedy on its
+// hover and the setting a press away.
+export function listingNotStartedNode(failure: StartFailure): PluginNode {
+  return {
+    kind: 'message',
+    label: `${LISTING_NOT_STARTED_OPENING}: ${startFailureWords(failure)}.`,
+    detail: `${listingNotStartedLine(failure)} Click to open that setting.`,
+    press: binaryPathSettingPress(),
+  };
+}
+
+// listingNotStartedLine is the same account as one line for the output channel:
+// what is wrong and what to do about it.
+export function listingNotStartedLine(failure: StartFailure): string {
+  return `${LISTING_NOT_STARTED_OPENING}: ${startFailureReason(failure)}`;
+}
 
 // isNoteworthyReadiness reports whether a readiness value is one a reader
 // should be drawn to.
@@ -192,14 +223,14 @@ export interface PluginEntryNode {
 // A group carries its plugins as already-shaped nodes rather than as bare rows,
 // so expanding one hands the tree exactly what the model built.
 //
-// The no-plugin states — nothing anchored, and the listing failing — are
-// distinct messages on purpose. An empty group and a failed listing must never
-// look identical, because one means "there are none" and the other means "we do
-// not know".
+// The no-plugin states — nothing anchored, the compiler not started, and the
+// listing failing — are distinct messages on purpose. An empty group and a failed
+// listing must never look identical, because one means "there are none" and the
+// other means "we do not know".
 export type PluginNode =
   | { kind: 'group'; group: PluginGroup; label: string; entries: PluginEntryNode[] }
   | PluginEntryNode
-  | { kind: 'message'; label: string; detail?: string };
+  | { kind: 'message'; label: string; detail?: string; press?: PanelActionPress };
 
 // groupNode shapes one group and the plugins inside it. It is the one place a
 // group's identity and its reader-visible label are paired, so the two cannot
@@ -455,10 +486,11 @@ export interface PluginsLog {
 }
 
 // PluginsRunDeps supplies the run's surfaces: the anchored root that decides
-// whether the command can be invoked at all, the structured invocation itself,
-// and the log that carries the product's text.
+// whether the command can be invoked at all, the compiler it runs, the structured
+// invocation itself, and the log that carries the product's text.
 export interface PluginsRunDeps {
   getWorkspaceRoot(): string | null;
+  getBinaryPath(): string;
   // runPluginListJson invokes the structured listing. It resolves the parsed
   // document together with whatever the product wrote to stderr, and rejects
   // with the product's own message when the command could not run.
@@ -475,15 +507,26 @@ export interface PluginsRunDeps {
 // about, and the product has already worded it.
 //
 // A failure becomes its own row with the product's message in the log and in the
-// row's detail, so it can never be read as "there are no plugins".
+// row's detail, so it can never be read as "there are no plugins". A compiler that
+// could not be started is told apart by the fields the runtime attaches to the
+// failure, and its row says what is wrong with the path rather than pointing at
+// the channel.
 export async function pluginNodes(deps: PluginsRunDeps): Promise<PluginNode[]> {
   if (!deps.getWorkspaceRoot()) {
     return [{ kind: 'message', label: NO_ANCHORED_WORKSPACE_TREE_LABEL }];
   }
+  // The path is read once, before the run, so the row names the compiler the
+  // run tried rather than one the setting moved to while it ran.
+  const binaryPath = deps.getBinaryPath();
   let result: { doc: PluginListDoc; stderr: string };
   try {
     result = await deps.runPluginListJson();
   } catch (err) {
+    if (isStartFailure(err)) {
+      const failure = { reason: err, binaryPath };
+      deps.log.appendLine(listingNotStartedLine(failure));
+      return [listingNotStartedNode(failure)];
+    }
     // The message is the command's own text, carried through unchanged: a
     // re-worded wrapper would hide the remediation the product already named.
     const message = err instanceof Error ? err.message : String(err);

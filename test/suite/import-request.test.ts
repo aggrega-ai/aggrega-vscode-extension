@@ -421,7 +421,7 @@ describe('a refusal reaches the reader as the compiler wrote it', () => {
     const report = await runImport(r.deps, '/home/reader/Downloads/flow.json');
     assert.strictEqual(
       terminalLine(IMPORT_SUBJECT, report.outcome),
-      'The import did not complete: code=-32602 import: the source format of '
+      'The import did not complete: import: the source format of '
       + '/home/reader/Downloads/flow.json was not recognised from its shape; send format to '
       + 'name it explicitly (for example langflow or flowise)',
     );
@@ -436,7 +436,7 @@ describe('a refusal reaches the reader as the compiler wrote it', () => {
     const report = await runImport(r.deps, '/home/reader/Downloads/flow.json');
     assert.strictEqual(
       terminalLine(IMPORT_SUBJECT, report.outcome),
-      `${IMPORT_SUBJECT} did not complete: code=${REFUSAL_CODE} ${COMPILER_REFUSAL}`,
+      `${IMPORT_SUBJECT} did not complete: ${COMPILER_REFUSAL}`,
     );
   });
 

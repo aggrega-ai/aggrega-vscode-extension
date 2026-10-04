@@ -53,6 +53,14 @@ export function reportGraphFailure(
 ): void {
   sinks.reportDaemonError(err, release, whoAsked);
   const message = describeError(err);
-  sinks.logLine(`irGraph failed for ${release}: ${message}`);
+  sinks.logLine(graphFailureLine(release, message));
   sinks.notifyPanel(message);
+}
+
+// graphFailureLine is the channel's line for a drawing that could not be made:
+// what could not be drawn, named after the Release a reader picked, then the
+// compiler's own words for why. It names the act as a reader knows it rather
+// than by the request that carries it.
+export function graphFailureLine(release: string, message: string): string {
+  return `The topology of ${release} could not be drawn: ${message}`;
 }

@@ -361,9 +361,17 @@ describe('the registries panel and the catalog search reach the compiler without
   it('reaches no process-launching helper from the module that owns the listing', () => {
     assert.deepStrictEqual(
       valueImports('src/registries-run.ts'),
-      ['./error-surfaces', './workspace'],
+      ['./error-surfaces', './workspace', './workspace-catalog-run'],
     );
-    assert.deepStrictEqual(typeOnlyImports('src/registries-run.ts'), [WIRE_CONTRACT]);
+    assert.deepStrictEqual(typeOnlyImports('src/registries-run.ts'), ['./panel-actions', WIRE_CONTRACT]);
+    // The listing draws the Catalog panel's row for a language server that is not
+    // running, so the module composing that row is on the same side of the claim,
+    // and so is the one it takes the row's words from: neither starts a process,
+    // and neither reaches the client that does.
+    for (const module of ['src/workspace-catalog-run.ts', 'src/daemon-status.ts']) {
+      assert.strictEqual(launchFacilityCount(module), 0, module);
+      assert.ok(!valueImports(module).includes('./daemon'), `${module} reaches the language-server client`);
+    }
   });
 
   it('🔴 THE SURVIVING LAUNCH HELPER HAS EXACTLY ONE CONSUMER, AND IT IS DELIBERATE', () => {

@@ -120,7 +120,7 @@ describe('every other refused inspection ends as any failed operation does', () 
     assert.strictEqual(ending.kind, 'ended');
     assert.strictEqual(
       ending.kind === 'ended' ? terminalLine(INSPECTION_SUBJECT, ending.outcome) : '',
-      'The inspection did not complete: code=1004 "local/no-such-entity" matched no entity of any '
+      'The inspection did not complete: "local/no-such-entity" matched no entity of any '
         + 'kind; no document in the workspace declares that name and no catalog tier resolves it',
     );
   });
@@ -133,7 +133,7 @@ describe('every other refused inspection ends as any failed operation does', () 
     );
     assert.deepStrictEqual(ending, {
       kind: 'ended',
-      outcome: { kind: 'failed', message: 'code=1004 refused' },
+      outcome: { kind: 'failed', message: 'refused' },
     });
   });
 
@@ -147,7 +147,7 @@ describe('every other refused inspection ends as any failed operation does', () 
       kind: 'ended',
       outcome: {
         kind: 'failed',
-        message: 'code=-32602 invalid params: name must be the entity\'s identity',
+        message: 'invalid params: name must be the entity\'s identity',
       },
     });
   });

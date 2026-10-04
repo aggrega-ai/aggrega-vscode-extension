@@ -38,7 +38,7 @@ function sinksOver(rec: Recorder, routing: DaemonErrorRouting = 'surfaced') {
 }
 
 describe('reportGraphFailure', () => {
-  it('keeps a daemon refusal\'s code and message on both surfaces', () => {
+  it('keeps a daemon refusal\'s message on both surfaces, and no code a reader cannot act on', () => {
     const rec = recorder();
     // A refusal arriving over the language-server transport is a plain object
     // carrying a numeric code. It is not an Error, so a conversion that only
@@ -52,22 +52,10 @@ describe('reportGraphFailure', () => {
 
     reportGraphFailure(envelope, 'environments/dev/release.yaml', 'reader', sinksOver(rec));
 
-    assert.strictEqual(rec.logged.length, 1);
-    assert.strictEqual(rec.notified.length, 1);
-    for (const surfaced of [rec.logged[0], rec.notified[0]]) {
-      assert.ok(
-        surfaced.includes(`code=${ERR_ENTITY_NOT_RESOLVABLE}`),
-        `the refusal reached the reader without its code: ${surfaced}`,
-      );
-      assert.ok(
-        surfaced.includes('component "api" resolves to no catalog entity'),
-        `the refusal reached the reader without its message: ${surfaced}`,
-      );
-      assert.ok(
-        !surfaced.includes('[object Object]'),
-        `the refusal reached the reader as an unreadable object: ${surfaced}`,
-      );
-    }
+    assert.deepStrictEqual(rec.notified, ['aggregate.yaml: component "api" resolves to no catalog entity']);
+    assert.deepStrictEqual(rec.logged, [
+      'The topology of environments/dev/release.yaml could not be drawn: aggregate.yaml: component "api" resolves to no catalog entity',
+    ]);
     // The panel is told the reason, not a re-wording of it, so the two surfaces
     // cannot drift into saying different things about one failure.
     assert.ok(rec.logged[0].endsWith(rec.notified[0]));
@@ -95,7 +83,7 @@ describe('reportGraphFailure', () => {
     // Nothing else surfaces an unrecognised envelope, so the log line and the
     // panel notice are the only places its text appears at all.
     assert.deepStrictEqual(rec.order, ['routed', 'logged', 'notified']);
-    assert.strictEqual(rec.notified[0], 'code=-32603 internal error');
+    assert.strictEqual(rec.notified[0], 'internal error');
   });
 
   it('reports a thrown Error in its own words', () => {
@@ -106,7 +94,7 @@ describe('reportGraphFailure', () => {
     assert.strictEqual(rec.notified[0], 'the language server is not running');
     assert.strictEqual(
       rec.logged[0],
-      'irGraph failed for release.yaml: the language server is not running',
+      'The topology of release.yaml could not be drawn: the language server is not running',
     );
   });
 

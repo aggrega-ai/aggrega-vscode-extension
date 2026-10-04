@@ -43,15 +43,16 @@ import {
   RegistryListDoc,
   registrySubject,
 } from './registries-run';
-import { panelActionItem } from './panel-action-item';
+import { panelActionItem, panelMessageItem } from './panel-action-item';
 import { RegistriesPanelNode, registriesPanelNodes } from './panel-actions';
 import { RendersOnReady } from './readiness';
 import { withCancellableProgress } from './progress';
 
 // RegistriesDeps supplies the live state the registries tree needs: the
 // anchored workspace root (it is what selects the configuration the reader is
-// actually working against), the requests that enumerate, change and re-index
-// the registries, and the shared output channel that carries the detail.
+// actually working against), whether the language server is running to be asked
+// at all, the requests that enumerate, change and re-index the registries, and
+// the shared output channel that carries the detail.
 //
 // 🔴 IT DECLARES NO BINARY PATH, AND THE ABSENCE IS THE POINT RATHER THAN AN
 // OVERSIGHT. Every operation on this surface is a request on the language
@@ -62,6 +63,7 @@ import { withCancellableProgress } from './progress';
 export interface RegistriesDeps
   extends RendersOnReady, RegistryConfigureDeps, RegistryIndexDeps {
   getWorkspaceRoot(): string | null;
+  isLanguageServerRunning(): boolean;
   runRegistryList(): Promise<RegistryListDoc>;
   output: vscode.OutputChannel;
 }
@@ -163,11 +165,7 @@ class RegistriesTreeProvider implements vscode.TreeDataProvider<RegistriesPanelN
       return panelActionItem(node.row);
     }
     if (node.kind === 'message') {
-      const item = new vscode.TreeItem(node.label, vscode.TreeItemCollapsibleState.None);
-      if (node.detail) {
-        item.tooltip = node.detail;
-      }
-      return item;
+      return panelMessageItem(node);
     }
     const item = new vscode.TreeItem(node.row.label, vscode.TreeItemCollapsibleState.None);
     item.description = node.row.description;
@@ -189,6 +187,7 @@ class RegistriesTreeProvider implements vscode.TreeDataProvider<RegistriesPanelN
     }
     return registriesPanelNodes({
       getWorkspaceRoot: this.deps.getWorkspaceRoot,
+      isLanguageServerRunning: this.deps.isLanguageServerRunning,
       runRegistryList: () => this.deps.runRegistryList(),
       log: { appendLine: (text) => this.deps.output.appendLine(text) },
     });

@@ -329,6 +329,16 @@ export async function pressToastButton(driver: UiDriver, prefix: string, label: 
   return true;
 }
 
+// panelText is the text the workbench's panel draws — the area under the editors
+// that the output channel is shown in — or null while no panel is drawn.
+export function panelText(driver: UiDriver): Promise<string | null> {
+  return driver.workbench<string | null>(`(() => {
+    const p = document.getElementById('workbench.parts.panel');
+    if (!p || p.getBoundingClientRect().height === 0) { return null; }
+    return (p.innerText || '').replace(/\\u00a0/g, ' ');
+  })()`);
+}
+
 // TOASTS_DRAWN counts the notifications drawn over the editor area.
 const TOASTS_DRAWN = `[...document.querySelectorAll('.notification-toast-container, .notification-toast')].filter((e) => e.getBoundingClientRect().height > 0).length`;
 

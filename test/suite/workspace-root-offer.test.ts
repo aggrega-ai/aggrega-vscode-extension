@@ -151,7 +151,7 @@ describe('what the offer composes for the editor', () => {
       callArguments('src/operations.ts', 'vscode.commands.executeCommand'),
       [
         ['press.command', 'press.option ?? undefined'],
-        ['\'workbench.action.openSettings\'', 'extensionSettingsQuery(EXTENSION_ID)'],
+        ['OPEN_SETTINGS_COMMAND', 'extensionSettingsQuery(EXTENSION_ID)'],
         ['opening.command', 'vscode.Uri.file(opening.location)'],
       ],
       'the panel hands the editor something other than the three invocations it is supposed to: '

@@ -238,6 +238,27 @@ That indicator exists because a command that cannot run explains nothing: the co
 it out rather than saying why, and no editor surface shows a tooltip on a disabled control. The
 indicator is where the reason is written down, and it is also where you act on it.
 
+**A start that fails says what is wrong with the compiler's path.** Where `aggrega.server.binaryPath`
+names nothing, the notification reads **Aggrega language server failed to start: the compiler at
+⟨path⟩ was not found.**; where it names a file that cannot be run, it reads **… ⟨path⟩ is not an
+executable file.** Both go on to say to set `aggrega.server.binaryPath` to the aggrega binary, and
+carry **Open binary path setting**, which opens the settings screen on that one setting, and **Show
+output**. Any other failure to start gives the reason it was given, after the same opening, and then
+names the compiler that was run and the setting that names it. The Aggrega output channel carries the
+same account.
+
+**Validate says the server is not running, and offers the way back.** Pressed while no language
+server is running, it answers **Aggrega: the language server is not running.** — followed, where the
+last start failed, by why, in the words that failure was reported in — with **Show output**, **Open
+binary path setting**, and the status-bar indicator's own **Start**.
+
+**The list panels say the server is not running rather than reporting a failure.** With no language
+server running, the Registries and Catalog panels each draw **The Aggrega language server is not
+running.** in place of their list, with the indicator's own tooltip, and pressing the row starts the
+server. The Plugins panel's list comes from running the compiler as a command rather than from the
+language server, so where that command could not be started its row says what is wrong with the path
+in the notification's words, and pressing it opens the setting.
+
 **Aggrega: Open status bar menu** is left out of the command index while no language server is
 answering: everything it offers is an action on a running language server, and your editor does not
 list a command that cannot run there. It comes back the moment one is answering.

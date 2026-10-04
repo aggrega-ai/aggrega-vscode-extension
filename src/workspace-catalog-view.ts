@@ -3,7 +3,7 @@
 
 import * as vscode from 'vscode';
 import { CatalogIndexDoc } from './workspace-catalog-run';
-import { panelActionItem } from './panel-action-item';
+import { panelActionItem, panelMessageItem } from './panel-action-item';
 import { CatalogPanelNode, catalogPanelNodes } from './panel-actions';
 import {
   catalogEntityName,
@@ -118,11 +118,7 @@ class WorkspaceCatalogTreeProvider implements vscode.TreeDataProvider<CatalogPan
       return panelActionItem(node.row);
     }
     if (node.kind === 'message') {
-      const item = new vscode.TreeItem(node.label, vscode.TreeItemCollapsibleState.None);
-      if (node.detail) {
-        item.tooltip = node.detail;
-      }
-      return item;
+      return panelMessageItem(node);
     }
     if (node.kind === 'group') {
       const item = new vscode.TreeItem(

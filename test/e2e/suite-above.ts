@@ -100,8 +100,9 @@ const PULL_COMPLETE = /^Pull complete: (.+)( \(entities=[^)]*\))$/;
 const GRAPH_DRAWN = `!!document.getElementById('canvas') && document.querySelectorAll('#canvas g, #canvas rect').length > 0`;
 
 // GRAPH_REFUSED is the line the channel carries each time a graph is drawn and
-// the language server refuses it for a missing lockfile.
-const GRAPH_REFUSED = /^irGraph failed for .*code=1003 /m;
+// the language server refuses it for a missing lockfile: the topology not drawn,
+// then the server's own words, which name the lockfile.
+const GRAPH_REFUSED = /^The topology of .* could not be drawn: .*lockfile/m;
 
 const BUILD = 'button.op[data-command="aggrega.op.build"]';
 const CARET = '.op-pair button.op-caret';
@@ -378,7 +379,7 @@ export async function aboveChecks(ctx: SuiteContext, layout: { root: string; ref
   // below gives it, for the checks after it that read the channel.
   let compilerSentence = '';
   await c.run('build.missing-lockfile-refusal-offers-the-remedy', {
-    expected: `with the lockfile moved aside and the box empty, each of two presses of Build is answered by one notification — an error opening "${opening}" followed by the compiler's own words for the same request, with a "${LOCKFILE_PULL_BUTTON}" button — and by no other notification about the refusal (each press watched for ${SECOND_NOTIFICATION_WATCH_MS} ms after its notice is drawn); the output channel ends each press "The build did not complete: code=<code> <message>" and says nothing about a notice being held back`,
+    expected: `with the lockfile moved aside and the box empty, each of two presses of Build is answered by one notification — an error opening "${opening}" followed by the compiler's own words for the same request, with a "${LOCKFILE_PULL_BUTTON}" button — and by no other notification about the refusal (each press watched for ${SECOND_NOTIFICATION_WATCH_MS} ms after its notice is drawn); the output channel ends each press "The build did not complete: <message>" and says nothing about a notice being held back`,
     plant: 'in the scratch copy, out/src/error-surfaces.js made to hold back a notice the reader asked for as it holds back one nobody asked for; or out/src/operations.js made to raise the build\'s own failure notification beside the notice',
   }, async () => {
     need(fs.existsSync(lock), 'the Release has no lockfile to move aside');
@@ -388,7 +389,7 @@ export async function aboveChecks(ctx: SuiteContext, layout: { root: string; ref
     need(!ref.ok, 'the compiler built the reference copy although it has no lockfile');
     const sentence = ref.error.message.split(layout.referenceRoot).join(layout.root);
     compilerSentence = sentence;
-    const words = `code=${ref.error.code} ${sentence}`;
+    const words = sentence;
     const expected = `${opening} ${sentence}`;
     // Twice in a row, because the second press is the one a notice held back for
     // a while after it was last shown would leave unanswered.

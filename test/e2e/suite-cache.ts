@@ -272,7 +272,7 @@ export async function cacheChecks(ctx: SuiteContext, referenceFolder: string): P
   });
 
   await c.run('cache.unreadable-cap-comes-back-in-the-compilers-words', {
-    expected: `a blank answer and the answer "lots" to the size cap prompt, each confirmed, end in an error notification "${TRIM_REFUSED}code=<code> <message>" whose code and message are the language server's own refusal of the same request asked outside the editor, and the channel ends on the same line; nothing is removed`,
+    expected: `a blank answer and the answer "lots" to the size cap prompt, each confirmed, end in an error notification "${TRIM_REFUSED}<message>" whose message is the language server's own refusal of the same request asked outside the editor, and the channel ends on the same line; nothing is removed`,
     plant: 'in the scratch copy, out/src/error-surfaces.js with a refusal\'s message cut to its first clause',
   }, async () => {
     const seen: string[] = [];
@@ -280,7 +280,7 @@ export async function cacheChecks(ctx: SuiteContext, referenceFolder: string): P
     for (const cap of ['', 'lots']) {
       const ref = await referenceAnswer({ binary: bin, root: referenceFolder, method: 'aggrega/cacheEvict', params: { maxSize: cap }, home: ctx.home, table: ctx.s.table, log: ctx.cliLog });
       need(!ref.ok, `the language server accepted ${JSON.stringify(cap)} as a size cap outside the editor, so there is no refusal to carry: ${JSON.stringify(ref).slice(0, 200)}`);
-      const want = `${TRIM_REFUSED}code=${String(ref.error.code)} ${ref.error.message}`;
+      const want = `${TRIM_REFUSED}${ref.error.message}`;
       const store = storeFiles(scenarioStore);
       const mark = ctx.out.mark();
       const toastMark = (await toasts(ctx.d)).length;

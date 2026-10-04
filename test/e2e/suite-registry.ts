@@ -738,7 +738,7 @@ export async function registryChecks(ctx: SuiteContext, registry: ScratchRegistr
   });
 
   await c.run('registration.refuses-a-malformed-identity-in-the-compilers-words', {
-    expected: `Add registry, given ${zot} and the global file, with "${TRUST_BY_HAND_ROWS[0]}" chosen at the question and "${MALFORMED_IDENTITY}" typed as the one identity, ends its second registration in a channel line reading exactly "${REGISTRATION_SUBJECT} did not complete: code=<code> <message>", <code> and <message> being the server's own refusal of the same request carrying that identity; an error notification carries the same line`,
+    expected: `Add registry, given ${zot} and the global file, with "${TRUST_BY_HAND_ROWS[0]}" chosen at the question and "${MALFORMED_IDENTITY}" typed as the one identity, ends its second registration in a channel line reading exactly "${REGISTRATION_SUBJECT} did not complete: <message>", <message> being the server's own refusal of the same request carrying that identity; an error notification carries the same line`,
     plant: 'in the scratch copy, out/src/registry-configure.js made to drop, before the request goes out, an identity this side judges malformed',
   }, async () => {
     const ref = await referenceRegistration(ctx, zot, 'zot-malformed', { identities: [MALFORMED_IDENTITY], keyPath: null });
@@ -746,7 +746,7 @@ export async function registryChecks(ctx: SuiteContext, registry: ScratchRegistr
     need(refusal !== null, `the server's own answer to the same request is not a refusal: ${ref.raw}`);
     const ending = await registerThrough(ctx, zot, { kind: 'answered', identities: [MALFORMED_IDENTITY], keyFile: null });
     need(ending.question !== null, `the registration did not reach its question: ${describeEnding(ending)}`);
-    const want = `${REGISTRATION_SUBJECT} did not complete: code=${String(refusal.code)} ${refusal.message}`;
+    const want = `${REGISTRATION_SUBJECT} did not complete: ${refusal.message}`;
     return {
       passed: ending.second !== null && ending.second.line === want && ending.second.toast?.message === want && ending.second.toast.severity === 'error',
       seen: `${describeSecond(ending)}; the server's refusal: code ${String(refusal.code)}, "${refusal.message}"`,
@@ -785,7 +785,7 @@ export async function registryChecks(ctx: SuiteContext, registry: ScratchRegistr
   fs.mkdirSync(notAKeyDir, { recursive: true });
   const notAKey = makeSigningKey(notAKeyDir).privatePem;
   await c.run('registration.refuses-a-key-file-that-is-not-a-public-key-without-showing-its-content', {
-    expected: `Add registry, given ${zot} and the global file, with "${TRUST_BY_HAND_ROWS[1]}" chosen at the question and ${notAKey} — a private key written for this check — chosen in the file dialog, ends its second registration in a channel line reading exactly "${REGISTRATION_SUBJECT} did not complete: code=<code> <message>", <code> and <message> being the server's own refusal of the same request carrying that file, the message opening with its short code and naming ${file} where the server's names the configuration file of the home it was asked in; an error notification carries the same line; and no line of that file appears anywhere in the Aggrega output channel or in any notification drawn from that registration on — read by a search first shown to find every line of the file in the file itself`,
+    expected: `Add registry, given ${zot} and the global file, with "${TRUST_BY_HAND_ROWS[1]}" chosen at the question and ${notAKey} — a private key written for this check — chosen in the file dialog, ends its second registration in a channel line reading exactly "${REGISTRATION_SUBJECT} did not complete: <message>", <message> being the server's own refusal of the same request carrying that file, the message opening with its short code and naming ${file} where the server's names the configuration file of the home it was asked in; an error notification carries the same line; and no line of that file appears anywhere in the Aggrega output channel or in any notification drawn from that registration on — read by a search first shown to find every line of the file in the file itself`,
     plant: 'in the scratch copy, out/src/registry-configure.js made to put the chosen key file\'s content in place of the value the compiler\'s refusal withholds',
   }, async () => {
     const lines = keyFileLines(notAKey);
@@ -799,7 +799,7 @@ export async function registryChecks(ctx: SuiteContext, registry: ScratchRegistr
     // The refusal names the configuration file whose validation it refused, which
     // for the server's own answer is the reference home's; the editor's names the
     // scenario's, so that one path is read as the scenario's and nothing else is.
-    const want = `${REGISTRATION_SUBJECT} did not complete: code=${String(refusal.code)} ${refusal.message.split(ref.file).join(file)}`;
+    const want = `${REGISTRATION_SUBJECT} did not complete: ${refusal.message.split(ref.file).join(file)}`;
     const inChannel = keyLinesIn(ctx.out.text(), lines);
     const drawn = await toastsSince(ctx.d, toastMark);
     const inDrawn = keyLinesIn(drawn.map((t) => t.message).join('\n'), lines);
@@ -849,8 +849,8 @@ export async function registryChecks(ctx: SuiteContext, registry: ScratchRegistr
 
   let refused: Ending | null = null;
   await c.run('registration.refusal-carries-the-servers-words', {
-    expected: `with the offline posture still taken, Add registry, given ${UNLISTENED_OFFLINE} (a registry other than the hub) and the global file, is refused, and the channel's closing line is exactly "${REGISTRATION_SUBJECT} did not complete: code=<code> <message>", <code> and <message> being the code and the message of the server's own refusal of the same request in the same posture, the message opening with its short code; an error notification carries the same line`,
-    plant: 'in the scratch copy, out/src/error-surfaces.js made to cut the short code off the front of a language-server refusal',
+    expected: `with the offline posture still taken, Add registry, given ${UNLISTENED_OFFLINE} (a registry other than the hub) and the global file, is refused, and the channel's closing line is exactly "${REGISTRATION_SUBJECT} did not complete: <message>", <message> being the message of the server's own refusal of the same request in the same posture, the message opening with its short code; an error notification carries the same line`,
+    plant: 'in the scratch copy, out/src/error-text.js made to cut the short code off the front of a language-server refusal',
   }, async () => {
     need(offline.taken, `the offline posture was not taken: ${offline.said}`);
     const ref = await referenceRegistration(ctx, UNLISTENED_OFFLINE, 'refusal');
@@ -858,7 +858,7 @@ export async function registryChecks(ctx: SuiteContext, registry: ScratchRegistr
     need(refusal !== null && /^E\d{4}: /.test(refusal.message), `the server's own answer to the same request is not a refusal opening with its short code: ${ref.raw}`);
     const ending = await registerThrough(ctx, UNLISTENED_OFFLINE, PRESSED_AWAY);
     refused = ending;
-    const want = `${REGISTRATION_SUBJECT} did not complete: code=${String(refusal.code)} ${refusal.message}`;
+    const want = `${REGISTRATION_SUBJECT} did not complete: ${refusal.message}`;
     return {
       passed: ending.line === want && ending.toast?.message === want && ending.toast.severity === 'error',
       seen: `${describeEnding(ending)}; the server's refusal: code ${String(refusal.code)}, "${refusal.message}"`,

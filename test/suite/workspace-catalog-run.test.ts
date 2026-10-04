@@ -373,11 +373,17 @@ describe('workspaceCatalogNodes', () => {
     assert.deepStrictEqual(h.log.lines, [message]);
   });
 
-  it('reports a stopped language server as its own state, and does not ask it', async () => {
+  it('reports a stopped language server as its own state, offers to start it, and does not ask it', async () => {
     const h = harness(WORKSPACE_ROOT, ok(MEASURED_DOCUMENT), /*serverRunning=*/ false);
     const nodes = await h.nodes();
 
-    assert.deepStrictEqual(nodes, [{ kind: 'message', label: SERVER_STOPPED_LABEL }]);
+    assert.deepStrictEqual(nodes, [{
+      kind: 'message',
+      label: 'The Aggrega language server is not running.',
+      detail: 'The Aggrega language server is not running, so the operations that ask it a question are unavailable. Click to start it.',
+      press: { command: 'aggrega.server.restart', title: 'Start the Aggrega language server' },
+    }]);
+    assert.strictEqual(SERVER_STOPPED_LABEL, 'The Aggrega language server is not running.');
     assert.strictEqual(h.invocations(), 0);
     assert.notStrictEqual(SERVER_STOPPED_LABEL, FAILURE_LABEL);
     assert.notStrictEqual(SERVER_STOPPED_LABEL, EMPTY_LABEL);

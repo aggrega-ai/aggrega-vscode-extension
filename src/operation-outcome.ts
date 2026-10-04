@@ -2,13 +2,12 @@
 // Copyright 2026 Cognitio S.r.l.
 
 import { CANCELLED_BY_READER, isCancellation } from './cancellation';
-import { describeError } from './error-surfaces';
+import { describeError } from './error-text';
 
 // This module decides what a reader is told when an operation ends. It reaches
 // no editor type at runtime, so the sentence each of the three endings produces
 // is read back by a test exactly as an author would see it. The one module it
-// imports for the failure text names the editor in type position only, which
-// compiles away.
+// imports for the failure text imports nothing at runtime itself.
 //
 // Every command ends here. That is the whole rule: an operation that finishes,
 // one the reader stops, and one that fails each produce a line, so no command

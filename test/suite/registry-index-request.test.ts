@@ -444,11 +444,11 @@ describe('a refusal reaches the reader in the compiler own words', () => {
     assert.deepStrictEqual(report.lines, []);
     assert.deepStrictEqual(report.outcome, {
       kind: 'failed',
-      message: `code=${REFUSAL_CODE} ${COMPILER_REFUSAL}`,
+      message: COMPILER_REFUSAL,
     });
     assert.strictEqual(
       terminalLine(INDEX_BUILD_SUBJECT, report.outcome),
-      `The index build did not complete: code=${REFUSAL_CODE} ${COMPILER_REFUSAL}`,
+      `The index build did not complete: ${COMPILER_REFUSAL}`,
     );
     const rendered = (report.outcome as { message: string }).message;
     assert.strictEqual(rendered.slice(-COMPILER_REFUSAL.length), COMPILER_REFUSAL);

@@ -25,6 +25,12 @@ import { Bound, commandsPanel, documentNow, evaluateWithin, pressConfirmed, Pres
 // sends the panel says whether the reader asked for it, and the observer keeps
 // the count of the drawings asked for beside the count of the drawings made.
 
+// graphCouldNotBeDrawn is the channel's line for a drawing the extension could
+// not make, held here as written so a change of wording is a change the checks
+// report rather than follow: the Release named, then the language server's own
+// words for why.
+export const graphCouldNotBeDrawn = (release: string, words: string): string => `The topology of ${release} could not be drawn: ${words}`;
+
 // GRAPH_PANEL identifies the graph panel's document: its canvas and the panel
 // the selection opens.
 export const GRAPH_PANEL = `!!document.getElementById('canvas') && !!document.getElementById('panel-body')`;

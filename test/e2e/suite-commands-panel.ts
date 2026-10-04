@@ -25,15 +25,15 @@ import { chooser, LevelRow, levelRows, waitChooser } from './levels';
 import { dragSash } from './suite-above';
 import { capture, closeAllEditors, commandTitle, languageServers, open, ready, run, send, SuiteContext, theServer } from './suite-context';
 import { paletteTitle } from './suite-first-day';
-import { contextRowsCheck, openSettingsOn, settingLabel, settingValue } from './suite-gateway';
-import { setBinaryPath } from './suite-killed';
+import { contextRowsCheck, openSettingsOn, settingLabel, settingsScreen, settingValue } from './suite-gateway';
+import { BINARY_PATH_SEARCH, notExecutableAt, OPEN_BINARY_PATH_SETTING, setBinaryPath, START_FAILED_OPENING } from './suite-killed';
 import { ADD_REGISTRY_TITLE } from './suite-registry';
 import { DRAFT_PLACEHOLDER, SEARCH_TITLE } from './suite-storefront';
 import { THEMES, writeColourTheme } from './suite-welcome-mixed';
 import { pageNow, stepOf, WAYS_THROUGH, wayThroughCommand, WELCOME_OPEN_COMMAND, welcomePage } from './welcome';
 import {
-  commandsPanel, dialog, guard, holds, NOT_RUNNING, pickQuickInputRow, pressIn, pressOperation, pressPanelAction, quickInput, RUNNING, STARTING, statusLog, statusNow, Toast, toasts, toastsSince, treeRows,
-  until, waitQuickInput, waitStatus, waitToast,
+  commandsPanel, dialog, guard, holds, NOT_RUNNING, panelText, pickQuickInputRow, pressIn, pressOperation, pressPanelAction, pressToastButton, quickInput, RUNNING, STARTING, statusLog, statusNow, Toast, toasts,
+  toastsSince, treeRows, until, waitQuickInput, waitStatus, waitToast,
 } from './workbench';
 
 // The checks run in the gateway folder, on the Commands panel and the panels
@@ -85,6 +85,9 @@ const BINARY_PATH = 'aggrega.server.binaryPath';
 // server to ask.
 const ROW_ICONS = ['codicon-folder-opened', 'codicon-root-folder', 'codicon-rocket'];
 const VALIDATE_WITH_NO_SERVER = 'Aggrega: the language server is not running.';
+// The buttons that warning carries, in the order drawn: the output, the setting
+// naming the compiler, and the start the status bar offers for a stopped server.
+const WARNING_BUTTONS = ['Show output', 'Open binary path setting', 'Start'];
 
 // The prompts Sign and Deprecate open with, held as written for the same reason.
 const SIGN_PROMPT = 'Reference of the already-published artifact to sign';
@@ -359,16 +362,7 @@ export async function commandsPanelChecks(ctx: SuiteContext, notABinary: string,
     await closeAllEditors(ctx);
     await ctx.d.moveTo({ x: 1, y: 1 });
     await pressIn(ctx.d, null, `#workbench\\.parts\\.sidebar .pane-header .action-label[aria-label="${cog}"]`);
-    const read = (): Promise<{ search: string; count: string; keys: string[] } | null> => ctx.d.workbench(`(() => {
-      const e = document.querySelector('.settings-editor');
-      if (!e || e.getBoundingClientRect().height === 0) { return null; }
-      return {
-        search: [...e.querySelectorAll('.settings-header .view-line')].map((v) => (v.innerText || '').replace(/\\u00a0/g, ' ')).join('').trim(),
-        count: ((e.querySelector('.settings-count-widget') || {}).innerText || '').trim(),
-        keys: [...e.querySelectorAll('.setting-item-contents[data-key]')].filter((i) => i.getBoundingClientRect().height > 0).map((i) => i.getAttribute('data-key')),
-      };
-    })()`);
-    const s = await until('the settings screen drawing what it lists', 20000, read, (v) => v !== null && v.search !== '' && v.keys.length > 0 && v.count !== '').catch(read);
+    const s = await settingsScreen(ctx);
     await closeAllEditors(ctx);
     const counted = Number(/(\d+)/.exec(s?.count ?? '')?.[1] ?? NaN);
     const strangers = (s?.keys ?? []).filter((k) => !declared.includes(k));
@@ -1069,13 +1063,20 @@ export async function commandsPanelChecks(ctx: SuiteContext, notABinary: string,
   // control here: the same reading of the Catalog panel finds the description its
   // entity rows carry.
   let stoppedNote = '';
+  const failedStart = `${START_FAILED_OPENING}${notExecutableAt(notABinary)}`;
+  const warning = `${VALIDATE_WITH_NO_SERVER} Its last start failed: ${notExecutableAt(notABinary)}`;
+  // The channel's own line for that start, held as written: it is what the output
+  // panel is read for once "Show output" is pressed.
+  const channelLine = `the language server did not start: ${notExecutableAt(notABinary)}`;
   await c.run('commands-panel.server-only-operations-stay-enabled-with-the-server-stopped', {
-    expected: `with ${BINARY_PATH} pointed at a file that is not a binary, the status bar reads "${NOT_RUNNING}"; the Commands panel's ${ENABLED_WITH_THE_SERVER_STOPPED.join(', ')} stay enabled and the Catalog panel's "${DRAFT_ENTITY}" row carries no reason, at every reading over ${ABSENCE_MS} ms — the same reading of that panel finding the description its entity rows carry; and pressing Validate with ${release} in front answers "${VALIDATE_WITH_NO_SERVER}"`,
-    plant: 'in the scratch copy, out/src/extension.js with Validate answering in other words when the server is not running',
+    expected: `with ${BINARY_PATH} pointed at a file that is not a binary, the status bar reads "${NOT_RUNNING}" and an error notification reads "${failedStart}" with a "${OPEN_BINARY_PATH_SETTING}" button; the Commands panel's ${ENABLED_WITH_THE_SERVER_STOPPED.join(', ')} stay enabled and the Catalog panel's "${DRAFT_ENTITY}" row carries no reason, at every reading over ${ABSENCE_MS} ms — the same reading of that panel finding the description its entity rows carry; pressing Validate with ${release} in front answers the warning "${warning}" with the buttons ${JSON.stringify(WARNING_BUTTONS)}; and each button, pressed on a warning of its own, does what it says — "${WARNING_BUTTONS[0]}" draws the panel, put away beforehand, showing the channel's line "${channelLine}"; "${WARNING_BUTTONS[1]}" opens the settings screen searching "${BINARY_PATH_SEARCH}" and drawing that one setting; and "${WARNING_BUTTONS[2]}" starts the language server, which fails to start again in the same words`,
+    plant: 'in the scratch copy, out/src/notifications.js with the warning raised without its buttons; or with its "Start" running nothing; or out/src/start-failure.js with a file that cannot be run read as any other failure',
   }, async () => {
+    const toastMark = (await toasts(ctx.d)).length;
     await setBinaryPath(ctx, bin, notABinary);
     const stopped = await waitStatus(ctx.d, NOT_RUNNING, 90000).then(() => true, () => false);
     if (!stopped) { return { passed: false, seen: `with the binary path naming a file that is not a binary, the status bar did not read "${NOT_RUNNING}" within ${guard(90000) / 1000} s; it reads "${await statusNow(ctx.d)}"` }; }
+    const told = await waitToast(ctx.d, 'the failed start being told', toastMark, (t) => t.severity === 'error' && t.message.startsWith(START_FAILED_OPENING), 30000).catch(() => null as Toast | null);
     panel = await commandsPanel(ctx.d);
     await run(ctx, 'workbench.view.extension.aggrega');
     const read = async (): Promise<{ enabled: string[]; greyed: string[]; draft: string | null; described: string[] }> => {
@@ -1092,13 +1093,50 @@ export async function commandsPanelChecks(ctx: SuiteContext, notABinary: string,
     const first = await until('the Catalog panel drawing its head', 15000, read, (v) => v.draft !== null).catch(read);
     const kept = await holds(ABSENCE_MS, read, (v) => v.greyed.length === 0 && v.draft === '');
     need(first.described.length > 0, `its positive control did not fire: no row of the Catalog panel drew a description, so the reading is not shown to see one on the ${DRAFT_ENTITY} row`);
-    await open(ctx, path.join(ctx.folder, release));
-    const toastMark = (await toasts(ctx.d)).length;
-    await pressOperation(ctx.d, panel, 'aggrega.op.validate');
-    const said = await waitToast(ctx.d, 'Validate\'s answer', toastMark, (t) => t.message.startsWith('Aggrega:'), 15000).catch(() => null as Toast | null);
+    const releasePath = path.join(ctx.folder, release);
+    // pressValidate presses Validate with the Release in front and returns what it
+    // answered; each button is pressed on a warning of its own, since a press puts
+    // the warning away.
+    const pressValidate = async (what: string): Promise<Toast | null> => {
+      await open(ctx, releasePath);
+      const mark = (await toasts(ctx.d)).length;
+      await pressOperation(ctx.d, panel, 'aggrega.op.validate');
+      return waitToast(ctx.d, what, mark, (t) => t.message.startsWith('Aggrega:'), 15000).catch(() => null as Toast | null);
+    };
+    const said = await pressValidate('Validate\'s answer');
+
+    // "Show output", with the panel put away first, so the press is what draws it.
+    await run(ctx, 'workbench.action.closePanel');
+    const putAway = await until('the panel put away', 5000, () => panelText(ctx.d), (t) => t === null).then(() => true, () => false);
+    const squash = (s: string): string => s.replace(/\s+/g, '');
+    const shown = said !== null && putAway && await pressToastButton(ctx.d, said.message.slice(0, 40), WARNING_BUTTONS[0])
+      ? await until('the panel showing the channel\'s line', 10000, () => panelText(ctx.d), (t) => t !== null && squash(t).includes(squash(channelLine))).then(() => true, () => false)
+      : false;
+
+    // The setting naming the compiler.
+    const again = await pressValidate('Validate\'s answer, a second time');
+    const screen = again !== null && await pressToastButton(ctx.d, again.message.slice(0, 40), WARNING_BUTTONS[1]) ? await settingsScreen(ctx) : null;
+    await closeAllEditors(ctx);
+    const opened = screen !== null && screen.search === BINARY_PATH_SEARCH && JSON.stringify(screen.keys) === JSON.stringify([BINARY_PATH]);
+
+    // The start, which runs the binary the setting names and so fails again in
+    // the same words.
+    const third = await pressValidate('Validate\'s answer, a third time');
+    const startMark = (await toasts(ctx.d)).length;
+    const startedAgain = third !== null && await pressToastButton(ctx.d, third.message.slice(0, 40), WARNING_BUTTONS[2])
+      ? await waitToast(ctx.d, 'the start the press made failing', startMark, (t) => t.severity === 'error' && t.message.startsWith(START_FAILED_OPENING), 30000).catch(() => null as Toast | null)
+      : null;
+    await closeAllEditors(ctx);
+
+    const answered = [said, again, third].every((t) => t !== null && t.message === warning && t.severity === 'warning' && JSON.stringify(t.buttons) === JSON.stringify(WARNING_BUTTONS));
     const v = kept.held ? first : (kept.broke ?? first);
-    stoppedNote = `enabled with the server stopped: ${JSON.stringify(v.enabled)}, greyed ${JSON.stringify(v.greyed)}; the ${DRAFT_ENTITY} row ${v.draft === null ? 'not drawn' : v.draft === '' ? 'with no reason' : `reading "${v.draft}"`}${kept.held ? `, the same for ${ABSENCE_MS} ms` : ` at ${kept.atMs} ms`}; the Catalog panel's rows carrying a description, for the control: ${JSON.stringify(first.described.slice(0, 2))}; Validate answered ${said === null ? 'nothing' : `"${said.message}" (${said.severity})`}`;
-    return { passed: first.greyed.length === 0 && first.draft === '' && kept.held && said !== null && said.message === VALIDATE_WITH_NO_SERVER, seen: stoppedNote };
+    stoppedNote = `the start failed with ${told === null ? 'no error notification' : `"${told.message}" (${told.severity}, ${JSON.stringify(told.buttons)})`}; enabled with the server stopped: ${JSON.stringify(v.enabled)}, greyed ${JSON.stringify(v.greyed)}; the ${DRAFT_ENTITY} row ${v.draft === null ? 'not drawn' : v.draft === '' ? 'with no reason' : `reading "${v.draft}"`}${kept.held ? `, the same for ${ABSENCE_MS} ms` : ` at ${kept.atMs} ms`}; the Catalog panel's rows carrying a description, for the control: ${JSON.stringify(first.described.slice(0, 2))}; Validate answered ${said === null ? 'nothing' : `"${said.message}" (${said.severity}, ${JSON.stringify(said.buttons)})`}; "${WARNING_BUTTONS[0]}" ${shown ? 'drew the panel showing the channel\'s line' : putAway ? 'did not draw the panel showing the channel\'s line' : 'was not pressed, the panel not being put away first'}; "${WARNING_BUTTONS[1]}" ${screen === null ? 'drew no settings screen' : `opened the settings screen searching "${screen.search}" and drawing ${JSON.stringify(screen.keys)}`}; "${WARNING_BUTTONS[2]}" ${startedAgain === null ? 'raised no failed start' : `started the server, which answered "${startedAgain.message}"`}`;
+    return {
+      passed: first.greyed.length === 0 && first.draft === '' && kept.held
+        && told !== null && told.message === failedStart && told.buttons.includes(OPEN_BINARY_PATH_SETTING)
+        && answered && shown && opened && startedAgain !== null && startedAgain.message === failedStart,
+      seen: stoppedNote,
+    };
   });
 
   await c.forPerson('commands-panel.enabled-but-inert-with-the-server-stopped', {

@@ -31,6 +31,17 @@ class FakeLog {
   appendLine(text: string): void { this.lines.push(text); }
 }
 
+// BINARY is the compiler the harness's listing is run with.
+const BINARY = '/opt/aggrega/bin/aggrega';
+
+// notStarted is the runtime's failure to start a program, carrying the fields
+// the runtime attaches to it: the condition's code, the system call that failed
+// and the path it tried. The message is the runtime's own wording, which nothing
+// under test is to read.
+function notStarted(code: string): Error {
+  return Object.assign(new Error(`spawn ${BINARY} ${code}`), { code, errno: -2, syscall: `spawn ${BINARY}`, path: BINARY });
+}
+
 interface Harness {
   nodes(): Promise<PluginNode[]>;
   log: FakeLog;
@@ -49,6 +60,7 @@ function harness(
     nodes: () =>
       pluginNodes({
         getWorkspaceRoot: () => root,
+        getBinaryPath: () => BINARY,
         runPluginListJson: () => {
           calls++;
           return answer();
@@ -292,6 +304,37 @@ describe('plugins-run: the run', () => {
       { kind: 'message', label: FAILURE_LABEL, detail: message },
     ]);
     assert.deepStrictEqual(h.log.lines, [message]);
+  });
+
+  it('a compiler not at its path is named as not found, with the setting a press away', async () => {
+    const h = harness('/w', () => Promise.reject(notStarted('ENOENT')));
+    const nodes = await h.nodes();
+    assert.deepStrictEqual(nodes, [{
+      kind: 'message',
+      label: `The plugin list could not run: the compiler at ${BINARY} was not found.`,
+      detail: `The plugin list could not run: the compiler at ${BINARY} was not found. Set aggrega.server.binaryPath to the aggrega binary. Click to open that setting.`,
+      press: { command: 'workbench.action.openSettings', title: 'Open binary path setting', arguments: ['@id:aggrega.server.binaryPath'] },
+    }]);
+    assert.deepStrictEqual(h.log.lines, [
+      `The plugin list could not run: the compiler at ${BINARY} was not found. Set aggrega.server.binaryPath to the aggrega binary.`,
+    ]);
+  });
+
+  it('a file at the path that cannot be run is named as not executable', async () => {
+    const h = harness('/w', () => Promise.reject(notStarted('EACCES')));
+    const nodes = await h.nodes();
+    assert.strictEqual(nodes[0].kind === 'message' ? nodes[0].label : '', `The plugin list could not run: ${BINARY} is not an executable file.`);
+    assert.deepStrictEqual(h.log.lines, [
+      `The plugin list could not run: ${BINARY} is not an executable file. Set aggrega.server.binaryPath to the aggrega binary.`,
+    ]);
+  });
+
+  it('a listing that ran and exited is a failed listing, not a compiler that could not start', async () => {
+    // The status a program exits with is a number on the same field a failure to
+    // start carries its code on, and no system call is named.
+    const exited = Object.assign(new Error('exit status 2'), { code: 2 });
+    const h = harness('/w', () => Promise.reject(exited));
+    assert.deepStrictEqual(await h.nodes(), [{ kind: 'message', label: FAILURE_LABEL, detail: 'exit status 2' }]);
   });
 
   it('a failure never renders as an empty listing', async () => {

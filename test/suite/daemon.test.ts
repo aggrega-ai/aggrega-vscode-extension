@@ -181,16 +181,29 @@ describe('Daemon spawn-error handling', function () {
     // uncaught exception and crash the runner; with it, start() must reject
     // and the daemon must settle back to Stopped. This test completing at all
     // (no process crash) is itself the assertion that the event is handled.
+    const logged: string[] = [];
     const daemon = new Daemon(
       settingsFromObject({
         binaryPath: '/nonexistent/aggrega-binary-that-does-not-exist',
         respawnAttempts: 3,
         respawnWindowSeconds: 60,
       }),
+      (line) => logged.push(line),
     );
 
     await assert.rejects(() => daemon.start('/tmp'));
     assert.strictEqual(daemon.getState(), DaemonState.Stopped);
+
+    // The failure is kept with the fields the runtime attached and the path the
+    // attempt tried, which is what a reader is told why from; and the channel says
+    // why in those words, once, with nothing of the runtime's own wording.
+    const failure = daemon.lastStartFailure();
+    assert.strictEqual((failure?.reason as { code?: unknown } | undefined)?.code, 'ENOENT');
+    assert.strictEqual(failure?.binaryPath, '/nonexistent/aggrega-binary-that-does-not-exist');
+    assert.deepStrictEqual(logged, [
+      'the language server did not start: the compiler at /nonexistent/aggrega-binary-that-does-not-exist was not found. '
+      + 'Set aggrega.server.binaryPath to the aggrega binary.',
+    ]);
   });
 
   // 🔴 A FAILED ATTEMPT IS RECORDED BY THE CLIENT THAT MADE IT, AND A LISTENER

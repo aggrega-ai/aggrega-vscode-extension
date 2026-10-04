@@ -272,11 +272,11 @@ describe('the compiler\'s own words reach the reader', () => {
     assert.strictEqual(outcome.kind, 'failed');
     assert.strictEqual(
       outcome.kind === 'failed' ? outcome.message : '',
-      `code=${REFUSAL_CODE} ${COMPILER_REFUSAL}`,
+      COMPILER_REFUSAL,
     );
     assert.strictEqual(
       terminalLine(REMOVAL_SUBJECT, outcome),
-      `The removal did not complete: code=${REFUSAL_CODE} ${COMPILER_REFUSAL}`,
+      `The removal did not complete: ${COMPILER_REFUSAL}`,
     );
   });
 

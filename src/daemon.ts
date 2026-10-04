@@ -16,6 +16,8 @@ import {
 import { Settings } from './settings';
 import { extractServerInitMetadata } from './init-metadata';
 import { CancellationSignal, OperationCancelled } from './cancellation';
+import { DaemonState } from './daemon-state';
+import { StartFailure, startFailureReason, startFailureWords } from './start-failure';
 
 // buildServeArgs assembles the argv for `aggrega serve` from the
 // effective settings. The --build-on-inspect flag is appended only when
@@ -58,16 +60,9 @@ function isNotification(msg: JsonRpcResponse | JsonRpcNotification): msg is Json
   return !('id' in msg) || (msg as { id?: unknown }).id === undefined;
 }
 
-// DaemonState is the lifecycle position of the Daemon subprocess.
-// Request dispatch consults state to decide whether to dispatch
-// directly, queue for later drain, or reject the request.
-export enum DaemonState {
-  Stopped = 'Stopped',
-  Starting = 'Starting',
-  Running = 'Running',
-  Restarting = 'Restarting',
-  Stopping = 'Stopping',
-}
+// DaemonState is declared in its own module, and offered here too because this is
+// where every consumer of the client already imports from.
+export { DaemonState };
 
 // INITIALIZE_TIMEOUT_MS bounds the wait for aggrega/initialize. A
 // daemon that misses the window is treated as deadlocked. The budget is
@@ -153,6 +148,19 @@ export const RespawnNarration = {
   // The bound is spent, so nothing starts the server again by itself.
   boundSpent: (limit: number, windowSeconds: number): string =>
     `not starting the language server again: it has been started again ${limit} ${limit === 1 ? 'time' : 'times'} within ${windowSeconds} seconds, as many as aggrega.server.respawnAttempts allows`,
+} as const;
+
+// StartNarration is what the client writes to the output channel when an attempt
+// to start a language server fails — the first start, a restart, or a restart
+// after an unexpected exit alike, since all three are the one attempt below. It
+// says what is wrong in the words the notification for the same failure uses,
+// so the channel and the notification can be read against each other.
+//
+// It is the single home for that line, exported for the reason the narrations
+// above are.
+export const StartNarration = {
+  failed: (failure: StartFailure): string =>
+    `the language server did not start: ${startFailureReason(failure)}`,
 } as const;
 
 // exitWords says how a subprocess ended, in the terms the operating system
@@ -261,9 +269,10 @@ export class Daemon extends EventEmitter {
   // rather than read from the settings on demand. getLaunchedBinaryPath says why
   // those are not the same value.
   private launchedBinaryPath: string | null = null;
-  // Whether the most recent attempt to start a subprocess ended in failure.
-  // lastStartFailed says what it covers and when it moves.
-  private startFailed = false;
+  // The most recent attempt to start a subprocess, where it ended in failure:
+  // what it failed with and the path it tried. lastStartFailed says what it
+  // covers and when it moves.
+  private startFailure: StartFailure | null = null;
   // generation advances with every stop and restart asked of this client. An
   // attempt to start, and a run of automatic restarts, each remember the
   // generation they began in, and one that ends after it has moved was
@@ -324,7 +333,16 @@ export class Daemon extends EventEmitter {
   // the state leaves Starting, so a listener told of the next position already
   // reads it.
   lastStartFailed(): boolean {
-    return this.startFailed;
+    return this.startFailure !== null;
+  }
+
+  // lastStartFailure is that failure itself — what the attempt failed with and
+  // the path it tried to start — or null where the most recent attempt did not
+  // fail. It is recorded and cleared exactly when lastStartFailed moves, so a
+  // surface saying why a server is not running says it about the same attempt
+  // the welcome page says failed.
+  lastStartFailure(): StartFailure | null {
+    return this.startFailure;
   }
 
   // getServerInitMetadata returns the workspaceRoot + configSource
@@ -519,7 +537,7 @@ export class Daemon extends EventEmitter {
   // reports it to them.
   private async spawnAndInitialize(): Promise<void> {
     const generation = this.generation;
-    this.startFailed = false;
+    this.startFailure = null;
     this.setState(DaemonState.Starting);
     const launching = this.settings.binaryPath;
     let proc: ChildProcessWithoutNullStreams;
@@ -529,7 +547,8 @@ export class Daemon extends EventEmitter {
         stdio: ['pipe', 'pipe', 'pipe'],
       });
     } catch (err) {
-      this.startFailed = true;
+      this.startFailure = { reason: err, binaryPath: launching };
+      this.log(StartNarration.failed(this.startFailure));
       this.setState(DaemonState.Stopped);
       throw err;
     }
@@ -545,8 +564,10 @@ export class Daemon extends EventEmitter {
       if (generation !== this.generation) {
         throw err;
       }
-      this.startFailed = true;
-      this.log(`initialize failed: ${(err as Error).message}; falling back to UTF-16`);
+      this.startFailure = { reason: err, binaryPath: launching };
+      this.log(StartNarration.failed(this.startFailure));
+      // The encoding goes back to the one assumed before any server answers, so
+      // nothing reads positions in an encoding no running server negotiated.
       this.serverEncoding = 'utf-16';
       // Move to Stopping before killing the child so its 'exit' event is
       // absorbed by handleExit's deliberate-teardown guard as the teardown it
@@ -789,8 +810,12 @@ export class Daemon extends EventEmitter {
 
   private handleResponse(msg: JsonRpcResponse): void {
     const p = this.pending.get(msg.id);
+    // An answer nothing is waiting for is dropped without a word. It arrives
+    // when the request it answers was settled on this side first — refused by a
+    // stop or a restart, or given up on when its wait ran out — and that
+    // settlement is where a reader was told what became of it; the request's
+    // number tells a reader nothing more.
     if (!p) {
-      this.log(`response with unknown id ${msg.id}`);
       return;
     }
     this.pending.delete(msg.id);
@@ -818,8 +843,13 @@ export class Daemon extends EventEmitter {
   // beyond clearing pending work, and one raised by a subprocess the client has
   // already let go of never reaches here (attach drops it), so it cannot clear the
   // work of the subprocess running now.
+  //
+  // It writes nothing to the channel itself. The error is handed on unchanged,
+  // and where it lands is where it is worded: an attempt to start says why it
+  // failed, in the words a reader acts on, and a request it refuses ends in that
+  // request's own line. A line here as well would say the same failure twice,
+  // the second time in the runtime's terms.
   private handleSpawnError(err: Error): void {
-    this.log(`subprocess error: ${err.message}`);
     this.rejectPending(err);
   }
 
@@ -840,7 +870,7 @@ export class Daemon extends EventEmitter {
       return;
     }
     this.log(RespawnNarration.ended(code, signal));
-    this.rejectPending(new Error(`daemon exited (code=${code}, signal=${signal})`));
+    this.rejectPending(new Error(RespawnNarration.ended(code, signal)));
     this.emit('unexpectedExit', code, signal);
     if (this.state === DaemonState.Starting) {
       return;
@@ -879,7 +909,9 @@ export class Daemon extends EventEmitter {
       if (generation !== this.generation) {
         return;
       }
-      this.log(RespawnNarration.restartFailed(err.message));
+      this.log(RespawnNarration.restartFailed(startFailureWords(
+        this.startFailure ?? { reason: err, binaryPath: this.settings.binaryPath },
+      )));
       this.respawn();
     });
   }

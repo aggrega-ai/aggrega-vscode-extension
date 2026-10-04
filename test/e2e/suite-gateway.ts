@@ -88,6 +88,29 @@ const SETTING_ITEMS = `(() => {
   });
 })()`;
 
+// SettingsScreen is what the settings editor draws: the text in its search box,
+// its count of the settings that search finds, and the key of every setting it
+// draws.
+export interface SettingsScreen { search: string; count: string; keys: string[] }
+
+// SETTINGS_SCREEN reads it, or null while no settings editor is drawn.
+const SETTINGS_SCREEN = `(() => {
+  const e = document.querySelector('.settings-editor');
+  if (!e || e.getBoundingClientRect().height === 0) { return null; }
+  return {
+    search: [...e.querySelectorAll('.settings-header .view-line')].map((v) => (v.innerText || '').replace(/\\u00a0/g, ' ')).join('').trim(),
+    count: ((e.querySelector('.settings-count-widget') || {}).innerText || '').trim(),
+    keys: [...e.querySelectorAll('.setting-item-contents[data-key]')].filter((i) => i.getBoundingClientRect().height > 0).map((i) => i.getAttribute('data-key')),
+  };
+})()`;
+
+// settingsScreen waits for the settings editor to draw what a search lists, and
+// returns it — or what it last read, or null where none was drawn.
+export async function settingsScreen(ctx: SuiteContext): Promise<SettingsScreen | null> {
+  const read = (): Promise<SettingsScreen | null> => ctx.d.workbench<SettingsScreen | null>(SETTINGS_SCREEN);
+  return until('the settings screen drawing what it lists', 20000, read, (v) => v !== null && v.search !== '' && v.keys.length > 0 && v.count !== '').catch(read);
+}
+
 // openSettingsOn opens the settings editor on `query` and returns the setting it
 // draws under `drawnLabel`.
 export async function openSettingsOn(ctx: SuiteContext, query: string, drawnLabel: string): Promise<SettingItem> {

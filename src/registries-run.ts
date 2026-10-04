@@ -3,7 +3,9 @@
 
 import type * as wire from '@aggrega-ai/aggrega-abi/dist/servewire_gen';
 import { describeError } from './error-surfaces';
+import type { PanelActionPress } from './panel-actions';
 import { NO_ANCHORED_WORKSPACE_TREE_LABEL } from './workspace';
+import { serverStoppedNode } from './workspace-catalog-run';
 
 // The compiler owns the enumeration and this module owns what it looks like.
 // Nothing here resolves configuration, merges files or decides an order: every
@@ -65,9 +67,11 @@ const AUTH_STATE_ABSENT = 'none';
 export const EMPTY_LABEL = 'No registries configured.';
 
 // FAILURE_LABEL points at the channel that carries the product's own message
-// verbatim. The row stays one short line because a tree row is not a place to
+// verbatim, for a listing the language server was asked for and could not
+// produce. The row stays one short line because a tree row is not a place to
 // render a compiler diagnostic; the full text reaches the reader through the
-// channel and this row's detail.
+// channel and this row's detail. A language server that is not running is not
+// such a failure, and draws the Catalog panel's row for that state instead.
 export const FAILURE_LABEL = 'registry list failed — see the Aggrega output channel.';
 
 // DEFAULT_ICON and ENTRY_ICON are the editor's own theme-icon ids, so the tree
@@ -102,14 +106,15 @@ export interface RegistryRow {
 }
 
 // RegistryNode is what the tree renders: either a registry or a single line
-// explaining why there is none. The no-registry states — nothing anchored,
-// nothing configured, and the enumeration failing — are distinct messages on
-// purpose. An empty catalog of registries and a failed enumeration
-// must never look identical, because one means "you have configured none" and
-// the other means "we do not know".
+// explaining why there is none. The no-registry states — nothing anchored, no
+// language server, nothing configured, and the enumeration failing — are
+// distinct messages on purpose. An empty catalog of registries and a failed
+// enumeration must never look identical, because one means "you have configured
+// none" and the other means "we do not know"; and a server that is not running
+// is neither, since nothing was asked.
 export type RegistryNode =
   | { kind: 'entry'; row: RegistryRow }
-  | { kind: 'message'; label: string; detail?: string };
+  | { kind: 'message'; label: string; detail?: string; press?: PanelActionPress };
 
 // describeAuthState renders the credential-presence state.
 //
@@ -182,11 +187,11 @@ export function rowForRegistry(entry: RegistryEntry): RegistryRow {
 // REGISTRY_ROW_CONTEXT marks a row that names one configured registry, and it
 // is what the manifest targets its row entries with.
 //
-// Only an entry row carries it. The message rows — nothing anchored, nothing
-// configured, the enumeration failed — name no registry, so an operation on one
-// could only be invoked with no subject, and an invocation that cannot succeed
-// is not offered at all. Targeting the view instead of this value would put
-// every registry operation on those rows.
+// Only an entry row carries it. The message rows — nothing anchored, no language
+// server, nothing configured, the enumeration failed — name no registry, so an
+// operation on one could only be invoked with no subject, and an invocation that
+// cannot succeed is not offered at all. Targeting the view instead of this value
+// would put every registry operation on those rows.
 export const REGISTRY_ROW_CONTEXT = 'aggrega.registry';
 
 // registrySubject reports the registry a node's operations act on, or null when
@@ -234,9 +239,10 @@ export interface RegistriesLog {
   appendLine(text: string): void;
 }
 
-// RegistriesRunDeps supplies the run's surfaces: the anchored root that decides
-// whether the enumeration can be asked for at all, the request itself, and the
-// log that carries the compiler's message when it refuses.
+// RegistriesRunDeps supplies the run's surfaces: the anchored root and the
+// language server's state, which together decide whether the enumeration can be
+// asked for at all, the request itself, and the log that carries the compiler's
+// message when it refuses.
 //
 // It is declared this narrowly so the surface that owns the tree passes its own
 // richer dependency set here unchanged, and so a test drives the whole rendering
@@ -244,6 +250,7 @@ export interface RegistriesLog {
 // reason stated at the head of this module.
 export interface RegistriesRunDeps {
   getWorkspaceRoot(): string | null;
+  isLanguageServerRunning(): boolean;
   // runRegistryList asks the compiler for the listing. It resolves the answer,
   // and rejects with the compiler's own refusal when it could not be produced.
   runRegistryList(): Promise<RegistryListDoc>;
@@ -261,9 +268,18 @@ export interface RegistriesRunDeps {
 // A refusal is surfaced as its own row with the compiler's message in the log
 // and in the row's detail, so it can never be read as "no registries
 // configured".
+//
+// A language server that is not running is asked nothing. The enumeration is
+// its answer, so there is no fault to report, only a state — and the row for that
+// state is the Catalog panel's, offering to start the server, because both
+// panels are reading the same server and a reader should meet one sentence for
+// it rather than a failure in one panel and a state in the other.
 export async function registryNodes(deps: RegistriesRunDeps): Promise<RegistryNode[]> {
   if (!deps.getWorkspaceRoot()) {
     return [{ kind: 'message', label: NO_ANCHORED_WORKSPACE_TREE_LABEL }];
+  }
+  if (!deps.isLanguageServerRunning()) {
+    return [serverStoppedNode()];
   }
   let doc: RegistryListDoc;
   try {

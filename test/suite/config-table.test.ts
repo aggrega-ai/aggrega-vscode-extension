@@ -640,7 +640,7 @@ describe('what a press ends in when the configuration cannot be read', () => {
     // tells one, rather than as an object's name.
     assert.deepStrictEqual(
       configUnreadNotice('running', { code: -32603, message: 'the schema could not be served' }),
-      { message: 'The configuration surface could not be drawn: code=-32603 the schema could not be served', action: null },
+      { message: 'The configuration surface could not be drawn: the schema could not be served', action: null },
     );
   });
 });

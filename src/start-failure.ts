@@ -1,0 +1,102 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Cognitio S.r.l.
+
+import { describeError } from './error-text';
+
+// This module says what is wrong when the compiler could not be started — the
+// language server, or a command the extension runs — in the words a reader acts
+// on. It is the one home for those words: the notification raised when the
+// language server fails to start, the warning an operation answers with while it
+// is not running, the channel line for a failed start and the row a list panel
+// draws when its command could not run all compose them from here.
+//
+// It reaches no editor type and imports nothing that reaches the language-server
+// client, which composes these words for the channel itself.
+
+// BINARY_PATH_SETTING is the setting naming the compiler the extension runs, as
+// a reader finds it on the settings screen and types it into a settings file.
+export const BINARY_PATH_SETTING = 'aggrega.server.binaryPath';
+
+// OPEN_BINARY_PATH_SETTING_ACTION is the button that takes a reader to that
+// setting, wherever a failure to start the compiler is reported with one.
+export const OPEN_BINARY_PATH_SETTING_ACTION = 'Open binary path setting';
+
+// StartFailure is a failed attempt to start the compiler: what the attempt
+// failed with, and the path it tried to start. The path is kept beside the
+// failure rather than read from the settings when the failure is reported,
+// because the setting can have moved since the attempt was made.
+export interface StartFailure {
+  reason: unknown;
+  binaryPath: string;
+}
+
+// StartFailureCause is why the compiler could not be started, in the cases a
+// reader is told apart: the path names nothing, the path names something that
+// cannot be run, or anything else.
+export type StartFailureCause = 'notFound' | 'notExecutable' | 'other';
+
+// isStartFailure reports whether a thrown value is the runtime's report that a
+// program could not be started at all, as opposed to one that started and then
+// failed or exited.
+//
+// 🔴 IT READS THE FIELDS THE RUNTIME ATTACHES, NEVER THE MESSAGE. A failure to
+// start carries the system call that failed — the start of the program — and a
+// code naming the condition as a string; a program that started and exited
+// carries its exit status as a number instead. Reading the message for the same
+// distinction would stop working the day the runtime worded it differently.
+export function isStartFailure(err: unknown): boolean {
+  if (!err || typeof err !== 'object') { return false; }
+  const fields = err as { code?: unknown; syscall?: unknown };
+  return typeof fields.code === 'string'
+    && typeof fields.syscall === 'string'
+    && (fields.syscall === 'spawn' || fields.syscall.startsWith('spawn '));
+}
+
+// startFailureCause reads why the compiler could not be started from the code
+// the runtime attached to the failure. Anything that is not a failure to start —
+// a program that exited, a handshake that went unanswered — is 'other'.
+export function startFailureCause(err: unknown): StartFailureCause {
+  if (!isStartFailure(err)) { return 'other'; }
+  switch ((err as { code: string }).code) {
+    case 'ENOENT':
+      return 'notFound';
+    case 'EACCES':
+      return 'notExecutable';
+    default:
+      return 'other';
+  }
+}
+
+// startFailureWords says what is wrong, in one clause: that nothing is at the
+// path, that what is there cannot be run, or — for every other failure — the
+// runtime's own text, which is all there is to say about it.
+export function startFailureWords(failure: StartFailure): string {
+  switch (startFailureCause(failure.reason)) {
+    case 'notFound':
+      return `the compiler at ${failure.binaryPath} was not found`;
+    case 'notExecutable':
+      return `${failure.binaryPath} is not an executable file`;
+    case 'other':
+      return describeError(failure.reason);
+  }
+}
+
+// startFailureReason is what is wrong followed by what to do about it, and it
+// names the setting in both cases. Where the path is the fault, the remedy is to
+// point the setting at the compiler. Where the cause is something else, the
+// runtime's text comes first and the sentence after it says which compiler was
+// run and which setting names it, so a reader can tell whether it is the one
+// they meant.
+export function startFailureReason(failure: StartFailure): string {
+  const words = startFailureWords(failure);
+  if (startFailureCause(failure.reason) === 'other') {
+    return `${withoutClosingStop(words)}. ${BINARY_PATH_SETTING} names the compiler it runs, ${failure.binaryPath}.`;
+  }
+  return `${words}. Set ${BINARY_PATH_SETTING} to the aggrega binary.`;
+}
+
+// withoutClosingStop drops the one full stop a runtime's text may already end
+// in, so the sentence after it does not follow two.
+function withoutClosingStop(text: string): string {
+  return text.endsWith('.') ? text.slice(0, -1) : text;
+}

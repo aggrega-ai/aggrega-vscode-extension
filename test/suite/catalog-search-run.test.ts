@@ -691,10 +691,10 @@ describe('catalog-search-run: outcomes', () => {
     const outcome = await h.search(emptyFilter());
     assert.deepStrictEqual(outcome, {
       kind: 'failed',
-      message: 'code=-32602 search: no local index has been built for hub.aggrega.ai',
+      message: 'search: no local index has been built for hub.aggrega.ai',
     });
     assert.deepStrictEqual(h.log.lines, [
-      'code=-32602 search: no local index has been built for hub.aggrega.ai',
+      'search: no local index has been built for hub.aggrega.ai',
     ]);
   });
 
