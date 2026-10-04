@@ -6,7 +6,7 @@ import * as path from 'path';
 
 import { loadAll } from 'js-yaml';
 
-import { need, Outcome } from './checks';
+import { Judgement, need, Outcome } from './checks';
 import { runCompiler } from './cli';
 import { WebviewDocument } from './drivers';
 import { changeSince, Tree } from './fixtures';
@@ -340,6 +340,12 @@ async function originAsRead(ctx: SuiteContext): Promise<{ drawn: string | null; 
   return { drawn: leaf === undefined ? null : leaf.value, seen: leaf === undefined ? `no ${ORIGIN_LEAF} row drawn on ${PASSWORD}` : `${ORIGIN_LEAF} reads ${JSON.stringify(leaf.value)}${leaf.withheld ? ', drawn as withheld' : ''}` };
 }
 
+const EXPOSURE_NAMED = Judgement.declare('settings.show-sensitive-values-description-names-the-exposure', {
+  expected: 'the description states plainly that turning the setting on displays a credential in the clear, and that what is displayed is readable by anyone who can see the editor window or a screen recording of it',
+  plant: 'none: this is a judgement of the wording',
+  question: 'Does the drawn description name the exposure plainly — a credential shown in the clear, readable by anyone who can see the window or a recording of it — rather than describing the switch in a way that hides the consequence?',
+});
+
 export async function graphPanelChecks(ctx: SuiteContext, reference: string, snapshot: Tree, missingCompiler: string): Promise<void> {
   const c = ctx.checks;
   const bin = ctx.inputs.compiler.path;
@@ -373,11 +379,7 @@ export async function graphPanelChecks(ctx: SuiteContext, reference: string, sna
     settingShot = await capture(ctx, 'settings-show-sensitive-values');
     return { passed: item.description === declared, seen: `label "${item.category}${item.label}"; description ${item.description === declared ? 'as declared' : `"${item.description}"`}`, evidence: { item } };
   });
-  await c.forPerson('settings.show-sensitive-values-description-names-the-exposure', {
-    expected: 'the description states plainly that turning the setting on displays a credential in the clear, and that what is displayed is readable by anyone who can see the editor window or a screen recording of it',
-    plant: 'none: this is a judgement of the wording',
-    question: 'Does the drawn description name the exposure plainly — a credential shown in the clear, readable by anyone who can see the window or a recording of it — rather than describing the switch in a way that hides the consequence?',
-  }, async () => {
+  await c.forPerson(EXPOSURE_NAMED, async () => {
     need(drawnDescription !== '', 'the setting was not drawn, so there is no description to judge');
     return { screenshot: settingShot, drawnText: drawnDescription };
   });

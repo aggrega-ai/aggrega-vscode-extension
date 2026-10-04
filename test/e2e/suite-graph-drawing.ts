@@ -6,7 +6,7 @@ import * as path from 'path';
 
 import { BUILD_ON_INSPECT_KEY, SERVER_CONFIG_SECTION } from '../../src/settings';
 import { buildValidateParams } from '../../src/validate-request';
-import { need } from './checks';
+import { Judgement, need } from './checks';
 import { WebviewDocument } from './drivers';
 import { FixtureError, FixtureProof } from './fixtures';
 import {
@@ -365,6 +365,18 @@ function holdingCard(d: Drawing, node: DrawnNode): DrawnContainer[] {
 function cardOf(d: Drawing, id: string): DrawnNode['card'] | undefined {
   return d.nodes.find((n) => n.id === id)?.card;
 }
+
+const LEGEND_LEGIBLE = Judgement.declare('legend.legible-in-the-panel-font', {
+  expected: 'the legend draws at all, neither grouping row is clipped or cut short by the panel, and the em-dash in each row reads legibly in the font the panel draws it in',
+  plant: 'none: this is a judgement of the drawn legend',
+  question: 'In the capture, is the legend legible: both grouping rows whole, nothing cut off by the panel, and the em-dash in each row clear in the panel\'s font (named below)?',
+});
+
+const READS_WELL = Judgement.declare('graph.reads-well-as-a-whole', {
+  expected: 'the first drawing reads well: each card\'s id and component legible, the boundaries and subsystems telling apart what they hold, and each edge easy to follow from one card to the other',
+  plant: 'none: this is a judgement of the drawing',
+  question: 'In the capture of the first drawing, does the graph read well — names legible, the boxes telling apart what they hold, the edges easy to follow?',
+});
 
 export async function graphDrawingChecks(ctx: SuiteContext, reference: string): Promise<void> {
   const c = ctx.checks;
@@ -742,11 +754,7 @@ export async function graphDrawingChecks(ctx: SuiteContext, reference: string): 
     return { passed, seen: `type rows ${JSON.stringify(typeRows.map((r) => [r.text, r.swatchLead]))}; ${seen.join('; ')}${unworn.length > 0 ? `; rows naming a type no node carries ${JSON.stringify(unworn)}` : ''}` };
   });
 
-  await c.forPerson('legend.legible-in-the-panel-font', {
-    expected: 'the legend draws at all, neither grouping row is clipped or cut short by the panel, and the em-dash in each row reads legibly in the font the panel draws it in',
-    plant: 'none: this is a judgement of the drawn legend',
-    question: 'In the capture, is the legend legible: both grouping rows whole, nothing cut off by the panel, and the em-dash in each row clear in the panel\'s font (named below)?',
-  }, async () => {
+  await c.forPerson(LEGEND_LEGIBLE, async () => {
     need(doc !== null, 'the graph was not drawn');
     const l = await readLegend(doc);
     const fonts: string[] = [];
@@ -761,11 +769,7 @@ export async function graphDrawingChecks(ctx: SuiteContext, reference: string): 
     return { screenshot: await capture(ctx, 'graph-legend'), drawnText: [l.title, ...l.rows.map((r) => r.drawn), l.note, ...fonts].join('\n') };
   });
 
-  await c.forPerson('graph.reads-well-as-a-whole', {
-    expected: 'the first drawing reads well: each card\'s id and component legible, the boundaries and subsystems telling apart what they hold, and each edge easy to follow from one card to the other',
-    plant: 'none: this is a judgement of the drawing',
-    question: 'In the capture of the first drawing, does the graph read well — names legible, the boxes telling apart what they hold, the edges easy to follow?',
-  }, async () => {
+  await c.forPerson(READS_WELL, async () => {
     need(first !== null, 'the graph was not drawn');
     const d = first;
     const lines = [
@@ -1233,6 +1237,12 @@ export const FLEET_CHECKS = [
 // taller.
 const STACKED_FIT = { canvasWidth: 1092, margin: 380, cardHeight: 23 } as const;
 
+const ARRIVING_SMALL = Judgement.declare('graph.large-topology-arriving-small-reads-right', {
+  expected: 'a first drawing of a few dozen nodes arrives whole and small, its names possibly too small to read until the reader zooms in, because no smallest zoom holds the first fit; the reader judges whether that trade reads right',
+  plant: 'none: this is a judgement of the trade',
+  question: 'The whole topology arrives fitted to the panel, small enough that its names may be unreadable until you zoom in, and there is deliberately no smallest zoom on that first fit. Does that trade read right to you?',
+});
+
 export async function fleetChecks(ctx: SuiteContext): Promise<void> {
   const c = ctx.checks;
   const declared = declaredIn(path.join(ctx.folder, 'aggregate.yaml'), path.join(ctx.folder, RELEASE));
@@ -1282,11 +1292,7 @@ export async function fleetChecks(ctx: SuiteContext): Promise<void> {
       seen: `${describeFraming(f, d)}; cards drawn ${Math.min(...heights).toFixed(1)} to ${Math.max(...heights).toFixed(1)} px tall${short.length > 0 ? `, not taller than ${STACKED_FIT.cardHeight} px: ${JSON.stringify(short)}` : ''}; containers ${d.containers.map((k) => `${k.title} ${rect(k.box)}`).join(', ')}`,
     };
   });
-  await c.forPerson('graph.large-topology-arriving-small-reads-right', {
-    expected: 'a first drawing of a few dozen nodes arrives whole and small, its names possibly too small to read until the reader zooms in, because no smallest zoom holds the first fit; the reader judges whether that trade reads right',
-    plant: 'none: this is a judgement of the trade',
-    question: 'The whole topology arrives fitted to the panel, small enough that its names may be unreadable until you zoom in, and there is deliberately no smallest zoom on that first fit. Does that trade read right to you?',
-  }, async () => {
+  await c.forPerson(ARRIVING_SMALL, async () => {
     need(first !== null, 'the graph was not drawn');
     const d = first;
     const lines = [

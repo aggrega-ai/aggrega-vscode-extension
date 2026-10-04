@@ -4,7 +4,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-import { need } from './checks';
+import { Judgement, need } from './checks';
 import { capture, closeAllEditors, open, ready, run, serverNow, SuiteContext } from './suite-context';
 import { settingsScreen, SettingsScreen } from './suite-gateway';
 import { BINARY_PATH_SEARCH, notFoundAt, setBinaryPath, START_FAILED_OPENING } from './suite-killed';
@@ -84,6 +84,12 @@ async function stopPastTheBound(ctx: SuiteContext): Promise<{ stopped: boolean; 
   await closeAllEditors(ctx);
   return { stopped: false, kills: -1 };
 }
+
+const STOPPED_ROW_READ = Judgement.declare('registries-panel.stopped-server-row-reads-as-a-fault-to-chase', {
+  expected: `with the language server stopped, the Registries panel draws the Catalog panel's row for that state, "${SERVER_STOPPED}", with the status bar's hover for it, and pressing the row starts the language server`,
+  plant: 'none: this is a judgement of the wording',
+  question: 'With the language server stopped, the Registries panel draws the row below, with the hover below it; pressing the row does what is written beneath. Does that read to you as a fault to chase?',
+});
 
 export async function emptyWorkspaceChecks(ctx: SuiteContext, missing: string): Promise<void> {
   const c = ctx.checks;
@@ -179,11 +185,7 @@ export async function emptyWorkspaceChecks(ctx: SuiteContext, missing: string): 
       seen: `the Catalog panel draws ${JSON.stringify(catalog)}; the Registries panel ${JSON.stringify(readings)} at its two presses; the Catalog row's hover ${JSON.stringify(catalogOffer.hover)} and its press ${catalogOffer.start === null ? 'started nothing' : `answered "${catalogOffer.start.message}"`}; the Registries row's hover ${JSON.stringify(registriesOffer.hover)} and its press ${registriesOffer.start === null ? 'started nothing' : `answered "${registriesOffer.start.message}"`}; the Plugins panel draws ${JSON.stringify(plugins)}, the row's hover ${JSON.stringify(pluginsHoverRead)}, its press ${screen === null ? 'drew no settings screen' : `opened the settings screen searching "${screen.search}" and drawing ${JSON.stringify(screen.keys)}`}`,
     };
   });
-  await c.forPerson('registries-panel.stopped-server-row-reads-as-a-fault-to-chase', {
-    expected: `with the language server stopped, the Registries panel draws the Catalog panel's row for that state, "${SERVER_STOPPED}", with the status bar's hover for it, and pressing the row starts the language server`,
-    plant: 'none: this is a judgement of the wording',
-    question: 'With the language server stopped, the Registries panel draws the row below, with the hover below it; pressing the row does what is written beneath. Does that read to you as a fault to chase?',
-  }, async () => {
+  await c.forPerson(STOPPED_ROW_READ, async () => {
     need(registriesRow !== '', 'the Registries panel drew no row with the server stopped, so there is nothing to judge');
     await run(ctx, 'aggrega.registries.focus');
     return { screenshot: await capture(ctx, 'registries-with-the-server-stopped'), drawnText: `row: ${registriesRow}\nhover: ${registriesHover}\npressed: ${registriesPress}` };

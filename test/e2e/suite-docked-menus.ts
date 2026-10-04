@@ -2,7 +2,7 @@
 // Copyright 2026 Cognitio S.r.l.
 
 import { CACHE_OPERATIONS } from '../../src/operation-groups';
-import { need } from './checks';
+import { Judgement, need } from './checks';
 import {
   ABSENCE_MS, chooseLayout, describeMenu, drawnPanel, DrawnPanel, FOCUS_LOG, focusLog, headShown, inWindow, MENU_CONTROLS, menuCommand, MenuOpened, moveContainer, openEverySection, openMenu, openMenuOf,
   PanesAt, placement, pointerOff, restoring, rgb, sameColour, seen, waitMenuClosed, waitMenuOpen,
@@ -125,6 +125,12 @@ async function pressable(doc: WebviewDocument, selector: string): Promise<boolea
     return at !== null && e.contains(at);
   })(${JSON.stringify(selector)})`);
 }
+
+const HELD_MARK = Judgement.declare('commands-panel.held-mark-reads-strongly-enough', {
+  expected: 'the mark on the held button reads strongly enough to say which button the menu belongs to, above all where a docked panel pulls the menu to the left of its button',
+  plant: 'none: whether the mark reads is the judgement asked for',
+  question: 'The capture shows the Push menu open in the docked panel, pulled to the left of its button; the text below says which button is drawn held and how. Does the mark read strongly enough to tell you which button the menu belongs to?',
+});
 
 export async function dockedMenusChecks(ctx: SuiteContext): Promise<void> {
   const c = ctx.checks;
@@ -304,11 +310,7 @@ export async function dockedMenusChecks(ctx: SuiteContext): Promise<void> {
     return { passed: still, seen: `${seenMoves.join('; ')}; the control: widening the side bar moved ${control.length} control(s)` };
   });
 
-  await c.forPerson('commands-panel.held-mark-reads-strongly-enough', {
-    expected: 'the mark on the held button reads strongly enough to say which button the menu belongs to, above all where a docked panel pulls the menu to the left of its button',
-    plant: 'none: whether the mark reads is the judgement asked for',
-    question: 'The capture shows the Push menu open in the docked panel, pulled to the left of its button; the text below says which button is drawn held and how. Does the mark read strongly enough to tell you which button the menu belongs to?',
-  }, async () => {
+  await c.forPerson(HELD_MARK, async () => {
     need(docked !== null, 'the container was not docked above');
     const o = await openMenuOf(ctx, panel, 'push');
     const held = o.after.controls.find((x) => x.expanded === 'true');

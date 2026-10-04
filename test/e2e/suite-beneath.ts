@@ -5,7 +5,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { describeUnreadLinkedDirs } from '../../src/release-selection';
-import { NotRun } from './checks';
+import { NotRun, Unreachable } from './checks';
 import { findGraphPanel, graphState, showGraph } from './graph-panel';
 import { ABOVE_MESSAGE, aboveDetail, closeChooser, describeRows, rowChooser, statusHover, takeChooserRow, waitRows } from './levels';
 import { referenceAnswer, ReferenceAnswer } from './reference';
@@ -116,6 +116,11 @@ function releaseFilesUnder(dir: string): string[] {
   walk(dir);
   return out.sort();
 }
+
+const CANNOT_BE_OFFERED = Unreachable.declare('beneath-a-workspace.releases-that-cannot-be-offered-are-named', {
+  expected: 'where the chooser offers fewer Releases than the workspace holds, it says how many and where they sit, with their paths on the output channel',
+  plant: 'in the scratch copy, out/src/release-selection.js with the sentence naming Releases that cannot be offered left out',
+}, 'the sentence is for a language server reading a different root from the one the editor sent it, and no layout built from the runner\'s inputs makes the two disagree: with both reading the same root, every Release is offered; and a Release inside a directory linked from outside the root is not listed by the language server at all — the link is named on a line of its own instead, which the check before this one reads — so it does not reach the sentence either');
 
 export async function beneathChecks(ctx: SuiteContext, root: string): Promise<void> {
   const c = ctx.checks;
@@ -250,8 +255,5 @@ export async function beneathChecks(ctx: SuiteContext, root: string): Promise<vo
     };
   });
 
-  c.notRun('beneath-a-workspace.releases-that-cannot-be-offered-are-named', {
-    expected: 'where the chooser offers fewer Releases than the workspace holds, it says how many and where they sit, with their paths on the output channel',
-    plant: 'in the scratch copy, out/src/release-selection.js with the sentence naming Releases that cannot be offered left out',
-  }, 'the sentence is for a language server reading a different root from the one the editor sent it, and no layout built from the runner\'s inputs makes the two disagree: with both reading the same root, every Release is offered; and a Release inside a directory linked from outside the root is not listed by the language server at all — the link is named on a line of its own instead, which the check before this one reads — so it does not reach the sentence either');
+  c.notRun(CANNOT_BE_OFFERED);
 }

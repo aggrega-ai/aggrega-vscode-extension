@@ -5,7 +5,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { CONFIG_FILENAME } from '../../src/workspace';
-import { need } from './checks';
+import { Judgement, need } from './checks';
 import { AGGREGA_BINARY_SETTING, BASELINE_SETTINGS } from './editor';
 import { CHOOSE_FOLDER_PLACEHOLDER, closeChooser, PLACEHOLDER, rowsNow, takeChooserRow } from './levels';
 import { capture, ready, run, SuiteContext } from './suite-context';
@@ -79,6 +79,18 @@ async function setTheme(ctx: SuiteContext, from: string, to: { name: string; bod
   const doc = await welcomePage(ctx);
   return until(`the page drawn in ${to.name}`, 15000, () => doc.evaluate<string>('document.body.className'), (c) => c.split(/\s+/).includes(to.bodyClass)).then(() => true, () => false);
 }
+
+const OUTLINE_IN_THREE_THEMES = Judgement.declare('welcome-page.outline-in-three-themes', {
+  expected: 'on the folded compiler step, each way through carries an edge that can be seen in a dark theme, a light one and a high-contrast one',
+  plant: 'none: whether an edge can be seen is a person\'s judgement of each capture',
+  question: `In each of the three captures (${THEMES.map((t) => t.name).join(', ')}), can you see an edge on each of the folded compiler step's two controls, and does each read as something to press rather than as a label?`,
+});
+
+const VALUE_MORE_EVIDENT = Judgement.declare('welcome-page.value-reads-as-more-evident', {
+  expected: 'the value a step stands at reads as more evident than the wall of explanation around it, and the gap above the ways through looks the same folded and open',
+  plant: 'none: how the value reads against the prose is a person\'s judgement',
+  question: 'Set the value beside the explanation around it, on the open Release step and on the folded workspace step: does the value read as more evident than the text? Does the gap above the buttons look the same folded and open?',
+});
 
 export async function welcomeMixedChecks(ctx: SuiteContext): Promise<void> {
   const c = ctx.checks;
@@ -173,11 +185,7 @@ export async function welcomeMixedChecks(ctx: SuiteContext): Promise<void> {
     return { passed: got !== null && got.chooser.placeholder === CHOOSE_FOLDER_PLACEHOLDER && got.chooser.rows.some((r) => r.label === base && r.detail === CONFIG_FILENAME), seen: got === null ? 'no chooser opened' : `the chooser "${got.chooser.placeholder}" offers ${JSON.stringify(rows)}` };
   });
 
-  await c.forPerson('welcome-page.outline-in-three-themes', {
-    expected: 'on the folded compiler step, each way through carries an edge that can be seen in a dark theme, a light one and a high-contrast one',
-    plant: 'none: whether an edge can be seen is a person\'s judgement of each capture',
-    question: `In each of the three captures (${THEMES.map((t) => t.name).join(', ')}), can you see an edge on each of the folded compiler step's two controls, and does each read as something to press rather than as a label?`,
-  }, async () => {
+  await c.forPerson(OUTLINE_IN_THREE_THEMES, async () => {
     const shots: string[] = [];
     const edges: string[] = [];
     let from = THEMES[0].name;
@@ -249,11 +257,7 @@ export async function welcomeMixedChecks(ctx: SuiteContext): Promise<void> {
     return { passed: bad.length === 0 && styles.length === STEP_IDS.length, seen: JSON.stringify(styles) };
   });
 
-  await c.forPerson('welcome-page.value-reads-as-more-evident', {
-    expected: 'the value a step stands at reads as more evident than the wall of explanation around it, and the gap above the ways through looks the same folded and open',
-    plant: 'none: how the value reads against the prose is a person\'s judgement',
-    question: 'Set the value beside the explanation around it, on the open Release step and on the folded workspace step: does the value read as more evident than the text? Does the gap above the buttons look the same folded and open?',
-  }, async () => {
+  await c.forPerson(VALUE_MORE_EVIDENT, async () => {
     await frontPage(ctx);
     const doc = await welcomePage(ctx);
     await doc.evaluate(`(() => { const s = document.querySelector('section.step[data-step="compiler"]'); if (s) { s.scrollIntoView({ block: 'start' }); } return !!s; })()`);

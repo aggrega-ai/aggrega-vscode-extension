@@ -6,7 +6,7 @@ import * as path from 'path';
 
 import { RESTART_COMMAND, RESTART_SERVER_ACTION, TOGGLE_BUILD_ON_INSPECT_COMMAND } from '../../src/daemon-status';
 import { buildValidateParams } from '../../src/validate-request';
-import { need, Outcome } from './checks';
+import { Judgement, need, Outcome } from './checks';
 import { runCompiler } from './cli';
 import { recipeAnswer } from './inputs';
 import { referenceAnswer } from './reference';
@@ -242,6 +242,24 @@ async function takeReferences(ctx: SuiteContext, referenceFolder: string): Promi
   return { complaint, advisory };
 }
 
+const THREE_FACTS = Judgement.declare('settings.build-on-inspect-description-states-its-three-facts', {
+  expected: `the description states that ${STAGE} runs while inspecting an IR graph, that inspecting costs more when it runs, and that nothing is written to disk`,
+  plant: 'none: this is a judgement of the wording',
+  question: 'Does the drawn description convey the three facts — while inspecting an IR graph, it costs more, and nothing is written to disk?',
+});
+
+const REMOTE_TOGGLE = Judgement.declare('settings.build-on-inspect-toggle-in-a-remote-window', {
+  expected: 'in a remote window, the toggle lands in the Remote settings file',
+  plant: 'none: this window is local, so the remote branch cannot be reached here',
+  question: 'This editor is a local window, so its user settings file is the one checked above. In a remote window (a dev container), does the toggle land in the Remote settings file?',
+});
+
+const BUILD_LAYER_TRIGGER = Judgement.declare('problems.which-trigger-moved-the-build-layer', {
+  expected: 'the build layer is filled only by a request that compiles the Release: the graph shown, a save or a write of its lockfile with its panel open, a restart with its panel open, a build, a preview, or a write of its lockfile while a finding stands on that lockfile and no panel shows the Release; and a new language server empties it as it starts, whether or not a panel is open',
+  plant: 'none: this records what was observed',
+  question: 'The runner recorded whether the render advisory moved on an unsaved edit, and on a save with no graph panel open. Does either contradict the reading that only a compile of the Release, or a new language server emptying it, moves the build layer?',
+});
+
 export async function gatewayChecks(ctx: SuiteContext, referenceFolder: string): Promise<void> {
   const c = ctx.checks;
   const bin = ctx.inputs.compiler.path;
@@ -306,11 +324,7 @@ export async function gatewayChecks(ctx: SuiteContext, referenceFolder: string):
       evidence: { item },
     };
   });
-  await c.forPerson('settings.build-on-inspect-description-states-its-three-facts', {
-    expected: `the description states that ${STAGE} runs while inspecting an IR graph, that inspecting costs more when it runs, and that nothing is written to disk`,
-    plant: 'none: this is a judgement of the wording',
-    question: 'Does the drawn description convey the three facts — while inspecting an IR graph, it costs more, and nothing is written to disk?',
-  }, async () => {
+  await c.forPerson(THREE_FACTS, async () => {
     need(drawnDescription !== '', 'the setting was not drawn, so there is no description to judge');
     return { screenshot: await capture(ctx, 'settings-build-on-inspect'), drawnText: drawnDescription };
   });
@@ -357,11 +371,7 @@ export async function gatewayChecks(ctx: SuiteContext, referenceFolder: string):
     const passed = reopened.checked === 'true' && inUser && !inWorkspace && after.workspaceValue === undefined;
     return { passed, seen: `after the tick: global ${JSON.stringify(after.globalValue)}, workspace ${JSON.stringify(after.workspaceValue)}; reopened checked ${reopened.checked}; in the user settings file ${inUser}; in the workspace settings ${inWorkspace}` };
   });
-  await c.forPerson('settings.build-on-inspect-toggle-in-a-remote-window', {
-    expected: 'in a remote window, the toggle lands in the Remote settings file',
-    plant: 'none: this window is local, so the remote branch cannot be reached here',
-    question: 'This editor is a local window, so its user settings file is the one checked above. In a remote window (a dev container), does the toggle land in the Remote settings file?',
-  }, async () => ({ screenshot: null, drawnText: `user settings file of this local window: ${userSettings}` }));
+  await c.forPerson(REMOTE_TOGGLE, async () => ({ screenshot: null, drawnText: `user settings file of this local window: ${userSettings}` }));
 
   // ---- the setting reaches the language server ----
   await c.run('language-server.inspection-flag-follows-the-setting', {
@@ -466,11 +476,7 @@ export async function gatewayChecks(ctx: SuiteContext, referenceFolder: string):
     const back = await until('the render advisory returning with the graph', 60000, advisoryOn, (v) => v).then(() => true, () => false);
     return { passed: absent.held && back, seen: `for 10 s with no graph: ${absent.held ? 'absent' : `back at ${absent.atMs} ms`}; with the graph shown: ${back ? 'returned' : 'did not return'}`, evidence: { observations } };
   });
-  await c.forPerson('problems.which-trigger-moved-the-build-layer', {
-    expected: 'the build layer is filled only by a request that compiles the Release: the graph shown, a save or a write of its lockfile with its panel open, a restart with its panel open, a build, a preview, or a write of its lockfile while a finding stands on that lockfile and no panel shows the Release; and a new language server empties it as it starts, whether or not a panel is open',
-    plant: 'none: this records what was observed',
-    question: 'The runner recorded whether the render advisory moved on an unsaved edit, and on a save with no graph panel open. Does either contradict the reading that only a compile of the Release, or a new language server emptying it, moves the build layer?',
-  }, async () => ({ screenshot: null, drawnText: observations.join('; ') || 'nothing was observed: the checks before it did not run' }));
+  await c.forPerson(BUILD_LAYER_TRIGGER, async () => ({ screenshot: null, drawnText: observations.join('; ') || 'nothing was observed: the checks before it did not run' }));
 
   // ---- a setting key the manifest does not declare ----
   await c.run('language-server.undeclared-setting-key-is-inert', {

@@ -7,7 +7,7 @@ import * as path from 'path';
 import { RESTART_COMMAND } from '../../src/daemon-status';
 import { ActiveReleaseResponse } from '../../src/types';
 import { CONFIG_FILENAME } from '../../src/workspace';
-import { need } from './checks';
+import { Judgement, need } from './checks';
 import { drawnPanel } from './commands-panel';
 import {
   ADD_ENTRY, closeChooser, CREATE_RELEASE, CREATE_WORKSPACE, describeRows, droppedRelease, HOVER_LINES_NO_ROW_CARRIES, LEVEL_OBSERVERS, LevelRow, linesOf,
@@ -54,6 +54,12 @@ const STAGING = 'release-staging.yaml';
 // How long a choice of where the editor already is, is watched for anything
 // being stopped or started.
 const QUIET_MS = 5000;
+
+const VALUES_READ_WHOLE = Judgement.declare('context-rows.values-read-whole-at-the-default-width', {
+  expected: 'at the side bar\'s default width each row\'s value can be read without pressing the row; where the panel cuts a value off, its hover carries it whole',
+  plant: 'none: whether a value cut off still says what is selected is a judgement of the drawing',
+  question: 'The capture shows the three rows at the side bar\'s default width, and the text below says, for each row, its whole value and whether the panel cuts it off. Does any row cut its value off to the point where you would have to press it to find out what is selected?',
+});
 
 export async function levelsChecks(ctx: SuiteContext, missing: string, reference: string): Promise<void> {
   const c = ctx.checks;
@@ -119,11 +125,7 @@ export async function levelsChecks(ctx: SuiteContext, missing: string, reference
     };
   });
 
-  await c.forPerson('context-rows.values-read-whole-at-the-default-width', {
-    expected: 'at the side bar\'s default width each row\'s value can be read without pressing the row; where the panel cuts a value off, its hover carries it whole',
-    plant: 'none: whether a value cut off still says what is selected is a judgement of the drawing',
-    question: 'The capture shows the three rows at the side bar\'s default width, and the text below says, for each row, its whole value and whether the panel cuts it off. Does any row cut its value off to the point where you would have to press it to find out what is selected?',
-  }, async () => {
+  await c.forPerson(VALUES_READ_WHOLE, async () => {
     const rows = keep(await rowsNow(ctx));
     needRows(rows);
     return {

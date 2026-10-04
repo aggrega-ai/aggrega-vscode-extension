@@ -11,7 +11,7 @@ import { PRESENTATION_TOGGLE_COMMAND } from '../../src/config-render';
 import { DAEMON_ACTION_LABEL, RESTART_COMMAND, STATUS_BAR_MENU_COMMAND } from '../../src/daemon-status';
 import { OperationId } from '../../src/operation-groups';
 import { CONFIG_FILENAME } from '../../src/workspace';
-import { need } from './checks';
+import { Judgement, need } from './checks';
 import { ScratchHome } from './cli';
 import { menuCommand } from './commands-panel';
 import { FixtureError, FixtureProof } from './fixtures';
@@ -685,6 +685,42 @@ async function putAwayPendingRestart(ctx: SuiteContext): Promise<NothingPending>
   }
 }
 
+const GROUPED_TABLE = Judgement.declare('config-panel.grouped-table-is-the-right-shape', {
+  expected: 'the table as it opens, its settings beneath a heading row for each group of the configuration, the top-level settings first',
+  plant: 'none: whether the grouped table is right is the judgement asked for',
+  question: 'The capture shows the configuration table as it opens; the text below lists its rows in order, each group\'s heading row marked "▸". Do the group headings make the table read right — and do the names beside each path read well under them?',
+});
+
+const COLUMNS_WANTED = Judgement.declare('config-panel.columns-and-their-headings-are-the-ones-wanted', {
+  expected: `the table's columns as they are drawn: the setting as written, its name in words, the one Value column — what applies now, marked "${MARK}" where a file or the environment set it or it is not the declared default — Takes, Source, and ${LAST_HEADING} over the circles`,
+  plant: 'none: whether the columns and their headings are the right ones is the judgement asked for',
+  question: `The capture shows the configuration table's columns; the text below gives the headings and each row's Value and Takes cells. Do the one Value column with its mark, and the headings as drawn — the last reading "${LAST_HEADING}" — say what you want them to?`,
+});
+
+const REACH_NOTE_READS_RIGHT = Judgement.declare('config-panel.reach-note-placement-and-its-narrowness-read-right', {
+  expected: `the per-setting shape at the ${ENTRIES} block, its note drawn in place, the rule for the Global marker at the head of that shape; the table, which the panel opens in, marking the same settings "${GLOBAL}" on their rows`,
+  plant: 'none: whether the marker, its rule and the narrowness of the settings it is drawn on read right is the judgement asked for',
+  question: `The capture shows the per-setting shape at the ${ENTRIES} block; the text below gives the rule drawn at the head of that shape, every note it draws, and the rows the table marks "${GLOBAL}". Does the marker in the table, with the rule stated once here, tell a reader enough — say, that ${CONTRAST} written in a project's file is not the cap in force? And ${DEFAULT_REGISTRY} and the top-level ${UNCLASSIFIED_GROUP} block carry no marker though they look alike: does that read as an inconsistency?`,
+});
+
+const PLAIN_LABELS = Judgement.declare('config-panel.plain-labels-read-well-enough', {
+  expected: 'the names each setting is drawn with, every one derived from its key and none written by hand, acronyms in capitals and the group added where two would read alike',
+  plant: 'none: whether the derived names read well enough is the judgement asked for',
+  question: `The text below gives every setting's name beside its key, and the capture shows the table. Each name is still derived from the key — an acronym spelled in capitals, and the group's key added where two would otherwise read alike (${ALIKE.join(' and ')} read "${namedAs(ALIKE).get(ALIKE[0])}" and "${namedAs(ALIKE).get(ALIKE[1])}"). Do the names read well enough now?`,
+});
+
+const COVERAGE_SENTENCE = Judgement.declare('config-panel.coverage-sentence-earns-its-place', {
+  expected: 'the summary box above the table, with the coverage sentence where the report leaves a setting unattributed and none where it leaves none',
+  plant: 'none: whether the summary box says what it should is the judgement asked for',
+  question: 'The capture shows the summary box at the head of the configuration panel; the text below is what it says. Each list\'s companion is now named on its list\'s row, so the report attributes every row and no coverage sentence is drawn: is the box right as it stands?',
+});
+
+const TABLE_IN_EACH_THEME = Judgement.declare('config-panel.table-earns-its-place-in-each-theme', {
+  expected: `the table as it opens in ${THEMES.map((t) => t.name).join(', ')}, ${ROWS_GIVEN} of its rows given in the text`,
+  plant: 'none: whether the table earns its place, its columns are the right ones and its widths hold up is the judgement asked for',
+  question: `The captures show the configuration table in each of ${THEMES.map((t) => t.name).join(', ')}; the text below gives ${ROWS_GIVEN} of its rows as drawn. Does the table earn its place: are its columns the right ones, is any dead weight, and do the column widths and the layout hold up in each theme?`,
+});
+
 export async function configurationReportChecks(ctx: SuiteContext, notABinary: string): Promise<void> {
   const c = ctx.checks;
   const showTitle = commandTitle(ctx.manifest, SHOW_CONFIG);
@@ -837,11 +873,7 @@ export async function configurationReportChecks(ctx: SuiteContext, notABinary: s
     };
   });
 
-  await c.forPerson('config-panel.grouped-table-is-the-right-shape', {
-    expected: 'the table as it opens, its settings beneath a heading row for each group of the configuration, the top-level settings first',
-    plant: 'none: whether the grouped table is right is the judgement asked for',
-    question: 'The capture shows the configuration table as it opens; the text below lists its rows in order, each group\'s heading row marked "▸". Do the group headings make the table read right — and do the names beside each path read well under them?',
-  }, async () => {
+  await c.forPerson(GROUPED_TABLE, async () => {
     need(table !== null, 'no panel was drawn by the check opening it');
     const left = await clearForCapture(ctx);
     const rows = table.body.map((entry) => ('group' in entry ? `▸ ${entry.group} | ${entry.name}` : `${entry.setting} | ${rowOf(table as Reading, entry.setting)?.name ?? ''}`));
@@ -868,11 +900,7 @@ export async function configurationReportChecks(ctx: SuiteContext, notABinary: s
     };
   });
 
-  await c.forPerson('config-panel.columns-and-their-headings-are-the-ones-wanted', {
-    expected: `the table's columns as they are drawn: the setting as written, its name in words, the one Value column — what applies now, marked "${MARK}" where a file or the environment set it or it is not the declared default — Takes, Source, and ${LAST_HEADING} over the circles`,
-    plant: 'none: whether the columns and their headings are the right ones is the judgement asked for',
-    question: `The capture shows the configuration table's columns; the text below gives the headings and each row's Value and Takes cells. Do the one Value column with its mark, and the headings as drawn — the last reading "${LAST_HEADING}" — say what you want them to?`,
-  }, async () => {
+  await c.forPerson(COLUMNS_WANTED, async () => {
     need(table !== null, 'no panel was drawn by the check opening it');
     const left = await clearForCapture(ctx);
     return { screenshot: await capture(ctx, 'config-table-columns'), drawnText: `headings: ${JSON.stringify(table.heads.map((h) => h.text))}\n${table.rows.map((r) => `${r.path} | ${r.mark === null ? '' : `${MARK} `}${r.value} | takes ${r.takes}`).join('\n')}${left}` };
@@ -1079,11 +1107,7 @@ export async function configurationReportChecks(ctx: SuiteContext, notABinary: s
     };
   });
 
-  await c.forPerson('config-panel.reach-note-placement-and-its-narrowness-read-right', {
-    expected: `the per-setting shape at the ${ENTRIES} block, its note drawn in place, the rule for the Global marker at the head of that shape; the table, which the panel opens in, marking the same settings "${GLOBAL}" on their rows`,
-    plant: 'none: whether the marker, its rule and the narrowness of the settings it is drawn on read right is the judgement asked for',
-    question: `The capture shows the per-setting shape at the ${ENTRIES} block; the text below gives the rule drawn at the head of that shape, every note it draws, and the rows the table marks "${GLOBAL}". Does the marker in the table, with the rule stated once here, tell a reader enough — say, that ${CONTRAST} written in a project's file is not the cap in force? And ${DEFAULT_REGISTRY} and the top-level ${UNCLASSIFIED_GROUP} block carry no marker though they look alike: does that read as an inconsistency?`,
-  }, async () => {
+  await c.forPerson(REACH_NOTE_READS_RIGHT, async () => {
     need(expanded !== null && panel !== null, 'the panel was not drawn in the per-setting shape by the check switching to it');
     // A block not drawn is the product's own answer, so it is said in the text and
     // the capture taken where the shape opens, for the person to see; the check
@@ -1117,11 +1141,7 @@ export async function configurationReportChecks(ctx: SuiteContext, notABinary: s
     };
   });
 
-  await c.forPerson('config-panel.plain-labels-read-well-enough', {
-    expected: 'the names each setting is drawn with, every one derived from its key and none written by hand, acronyms in capitals and the group added where two would read alike',
-    plant: 'none: whether the derived names read well enough is the judgement asked for',
-    question: `The text below gives every setting's name beside its key, and the capture shows the table. Each name is still derived from the key — an acronym spelled in capitals, and the group's key added where two would otherwise read alike (${ALIKE.join(' and ')} read "${namedAs(ALIKE).get(ALIKE[0])}" and "${namedAs(ALIKE).get(ALIKE[1])}"). Do the names read well enough now?`,
-  }, async () => {
+  await c.forPerson(PLAIN_LABELS, async () => {
     need(table !== null && panel !== null, 'no panel was drawn by the check opening it');
     // The capture shows the table, so the panel is put back in it from the shape
     // the checks before this one left it in.
@@ -1161,11 +1181,7 @@ export async function configurationReportChecks(ctx: SuiteContext, notABinary: s
     };
   });
 
-  await c.forPerson('config-panel.coverage-sentence-earns-its-place', {
-    expected: 'the summary box above the table, with the coverage sentence where the report leaves a setting unattributed and none where it leaves none',
-    plant: 'none: whether the summary box says what it should is the judgement asked for',
-    question: 'The capture shows the summary box at the head of the configuration panel; the text below is what it says. Each list\'s companion is now named on its list\'s row, so the report attributes every row and no coverage sentence is drawn: is the box right as it stands?',
-  }, async () => {
+  await c.forPerson(COVERAGE_SENTENCE, async () => {
     need(panel !== null, 'no panel was drawn by the check opening it');
     panel = await inShape(ctx, panel, 'table');
     const r = await readPanel(panel);
@@ -1216,11 +1232,7 @@ export async function configurationReportChecks(ctx: SuiteContext, notABinary: s
     };
   });
 
-  await c.forPerson('config-panel.table-earns-its-place-in-each-theme', {
-    expected: `the table as it opens in ${THEMES.map((t) => t.name).join(', ')}, ${ROWS_GIVEN} of its rows given in the text`,
-    plant: 'none: whether the table earns its place, its columns are the right ones and its widths hold up is the judgement asked for',
-    question: `The captures show the configuration table in each of ${THEMES.map((t) => t.name).join(', ')}; the text below gives ${ROWS_GIVEN} of its rows as drawn. Does the table earn its place: are its columns the right ones, is any dead weight, and do the column widths and the layout hold up in each theme?`,
-  }, async () => {
+  await c.forPerson(TABLE_IN_EACH_THEME, async () => {
     need(panel !== null, 'the panel was not drawn by the checks before this one');
     const p = panel;
     const shots: string[] = [];

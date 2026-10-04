@@ -4,7 +4,7 @@
 import * as fs from 'fs';
 
 import { REGISTRY_REMOVAL_SUBJECT, REMOVAL_DESTINATION_PROMPT } from '../../src/registry-configure';
-import { need } from './checks';
+import { Judgement, need } from './checks';
 import { AGGREGA_BINARY_SETTING } from './editor';
 import { waitChooser } from './levels';
 import { capture, commandTitle, ready, reopen, SuiteContext } from './suite-context';
@@ -56,6 +56,12 @@ const MOVED_WINDOW_MS = 5000;
 const SETTLE_MS = 3000;
 const FOLLOW_MS = 20000;
 
+const WAY_OUT = Judgement.declare('welcome-page.configured-workspace-way-out', {
+  expected: 'a reader who configured everything beforehand is asked nothing, and getting out of the page takes two clicks',
+  plant: 'none: counting the clicks out is the reader\'s own reading of the page',
+  question: 'Every step reads MET on this page. How many clicks does it take you to get out of it and on with your work? The step expects two.',
+});
+
 export async function welcomeConfiguredChecks(ctx: SuiteContext, opts: { missing: string; notABinary: string }): Promise<void> {
   const c = ctx.checks;
   const bin = ctx.inputs.compiler.path;
@@ -86,11 +92,7 @@ export async function welcomeConfiguredChecks(ctx: SuiteContext, opts: { missing
   });
   await ready(ctx);
 
-  await c.forPerson('welcome-page.configured-workspace-way-out', {
-    expected: 'a reader who configured everything beforehand is asked nothing, and getting out of the page takes two clicks',
-    plant: 'none: counting the clicks out is the reader\'s own reading of the page',
-    question: 'Every step reads MET on this page. How many clicks does it take you to get out of it and on with your work? The step expects two.',
-  }, async () => {
+  await c.forPerson(WAY_OUT, async () => {
     need(arrived !== null, 'the page did not arrive, so there is nothing to count the way out of');
     await frontPage(ctx);
     const left = await clearForCapture(ctx);

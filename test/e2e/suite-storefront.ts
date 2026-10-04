@@ -6,7 +6,7 @@ import * as path from 'path';
 
 import { RESTART_COMMAND, RESTART_SERVER_ACTION } from '../../src/daemon-status';
 import { buildValidateParams } from '../../src/validate-request';
-import { need } from './checks';
+import { Judgement, need } from './checks';
 import { runCompiler } from './cli';
 import { COMMANDS_PANEL_LABELS } from './commands-panel';
 import { WebviewDocument } from './drivers';
@@ -221,6 +221,24 @@ export async function killServer(ctx: SuiteContext): Promise<{ pid: number; cwd:
   return { pid: srv.pid, cwd: srv.cwd };
 }
 
+const MISTAKE_ACTIONABLE = Judgement.declare('problems.authoring-mistake-reads-as-actionable', {
+  expected: 'the complaint reads as something a person can act on',
+  plant: 'none: this is a judgement of the wording',
+  question: 'Does the complaint tell a person what to fix in the Feature?',
+});
+
+const NO_REGISTRY_SENTENCE = Judgement.declare('catalog-search.no-registry-sentence-directs-the-reader', {
+  expected: 'the remediation sentence sends the reader where the control is',
+  plant: 'none: this is a judgement of the wording',
+  question: 'The sentence sends the reader to "Add registry" and then "Update index", the two rows at the head of the Registries panel. Does that direct the reader well?',
+});
+
+const SAYS_ENOUGH = Judgement.declare('settings-that-are-wrong.what-the-extension-says-is-enough', {
+  expected: 'what the extension says about a missing catalog, an unreachable registry and a missing compiler is enough for a new user to act on',
+  plant: 'none: this is a judgement of the wording',
+  question: 'Is what the extension said, below, enough for a person to see what is wrong and put it right?',
+});
+
 export async function storefrontChecks(ctx: SuiteContext, referenceFolder: string): Promise<void> {
   const c = ctx.checks;
   const bin = ctx.inputs.compiler.path;
@@ -283,11 +301,7 @@ export async function storefrontChecks(ctx: SuiteContext, referenceFolder: strin
     await save(ctx, feature);
     return { passed: words && onLine && cleared, seen: `${describeDiagnostics(feature, complaint ? [complaint] : [])} (metadata: is line ${metadataLine + 1}); the compiler's words ${words ? 'carried unchanged' : `differ: ${JSON.stringify(ref.map((r) => r.message))}`}; after the line was put back it ${cleared ? 'cleared' : 'stayed'}` };
   });
-  await c.forPerson('problems.authoring-mistake-reads-as-actionable', {
-    expected: 'the complaint reads as something a person can act on',
-    plant: 'none: this is a judgement of the wording',
-    question: 'Does the complaint tell a person what to fix in the Feature?',
-  }, async () => {
+  await c.forPerson(MISTAKE_ACTIONABLE, async () => {
     need(mistakeText !== '', 'no complaint was filed, so there is nothing to judge');
     return { screenshot: mistakeShot, drawnText: mistakeText };
   });
@@ -483,11 +497,7 @@ export async function storefrontChecks(ctx: SuiteContext, referenceFolder: strin
     noRegistry = t.message;
     return { passed: t.message.startsWith(NO_REGISTRY_OPENING), seen: `"${t.message}" (${t.severity})` };
   });
-  await c.forPerson('catalog-search.no-registry-sentence-directs-the-reader', {
-    expected: 'the remediation sentence sends the reader where the control is',
-    plant: 'none: this is a judgement of the wording',
-    question: 'The sentence sends the reader to "Add registry" and then "Update index", the two rows at the head of the Registries panel. Does that direct the reader well?',
-  }, async () => {
+  await c.forPerson(NO_REGISTRY_SENTENCE, async () => {
     need(noRegistry !== '', 'the search gave no answer, so there is no sentence to judge');
     return { screenshot: await capture(ctx, 'search-no-registry'), drawnText: noRegistry };
   });
@@ -1227,9 +1237,5 @@ export async function storefrontChecks(ctx: SuiteContext, referenceFolder: strin
       evidence: { said: lines },
     };
   });
-  await c.forPerson('settings-that-are-wrong.what-the-extension-says-is-enough', {
-    expected: 'what the extension says about a missing catalog, an unreachable registry and a missing compiler is enough for a new user to act on',
-    plant: 'none: this is a judgement of the wording',
-    question: 'Is what the extension said, below, enough for a person to see what is wrong and put it right?',
-  }, async () => ({ screenshot: await capture(ctx, 'settings-that-are-wrong'), drawnText: said.join('\n') }));
+  await c.forPerson(SAYS_ENOUGH, async () => ({ screenshot: await capture(ctx, 'settings-that-are-wrong'), drawnText: said.join('\n') }));
 }

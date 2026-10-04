@@ -811,6 +811,11 @@ Other commands and options:
   one against the compiled extension without launching anything.
   `suite --plant <name>` makes that edit, runs the scenario holding its check,
   and reports whether the check moved the way the plant says.
+- `node out/test/e2e/run.js checklist` lists, without launching anything, each
+  check a run leaves for a person to judge, with its question, and each check no
+  run can reach, with why. `test/e2e/CHECKLIST.md` says what no check reaches —
+  a remote window, your own client, native dialogs, a screen reader among it —
+  and which checks bring the editor nearest to it.
 - `node out/test/e2e/run.js compare <run> <run>` compares two reports, header
   and verdict by verdict.
 - `inputs` checks the inputs and prints the report's header without launching

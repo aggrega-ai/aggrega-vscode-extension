@@ -4,7 +4,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-import { CheckResult, Checks, EnoughReported, tally } from './checks';
+import { CheckResult, Checks, EnoughReported, sealDeclarations, tally } from './checks';
 import { makeScratchHome, ScratchHome } from './cli';
 import { createScenarioRoot, ScenarioRoot } from './editor';
 import {
@@ -908,6 +908,7 @@ function plantOutcomes(plant: Plant, results: CheckResult[]): PlantOutcome[] {
 
 export async function runSuite(opts: { inputs: Inputs; runDir: string; driverName: string; only?: string[]; plant?: Plant; header: Record<string, string> }): Promise<SuiteReport> {
   const t0 = Date.now();
+  sealDeclarations();
   const all = plans(opts.inputs);
   const plant = opts.plant ?? null;
   const only = plant !== null ? [plant.scenario] : opts.only;

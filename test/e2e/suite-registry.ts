@@ -13,7 +13,7 @@ import type { TrustFetchOutcome } from '../../src/registration-outcome';
 import {
   addRequest, identityPromptTitle, keyDialogTitle, REGISTRATION_DESTINATION_PROMPT, REGISTRATION_SUBJECT, REGISTRY_ADD_COMMAND, TrustByHand, trustByHandTitle,
 } from '../../src/registry-configure';
-import { need } from './checks';
+import { Judgement, need, Unreachable } from './checks';
 import { makeScratchHome, runCompiler, ScratchHome } from './cli';
 import { UNREACHABLE_HOST } from './fixtures';
 import { referenceAnswer } from './reference';
@@ -498,6 +498,28 @@ function describeReadings(rs: NotificationReading[], from: number): string {
   return rs.map((r) => `${r.drawn ? 'drawn' : 'not drawn'} at ${r.at - from} ms`).join(', ');
 }
 
+const INDEX_SENTENCES = Judgement.declare('catalog-search.index-sentences-direct-the-reader', {
+  expected: 'the remediation sentences send the reader where the control is',
+  plant: 'none: this is a judgement of the wording',
+  question: `The channel sends the reader to "Update index" in the Registries panel, the second row at its head. Does that, and the empty answer below, direct the reader well?`,
+});
+
+const VIEWS_WITHOUT_A_NETWORK = Judgement.declare('side-bar.plugins-and-registries-views-refresh-without-a-network', {
+  expected: 'the Plugins and Registries views refresh, with one registry unreachable, and say what they hold',
+  plant: 'none: this is a judgement of what the views say',
+  question: `With ${UNREACHABLE_HOST} configured beside the scratch registry, is what the Plugins and Registries views draw after their refresh a fair account of what is there?`,
+});
+
+const STALE_INDEX = Unreachable.declare('catalog-search.stale-index-is-named', {
+  expected: `where the compiler judges an index stale, the channel adds "${STALE_LINE}"`,
+  plant: 'in the scratch copy, out/src/catalog-search-run.js made to drop the staleness line',
+}, 'every index this run can build is built fresh, and whether one is stale is the compiler\'s judgement of its age, so no stale index can be built without waiting out that age');
+
+const WITHDRAWN_VERSION = Unreachable.declare('plugins.add-names-the-withdrawn-version-it-passed-over', {
+  expected: 'adding a plugin whose newest published version is withdrawn ends in a sentence naming the version it passed over, "Retracted and not selected: <version> (<reason>).", and where the withdrawal records came from',
+  plant: 'in the scratch copy, out/src/plugin-attachment.js made to drop the passed-over version from its closing sentence',
+}, `its precondition cannot be built: ${WITHDRAWN_PLUGIN_LINK}`);
+
 export async function registryChecks(ctx: SuiteContext, registry: ScratchRegistry, stubs: StubRegistries, referenceFolder: string): Promise<void> {
   const c = ctx.checks;
   await ready(ctx);
@@ -581,10 +603,7 @@ export async function registryChecks(ctx: SuiteContext, registry: ScratchRegistr
     };
   });
 
-  c.notRun('catalog-search.stale-index-is-named', {
-    expected: `where the compiler judges an index stale, the channel adds "${STALE_LINE}"`,
-    plant: 'in the scratch copy, out/src/catalog-search-run.js made to drop the staleness line',
-  }, 'every index this run can build is built fresh, and whether one is stale is the compiler\'s judgement of its age, so no stale index can be built without waiting out that age');
+  c.notRun(STALE_INDEX);
 
   let emptyAnswer = '';
   const emptyWant = `${NO_MATCHES_OPENING}"${NO_MATCH_QUERY}" in ${searchedHosts.join(' and ')}; ${notSearchedClause(unsearchedHosts.join(' and '))}.`;
@@ -601,22 +620,11 @@ export async function registryChecks(ctx: SuiteContext, registry: ScratchRegistr
     return { passed: list === null && t.message === emptyWant, seen: `"${t.message}"${list ? `; a list was drawn: ${list.placeholder}` : ''}` };
   });
 
-  await c.forPerson('catalog-search.index-sentences-direct-the-reader', {
-    expected: 'the remediation sentences send the reader where the control is',
-    plant: 'none: this is a judgement of the wording',
-    question: `The channel sends the reader to "Update index" in the Registries panel, the second row at its head. Does that, and the empty answer below, direct the reader well?`,
-  }, async () => ({ screenshot: await capture(ctx, 'search-answers'), drawnText: `${channelAfterSearch.trim()}\n${emptyAnswer}` }));
+  await c.forPerson(INDEX_SENTENCES, async () => ({ screenshot: await capture(ctx, 'search-answers'), drawnText: `${channelAfterSearch.trim()}\n${emptyAnswer}` }));
 
-  c.notRun('plugins.add-names-the-withdrawn-version-it-passed-over', {
-    expected: 'adding a plugin whose newest published version is withdrawn ends in a sentence naming the version it passed over, "Retracted and not selected: <version> (<reason>).", and where the withdrawal records came from',
-    plant: 'in the scratch copy, out/src/plugin-attachment.js made to drop the passed-over version from its closing sentence',
-  }, `its precondition cannot be built: ${WITHDRAWN_PLUGIN_LINK}`);
+  c.notRun(WITHDRAWN_VERSION);
 
-  await c.forPerson('side-bar.plugins-and-registries-views-refresh-without-a-network', {
-    expected: 'the Plugins and Registries views refresh, with one registry unreachable, and say what they hold',
-    plant: 'none: this is a judgement of what the views say',
-    question: `With ${UNREACHABLE_HOST} configured beside the scratch registry, is what the Plugins and Registries views draw after their refresh a fair account of what is there?`,
-  }, async () => {
+  await c.forPerson(VIEWS_WITHOUT_A_NETWORK, async () => {
     await run(ctx, 'workbench.view.extension.aggrega');
     await pressViewAction(ctx, 'Registries', 'Refresh registries');
     await pressViewAction(ctx, 'Plugins', 'Refresh plugins');

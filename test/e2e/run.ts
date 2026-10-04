@@ -5,6 +5,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { NeedleResult, runNeedles } from './calibration';
+import { declaredChecks, Judgement } from './checks';
 import { containmentSummary, ContainmentStart, markStart, placesFor, readContainment } from './containment';
 import { markRunnerEnvironment } from './editor';
 import { DOCS_EXAMPLE, MYSQL_EXAMPLE, OWN_CATALOGS_EXAMPLE } from './fixtures';
@@ -42,6 +43,10 @@ import { runSuite, SCENARIO_CHECKS } from './suite';
 //                   process it started is alive
 //   plants          list the plants, and check each one's replaced text occurs
 //                   exactly once in the compiled extension; launches nothing
+//   checklist       list what the suite leaves to a person, read from the
+//                   checks' declarations: each check a run brings to a state
+//                   for a person to judge, with its question, and each check
+//                   no run can reach, with why; launches nothing
 //   compare <a> <b> compare two suite reports (a run's directory or its
 //                   suite.json), header and verdict by verdict
 //
@@ -66,8 +71,8 @@ import { runSuite, SCENARIO_CHECKS } from './suite';
 //
 // Exit status: 0 when every reading passed (for a plant run: when every check
 // the plant was made for moved the way it says; for compare: when the two
-// reports agree), 1 otherwise, 2 when the run was refused before it launched
-// anything.
+// reports agree; for checklist: when every check it lists is one a scenario
+// runs), 1 otherwise, 2 when the run was refused before it launched anything.
 
 const DRIVERS = ['playwright-devtools', 'playwright-electron'];
 
@@ -329,6 +334,44 @@ function commandPlants(opts: Options): number {
   return sound ? 0 : 1;
 }
 
+// commandChecklist lists, from the checks' declarations and launching nothing,
+// what the suite leaves to a person, in the order the scenarios run it: each
+// check a run brings to a state for a person to judge, with the question it
+// asks, and each check whose state no run can build, with why.
+function commandChecklist(): number {
+  const byName = new Map(declaredChecks().map((d) => [d.name, d]));
+  const judged: string[] = [];
+  const unreached: string[] = [];
+  let judgedCount = 0;
+  let unreachedCount = 0;
+  const listed = new Set<string>();
+  for (const [scenario, names] of Object.entries(SCENARIO_CHECKS)) {
+    for (const name of names) {
+      const d = byName.get(name);
+      if (d === undefined) { continue; }
+      listed.add(name);
+      if (d instanceof Judgement) {
+        judgedCount++;
+        judged.push(`  ${scenario} / ${name}`, `      expected: ${d.expected}`, `      question: ${d.question}`);
+      } else {
+        unreachedCount++;
+        unreached.push(`  ${scenario} / ${name}`, `      expected: ${d.expected}`, `      not run: ${d.reason}`);
+      }
+    }
+  }
+  const stray = [...byName.keys()].filter((n) => !listed.has(n));
+  const lines = [
+    'checklist: what the suite leaves to a person, read from the checks\' declarations; nothing is launched',
+    `left for a person: ${judgedCount} — a run brings the editor to each state and leaves it there, with what it captured, for a person to judge`,
+    ...judged,
+    `never run: ${unreachedCount} — no run can build the state each needs, so every run reports it not run, with this reason; where you can build the state, walk it by hand`,
+    ...unreached,
+  ];
+  if (stray.length > 0) { lines.push(`declared but run by no scenario: ${stray.join(', ')}`); }
+  process.stdout.write(`${lines.join('\n')}\n`);
+  return stray.length === 0 ? 0 : 1;
+}
+
 interface ReportShape { header?: Record<string, string>; scenarios?: { name: string; results: { name: string; verdict: string }[] }[] }
 
 function loadReport(p: string): ReportShape {
@@ -385,8 +428,9 @@ async function main(): Promise<number> {
     case 'teardown-study': return commandTeardownStudy(opts);
     case 'suite': return commandSuite(opts);
     case 'plants': return commandPlants(opts);
+    case 'checklist': return commandChecklist();
     case 'compare': return commandCompare(opts);
-    default: throw new Usage(`unknown command ${JSON.stringify(opts.command)}; the commands are inputs, fetch-editor, calibrate, probe, teardown-study, suite, plants and compare`);
+    default: throw new Usage(`unknown command ${JSON.stringify(opts.command)}; the commands are inputs, fetch-editor, calibrate, probe, teardown-study, suite, plants, checklist and compare`);
   }
 }
 

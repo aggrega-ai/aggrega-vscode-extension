@@ -8,7 +8,7 @@ import { SEEDING_SUBJECT } from '../../src/config-seeding';
 import { CONFIG_WRITE_DESTINATIONS } from '../../src/config-write-scope';
 import { REGISTRATION_DESTINATION_PROMPT, REGISTRATION_SUBJECT, trustByHandTitle } from '../../src/registry-configure';
 import { CONFIG_FILENAME } from '../../src/workspace';
-import { need } from './checks';
+import { Judgement, need } from './checks';
 import { makeScratchHome, runCompiler } from './cli';
 import { AGGREGA_BINARY_SETTING } from './editor';
 import { WORKSPACE_ANCHOR_ONLY } from './fixtures';
@@ -181,6 +181,18 @@ async function paletteOffers(ctx: SuiteContext, query: string): Promise<string[]
   return labels;
 }
 
+const WORKSPACE_STEP_READ = Judgement.declare('welcome-page.workspace-step-read-by-someone-new', {
+  expected: 'from the workspace step alone a reader who has never configured Aggrega can say which file to create, where to put it and what has to be in it, and what the second, global file is called, where it lives and why it is separate',
+  plant: 'none: this is a judgement of the wording',
+  question: 'Reading only this step, as someone who has never configured Aggrega: can you say which file to create, where to put it and what goes in it? Can you name the global file, where it lives, and why it is separate from the project\'s? Could you have acted on the step without opening anything else?',
+});
+
+const REGISTRY_STEP_READ = Judgement.declare('welcome-page.registry-step-read-before-pressing', {
+  expected: 'from the registry step\'s words a reader can tell which of its three ways through is theirs: seeding is for a machine with no configuration file yet, and declines where one is there; the add is the one for a machine that has one, and merges into it',
+  plant: 'none: this is a judgement of the wording',
+  question: 'Reading this step before pressing anything, on a machine that already has a configuration file: can you tell which of the three buttons is yours? Does any sentence say seeding replaces a file, or that the way past its refusal is at the command line?',
+});
+
 export async function welcomeEmptyFolderChecks(ctx: SuiteContext, opts: { registry: ScratchRegistry; second: SecondCompiler; beside: string }): Promise<void> {
   const c = ctx.checks;
   const bin = ctx.inputs.compiler.path;
@@ -331,11 +343,7 @@ export async function welcomeEmptyFolderChecks(ctx: SuiteContext, opts: { regist
     };
   });
 
-  await c.forPerson('welcome-page.workspace-step-read-by-someone-new', {
-    expected: 'from the workspace step alone a reader who has never configured Aggrega can say which file to create, where to put it and what has to be in it, and what the second, global file is called, where it lives and why it is separate',
-    plant: 'none: this is a judgement of the wording',
-    question: 'Reading only this step, as someone who has never configured Aggrega: can you say which file to create, where to put it and what goes in it? Can you name the global file, where it lives, and why it is separate from the project\'s? Could you have acted on the step without opening anything else?',
-  }, async () => {
+  await c.forPerson(WORKSPACE_STEP_READ, async () => {
     await frontPage(ctx);
     const doc = await welcomePage(ctx);
     await doc.evaluate(`(() => { const s = document.querySelector('section.step[data-step="workspace"]'); if (s) { s.scrollIntoView({ block: 'start' }); } return !!s; })()`);
@@ -546,11 +554,7 @@ export async function welcomeEmptyFolderChecks(ctx: SuiteContext, opts: { regist
     };
   });
 
-  await c.forPerson('welcome-page.registry-step-read-before-pressing', {
-    expected: 'from the registry step\'s words a reader can tell which of its three ways through is theirs: seeding is for a machine with no configuration file yet, and declines where one is there; the add is the one for a machine that has one, and merges into it',
-    plant: 'none: this is a judgement of the wording',
-    question: 'Reading this step before pressing anything, on a machine that already has a configuration file: can you tell which of the three buttons is yours? Does any sentence say seeding replaces a file, or that the way past its refusal is at the command line?',
-  }, async () => {
+  await c.forPerson(REGISTRY_STEP_READ, async () => {
     await frontPage(ctx);
     const doc = await welcomePage(ctx);
     await doc.evaluate(`(() => { const s = document.querySelector('section.step[data-step="registry"]'); if (s) { s.scrollIntoView({ block: 'start' }); } return !!s; })()`);

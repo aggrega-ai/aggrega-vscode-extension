@@ -8,7 +8,7 @@ import { buildParams } from '../../src/build-dials';
 import { RESTART_COMMAND } from '../../src/daemon-status';
 import type { BuildResponse, DependencyResolutionReport } from '../../src/types';
 import { outputParentFor } from '../../src/workspace';
-import { need } from './checks';
+import { need, Unreachable } from './checks';
 import { runCompiler } from './cli';
 import { ABSENCE_MS, drawnPanel, DrawnPanel, lines } from './commands-panel';
 import { WebviewDocument } from './drivers';
@@ -205,6 +205,11 @@ export async function continueHere(ctx: SuiteContext): Promise<{ message: string
   if (d !== null && d.buttons.includes('Continue here')) { await pressDialogButton(ctx.d, 'Continue here'); }
   return d;
 }
+
+const PROMPTED_OPERATIONS = Unreachable.declare('output-channel.prompted-operations-write-no-dollar-line', {
+  expected: 'Draft entity, Import, Inspect, Push, Sign, Deprecate, the cache operations, Add registry, Update index, Add plugin and the list panels\' row operations other than Validate this entity each write no line beginning "$"',
+  plant: 'in the scratch copy, out/src/operations.js with Inspect run as a command instead of a request',
+}, 'each of them asks for an answer — a kind, a source, an entity, a reference, a registry or a confirmation — before it sends anything, and answering each so that it runs is a walk of its own these checks do not make');
 
 export async function aboveChecks(ctx: SuiteContext, layout: { root: string; referenceRoot: string }): Promise<void> {
   const c = ctx.checks;
@@ -845,10 +850,7 @@ export async function aboveChecks(ctx: SuiteContext, layout: { root: string; ref
     }
     return { passed: all, seen: seen.join('; ') };
   });
-  c.notRun('output-channel.prompted-operations-write-no-dollar-line', {
-    expected: 'Draft entity, Import, Inspect, Push, Sign, Deprecate, the cache operations, Add registry, Update index, Add plugin and the list panels\' row operations other than Validate this entity each write no line beginning "$"',
-    plant: 'in the scratch copy, out/src/operations.js with Inspect run as a command instead of a request',
-  }, 'each of them asks for an answer — a kind, a source, an entity, a reference, a registry or a confirmation — before it sends anything, and answering each so that it runs is a walk of its own these checks do not make');
+  c.notRun(PROMPTED_OPERATIONS);
 }
 
 // DrawnNotice is one notification as it stands drawn: its opening words, whether

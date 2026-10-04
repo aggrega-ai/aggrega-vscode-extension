@@ -4,7 +4,7 @@
 import * as path from 'path';
 
 import { CONFIG_FILENAME } from '../../src/workspace';
-import { need } from './checks';
+import { Judgement, need } from './checks';
 import { WORKSPACE_ANCHOR_ONLY } from './fixtures';
 import { Layout } from './layouts';
 import {
@@ -81,6 +81,12 @@ function marked(rows: readonly LevelRow[]): boolean {
 function sameButtons(buttons: readonly string[]): boolean {
   return JSON.stringify([...buttons].sort()) === JSON.stringify([...ABOVE_BUTTONS].sort());
 }
+
+const DIALOG_IN_THE_THEME = Judgement.declare('workspace-above.dialog-in-the-editors-theme', {
+  expected: 'the dialog the editor draws for itself is drawn in the editor\'s own theme',
+  plant: 'none: whether a drawing matches the theme is a judgement of how it looks',
+  question: 'The capture shows the dialog as the editor draws it with window.dialogStyle set to "custom", under the Dark Modern theme. Is it drawn in the editor\'s own theme?',
+});
 
 export async function aboveDialogChecks(ctx: SuiteContext, layouts: string): Promise<void> {
   const c = ctx.checks;
@@ -283,11 +289,7 @@ export async function aboveDialogChecks(ctx: SuiteContext, layouts: string): Pro
     };
   });
 
-  await c.forPerson('workspace-above.dialog-in-the-editors-theme', {
-    expected: 'the dialog the editor draws for itself is drawn in the editor\'s own theme',
-    plant: 'none: whether a drawing matches the theme is a judgement of how it looks',
-    question: 'The capture shows the dialog as the editor draws it with window.dialogStyle set to "custom", under the Dark Modern theme. Is it drawn in the editor\'s own theme?',
-  }, async () => {
+  await c.forPerson(DIALOG_IN_THE_THEME, async () => {
     need(editorDrawn !== null, 'the dialog the editor draws for itself was not raised');
     const shot = await capture(ctx, 'workspace-above-dialog-in-the-editors-theme');
     const d = editorDrawn as DrawnDialog;

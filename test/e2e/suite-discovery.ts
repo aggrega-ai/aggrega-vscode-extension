@@ -5,7 +5,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { CONFIG_FILENAME } from '../../src/workspace';
-import { need } from './checks';
+import { Judgement, need } from './checks';
 import { WORKSPACE_ANCHOR_ONLY } from './fixtures';
 import { Layout } from './layouts';
 import {
@@ -107,6 +107,12 @@ function rootOnHover(row: LevelRow | undefined): string | null {
   const m = /^Aggrega workspace: (.+)$/m.exec(row?.title ?? '');
   return m ? m[1] : null;
 }
+
+const ONE_BELOW_READ = Judgement.declare('workspace-discovery.one-below-read-as-outside-the-folder', {
+  expected: 'with the Aggrega workspace inside the folder opened, the Aggrega workspace row says nothing false about where it sits',
+  plant: 'none: whether the row\'s sentence reads as false here is a judgement of the wording',
+  question: `The workspace here sits INSIDE the folder opened (${ONE_BELOW}/sub, opened as ${ONE_BELOW}). The capture and the text below show whether the Aggrega workspace row carries the warning mark and the sentence saying the workspace is from outside the folder you opened, and whether the interruption was raised. Do you see the mark, and does the sentence read as false to you?`,
+});
 
 export async function discoveryChecks(ctx: SuiteContext, layouts: string): Promise<void> {
   const c = ctx.checks;
@@ -274,11 +280,7 @@ export async function discoveryChecks(ctx: SuiteContext, layouts: string): Promi
     return { passed: srv !== null && insideRows[0]?.value === ONE_BELOW && insideRows[1]?.value === 'sub' && quiet.held, seen: `the language server ${srv !== null ? `works in ${insideSub}` : `works in ${serversWorking(ctx)}`}; the rows ${describeRows(insideRows)}; ${quiet.held ? `no choice offered for ${WATCH_MS} ms` : describePending(quiet.broke)}` };
   });
 
-  await c.forPerson('workspace-discovery.one-below-read-as-outside-the-folder', {
-    expected: 'with the Aggrega workspace inside the folder opened, the Aggrega workspace row says nothing false about where it sits',
-    plant: 'none: whether the row\'s sentence reads as false here is a judgement of the wording',
-    question: `The workspace here sits INSIDE the folder opened (${ONE_BELOW}/sub, opened as ${ONE_BELOW}). The capture and the text below show whether the Aggrega workspace row carries the warning mark and the sentence saying the workspace is from outside the folder you opened, and whether the interruption was raised. Do you see the mark, and does the sentence read as false to you?`,
-  }, async () => {
+  await c.forPerson(ONE_BELOW_READ, async () => {
     need(insideRows.length >= 3, 'the rows for the folder with its workspace below it were not read');
     const row = insideRows[1];
     return {

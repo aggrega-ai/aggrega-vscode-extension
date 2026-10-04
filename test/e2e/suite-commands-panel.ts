@@ -12,7 +12,7 @@ import {
   panelActionLabel,
 } from '../../src/operation-groups';
 import { EXTENSION_ID, extensionSettingsQuery, SETTINGS_COMMAND } from '../../src/settings';
-import { need } from './checks';
+import { Judgement, need } from './checks';
 import { runCompiler } from './cli';
 import {
   ABSENCE_MS, ACTIVE_CONTROL, activeControl, chooseLayout, COMMANDS_PANEL_GROUPS, COMMANDS_PANEL_LABELS, containerManifest, containerViews, drawnActions, drawnPanel, DrawnPanel, focusInPanel,
@@ -302,6 +302,30 @@ function fixtureDocuments(ctx: SuiteContext): string[] {
   const from = path.join(fixturesDir(ctx.inputs.extension.dir), path.basename(ctx.folder));
   return fs.readdirSync(from, { recursive: true }).map(String).filter((f) => /\.ya?ml$/.test(f) && path.basename(f) !== '.aggrega-config.yaml').sort();
 }
+
+const LAYOUT_DESCRIPTIONS_APART = Judgement.declare('settings.layout-value-descriptions-read-apart', {
+  expected: 'each value of the shape setting has a description saying what you will see, and neither leaves you guessing which is which',
+  plant: 'none: whether the two descriptions read apart is a judgement of the wording',
+  question: 'The capture shows the shape setting\'s drop-down open on the settings screen, and the text below gives each value with the description drawn beside it. Does each say what you will see, so that you can tell which is which?',
+});
+
+const ONE_BUTTON_GROUP = Judgement.declare('commands-panel.one-button-group-and-the-palettes-longer-titles', {
+  expected: 'a group holding a single button reads as a group, and the command palette\'s longer titles beside the panel\'s short labels do not confuse',
+  plant: 'none: both are judgements of the reading',
+  question: 'The capture shows the panel in its section shape. Does a group holding one button (listed below) read oddly? And the palette keeps longer titles than the panel\'s labels (listed below) — do any of them confuse you?',
+});
+
+const BINARY_PATH_READ = Judgement.declare('settings.binary-path-description-read-by-someone-new', {
+  expected: 'the description draws the line: this is an editor preference, and Aggrega\'s own configuration is two files — the project\'s and the global file — which a reader can name from it alone',
+  plant: 'none: whether it draws the line is a judgement of the wording',
+  question: 'The capture shows the binary path\'s entry on the settings screen, and its description is below. From it alone, can you tell that this is an editor preference and not Aggrega\'s own configuration, and name both of Aggrega\'s files?',
+});
+
+const ENABLED_BUT_INERT = Judgement.declare('commands-panel.enabled-but-inert-with-the-server-stopped', {
+  expected: 'whether the enabled-but-inert buttons bother a reader with the server stopped is recorded as observed rather than as a failure',
+  plant: 'none: whether they bother a reader is the judgement asked for',
+  question: 'With the language server stopped, the buttons listed below stay enabled and report that the server is not running when pressed; the status bar is where the state is named. Do the enabled-but-inert buttons bother you?',
+});
 
 // commandsPanelChecks runs the checks with `release` the folder's own Release, as
 // the scenario's plan names it.
@@ -843,11 +867,7 @@ export async function commandsPanelChecks(ctx: SuiteContext, notABinary: string,
     return { passed: rowsOk && detailsOk, seen: `rows ${JSON.stringify(got.rows)}; drawn beside each in turn ${JSON.stringify(got.details)}` };
   });
 
-  await c.forPerson('settings.layout-value-descriptions-read-apart', {
-    expected: 'each value of the shape setting has a description saying what you will see, and neither leaves you guessing which is which',
-    plant: 'none: whether the two descriptions read apart is a judgement of the wording',
-    question: 'The capture shows the shape setting\'s drop-down open on the settings screen, and the text below gives each value with the description drawn beside it. Does each say what you will see, so that you can tell which is which?',
-  }, async () => {
+  await c.forPerson(LAYOUT_DESCRIPTIONS_APART, async () => {
     const got = choice as LayoutChoice | null;
     need(got !== null, 'the shape was not chosen on the settings screen above, so there is no capture of its drop-down');
     return { screenshot: got.shot, drawnText: got.rows.map((r, i) => `${r.value}: ${got.details[i] ?? ''}`).join('\n') };
@@ -872,11 +892,7 @@ export async function commandsPanelChecks(ctx: SuiteContext, notABinary: string,
     return { passed: first.ok && kept.held, seen: `titles ${JSON.stringify(first.titles)}; rules ${JSON.stringify(first.rules)}; ${JSON.stringify(first.members)}` };
   });
 
-  await c.forPerson('commands-panel.one-button-group-and-the-palettes-longer-titles', {
-    expected: 'a group holding a single button reads as a group, and the command palette\'s longer titles beside the panel\'s short labels do not confuse',
-    plant: 'none: both are judgements of the reading',
-    question: 'The capture shows the panel in its section shape. Does a group holding one button (listed below) read oddly? And the palette keeps longer titles than the panel\'s labels (listed below) — do any of them confuse you?',
-  }, async () => {
+  await c.forPerson(ONE_BUTTON_GROUP, async () => {
     const p = await drawnPanel(panel);
     const groups = p.heads.map((h) => ({ title: h.title, labels: ops(p).filter((o) => o.group === h.group).map((o) => o.label) }));
     const palette = ops(p).map((o) => `${o.label} — palette: ${paletteTitle(ctx, o.command)}`);
@@ -1090,11 +1106,7 @@ export async function commandsPanelChecks(ctx: SuiteContext, notABinary: string,
     };
   });
 
-  await c.forPerson('settings.binary-path-description-read-by-someone-new', {
-    expected: 'the description draws the line: this is an editor preference, and Aggrega\'s own configuration is two files — the project\'s and the global file — which a reader can name from it alone',
-    plant: 'none: whether it draws the line is a judgement of the wording',
-    question: 'The capture shows the binary path\'s entry on the settings screen, and its description is below. From it alone, can you tell that this is an editor preference and not Aggrega\'s own configuration, and name both of Aggrega\'s files?',
-  }, async () => {
+  await c.forPerson(BINARY_PATH_READ, async () => {
     need(binaryDrawn !== '', 'the binary path\'s entry was not drawn above');
     await openSettingsOn(ctx, 'binaryPath', binaryLabel);
     const shot = await capture(ctx, 'settings-binary-path');
@@ -1229,11 +1241,7 @@ export async function commandsPanelChecks(ctx: SuiteContext, notABinary: string,
     };
   });
 
-  await c.forPerson('commands-panel.enabled-but-inert-with-the-server-stopped', {
-    expected: 'whether the enabled-but-inert buttons bother a reader with the server stopped is recorded as observed rather than as a failure',
-    plant: 'none: whether they bother a reader is the judgement asked for',
-    question: 'With the language server stopped, the buttons listed below stay enabled and report that the server is not running when pressed; the status bar is where the state is named. Do the enabled-but-inert buttons bother you?',
-  }, async () => {
+  await c.forPerson(ENABLED_BUT_INERT, async () => {
     need(stoppedNote !== '', 'the server was not stopped above');
     await run(ctx, 'workbench.view.extension.aggrega');
     return { screenshot: await capture(ctx, 'commands-panel-server-stopped'), drawnText: stoppedNote };
