@@ -249,12 +249,15 @@ body {
 
 /* Each labelled heading is the grip its column is resized by. Dragging the
    corner the editor draws at the heading's right edge sets a width on the
-   heading, and a heading with a width is what the table holds its column to:
-   the column follows the pointer both ways and the other columns share what is
-   left. It never narrows past the longest run its cells cannot break — the
-   heading's own word, a name's longest word, the setting column's measure —
-   and every other cell's text wraps inside it rather than running into the next
-   column.
+   heading, and a heading with a width is what the table holds its column to.
+   The table keeps the width the page gives it, so the column follows the
+   pointer while the other columns, which share what is left, have room to
+   give, and stops widening once they are all at their narrowest; where the
+   panel is too narrow for the table even at its narrowest — docked, say — the
+   grips move nothing. A column never narrows past the longest run its cells
+   cannot break — the heading's own word, a name's longest word, the setting
+   column's measure — and every other cell's text wraps inside it rather than
+   running into the next column.
 
    🔴 THE GRIP IS THE HEADING CELL ITSELF, NOT AN ELEMENT INSIDE IT. A width set
    on something inside a cell only raises the column's floor: the table is still

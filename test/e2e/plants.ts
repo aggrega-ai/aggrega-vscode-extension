@@ -487,6 +487,13 @@ export const PLANTS: readonly Plant[] = [
     says: 'the configuration panel\'s labelled headings are drawn without the resizing rule, so the editor draws no grip to drag',
   },
   {
+    name: 'column-grips-held-short-of-their-room', scenario: 'storefront',
+    checks: ['config-panel.setting-column-follows-its-grip-and-stops-at-its-floor', 'config-panel.source-column-follows-its-grip-and-keeps-its-paths-inside'],
+    moves: 'red', target: 'extension',
+    file: 'media/config.css', find: '  resize: horizontal;\n', replace: '  resize: horizontal;\n  max-width: 9rem;\n',
+    says: 'the configuration panel\'s labelled headings are held to a maximum width of 9rem, so a dragged column stops widening there, short of the pointer, while the other columns still have room to give',
+  },
+  {
     name: 'shape-switch-not-allowed-to-run', scenario: 'storefront', checks: ['config-panel.explanation-and-shape-switch-work-beside-the-grips'], moves: 'red', target: 'extension',
     file: 'out/src/config-view.js',
     find: 'enableCommandUris: [config_render_1.PRESENTATION_TOGGLE_COMMAND],',
