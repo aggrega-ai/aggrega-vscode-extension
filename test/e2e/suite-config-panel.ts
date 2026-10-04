@@ -24,10 +24,16 @@ export const CONFIG_PANEL_CHECKS = [
 
 // The words the panel draws that these checks find things by, held as written
 // so a change of wording is reported rather than followed: the labelled
-// headings in order, and the switch's words in each shape.
-export const HEADINGS = ['Setting', 'Name', 'Set', 'Default', 'Effective', 'Takes', 'Source'];
+// headings in order — each its column's grip — the heading drawn after them
+// over the circle, and the switch's words in each shape.
+export const HEADINGS = ['Setting', 'Name', 'Value', 'Takes', 'Source'];
+export const LAST_HEADING = 'Description';
 export const TO_EXPANDED = 'Show each setting in full';
 export const TO_TABLE = 'Show every setting in one table';
+
+// FIRST_SETTING_ROW selects the table's first row that draws a setting, which a
+// group's heading row is not.
+export const FIRST_SETTING_ROW = 'table.config-table tbody tr:not(.config-group-row)';
 
 // How far a grip is dragged wider, and how close to it the column must follow.
 const WIDER_PX = 150;
@@ -237,12 +243,12 @@ export async function configPanelChecks(ctx: SuiteContext): Promise<void> {
   }, async () => {
     need(panel !== null, 'the configuration panel was not reached above');
     const p = panel as ConfigPanel;
-    const control = 'table.config-table tbody tr:first-child td.config-cell-info summary';
+    const control = `${FIRST_SETTING_ROW} td.config-cell-info summary`;
     const summary = await p.box(control);
     need(summary !== null && summary.width > 0, 'the first row draws no explanation control to press');
     await ctx.d.click(centre(summary));
     const opened = await until('the description opening', 5000, () => p.read<{ open: boolean; height: number; text: string; title: string }>(`(() => {
-      const det = d.querySelector('table.config-table tbody tr:first-child details.config-info');
+      const det = d.querySelector(${JSON.stringify(`${FIRST_SETTING_ROW} details.config-info`)});
       const para = det ? det.querySelector('.config-description') : null;
       return { open: !!det && det.open, height: para ? para.getBoundingClientRect().height : 0, text: para ? (para.innerText || '').trim() : '', title: det ? (det.querySelector('summary').title || '').trim() : '' };
     })()`), (x) => x.open && x.height > 0).catch(() => null);

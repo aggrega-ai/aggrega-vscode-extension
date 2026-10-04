@@ -262,19 +262,75 @@ function kindOf(node: SchemaNode, defs: Record<string, SchemaNode>): ControlKind
   }
 }
 
-// labelFor derives a control's label from the key the author types.
+// WORD_SPELLINGS are the spellings a word of a key takes in a name where its
+// lowercase would misread: an acronym in capitals, and the one prefix the word
+// after it joins with a hyphen.
 //
-// It is DERIVED and never looked up, which is the whole reason this function
-// exists rather than a table beside it: a table would have to gain a row for
-// every setting added to the schema, and a setting whose row nobody added would
-// draw with no label at all. Underscores are the schema's own word separator, so
-// splitting on them and capitalising the first word yields the key back in prose
-// without inventing a name for it.
+// 🔴 IT SPELLS WORDS AND NEVER NAMES A SETTING, and that is what keeps every name
+// derived. A setting added to the schema needs nothing here: its name is its
+// key's own words, each spelled as below where it is one of these and as the key
+// writes it everywhere else.
+const WORD_SPELLINGS: ReadonlyMap<string, string> = new Map([
+  ['ai', 'AI'],
+  ['cli', 'CLI'],
+  ['id', 'ID'],
+  ['jwks', 'JWKS'],
+  ['mcp', 'MCP'],
+  ['tls', 'TLS'],
+  ['url', 'URL'],
+  ['yaml', 'YAML'],
+  ['x', 'x-'],
+]);
+
+// labelFor derives a name from the key the author types.
+//
+// It is DERIVED and never looked up per setting, which is the whole reason this
+// function exists rather than a table of names beside it: such a table would
+// have to gain a row for every setting added to the schema, and a setting whose
+// row nobody added would draw with no name at all. Underscores are the schema's
+// own word separator, so the key is split on them, each word spelled as
+// WORD_SPELLINGS says where it is one of those, and the first word capitalised —
+// which yields the key back in prose without inventing a name for it. A word
+// spelled as a prefix takes the next word without a space, and is spelled as the
+// key writes it where no word follows.
 export function labelFor(key: string): string {
-  const words = key.split('_').filter((w) => w.length > 0);
+  const words = key.split('_').filter((w) => w.length > 0)
+    .map((w, i, all) => {
+      const spelled = WORD_SPELLINGS.get(w) ?? w;
+      return spelled.endsWith('-') && i === all.length - 1 ? w : spelled;
+    });
   if (words.length === 0) { return key; }
-  const [first, ...rest] = words;
-  return [first.charAt(0).toUpperCase() + first.slice(1), ...rest].join(' ');
+  words[0] = words[0].charAt(0).toUpperCase() + words[0].slice(1);
+  return words.reduce((name, word) => (name.endsWith('-') ? `${name}${word}` : `${name} ${word}`));
+}
+
+// distinctNames derives the name each of a set of settings is drawn with, given
+// their paths, in the same order.
+//
+// Each is first named from its own key alone. Where two or more read the same,
+// each of them that sits inside a group takes that group's key ahead of its own
+// — `parse_cache.max_bytes` reads "Parse cache max bytes" where
+// `compiled_module_cache.max_bytes` would otherwise read alike — and again one
+// group further out while they still collide, so no two settings on one page
+// carry the same name wherever their paths differ before the top. A name that
+// collides with nothing keeps its key's words alone, because the group is drawn
+// beside it already and a longer name would only repeat it.
+export function distinctNames(paths: readonly (readonly string[])[]): string[] {
+  const depth = paths.map(() => 1);
+  const nameAt = (i: number): string => labelFor(paths[i].slice(-depth[i]).join('_'));
+  for (;;) {
+    const names = paths.map((_, i) => nameAt(i));
+    const alike = new Map<string, number[]>();
+    names.forEach((name, i) => alike.set(name, [...(alike.get(name) ?? []), i]));
+    let grew = false;
+    for (const at of alike.values()) {
+      if (at.length < 2) { continue; }
+      for (const i of at) {
+        if (depth[i] < paths[i].length) { depth[i] += 1; grew = true; }
+      }
+    }
+    if (!grew) { return names; }
+  }
 }
 
 // deref follows a reference into the schema's own definitions.

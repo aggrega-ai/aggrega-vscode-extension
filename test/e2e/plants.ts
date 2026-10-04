@@ -2256,13 +2256,28 @@ export const PLANTS: readonly Plant[] = [
   },
   {
     name: 'setting-column-paints-no-ground', scenario: 'gateway-docked-configuration', checks: ['config-panel.setting-column-is-solid-over-the-row-passing-under-it'], moves: 'red', target: 'extension',
-    file: 'media/config.css', find: '  overflow-wrap: anywhere;\n  background: var(--vscode-editor-background);\n}', replace: '  overflow-wrap: anywhere;\n}',
+    file: 'media/config.css', find: '  min-width: var(--config-key-measure);\n  background: var(--vscode-editor-background);\n}', replace: '  min-width: var(--config-key-measure);\n}',
     says: 'the Setting column\'s cells paint no ground of their own',
   },
   {
     name: 'corner-beneath-the-headings', scenario: 'gateway-docked-configuration', checks: ['config-panel.header-and-corner-hold-scrolling-right-and-down'], moves: 'red', target: 'extension',
-    file: 'media/config.css', find: '.config-table th:first-child {\n  z-index: 3;', replace: '.config-table th:first-child {\n  z-index: 1;',
+    file: 'media/config.css', find: '.config-table thead th:first-child {\n  z-index: 3;', replace: '.config-table thead th:first-child {\n  z-index: 1;',
     says: 'the corner is drawn beneath the headings beside it',
+  },
+  {
+    name: 'setting-path-breaks-anywhere', scenario: 'gateway-docked-configuration', checks: ['config-panel.setting-column-reads-at-its-measure'], moves: 'red', target: 'extension',
+    file: 'media/config.css', find: '.config-path {\n  overflow-wrap: normal;\n  word-break: keep-all;', replace: '.config-path {\n  overflow-wrap: normal;\n  word-break: break-all;',
+    says: 'a setting path may break between any two characters, so it wraps at whatever character reaches the column\'s edge',
+  },
+  {
+    name: 'setting-path-marked-nowhere-to-break', scenario: 'gateway-docked-configuration', checks: ['config-panel.setting-column-reads-at-its-measure'], moves: 'red', target: 'extension',
+    file: CONFIG_RENDER, find: "const PATH_BREAKS = '_.';", replace: "const PATH_BREAKS = '';",
+    says: 'a setting path is marked nowhere to break, so the Setting column widens to the longest path rather than holding its measure',
+  },
+  {
+    name: 'caption-as-wide-as-the-table', scenario: 'gateway-docked-configuration', checks: ['config-panel.setting-column-reads-at-its-measure'], moves: 'red', target: 'extension',
+    file: 'media/config.css', find: '  max-width: min(100%, calc(100vw - 4rem));\n', replace: '',
+    says: 'the table\'s caption wraps at the table\'s width, running past the edge of a docked panel',
   },
   {
     name: 'description-at-a-fixed-measure', scenario: 'gateway-docked-configuration', checks: ['config-panel.description-fully-visible-beside-the-setting-column'], moves: 'red', target: 'extension',
@@ -2406,29 +2421,51 @@ export const PLANTS: readonly Plant[] = [
     says: 'the configuration panel is created under the title "Aggrega settings"',
   },
   {
-    name: 'schema-walk-stops-short', scenario: 'gateway-configuration-report', checks: ['config-panel.every-setting-the-schema-declares-is-a-row'], moves: 'red', target: 'extension',
+    name: 'schema-walk-stops-short', scenario: 'gateway-configuration-report', checks: ['config-panel.every-setting-the-schema-declares-is-a-row-or-named-on-its-lists'], moves: 'red', target: 'extension',
     file: CONFIG_SCHEMA, find: '    for (const [name, declared] of Object.entries(node.properties ?? {})) {', replace: '    for (const [name, declared] of Object.entries(node.properties ?? {}).slice(0, -1)) {',
     says: 'the walk of the configuration schema leaves out the last declaration at every level',
   },
   {
-    name: 'coverage-sentence-counts-one-more', scenario: 'gateway-configuration-report', checks: ['config-panel.coverage-sentence-counts-the-rows-and-what-the-report-names'], moves: 'red', target: 'extension',
-    file: CONFIG_RENDER, find: '    return `The configuration report attributes ${model.attributed} of the ${model.drawn} `', replace: '    return `The configuration report attributes ${model.attributed} of the ${model.drawn + 1} `',
-    says: 'the coverage sentence counts one setting more than the page shows',
+    name: 'coverage-sentence-drawn-with-nothing-to-name', scenario: 'gateway-configuration-report', checks: ['config-panel.coverage-sentence-names-what-the-report-leaves-unattributed'], moves: 'red', target: 'extension',
+    file: CONFIG_RENDER, find: '    if (unattributed.length === 0) {\n        return null;\n    }\n', replace: '',
+    says: 'the coverage sentence is drawn whether or not the report leaves a setting unattributed, naming nothing where it leaves none',
   },
   {
-    name: 'entry-fields-in-a-group-left-out', scenario: 'gateway-configuration-report', checks: ['config-panel.nested-settings-and-entry-fields-are-drawn'], moves: 'red', target: 'extension',
+    name: 'entry-fields-in-a-group-left-out', scenario: 'gateway-configuration-report', checks: ['config-panel.each-group-opens-with-a-heading-row-and-entry-fields-are-named'], moves: 'red', target: 'extension',
     file: CONFIG_SCHEMA, find: '    return [...walked.controls, ...walked.sections.flatMap(flatten)];', replace: '    return [...walked.controls];',
     says: 'the fields an entry of a list declares inside a group of its own are left out of the fields its row names',
   },
   {
-    name: 'first-heading-reads-config-keyword', scenario: 'gateway-configuration-report', checks: ['config-panel.columns-read-in-order-ending-in-the-circle'], moves: 'red', target: 'extension',
+    name: 'group-heading-rows-left-out', scenario: 'gateway-configuration-report', checks: ['config-panel.each-group-opens-with-a-heading-row-and-entry-fields-are-named'], moves: 'red', target: 'extension',
+    file: CONFIG_RENDER,
+    find: '`<tbody>`\n            + `<tr class="config-group-row">`\n            + `<th scope="rowgroup" class="config-cell-path">${pathHtml(section.path)}</th>`\n            + `<td class="config-group-name" colspan="${TABLE_COLUMNS.length}">${(0, html_1.escapeHtml)(section.label)}</td>`\n            + `</tr>${',
+    replace: '`<tbody>${',
+    says: 'no heading row is drawn over a group, so its settings run on from the group before',
+  },
+  {
+    name: 'first-heading-reads-config-keyword', scenario: 'gateway-configuration-report', checks: ['config-panel.columns-read-in-order-under-visible-headings'], moves: 'red', target: 'extension',
     file: CONFIG_RENDER, find: "const TABLE_COLUMNS = ['Setting',", replace: "const TABLE_COLUMNS = ['config keyword',",
     says: 'the table\'s first heading reads "config keyword"',
   },
   {
-    name: 'built-in-default-read-as-set', scenario: 'gateway-configuration-report', checks: ['config-panel.set-is-empty-where-nothing-was-set'], moves: 'red', target: 'extension',
-    file: CONFIG_MODEL, find: "    if (kind === 'file' || kind === 'environment') {", replace: '    if (true) {',
-    says: 'a value the report attributes to the built-in defaults is drawn under Set as though the reader set it',
+    name: 'last-heading-drawn-silent', scenario: 'gateway-configuration-report', checks: ['config-panel.columns-read-in-order-under-visible-headings'], moves: 'red', target: 'extension',
+    file: CONFIG_RENDER, find: "const LAST_COLUMN = 'Description';", replace: "const LAST_COLUMN = '';",
+    says: 'the heading over the column of circles draws no words',
+  },
+  {
+    name: 'built-in-default-read-as-set', scenario: 'gateway-configuration-report', checks: ['config-panel.one-value-column-marked-where-not-the-declared-default'], moves: 'red', target: 'extension',
+    file: CONFIG_MODEL, find: "    if (kind === 'file' || kind === 'environment') {\n        return kind;", replace: "    if (true) {\n        return 'file';",
+    says: 'every value the report gives is marked as though a file set it, the built-in defaults among them',
+  },
+  {
+    name: 'none-drawn-as-nothing', scenario: 'gateway-configuration-report', checks: ['config-panel.none-where-no-value-is-in-force'], moves: 'red', target: 'extension',
+    file: CONFIG_RENDER, find: "const NONE = 'none';", replace: "const NONE = '';",
+    says: 'a setting with no value in force draws nothing in its value cell',
+  },
+  {
+    name: 'value-breaks-anywhere', scenario: 'gateway-configuration-report', checks: ['config-panel.no-value-breaks-inside-a-word'], moves: 'red', target: 'extension',
+    file: 'media/config.css', find: '.config-cell-takes {\n  overflow-wrap: normal;\n  word-break: keep-all;', replace: '.config-cell-takes {\n  overflow-wrap: normal;\n  word-break: break-all;',
+    says: 'a value, a source or a field name may break between any two characters, so it wraps in the middle of a word',
   },
   {
     name: 'circle-hover-names-its-control', scenario: 'gateway-configuration-report', checks: ['config-panel.each-description-is-the-schemas-own-sentence'], moves: 'red', target: 'extension',
@@ -2442,18 +2479,40 @@ export const PLANTS: readonly Plant[] = [
   },
   {
     name: 'reach-note-labelled-machine-wide', scenario: 'gateway-configuration-report', checks: ['config-panel.reach-note-on-the-machine-wide-settings-alone'], moves: 'red', target: 'extension',
-    file: CONFIG_RENDER, find: '`Global: ${row.scope.evidence}`', replace: '`Machine-wide: ${row.scope.evidence}`',
+    file: CONFIG_RENDER, find: '`${GLOBAL}: ${row.scope.evidence}`', replace: '`Machine-wide: ${row.scope.evidence}`',
     says: 'the reach note opens with the label "Machine-wide:"',
   },
   {
-    name: 'every-word-of-a-label-capitalised', scenario: 'gateway-configuration-report', checks: ['config-panel.labels-are-each-key-in-words'], moves: 'red', target: 'extension',
-    file: CONFIG_SCHEMA, find: "    return [first.charAt(0).toUpperCase() + first.slice(1), ...rest].join(' ');", replace: "    return [first, ...rest].map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');",
+    name: 'descriptions-drawn-with-their-backticks', scenario: 'gateway-configuration-report', checks: ['config-panel.descriptions-draw-their-code-as-code'], moves: 'red', target: 'extension',
+    file: CONFIG_RENDER,
+    find: "    return codeSpans(sentence).map((s) => (s.code ? `<code>${(0, html_1.escapeHtml)(s.text)}</code>` : (0, html_1.escapeHtml)(s.text))).join('');",
+    replace: '    return (0, html_1.escapeHtml)(sentence);',
+    says: 'a schema sentence is drawn with its backticks as written, its code drawn as plain text',
+  },
+  {
+    name: 'global-marker-left-off-the-table', scenario: 'gateway-configuration-report', checks: ['config-panel.global-marker-on-the-machine-wide-rows-and-its-rule-at-the-head'], moves: 'red', target: 'extension',
+    file: CONFIG_RENDER, find: "    if (row.scope.reach !== 'machine') {", replace: '    if (true) {',
+    says: 'no row of the table carries the Global marker, the machine-wide ones included',
+  },
+  {
+    name: 'every-word-of-a-label-capitalised', scenario: 'gateway-configuration-report', checks: ['config-panel.names-derived-from-the-keys-read-apart'], moves: 'red', target: 'extension',
+    file: CONFIG_SCHEMA, find: '    words[0] = words[0].charAt(0).toUpperCase() + words[0].slice(1);', replace: '    words.forEach((w, i) => { words[i] = w.charAt(0).toUpperCase() + w.slice(1); });',
     says: 'every word of a setting\'s derived name is capitalised',
   },
   {
-    name: 'declared-default-drawn-bare', scenario: 'gateway-configuration-report', checks: ['config-panel.uncovered-settings-read-their-declared-default-and-no-source'], moves: 'red', target: 'extension',
-    file: CONFIG_RENDER, find: '            return `${renderDefault(effective.value)} (declared default)`;', replace: '            return renderDefault(effective.value);',
-    says: 'a declared default is drawn under Effective as a bare value, as though the compiler had reported it',
+    name: 'acronym-spelled-as-the-key-writes-it', scenario: 'gateway-configuration-report', checks: ['config-panel.names-derived-from-the-keys-read-apart'], moves: 'red', target: 'extension',
+    file: CONFIG_SCHEMA, find: "    ['yaml', 'YAML'],", replace: "    ['yaml', 'yaml'],",
+    says: 'yaml is spelled in a name as the key writes it, so build.yaml_indent reads "Yaml indent"',
+  },
+  {
+    name: 'names-left-to-read-alike', scenario: 'gateway-configuration-report', checks: ['config-panel.names-derived-from-the-keys-read-apart'], moves: 'red', target: 'extension',
+    file: CONFIG_MODEL, find: '    (0, config_schema_1.distinctNames)(all.map((row) => row.control.path)).forEach((name, i) => { all[i].name = name; });', replace: '    all.forEach((row) => { row.name = row.control.label; });',
+    says: 'each row is named from its own key alone, so two settings whose keys end alike read the same',
+  },
+  {
+    name: 'companion-drawn-as-a-row-of-its-own', scenario: 'gateway-configuration-report', checks: ['config-panel.companion-set-in-the-folders-file-reads-on-its-lists-row'], moves: 'red', target: 'extension',
+    file: CONFIG_MODEL, find: '        if (!key.endsWith(COMPANION_SUFFIX)) {', replace: '        if (true) {',
+    says: 'no companion is folded into its list\'s row, so each is drawn as a row of its own the report says nothing about',
   },
   {
     name: 'shape-forgotten-on-close', scenario: 'gateway-configuration-report', checks: ['config-panel.reopens-in-the-shape-it-was-left-in'], moves: 'red', target: 'extension',

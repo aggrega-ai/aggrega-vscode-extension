@@ -153,7 +153,15 @@ body {
   margin: 0 0 0.5rem;
 }
 
-.config-table th {
+/* The caption box is as wide as the table, and the table is wider than a docked
+   panel, so its words are held to the panel's own width — less the page's
+   margins on either side — and wrap there rather than running past its edge. */
+.config-caption {
+  display: block;
+  max-width: min(100%, calc(100vw - 4rem));
+}
+
+.config-table thead th {
   text-align: left;
   font-weight: 600;
   padding: 0.4rem 0.5rem;
@@ -168,10 +176,23 @@ body {
   z-index: 2;
 }
 
-.config-table td {
+.config-table td,
+.config-table tbody th {
+  text-align: left;
+  font-weight: normal;
   padding: 0.4rem 0.5rem;
   border-bottom: 1px solid var(--vscode-panel-border);
   vertical-align: top;
+}
+
+/* A group's heading row opens the rows of that group: its path under the
+   Setting column, its name beside it, set apart from the row above by room and
+   weight rather than by a ground of its own, so the held Setting column, which
+   paints the page's own ground, reads as part of the same band. */
+.config-group-row > th,
+.config-group-row > td {
+  padding-top: 0.9rem;
+  font-weight: 600;
 }
 
 /* The setting's own key stays put while a reader scrolls SIDEWAYS, for the same
@@ -185,28 +206,44 @@ body {
    panel too narrow for the table. And it is held to a measure of its own: a
    setting path is long, so left to its content this column alone would be wider
    than the panel and there would be nothing beside it to hold in view. Being
-   held to a measure, the path wraps within the column instead. */
+   held to a measure, the path wraps within the column instead, at the places the
+   document marks after each `_` and `.`; the measure is wider than the longest
+   run between two of them, so no path has to break anywhere else. A group's
+   heading cell stands in the same column and is held with it. */
 .config-table th:first-child,
 .config-table td:first-child {
   position: sticky;
   left: 0;
   /* min-width, and deliberately not width or max-width: a table laid out from
-     its content treats those two as suggestions and collapses the column to a
-     single character when the path can break anywhere, which is a column that
-     fits and cannot be read. */
+     its content treats those two as suggestions and sizes the column to its
+     longest unbroken run, which for a path breaking only at its own separators
+     is a column narrower than the measure a long path reads well at. */
   min-width: var(--config-key-measure);
-  overflow-wrap: anywhere;
   background: var(--vscode-editor-background);
+}
+
+/* A setting path breaks only after `_` or `.`, where the document marks a place
+   to break, and never inside a word: a break in the middle of "registry" is the
+   worst kind for an identifier a reader reads and then types. */
+.config-path {
+  overflow-wrap: normal;
+  word-break: keep-all;
+}
+
+/* A companion folded into a list's row is named under the list's own path. */
+.config-companion {
+  display: block;
+  color: var(--vscode-descriptionForeground);
 }
 
 /* The rows travel under the key column, and the key column travels under the
    header — so the cell in the corner, which stays put in both directions at
    once, sits above both. */
-.config-table td:first-child {
+.config-table tbody > tr > :first-child {
   z-index: 1;
 }
 
-.config-table th:first-child {
+.config-table thead th:first-child {
   z-index: 3;
 }
 
@@ -235,24 +272,53 @@ body {
   overflow: hidden;
 }
 
+/* A value, a file path or a declared field name wraps where the document marks
+   a place to break — after each `/`, `.` and `_` — and at a space, and nowhere
+   else, so a long entry costs its own row some height rather than costing every
+   row the width, and no word is cut in two. A column is never narrower than the
+   longest run between two such places. */
+.config-cell-value,
+.config-cell-source,
+.config-cell-takes {
+  overflow-wrap: normal;
+  word-break: keep-all;
+}
+
 .config-cell-path code,
 .config-cell-value {
   font-family: var(--vscode-editor-font-family);
 }
 
 .config-cell-source,
-.config-cell-takes {
+.config-cell-takes,
+.config-group-name {
   color: var(--vscode-descriptionForeground);
 }
 
-/* A value, a file path or a declared field name is a single unbroken run of
-   characters, and a column sized to the longest of them is as wide as the
-   longest thing any setting happens to carry. These wrap instead, so a long
-   entry costs its own row some height rather than costing every row the width. */
-.config-cell-value,
-.config-cell-source,
-.config-cell-takes {
-  overflow-wrap: anywhere;
+/* The mark beside a value that is not its declared default, in the colour the
+   editor marks a changed setting with on its own settings page. */
+.config-mark {
+  color: var(--vscode-settings-modifiedItemIndicator, var(--vscode-textLink-foreground));
+  margin-right: 0.35em;
+}
+
+/* "none" reads as the answer it is rather than as a value a setting could hold. */
+.config-none {
+  color: var(--vscode-descriptionForeground);
+  font-style: italic;
+}
+
+/* The one word marking a setting that belongs to the machine rather than to one
+   project, drawn as the note it stands for is in the per-setting shape. */
+.config-global {
+  display: inline-block;
+  margin-left: 0.35em;
+  padding: 0 0.3em;
+  border-radius: 3px;
+  font-size: 0.85rem;
+  color: var(--vscode-inputValidation-warningForeground, var(--vscode-foreground));
+  background: var(--vscode-inputValidation-warningBackground);
+  border: 1px solid var(--vscode-inputValidation-warningBorder);
 }
 
 /* The affordance carrying a setting's own description: a small circle a reader
@@ -290,10 +356,24 @@ body {
    column, less the room the cell's own edges take. In an editor pane, where the
    panel is wide, the measure a paragraph reads well at is the smaller of the two
    and the reader sees that instead. */
-.config-info > .config-description {
+.config-info > p {
   width: min(24rem, calc(100vw - var(--config-key-measure) - 2rem));
   overflow-wrap: anywhere;
   margin: 0.4rem 0 0;
+}
+
+/* What the report gives for a list and the companion folded into it. */
+.config-fold {
+  color: var(--vscode-descriptionForeground);
+  line-height: 1.5;
+}
+
+/* The rule for the Global marker, stated once at the head of the per-setting
+   shape. */
+.config-reach-rule {
+  color: var(--vscode-descriptionForeground);
+  line-height: 1.5;
+  margin: 0 0 1rem;
 }
 
 /* Text carried for a reader using a screen reader and drawn for nobody else. It

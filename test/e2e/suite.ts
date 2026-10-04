@@ -57,7 +57,7 @@ import { CONFIGURED_PLUGINS_CHECKS, configuredPluginsChecks } from './suite-conf
 import { Generation, INSPECTION_BY_NAME_CHECKS, inspectionByNameChecks, LIST_PANEL_OPERATIONS_CHECKS, listPanelOperationsChecks, nameDefaultOnly, placeGeneration } from './suite-list-panels';
 import {
   CONFIGURATION_FROM_THE_ENVIRONMENT_CHECKS, CONFIGURATION_REPORT_CHECKS, configurationFromTheEnvironmentChecks, configurationReportChecks, NOTHING_CONFIGURED_CHECKS,
-  nothingConfiguredChecks, OFFLINE, OFFLINE_IN_THE_ENVIRONMENT, proveNoGlobalFile, proveNothingSetIn,
+  nothingConfiguredChecks, OFFLINE, OFFLINE_IN_THE_ENVIRONMENT, proveNoGlobalFile, proveNothingSetIn, setListThroughItsCompanion,
 } from './suite-configuration-report';
 import { YML_RELEASE } from './suite-discovery';
 
@@ -752,6 +752,7 @@ function plans(inputs: Inputs): ScenarioPlan[] {
         const notABinary = path.join(root.dir, 'not-a-compiler', 'aggrega');
         const fixtures = [
           placeFolder(inputs.extension.dir, 'gateway', folder, inputs.catalog.dir),
+          setListThroughItsCompanion(folder),
           await writeLockfile(bin, folder, RELEASE, home, log),
           proveNothingAbove(folder),
           proveNoGlobalFile(home),

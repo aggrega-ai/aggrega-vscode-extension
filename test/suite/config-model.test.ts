@@ -4,15 +4,18 @@
 import * as assert from 'node:assert';
 
 import {
+  ConfigRow,
   DEFAULTS_SOURCE,
   configPanelModel,
   describeProvenance,
+  everyRow,
   provenanceOf,
   readEffectiveConfiguration,
+  valueMark,
 } from '../../src/config-model';
 import { configScope } from '../../src/config-scope';
 import { ConfigControl } from '../../src/config-schema';
-import { configPanelBodyHtml, coverageSentence, valueSentence } from '../../src/config-render';
+import { configPanelBodyHtml, configTableHtml, coverageSentence, foldSentence, valueSentence } from '../../src/config-render';
 
 // A schema fixture carrying one attributed setting, one unattributed one, and one
 // whose reach the product states — the three cases the surface says different
@@ -129,21 +132,41 @@ describe('joining a schema against what the compiler resolved', () => {
     );
   });
 
-  it('says how much of the configuration the report covers', () => {
-    const model = configPanelModel(SCHEMA, {
+  it('names each setting the report leaves unattributed, and draws no sentence where it leaves none', () => {
+    const some = configPanelModel(SCHEMA, {
       layers: [],
-      settings: [{ field: 'offline', value: 'true', source: DEFAULTS_SOURCE }],
+      settings: [
+        { field: 'offline', value: 'true', source: DEFAULTS_SOURCE },
+        { field: 'compiled_module_cache.max_bytes', value: '1024', source: DEFAULTS_SOURCE },
+      ],
     });
-    assert.strictEqual(model.attributed, 1);
-    assert.ok(model.drawn > 1, 'the page draws no more settings than the report attributes');
-    // The sentence is composed from the counts rather than written, so it stays
-    // true as either moves.
-    const sentence = coverageSentence(model);
-    assert.ok(sentence.includes(`${model.attributed} of the ${model.drawn}`), sentence);
+    assert.strictEqual(some.attributed, 2);
     // The count counts ROWS, and a row is what a reader can count back. Every
     // row the model carries is included, at every group depth.
-    const rows = [...model.rows, ...model.sections.flatMap((s) => s.rows)];
-    assert.strictEqual(model.drawn, rows.length, 'the stated count is not the number of rows drawn');
+    assert.strictEqual(some.drawn, everyRow(some).length, 'the stated count is not the number of rows drawn');
+    // Named, rather than counted, so the reader is told what is missing.
+    assert.strictEqual(
+      coverageSentence(some),
+      'The configuration report carries no row for artifact_cache_dir and registries, so each is shown with its declared default and no source.',
+    );
+    const one = configPanelModel(SCHEMA, {
+      layers: [],
+      settings: ['offline', 'compiled_module_cache.max_bytes', 'registries'].map((field) => ({ field, value: 'x', source: DEFAULTS_SOURCE })),
+    });
+    assert.strictEqual(
+      coverageSentence(one),
+      'The configuration report carries no row for artifact_cache_dir, so it is shown with its declared default and no source.',
+    );
+    const all = configPanelModel(SCHEMA, {
+      layers: [],
+      settings: ['offline', 'artifact_cache_dir', 'compiled_module_cache.max_bytes', 'registries'].map((field) => ({ field, value: 'x', source: DEFAULTS_SOURCE })),
+    });
+    assert.strictEqual(coverageSentence(all), null, 'a sentence is drawn where the report attributes every row');
+    assert.ok(!configPanelBodyHtml(all, 'table').includes('carries no row'), 'the page warns of nothing missing');
+    assert.strictEqual(
+      coverageSentence(configPanelModel(SCHEMA, null)),
+      'The configuration report attributes none of the settings shown here, so each is shown with its declared default and no source.',
+    );
   });
 
   it('draws no row for a reported setting the schema does not declare', () => {
@@ -166,6 +189,147 @@ describe('joining a schema against what the compiler resolved', () => {
     for (const row of [...model.rows, ...model.sections.flatMap((s) => s.rows)]) {
       assert.deepStrictEqual(row.provenance, { kind: 'unattributed' });
     }
+  });
+});
+
+describe('a list and the companion that adds to it', () => {
+  // The shapes the configuration schema gives a list and its additive companion:
+  // a list of text entries in one group, a list of entries in another, and a
+  // companion whose list the group does not declare.
+  const FOLDED = {
+    type: 'object',
+    properties: {
+      workspace: {
+        type: 'object',
+        description: 'the workspace root',
+        properties: {
+          catalog_dirs: { type: 'array', items: { type: 'string' }, description: 'the catalog directories' },
+          catalog_dirs_append: { type: 'array', items: { type: 'string' }, description: 'directories added to `catalog_dirs`' },
+        },
+      },
+      plugins: {
+        type: 'object',
+        description: 'plugin attachments',
+        properties: {
+          governance: { type: 'array', items: { type: 'object', properties: { uri: { type: 'string', description: 'where' } } }, default: [], description: 'governance plugins' },
+          governance_append: { type: 'array', items: { type: 'object', properties: { uri: { type: 'string', description: 'where' } } }, default: [], description: 'governance plugins added' },
+          orphan_append: { type: 'array', items: { type: 'string' }, description: 'a companion with no list beside it' },
+        },
+      },
+    },
+  };
+  const FILE = '/ws/.aggrega-config.yaml';
+  // What the compiler's report gives for a folder whose file sets only the
+  // companion: the list's row, naming the file, and no row for the companion.
+  const REPORT = {
+    layers: [FILE],
+    settings: [
+      { field: 'workspace.catalog_dirs', value: '[/ws/catalog-b]', source: FILE },
+      { field: 'plugins.governance', value: '[]', source: DEFAULTS_SOURCE },
+      { field: 'plugins.orphan_append', value: '[]', source: DEFAULTS_SOURCE },
+    ],
+  };
+  const paths = (rows: ConfigRow[]): string[] => rows.map((r) => r.control.path.join('.'));
+  const controlPaths = (controls: ConfigControl[]): string[] => controls.map((c) => c.path.join('.'));
+
+  it('folds a companion into its list\'s row, which carries the report\'s value and source for the two', () => {
+    const model = configPanelModel(FOLDED, REPORT);
+    const rows = everyRow(model);
+    assert.deepStrictEqual(paths(rows), ['workspace.catalog_dirs', 'plugins.governance', 'plugins.orphan_append']);
+    const list = rows[0];
+    assert.deepStrictEqual(controlPaths(list.companions), ['workspace.catalog_dirs_append']);
+    assert.strictEqual(list.value, '[/ws/catalog-b]');
+    assert.deepStrictEqual(list.provenance, { kind: 'file', path: FILE });
+    assert.deepStrictEqual(controlPaths(rows[1].companions), ['plugins.governance_append']);
+    // A companion with no list beside it in its group is a row of its own.
+    assert.deepStrictEqual(rows[2].companions, []);
+    // So no row claims "not reported" for a setting the report accounts for.
+    assert.strictEqual(model.drawn, 3);
+    assert.strictEqual(model.attributed, 3);
+    assert.strictEqual(coverageSentence(model), null);
+  });
+
+  it('says what the report gives for the two, and no more', () => {
+    const list = everyRow(configPanelModel(FOLDED, REPORT))[0];
+    assert.strictEqual(
+      foldSentence(list),
+      'The configuration report gives this list and workspace.catalog_dirs_append as one value, holding the entries of both under one source; it does not say which of them workspace.catalog_dirs_append added.',
+    );
+    const table = configTableHtml(configPanelModel(FOLDED, REPORT));
+    assert.ok(table.includes('<span class="config-companion">+ <code class="config-path">workspace.<wbr>catalog_<wbr>dirs_<wbr>append</code></span>'), 'the table names no companion on its list\'s row');
+    assert.ok(table.includes(foldSentence(list)), 'the table does not say what the report gives for the two');
+    const expanded = configPanelBodyHtml(configPanelModel(FOLDED, REPORT), 'expanded');
+    assert.ok(expanded.includes('<dt><code>workspace.catalog_dirs_append</code></dt>'), 'the per-setting shape names no companion beside its list');
+    assert.ok(expanded.includes(foldSentence(list)), 'the per-setting shape does not say what the report gives for the two');
+  });
+
+  it('draws a companion the report gives a row of its own on that row', () => {
+    const model = configPanelModel(FOLDED, {
+      layers: [FILE],
+      settings: [
+        ...REPORT.settings,
+        { field: 'workspace.catalog_dirs_append', value: '[/ws/catalog-b]', source: FILE },
+      ],
+    });
+    const rows = everyRow(model);
+    assert.ok(paths(rows).includes('workspace.catalog_dirs_append'), 'a companion the report attributes is hidden in its list');
+    assert.deepStrictEqual(rows[0].companions, []);
+  });
+
+  it('folds every companion when no report could be read, since none can name one', () => {
+    const rows = everyRow(configPanelModel(FOLDED, null));
+    assert.deepStrictEqual(paths(rows), ['workspace.catalog_dirs', 'plugins.governance', 'plugins.orphan_append']);
+  });
+});
+
+describe('the mark on a value that is not its declared default', () => {
+  const row = (over: Partial<ConfigRow>, control: Partial<ConfigControl> = {}): ConfigRow => ({
+    control: { path: ['setting'], label: 'Setting', description: 'a setting', kind: 'text', hasDefault: true, defaultValue: 'hub', ...control },
+    name: 'Setting',
+    companions: [],
+    value: 'hub',
+    provenance: { kind: 'defaults' },
+    scope: { reach: 'unclassified', evidence: '' },
+    ...over,
+  });
+
+  it('marks a value a file or the environment set, whatever it is', () => {
+    assert.strictEqual(valueMark(row({ provenance: { kind: 'file', path: '/ws/f.yaml' } })), 'file');
+    assert.strictEqual(valueMark(row({ provenance: { kind: 'environment', variable: 'X' } })), 'environment');
+  });
+
+  it('marks a built-in value only where it is not the declared default', () => {
+    assert.strictEqual(valueMark(row({})), null, 'the declared default, at the built-in defaults, is marked');
+    assert.strictEqual(valueMark(row({ value: 'elsewhere' })), 'not-the-default');
+    assert.strictEqual(valueMark(row({ value: 'false' }, { kind: 'toggle', defaultValue: false })), null);
+    assert.strictEqual(valueMark(row({ value: '4' }, { kind: 'number', defaultValue: 4 })), null);
+    assert.strictEqual(valueMark(row({ value: '[]' }, { kind: 'text-list', defaultValue: [] })), null);
+    assert.strictEqual(valueMark(row({ value: '[a]' }, { kind: 'text-list', defaultValue: [] })), 'not-the-default');
+    // No declared default is nothing a value can differ from.
+    assert.strictEqual(valueMark(row({ value: '' }, { hasDefault: false, defaultValue: undefined })), null);
+  });
+
+  it('never marks a setting the report does not attribute', () => {
+    assert.strictEqual(valueMark(row({ value: undefined, provenance: { kind: 'unattributed' } })), null);
+  });
+});
+
+describe('the names the rows of a page carry', () => {
+  it('adds the group where two rows would read alike', () => {
+    const model = configPanelModel({
+      type: 'object',
+      properties: {
+        parse_cache: { type: 'object', description: 'p', properties: { max_bytes: { type: 'integer', description: 'cap' } } },
+        compiled_module_cache: { type: 'object', description: 'c', properties: { max_bytes: { type: 'integer', description: 'cap' } } },
+        build: { type: 'object', description: 'b', properties: { yaml_indent: { type: 'integer', description: 'indent' } } },
+      },
+    }, null);
+    assert.deepStrictEqual(
+      everyRow(model).map((r) => r.name),
+      ['Parse cache max bytes', 'Compiled module cache max bytes', 'YAML indent'],
+    );
+    const html = configPanelBodyHtml(model, 'expanded');
+    assert.ok(html.includes('<p class="config-label">Parse cache max bytes</p>'), 'the per-setting shape draws another name');
   });
 });
 

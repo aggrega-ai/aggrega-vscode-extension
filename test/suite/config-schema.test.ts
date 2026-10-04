@@ -8,6 +8,7 @@ import {
   ConfigSection,
   ITEM_MARKER,
   configSurface,
+  distinctNames,
   dottedPath,
   everyControl,
   labelFor,
@@ -100,13 +101,24 @@ const FIXTURE = {
 // is what makes the assertion capable of failing.
 //
 // It is deliberately NOT exported and deliberately NOT unified with the source's
-// version: unifying them would restore exactly the blindness above.
+// version: unifying them would restore exactly the blindness above. The words it
+// spells otherwise than the key writes them are written out here too, apart from
+// the source's own spellings, for the same reason.
+const SPELLED: Record<string, string> = {
+  ai: 'AI', cli: 'CLI', id: 'ID', jwks: 'JWKS', mcp: 'MCP', tls: 'TLS', url: 'URL', yaml: 'YAML',
+};
+
 function expectedLabel(key: string): string {
   const words = key.split('_').filter((w) => w.length > 0);
   if (words.length === 0) { return key; }
-  return words
-    .map((word, i) => (i === 0 ? word.charAt(0).toUpperCase() + word.slice(1) : word))
-    .join(' ');
+  let name = '';
+  words.forEach((word, i) => {
+    const spelled = Object.hasOwn(SPELLED, word) ? SPELLED[word] : word;
+    const shown = i === 0 ? spelled.charAt(0).toUpperCase() + spelled.slice(1) : spelled;
+    // `x` is a prefix: the word after it joins it with a hyphen.
+    name = i === 0 ? shown : words[i - 1] === 'x' ? `${name}-${shown}` : `${name} ${shown}`;
+  });
+  return name;
 }
 
 // paths spells every control on a surface, so an assertion can name what it
@@ -271,6 +283,8 @@ describe('the configuration surface generated from a schema', () => {
       'offline', 'auto_pull', 'default_registry', 'parse_cache', 'max_bytes',
       'allow_dynamic_refs', 'skip_signature_verification', 'a_flag', 'host',
       'trusted_identities', 'compiled_module_cache', 'halt_on_deprecated_severity',
+      'yaml_indent', 'cli', 'jwks_file', 'fulcio_url', 'allow_aggrega_ai_prefix',
+      'allow_direct_x_aggrega_extensions', 'allow_id_overrides', 'mcp', 'tls', 'x_first',
       '', 'x', 'a__b',
     ];
     for (const key of keys) {
@@ -291,6 +305,72 @@ describe('the configuration surface generated from a schema', () => {
     // A key it cannot split comes back unchanged rather than blank: a control
     // with no label at all is worse than one labelled with its own key.
     assert.strictEqual(labelFor(''), '');
+  });
+
+  it('spells an acronym in capitals and joins a prefix to the word after it, by the word and never by the setting', () => {
+    // Each written out here, so a spelling dropped from the source or added for
+    // one setting alone is refused rather than followed.
+    const spelled: [string, string][] = [
+      ['yaml_indent', 'YAML indent'],
+      ['cli', 'CLI'],
+      ['jwks_file', 'JWKS file'],
+      ['fulcio_url', 'Fulcio URL'],
+      ['allow_aggrega_ai_prefix', 'Allow aggrega AI prefix'],
+      ['allow_direct_x_aggrega_extensions', 'Allow direct x-aggrega extensions'],
+      ['allow_id_overrides', 'Allow ID overrides'],
+      ['mcp', 'MCP'],
+      ['tls', 'TLS'],
+      // A prefix with no word after it is spelled as the key writes it.
+      ['x', 'X'],
+    ];
+    for (const [key, name] of spelled) {
+      assert.strictEqual(labelFor(key), name, `the name derived from ${key}`);
+    }
+  });
+
+  it('adds the group a setting sits in where two names would read alike, and only there', () => {
+    assert.deepStrictEqual(
+      distinctNames([
+        ['parse_cache', 'max_bytes'],
+        ['compiled_module_cache', 'max_bytes'],
+        ['mcp', 'listen'],
+        ['mcp', 'health', 'listen'],
+        ['mcp', 'transport'],
+        ['offline'],
+        ['build', 'yaml_indent'],
+      ]),
+      [
+        'Parse cache max bytes',
+        'Compiled module cache max bytes',
+        'MCP listen',
+        'Health listen',
+        'Transport',
+        'Offline',
+        'YAML indent',
+      ],
+    );
+  });
+
+  it('reaches further out while names still collide, and leaves a top-level setting its own words', () => {
+    assert.deepStrictEqual(
+      distinctNames([
+        ['a', 'inner', 'cap'],
+        ['b', 'inner', 'cap'],
+        ['cap'],
+      ]),
+      ['A inner cap', 'B inner cap', 'Cap'],
+    );
+  });
+
+  it('gives no two settings of a page the same name where their paths allow it', () => {
+    const paths = [
+      ['registries'], ['workspace', 'releases'], ['signing', 'required'], ['signing', 'kinds'],
+      ['mcp', 'authorization', 'issuer'], ['mcp', 'authorization', 'resource'],
+      ['parse_cache', 'max_entries'], ['parse_cache', 'max_bytes'], ['compiled_module_cache', 'max_bytes'],
+      ['mcp', 'listen'], ['mcp', 'health', 'listen'], ['plugins', 'cli'],
+    ];
+    const names = distinctNames(paths);
+    assert.strictEqual(new Set(names).size, names.length, `names drawn twice: ${JSON.stringify(names)}`);
   });
 
   // 🔴 CLAUSE (b) OF THE ACCEPTANCE, PROVEN: a property added to the schema

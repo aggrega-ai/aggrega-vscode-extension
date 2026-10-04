@@ -5,14 +5,14 @@
 // compiler resolved: each setting drawn from the schema, carrying the value in
 // force and the file that produced it where the compiler can say so.
 //
-// 🔴 THE COMPILER'S ATTRIBUTION IS NARROWER THAN THE SCHEMA, AND IT SAYS SO AS A
-// CONTRACT: a setting can be real, documented and carry a default while appearing
-// nowhere in the attribution. So a control with nothing to attribute is the
-// ORDINARY case here, not a fault, and this module draws it as what it is — the
-// declared default, and no claim about a source. A surface that implied a source
-// it did not have would be worse than one admitting the gap, because a reader
-// acting on an invented source would go looking in a file that never mentioned
-// the setting.
+// 🔴 THE COMPILER'S REPORT DOES NOT CARRY A ROW FOR EVERY SETTING. It accounts for
+// a list's additive companion on the list's own row, which this module mirrors by
+// folding the companion into that row; and a report that could not be read, or
+// one that names a setting nowhere, leaves a control with nothing to attribute.
+// Such a control is drawn as what it is — the declared default, and no claim
+// about a source. A surface that implied a source it did not have would be worse
+// than one admitting the gap, because a reader acting on an invented source would
+// go looking in a file that never mentioned the setting.
 //
 // It holds no editor type, so the join is assertable without an extension host.
 
@@ -21,7 +21,9 @@ import {
   ConfigControl,
   ConfigSection,
   ConfigSurface,
+  ControlKind,
   configSurface,
+  distinctNames,
   dottedPath,
 } from './config-schema';
 import { ConfigScope, configScope } from './config-scope';
@@ -55,10 +57,21 @@ export type Provenance =
   | { readonly kind: 'defaults' }
   | { readonly kind: 'unattributed' };
 
-// ConfigRow is one drawn control: its declaration, what is in force, where that
-// came from, and how far a change to it would reach.
+// ConfigRow is one drawn control: its declaration, the name it is drawn with, the
+// settings folded into it, what is in force, where that came from, and how far a
+// change to it would reach.
 export interface ConfigRow {
   control: ConfigControl;
+  // name is what the row calls the setting: derived from its key, with the key of
+  // the group it sits in ahead of it where another row's would read the same.
+  // It is decided over every row of the page at once, because whether a name
+  // collides is a property of the page rather than of one setting.
+  name: string;
+  // companions are the settings that add to this one rather than having a row of
+  // their own: a list's additive companion, whose entries the compiler's report
+  // gives as part of this list's value and under this list's source. Empty for
+  // every other row.
+  companions: ConfigControl[];
   // value is the effective value the compiler reported, as it reported it. It is
   // absent for an unattributed setting, whose effective value the compiler does
   // not report — the declared default is what the surface has, and it is on the
@@ -80,15 +93,15 @@ export interface ConfigSectionRows {
 // ConfigPanelModel is the whole surface, ready to draw.
 //
 // drawn and attributed are carried because the difference between them is
-// something the reader is told rather than something the surface hides: it is the
-// measure of how much of the configuration the compiler's report covers.
+// something the reader is told rather than something the surface hides: where the
+// two differ, the page names the settings the compiler's report leaves
+// unattributed.
 //
 // drawn counts the ROWS on the page, which is deliberately not the same as the
 // number of declarations the schema carries: a list of entries is one row naming
-// the fields an entry has, because there is no entry yet to draw a field of. The
-// count is named for what it counts, so the sentence composed from it says
-// something the reader can check against what is in front of them rather than
-// something they would have to walk the schema to verify.
+// the fields an entry has, because there is no entry yet to draw a field of, and
+// a list's additive companion is named on its list's row rather than drawn as a
+// row of its own.
 export interface ConfigPanelModel {
   layers: string[];
   rows: ConfigRow[];
@@ -104,6 +117,13 @@ export interface ConfigPanelModel {
 // the schema is the statement of what configuration is, and a row with no
 // declaration would have no label, no description and no bounds — so it would be
 // a name and a value with nothing to tell the reader what either means.
+//
+// 🔴 A LIST'S ADDITIVE COMPANION IS FOLDED INTO THE LIST'S ROW, AS THE REPORT
+// FOLDS IT. The report gives a list and its companion as one value under one
+// source and carries no row for the companion, so a row of the companion's own
+// could only say "not reported" and the declared default — untrue the moment a
+// file sets it. The companion is named on its list's row instead, which is where
+// the report states what it contributed.
 export function configPanelModel(
   schema: unknown,
   effective: EffectiveConfiguration | null,
@@ -114,39 +134,83 @@ export function configPanelModel(
     if (typeof setting?.field === 'string') { reported.set(setting.field, setting); }
   }
 
-  let drawn = 0;
-  let attributed = 0;
-
-  const rowFor = (control: ConfigControl): ConfigRow => {
-    drawn += 1;
+  const rowFor = (control: ConfigControl, companions: ConfigControl[]): ConfigRow => {
     const setting = reported.get(dottedPath(control.path));
-    if (setting) { attributed += 1; }
     return {
       control,
+      name: control.label,
+      companions,
       ...(setting ? { value: setting.value } : {}),
       provenance: provenanceOf(setting),
       scope: configScope(control),
     };
   };
 
+  // rowsFor draws one group's own controls, each companion folded into its list.
+  const rowsFor = (controls: ConfigControl[]): ConfigRow[] => {
+    const folded = companionsAmong(controls, reported);
+    const into = new Set([...folded.values()].flat());
+    return controls.filter((c) => !into.has(c)).map((c) => rowFor(c, folded.get(c) ?? []));
+  };
+
   const sectionFor = (section: ConfigSection): ConfigSectionRows => ({
     path: section.path,
     label: section.label,
     description: section.description,
-    rows: section.controls.map(rowFor),
+    rows: rowsFor(section.controls),
     sections: section.sections.map(sectionFor),
   });
 
-  const rows = surface.controls.map(rowFor);
-  const sections = surface.sections.map(sectionFor);
-
-  return {
+  const model: ConfigPanelModel = {
     layers: effective?.layers ?? [],
-    rows,
-    sections,
-    drawn,
-    attributed,
+    rows: rowsFor(surface.controls),
+    sections: surface.sections.map(sectionFor),
+    drawn: 0,
+    attributed: 0,
   };
+  const all = everyRow(model);
+  distinctNames(all.map((row) => row.control.path)).forEach((name, i) => { all[i].name = name; });
+  model.drawn = all.length;
+  model.attributed = all.filter((row) => reported.has(dottedPath(row.control.path))).length;
+  return model;
+}
+
+// COMPANION_SUFFIX ends the key of a list's additive companion:
+// `catalog_dirs_append` beside `catalog_dirs` adds entries to that list rather
+// than replacing it.
+//
+// 🔴 THIS IS A RECORDED NEAR-DUPLICATE, AND IT IS FORCED RATHER THAN CHOSEN. The
+// configuration schema carries no machine-readable statement that one setting
+// adds to another, so the pairing cannot be read off a declaration; it is the
+// configuration language's own naming convention, and the compiler's report
+// applies that same convention when it folds a companion into its list. What
+// keeps the restatement honest is the last condition in companionsAmong: a
+// companion the report gives a row of its own is drawn on that row, so the fold
+// can never hide an attribution the report makes.
+const COMPANION_SUFFIX = '_append';
+
+// LIST_KINDS are the shapes a list and its companion both take.
+const LIST_KINDS: ReadonlySet<ControlKind> = new Set<ControlKind>(['text-list', 'collection', 'map']);
+
+// companionsAmong pairs each list among one group's controls with the companions
+// that add to it: a list whose key is another list's key followed by
+// COMPANION_SUFFIX, in the same group, that the report carries no row for.
+function companionsAmong(
+  controls: ConfigControl[],
+  reported: ReadonlyMap<string, EffectiveSetting>,
+): Map<ConfigControl, ConfigControl[]> {
+  const keyOf = (c: ConfigControl): string => c.path[c.path.length - 1];
+  const byKey = new Map(controls.map((c) => [keyOf(c), c]));
+  const folded = new Map<ConfigControl, ConfigControl[]>();
+  for (const companion of controls) {
+    const key = keyOf(companion);
+    if (!key.endsWith(COMPANION_SUFFIX)) { continue; }
+    const list = byKey.get(key.slice(0, -COMPANION_SUFFIX.length));
+    if (list === undefined || !LIST_KINDS.has(list.kind) || !LIST_KINDS.has(companion.kind)) { continue; }
+    if (reported.has(dottedPath(companion.path))) { continue; }
+    folded.set(list, [...(folded.get(list) ?? []), companion]);
+  }
+  return folded;
 }
 
 // provenanceOf reads what the compiler said about one setting's origin.
@@ -261,29 +325,54 @@ export function effectiveValue(row: ConfigRow): EffectiveValue {
   return { kind: 'none' };
 }
 
-// setValue is the value a reader themselves put in force, or nothing.
+// ValueMark is why a value in force is marked as other than the declared
+// default: a file or the environment set it, or the report gives a value the
+// schema does not declare as the default.
+export type ValueMark = 'file' | 'environment' | 'not-the-default';
+
+// valueMark decides whether a value in force is marked, and why, for every
+// presentation that marks one.
 //
 // 🔴 A BUILT-IN DEFAULT IS NOT SOMETHING THE READER SET, so a setting the report
-// attributes to the defaults yields nothing here, exactly as an unattributed one
-// does. The emptiness is the information: it says this setting is untouched.
-// Filling it with the default would make every setting look configured and leave
-// a reader unable to find the ones they had actually changed.
-export function setValue(row: ConfigRow): string | undefined {
-  if (row.value === undefined) { return undefined; }
+// attributes to the defaults is marked only where the value it reports is not the
+// one the schema declares, and an unattributed one never is: its value is drawn as
+// the declaration it is, which needs no mark. The absence of a mark is the
+// information — it says this setting is untouched — and marking every setting
+// would leave a reader unable to find the ones they had actually changed.
+export function valueMark(row: ConfigRow): ValueMark | null {
+  if (row.value === undefined) { return null; }
   const kind = row.provenance.kind;
-  if (kind === 'file' || kind === 'environment') { return row.value; }
-  return undefined;
+  if (kind === 'file' || kind === 'environment') { return kind; }
+  return row.control.hasDefault && !reportedAsDeclared(row.value, row.control.defaultValue)
+    ? 'not-the-default'
+    : null;
+}
+
+// reportedAsDeclared reports whether a value as the report spells it is the
+// default the schema declares.
+//
+// The two notations are compared only where they agree: a text, a number or a
+// toggle is spelled alike in both, and an empty list is `[]` in both. Any other
+// declared default has no spelling this can hold the report's against, so it is
+// taken as matching — a mark this cannot justify is a claim the page would be
+// making on nobody's word.
+function reportedAsDeclared(value: string, declared: unknown): boolean {
+  if (typeof declared === 'string' || typeof declared === 'number' || typeof declared === 'boolean') {
+    return value === String(declared);
+  }
+  if (Array.isArray(declared) && declared.length === 0) { return value === '[]'; }
+  return true;
 }
 
 // everyRow yields every drawn row, at every group depth.
 //
 // It is the row set a presentation draws, and it is deliberately the MODEL's own
 // rows rather than a re-walk of the schema's controls. The two are different
-// sets — a list of entries is one row naming the fields an entry has, because
-// there is no entry yet to draw a field of — and the coverage sentence is
-// composed from the model's count. A presentation drawing the other set would
-// make that sentence false of itself while leaving it true of the other, so both
-// read from here.
+// sets — a list of entries is one row naming the fields an entry has, and a
+// list's companion is named on its list's row — and the coverage sentence names
+// the model's rows the report leaves unattributed. A presentation drawing the
+// other set would make that sentence false of itself while leaving it true of the
+// other, so both read from here, in this order.
 export function everyRow(model: ConfigPanelModel): ConfigRow[] {
   const fromSection = (section: ConfigSectionRows): ConfigRow[] => [
     ...section.rows,

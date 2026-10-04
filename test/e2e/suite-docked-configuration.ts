@@ -5,15 +5,17 @@ import { need } from './checks';
 import { framePoint } from './commands-panel';
 import { Box } from './drivers';
 import { capture, closeAllEditors, ready, run, SuiteContext } from './suite-context';
-import { ConfigPanel, configPanel } from './suite-config-panel';
+import { ConfigPanel, configPanel, FIRST_SETTING_ROW } from './suite-config-panel';
+import { clearForCapture } from './welcome';
 import { centre, guard, until } from './workbench';
 
 // The checks run in the gateway folder on the configuration panel's table, drawn in
 // an editor group as narrow as the side bar a panel docks in: the setting column
 // held at the left edge as the rest of each row scrolls under it, solid while it
 // does, the corner holding in both directions, a setting's description fully in
-// view beside the held column, and the table scrolling sideways at that width while
-// it fits a wide editor pane.
+// view beside the held column, every setting path breaking only after `_` or `.`
+// in a column held to its measure under a caption that wraps inside the view, and
+// the table scrolling sideways at that width while it fits a wide editor pane.
 
 export const DOCKED_CONFIGURATION_CHECKS = [
   'config-panel.setting-column-stays-at-the-left-edge-scrolling-fully-right',
@@ -163,11 +165,11 @@ export async function dockedConfigurationChecks(ctx: SuiteContext): Promise<void
     // second cell of each row has passed under the column, as far again as the
     // table starts from the view's edge.
     if (top.table.top > 20) { await scrollBy(ctx, docked, 0, Math.round(top.table.top) - 20); }
-    const shift = await p.read<number>(`(() => { const t = d.querySelector('table.config-table').getBoundingClientRect(); const r = d.querySelector('table.config-table tbody tr td:nth-child(2)').getBoundingClientRect(); const k = d.querySelector('table.config-table tbody tr td:first-child').getBoundingClientRect(); return Math.max(0, t.left) + r.left - k.right + 40; })()`);
+    const shift = await p.read<number>(`(() => { const t = d.querySelector('table.config-table').getBoundingClientRect(); const r = d.querySelector(${JSON.stringify(`${FIRST_SETTING_ROW} td:nth-child(2)`)}).getBoundingClientRect(); const k = d.querySelector(${JSON.stringify(`${FIRST_SETTING_ROW} td:first-child`)}).getBoundingClientRect(); return Math.max(0, t.left) + r.left - k.right + 40; })()`);
     await scrollBy(ctx, docked, Math.max(STEP_PX, Math.round(shift)), 0);
     const read = await p.read<{ key: { left: number; right: number; top: number; bottom: number }; under: { left: number; right: number }; ground: string; page: string } | null>(`(() => {
       const head = d.querySelector('table.config-table thead').getBoundingClientRect();
-      const row = [...d.querySelectorAll('table.config-table tbody tr')].find((r) => { const b = r.getBoundingClientRect(); return b.top >= Math.max(0, head.bottom) && b.bottom < d.defaultView.innerHeight; });
+      const row = [...d.querySelectorAll(${JSON.stringify(FIRST_SETTING_ROW)})].find((r) => { const b = r.getBoundingClientRect(); return b.top >= Math.max(0, head.bottom) && b.bottom < d.defaultView.innerHeight; });
       if (!row) { return null; }
       const k = row.children[0].getBoundingClientRect();
       const u = row.children[1].getBoundingClientRect();
@@ -210,12 +212,14 @@ export async function dockedConfigurationChecks(ctx: SuiteContext): Promise<void
   }, async () => {
     need(narrow, 'the panel was not opened as narrow as the side bar');
     await scrollBy(ctx, docked, -10000, -10000);
-    const control = 'table.config-table tbody tr:first-child td.config-cell-info summary';
-    // Down until the first row stands in view, then sideways until its circle
-    // stands clear of the held column and inside the view's right edge.
+    const control = `${FIRST_SETTING_ROW} td.config-cell-info summary`;
+    const details = `${FIRST_SETTING_ROW} details.config-info`;
+    const keyCell = `${FIRST_SETTING_ROW} td:first-child`;
+    // Down until the first setting's row stands in view, then sideways until its
+    // circle stands clear of the held column and inside the view's right edge.
     const toCircle = async (): Promise<Box | null> => {
       for (let i = 0; i < MOST_STEPS; i++) {
-        const at = await p.read<{ top: number; left: number; right: number; keyRight: number; h: number; w: number }>(`(() => { const s = d.querySelector(${JSON.stringify(control)}).getBoundingClientRect(); const k = d.querySelector('table.config-table tbody tr:first-child td:first-child').getBoundingClientRect(); return { top: s.top, left: s.left, right: s.right, keyRight: k.right, h: d.scrollingElement.clientHeight, w: d.scrollingElement.clientWidth }; })()`);
+        const at = await p.read<{ top: number; left: number; right: number; keyRight: number; h: number; w: number }>(`(() => { const s = d.querySelector(${JSON.stringify(control)}).getBoundingClientRect(); const k = d.querySelector(${JSON.stringify(keyCell)}).getBoundingClientRect(); return { top: s.top, left: s.left, right: s.right, keyRight: k.right, h: d.scrollingElement.clientHeight, w: d.scrollingElement.clientWidth }; })()`);
         const dx = at.right > at.w - 4 ? Math.ceil(at.right - at.w + 8) : at.left < at.keyRight + 4 ? -Math.ceil(at.keyRight - at.left + 8) : 0;
         const dy = at.top >= at.h - 60 ? 120 : 0;
         if (dx === 0 && dy === 0) { break; }
@@ -226,11 +230,11 @@ export async function dockedConfigurationChecks(ctx: SuiteContext): Promise<void
     const summary = await toCircle();
     if (summary === null || summary.width === 0) { return { passed: false, seen: 'the first row draws no circle to open its description with' }; }
     await ctx.d.click(centre(summary));
-    await until('the description opening', 5000, () => p.read<boolean>(`(() => { const det = d.querySelector('table.config-table tbody tr:first-child details.config-info'); const para = det ? det.querySelector('.config-description') : null; return !!det && det.open && !!para && para.getBoundingClientRect().height > 0; })()`), (v) => v);
+    await until('the description opening', 5000, () => p.read<boolean>(`(() => { const det = d.querySelector(${JSON.stringify(details)}); const para = det ? det.querySelector('.config-description') : null; return !!det && det.open && !!para && para.getBoundingClientRect().height > 0; })()`), (v) => v);
     type Reading = { left: number; right: number; top: number; bottom: number; keyRight: number; viewWidth: number; scrollLeft: number };
     const reading = (): Promise<Reading> => p.read<Reading>(`(() => {
-      const para = d.querySelector('table.config-table tbody tr:first-child details.config-info .config-description').getBoundingClientRect();
-      const key = d.querySelector('table.config-table tbody tr:first-child td:first-child').getBoundingClientRect();
+      const para = d.querySelector(${JSON.stringify(`${details} .config-description`)}).getBoundingClientRect();
+      const key = d.querySelector(${JSON.stringify(keyCell)}).getBoundingClientRect();
       return { left: para.left, right: para.right, top: para.top, bottom: para.bottom, keyRight: key.right, viewWidth: d.scrollingElement.clientWidth, scrollLeft: d.scrollingElement.scrollLeft };
     })()`);
     // Scrolled until its right edge stands at the view's right edge — the place
@@ -250,47 +254,82 @@ export async function dockedConfigurationChecks(ctx: SuiteContext): Promise<void
     const inEdges = r.left >= r.keyRight - 1 && r.right <= r.viewWidth + 1;
     const y = (r.top + Math.min(r.bottom, r.top + 60)) / 2;
     const xs = [r.left + 2, (r.left + r.right) / 2, r.right - 2];
-    const pts = await Promise.all(xs.map((x) => drawnAt(p, x, y, 'table.config-table tbody tr:first-child details.config-info .config-description')));
+    const pts = await Promise.all(xs.map((x) => drawnAt(p, x, y, `${details} .config-description`)));
     const whole = inEdges && pts.every((q) => q.inside);
     // The description is put away again, so the table is read below as it opens;
     // where it stays open the checks after this one would read it open, so this one
     // fails on it.
     await ctx.d.click(centre((await toCircle()) ?? summary));
-    const putAway = await until('the description closing', 5000, () => p.read<boolean>(`(() => { const det = d.querySelector('table.config-table tbody tr:first-child details.config-info'); return !!det && !det.open; })()`), (v) => v).then(() => true, () => false);
+    const putAway = await until('the description closing', 5000, () => p.read<boolean>(`(() => { const det = d.querySelector(${JSON.stringify(details)}); return !!det && !det.open; })()`), (v) => v).then(() => true, () => false);
     return {
       passed: whole && putAway,
       seen: `the description ${Math.round(r.right - r.left)} px wide, the Setting column ending at ${Math.round(r.keyRight)} px in a view ${r.viewWidth} px wide; scrolled to ${Math.round(r.scrollLeft)} px it stands from ${Math.round(r.left)} to ${Math.round(r.right)} px, ${inEdges ? 'within the view right of the column' : 'not within the view right of the column'}; drawn at ${xs.map((x) => Math.round(x)).join(', ')} px: ${pts.map((q) => q.what).join('; ')}; ${putAway ? 'put away again by its circle' : `not put away again by its circle within ${guard(5000) / 1000} s, so the checks after this one read it open`}`,
     };
   });
 
-  await c.forPerson('config-panel.setting-column-reads-at-its-measure', {
-    expected: 'the Setting column reads well at the measure it holds, a long setting path wrapping inside it',
-    plant: 'none: whether the column reads well is the judgement asked for',
-    question: 'The capture shows the configuration table in a panel as narrow as a docked side panel, scrolled to its left; the text below gives the Setting column\'s width and how many lines each setting path takes. Does the column read well at that measure?',
+  await c.run('config-panel.setting-column-reads-at-its-measure', {
+    expected: 'scrolled to its top left, every setting path in the Setting column — a setting\'s, a companion\'s named on its list\'s row, and a group heading\'s — breaks only after `_` or `.`, never between two letters or digits, read character by character from the path\'s own text; the column stands at the measure it is held to, no wider; and the caption above the table wraps inside the view, its words ending left of the view\'s right edge',
+    plant: 'in the scratch copy, media/config.css with a setting path allowed to break anywhere; out/src/config-render.js with a path marked nowhere to break; media/config.css with the caption as wide as the table',
   }, async () => {
     need(narrow, 'the panel was not opened as narrow as the side bar');
     await scrollBy(ctx, docked, -10000, -10000);
-    const t = await until('the table back at its top', 5000, () => tableView(p), (v) => v.view.scrollLeft === 0 && v.view.scrollTop === 0);
-    await scrollBy(ctx, docked, 0, Math.max(0, Math.round(t.table.top) - 20));
-    const paths = await p.read<{ width: number; rows: { key: string; lines: number }[] }>(`(() => {
-      const cells = [...d.querySelectorAll('table.config-table tbody tr td:first-child')];
-      // A path's lines are counted from its text alone: the boxes of the elements
-      // around the text would each count as a line of their own.
-      const lines = (td) => {
+    await until('the table back at its top', 5000, () => tableView(p), (v) => v.view.scrollLeft === 0 && v.view.scrollTop === 0);
+    type PathRead = { key: string; lines: number; breaks: string[] };
+    const read = await p.read<{ width: number; measure: number; paths: PathRead[]; caption: { right: number; lines: number }; view: number }>(`(() => {
+      const cells = [...d.querySelectorAll('table.config-table tbody tr > :first-child')];
+      // Each line break in a path is read from its text alone, character by
+      // character: where a character's line box stands lower than the one before
+      // it, a line broke between the two, and the pair around that break is kept.
+      const read = (code) => {
+        const breaks = [];
         const tops = new Set();
-        const walk = d.createTreeWalker(td, NodeFilter.SHOW_TEXT);
+        let before = null;
+        const walk = d.createTreeWalker(code, NodeFilter.SHOW_TEXT);
         for (let n = walk.nextNode(); n !== null; n = walk.nextNode()) {
-          if (n.textContent.trim() === '') { continue; }
-          const r = d.createRange();
-          r.selectNodeContents(n);
-          for (const b of r.getClientRects()) { if (b.width > 0) { tops.add(Math.round(b.top)); } }
+          for (let i = 0; i < n.data.length; i++) {
+            const r = d.createRange();
+            r.setStart(n, i);
+            r.setEnd(n, i + 1);
+            const b = [...r.getClientRects()].find((x) => x.width > 0);
+            if (!b) { continue; }
+            const top = Math.round(b.top);
+            if (before !== null && top > before.top + 1) { breaks.push(before.ch + n.data[i]); }
+            tops.add(top);
+            before = { ch: n.data[i], top };
+          }
         }
-        return tops.size;
+        return { key: (code.textContent || '').trim(), lines: tops.size, breaks };
       };
-      return { width: cells.length > 0 ? cells[0].getBoundingClientRect().width : 0, rows: cells.map((td) => ({ key: (td.innerText || '').trim(), lines: lines(td) })) };
+      const paths = cells.flatMap((cell) => [...cell.querySelectorAll('code')].map(read));
+      const first = cells.find((cell) => cell.tagName === 'TD');
+      const cs = first ? getComputedStyle(first) : null;
+      const cap = d.querySelector('table.config-table caption');
+      const range = d.createRange();
+      if (cap) { range.selectNodeContents(cap); }
+      const capRects = cap ? [...range.getClientRects()].filter((x) => x.width > 0) : [];
+      return {
+        width: first ? first.getBoundingClientRect().width : 0,
+        measure: cs ? (parseFloat(cs.minWidth) || 0) + (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0) : 0,
+        paths,
+        caption: { right: capRects.length > 0 ? Math.max(...capRects.map((x) => x.right)) : Infinity, lines: new Set(capRects.map((x) => Math.round(x.top))).size },
+        view: d.scrollingElement.clientWidth,
+      };
     })()`);
-    const longest = [...paths.rows].sort((a, b) => b.lines - a.lines)[0];
-    return { screenshot: await capture(ctx, 'config-setting-column-docked'), drawnText: `the Setting column ${Math.round(paths.width)} px wide; ${paths.rows.filter((r) => r.lines === 1).length} of ${paths.rows.length} paths on one line, ${paths.rows.filter((r) => r.lines === 2).length} on two, the most ${longest ? `${longest.lines} (${longest.key})` : 'none'}\n${paths.rows.map((r) => `${r.key}: ${r.lines}`).join('\n')}` };
+    const midWord = read.paths.flatMap((x) => x.breaks.filter((pair) => !/^[_.]/.test(pair)).map((pair) => `${x.key} at "${pair[0]}|${pair[1]}"`));
+    const held = read.width > 0 && read.width <= read.measure + 1;
+    const captionIn = read.caption.right <= read.view + 0.5;
+    const wrapped = read.paths.filter((x) => x.lines > 1);
+    const longest = [...read.paths].sort((a, b) => b.lines - a.lines)[0];
+    // The capture is for a person to see the column, so it is taken with the
+    // table's top in view and nothing drawn over the panel.
+    const top = await tableView(p);
+    await scrollBy(ctx, docked, 0, Math.max(0, Math.round(top.table.top) - 20));
+    const left = await clearForCapture(ctx);
+    const shot = await capture(ctx, 'config-setting-column-docked');
+    return {
+      passed: read.paths.length > 0 && wrapped.length > 0 && midWord.length === 0 && held && captionIn,
+      seen: `the Setting column ${Math.round(read.width)} px wide against its measure of ${Math.round(read.measure)} px; ${read.paths.length} paths drawn in it, ${read.paths.length - wrapped.length} on one line, ${wrapped.filter((x) => x.lines === 2).length} on two, the most ${longest ? `${longest.lines} (${longest.key})` : 'none'}; ${midWord.length === 0 ? `every one of the ${read.paths.reduce((n, x) => n + x.breaks.length, 0)} breaks after "_" or "."` : `breaking inside a word: ${JSON.stringify(midWord.slice(0, 5))}`}; the caption on ${read.caption.lines} line(s), its words ending at ${Math.round(read.caption.right)} px in a view ${read.view} px wide; capture ${shot}${left}\n${read.paths.map((x) => `${x.key}: ${x.lines}`).join('\n')}`,
+    };
   });
 
   await c.run('config-panel.table-scrolls-sideways-docked-and-fits-an-editor-pane', {

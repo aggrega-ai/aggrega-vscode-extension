@@ -18,7 +18,7 @@ import { FixtureError, FixtureProof } from './fixtures';
 import { readEnviron } from './processes';
 import { referenceAnswer, ReferenceAnswer } from './reference';
 import { capture, closeAllEditors, commandTitle, deleteLine, open, ready, run, save, send, SuiteContext, theServer } from './suite-context';
-import { ConfigPanel, configPanel, HEADINGS, HOSTED, TO_EXPANDED, TO_TABLE } from './suite-config-panel';
+import { ConfigPanel, configPanel, HEADINGS, HOSTED, LAST_HEADING, TO_EXPANDED, TO_TABLE } from './suite-config-panel';
 import { paletteTitle } from './suite-first-day';
 import { RELEASE } from './suite-graph-panel';
 import { DialogSeen, dialogsSeen } from './levels';
@@ -33,32 +33,39 @@ import {
 } from './workbench';
 
 // The checks run on the configuration panel as a reader meets it in the gateway
-// folder: the table it opens as, each of its rows against the configuration
+// folder, whose file sets its catalog directories through the list's additive
+// companion: the table it opens as, each of its rows against the configuration
 // schema the language server serves and against the language server's own report
-// of what is in force, the description behind each row's circle, the switch to the
-// per-setting shape and what that shape adds, the shape the panel reopens in, that
-// nothing on it edits a setting, a setting put in force by the folder's file,
-// what pressing it says and offers with the language server stopped, and that the
-// start it offers starts the server. Beside them, the same setting put in force
-// by the editor's environment, and the panel in a folder holding nothing
-// configured at all.
+// of what is in force, the heading row over each group, the one value column and
+// its mark, the description behind each row's circle with its code drawn as code,
+// the switch to the per-setting shape and what that shape adds, the Global marker
+// and its rule, the names derived from the keys, the companion folded into its
+// list's row, the shape the panel reopens in, that nothing on it edits a setting,
+// a setting put in force by the folder's file, what pressing it says and offers
+// with the language server stopped, and that the start it offers starts the
+// server. Beside them, the same setting put in force by the editor's environment,
+// and the panel in a folder holding nothing configured at all.
 
 export const CONFIGURATION_REPORT_CHECKS = [
   'config-panel.opens-as-a-table-in-its-own-tab',
-  'config-panel.every-setting-the-schema-declares-is-a-row',
-  'config-panel.coverage-sentence-counts-the-rows-and-what-the-report-names',
-  'config-panel.nested-settings-and-entry-fields-are-drawn',
-  'config-panel.flat-table-is-the-right-shape',
-  'config-panel.columns-read-in-order-ending-in-the-circle',
+  'config-panel.every-setting-the-schema-declares-is-a-row-or-named-on-its-lists',
+  'config-panel.coverage-sentence-names-what-the-report-leaves-unattributed',
+  'config-panel.each-group-opens-with-a-heading-row-and-entry-fields-are-named',
+  'config-panel.grouped-table-is-the-right-shape',
+  'config-panel.columns-read-in-order-under-visible-headings',
   'config-panel.columns-and-their-headings-are-the-ones-wanted',
-  'config-panel.set-is-empty-where-nothing-was-set',
+  'config-panel.one-value-column-marked-where-not-the-declared-default',
+  'config-panel.none-where-no-value-is-in-force',
+  'config-panel.no-value-breaks-inside-a-word',
   'config-panel.each-description-is-the-schemas-own-sentence',
   'config-panel.shape-switch-sits-below-the-summary-and-draws-each-setting-in-full',
   'config-panel.reach-note-on-the-machine-wide-settings-alone',
+  'config-panel.descriptions-draw-their-code-as-code',
+  'config-panel.global-marker-on-the-machine-wide-rows-and-its-rule-at-the-head',
   'config-panel.reach-note-placement-and-its-narrowness-read-right',
-  'config-panel.labels-are-each-key-in-words',
+  'config-panel.names-derived-from-the-keys-read-apart',
   'config-panel.plain-labels-read-well-enough',
-  'config-panel.uncovered-settings-read-their-declared-default-and-no-source',
+  'config-panel.companion-set-in-the-folders-file-reads-on-its-lists-row',
   'config-panel.coverage-sentence-earns-its-place',
   'config-panel.reopens-in-the-shape-it-was-left-in',
   'config-panel.reports-and-offers-nothing-to-edit',
@@ -93,35 +100,45 @@ export const OFFLINE_IN_THE_ENVIRONMENT: Readonly<Record<string, string>> = { [O
 
 // The words these checks hold the panel to, as written, so a change of wording is
 // reported rather than followed: the tab's title, the summary box's heading and
-// its line for a folder nothing configures, the coverage sentence, what the table
-// and the per-setting shape say of a value's standing and its source, the circle,
-// the reach note's label and its whole sentence on the registries setting, the
-// phrases naming what a toggle and a bounded whole number take and the words
-// before the fields a list's entries carry, the notification raised when there is
-// no language server to ask, the channel's line when the report could not be
-// read, its line when a change of the binary setting schedules a restart, which
-// names the grace that restart waits, and its line when that restart is
-// cancelled; and the status bar menu's placeholder and its entry cancelling it.
+// its line for a folder nothing configures, the opening of the coverage
+// sentence, what the table and the per-setting shape say of a value's standing
+// and its source, "none", the mark and the words naming why a value carries it,
+// the circle, the Global marker, its rule and the reach note's label and whole
+// sentence on the registries setting, the phrases naming what a toggle, a bounded
+// whole number and a keyed collection take and the words before the fields a
+// list's entries carry, what the report gives for a list and its companion, the
+// notification raised when there is no language server to ask, the channel's
+// line when the report could not be read, its line when a change of the binary
+// setting schedules a restart, which names the grace that restart waits, and its
+// line when that restart is cancelled; and the status bar menu's placeholder and
+// its entry cancelling it.
 const PANEL_TAB = 'Aggrega configuration';
 const SUMMARY_HEADING = 'Where these values come from';
 const NO_FILE_LEAD = 'No configuration file contributed';
-const coverageWords = (attributed: number | string, shown: number | string): string => `The configuration report attributes ${attributed} of the ${shown} settings shown here. A setting it does not cover is shown with its declared default and no source, which is what the report says about it rather than a gap on this page.`;
+const NO_ROW_LEAD = 'The configuration report carries no row for ';
 const NOT_REPORTED = 'not reported';
 const BUILT_IN = 'built-in default';
 const DECLARED_DEFAULT_MARK = '(declared default)';
 const IN_FORCE = 'In force: ';
-const DECLARED_DEFAULT = 'Declared default: ';
 const SOURCE = 'Source: ';
-const NOT_REPORTED_SOURCE = `${SOURCE}not reported — the configuration report does not cover this setting`;
-const BUILT_IN_SOURCE = `${SOURCE}the built-in default, unchanged by any file`;
 const environmentCell = (variable: string): string => `environment: ${variable}`;
 const environmentSource = (variable: string): string => `${SOURCE}the environment variable ${variable}`;
+const NONE = 'none';
+const MARK = '●';
+const SET_IN_A_FILE = 'Set in a file';
+const SET_IN_THE_ENVIRONMENT = 'Set in the environment';
+const NOT_THE_DEFAULT = 'Not its declared default';
+const markWords = (why: string, dflt: string | null): string => `${why}; ${dflt === null ? 'the schema declares no default' : `its declared default is ${dflt}`}.`;
 const CIRCLE = 'i';
-const GLOBAL_LABEL = 'Global:';
+const GLOBAL = 'Global';
+const GLOBAL_LABEL = `${GLOBAL}:`;
+const REACH_RULE = `A setting marked ${GLOBAL} belongs to this machine rather than to one project, and the note on it says why.`;
 const REGISTRIES_NOTE = `${GLOBAL_LABEL} A registry and its signature trust policy are global tooling, so registering one changes what every project on this machine resolves through.`;
 const TOGGLE_TAKES = 'true or false';
 const wholeNumberTakes = (minimum: number | string): string => `a whole number, at least ${minimum}`;
+const NAMED_ENTRIES = 'named entries, each carrying ';
 const EACH_CARRYING = 'each carrying';
+const foldWords = (companion: string): string => `The configuration report gives this list and ${companion} as one value, holding the entries of both under one source; it does not say which of them ${companion} added.`;
 const NOTICE_LEAD = 'The configuration surface could not be drawn';
 const STOPPED_NOTICE = `${NOTICE_LEAD}: the Aggrega language server is not running`;
 const REPORT_UNREAD = 'Aggrega configuration: the resolved-configuration report could not be read, so every setting is shown with its declared default and no source.';
@@ -136,13 +153,15 @@ const CANCEL_RESTART = 'Cancel restart';
 const START = DAEMON_ACTION_LABEL.start;
 
 // The settings these checks name, as a reader names them: the toggle a reader
-// puts in force, a list whose entries' fields are named on its row, the
-// machine-wide settings the reach note is drawn on and settings beside them it is
-// not, a setting nested in groups within groups, the names some settings are drawn
-// with, a group's heading, the companion a reader is sent to find among the
-// settings the report does not cover, and the setting it is contrasted with.
+// puts in force, a list whose entries' fields are named on its row, a keyed
+// collection, the machine-wide settings the reach note and the Global marker are
+// drawn on and settings beside them they are not, a setting nested in groups
+// within groups, the names some settings are drawn with, a group's heading, the
+// companion the folder's file sets and the list it adds to, and the setting the
+// per-setting shape is contrasted with.
 export const OFFLINE = 'offline';
 const ENTRIES = 'registries';
+const KEYED = 'workspace.releases';
 const CLI_PLUGINS = 'plugins.cli';
 const PARSE_CACHE_CAP = 'parse_cache.max_bytes';
 const MODULE_CACHE_CAP = 'compiled_module_cache.max_bytes';
@@ -152,12 +171,16 @@ const UNCLASSIFIED_NAMED = [OFFLINE, 'auto_pull', DEFAULT_REGISTRY];
 const UNCLASSIFIED_GROUP = 'signing';
 const NESTED = 'lint.publishing_discipline.allow_dynamic_refs';
 const NAMED_LABELS: readonly { path: string; label: string }[] = [
-  { path: PARSE_CACHE_CAP, label: 'Max bytes' },
+  { path: 'build.yaml_indent', label: 'YAML indent' },
+  { path: CLI_PLUGINS, label: 'CLI' },
+  { path: PARSE_CACHE_CAP, label: 'Parse cache max bytes' },
+  { path: MODULE_CACHE_CAP, label: 'Compiled module cache max bytes' },
+  { path: 'mcp.health.listen', label: 'Health listen' },
   { path: NESTED, label: 'Allow dynamic refs' },
-  { path: CLI_PLUGINS, label: 'Cli' },
 ];
 const ALIKE = [PARSE_CACHE_CAP, MODULE_CACHE_CAP];
 const NAMED_GROUP = 'parse_cache';
+const COMPANION_LIST = 'workspace.catalog_dirs';
 const COMPANION = 'workspace.catalog_dirs_append';
 const CONTRAST = MODULE_CACHE_CAP;
 
@@ -190,6 +213,7 @@ const ROWS_GIVEN = 12;
 // SchemaNode is the part of a JSON Schema declaration these checks read.
 interface SchemaNode {
   $ref?: string;
+  type?: unknown;
   description?: unknown;
   default?: unknown;
   minimum?: unknown;
@@ -200,8 +224,9 @@ interface SchemaNode {
 }
 
 // Declared is one setting the served schema declares: its path as a reader types
-// it, the sentence the schema gives it, and its default where it declares one.
-interface Declared { path: string; description: string; hasDefault: boolean; dflt: unknown; node: SchemaNode }
+// it, the sentence the schema gives it, its default where it declares one, and,
+// for a list's additive companion, the list it adds to.
+interface Declared { path: string; description: string; hasDefault: boolean; dflt: unknown; node: SchemaNode; addsTo: string | null }
 
 // 🔴 THIS WALK IS WRITTEN HERE, APART FROM THE EXTENSION'S OWN, ON PURPOSE. The
 // checks hold the panel's rows against it, so a row the extension's walk drops or
@@ -209,7 +234,9 @@ interface Declared { path: string; description: string; hasDefault: boolean; dfl
 // the extension's walk instead would hold the panel to itself. It follows the rule
 // a reader is given: a declaration with properties of its own is a group and is
 // descended into, and any other is a setting drawn as one row — a list of entries
-// included.
+// included — except a list's additive companion, a list whose key is another
+// list's key in the same group followed by `_append`, which is named on that
+// list's row.
 function resolved(node: SchemaNode, defs: Record<string, SchemaNode>): SchemaNode {
   let at = node;
   const seen = new Set<string>();
@@ -224,12 +251,16 @@ function resolved(node: SchemaNode, defs: Record<string, SchemaNode>): SchemaNod
 
 const words = (v: unknown): string => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim() : '');
 
+const isList = (node: SchemaNode): boolean => node.type === 'array'
+  || (node.type === 'object' && typeof node.additionalProperties === 'object');
+
 function declaredSettings(schema: SchemaNode): { settings: Declared[]; groups: string[] } {
   const defs = schema.$defs ?? {};
   const settings: Declared[] = [];
   const groups: string[] = [];
   const walk = (node: SchemaNode, at: string[]): void => {
-    for (const [key, declared] of Object.entries(node.properties ?? {})) {
+    const own = Object.entries(node.properties ?? {});
+    for (const [key, declared] of own) {
       const r = resolved(declared, defs);
       const here = [...at, key];
       if (r.properties !== undefined) {
@@ -238,11 +269,33 @@ function declaredSettings(schema: SchemaNode): { settings: Declared[]; groups: s
         continue;
       }
       const hasDefault = 'default' in declared || 'default' in r;
-      settings.push({ path: here.join('.'), description: words(declared.description) || words(r.description), hasDefault, dflt: 'default' in declared ? declared.default : r.default, node: r });
+      const base = key.endsWith('_append') ? own.find(([k]) => k === key.slice(0, -'_append'.length)) : undefined;
+      const addsTo = base !== undefined && isList(r) && isList(resolved(base[1], defs)) ? [...at, base[0]].join('.') : null;
+      settings.push({ path: here.join('.'), description: words(declared.description) || words(r.description), hasDefault, dflt: 'default' in declared ? declared.default : r.default, node: r, addsTo });
     }
   };
   walk(schema, []);
   return { settings, groups };
+}
+
+// drawnWords is a schema sentence as the panel is to draw it: each run it writes
+// between backticks drawn as code, so its words are the sentence's with those
+// backticks gone. Written apart from the extension's own reading, for the reason
+// the walk above is.
+const drawnWords = (sentence: string): string => {
+  const parts = sentence.split('`');
+  return parts.length % 2 === 1 ? parts.join('') : `${parts.slice(0, -1).join('')}\`${parts[parts.length - 1]}`;
+};
+
+// codeRuns are the runs a schema sentence writes between backticks.
+const codeRuns = (sentence: string): string[] => sentence.split('`').filter((_, i, all) => i % 2 === 1 && (all.length % 2 === 1 || i < all.length - 1));
+
+// reportSpelling is a declared default as the report spells a value, where the
+// two notations agree, or null where they do not.
+function reportSpelling(dflt: unknown): string | null {
+  if (typeof dflt === 'string' || typeof dflt === 'number' || typeof dflt === 'boolean') { return String(dflt); }
+  if (Array.isArray(dflt) && dflt.length === 0) { return '[]'; }
+  return null;
 }
 
 // entryFields names every field an entry of a list declares, at any depth.
@@ -264,13 +317,38 @@ function entryFields(schema: SchemaNode, setting: Declared): string[] {
 const spelled = (v: unknown): string => (typeof v === 'object' && v !== null ? JSON.stringify(v) : String(v));
 
 // inWords is a key's last segment as the rule a reader is given says it is drawn:
-// each underscore a space, the first letter capitalised, and nothing else. It is
-// written apart from the extension's own derivation for the reason the walk above
-// is.
+// each underscore a space, an acronym in capitals, `x` joined to the word after it
+// with a hyphen, the first letter capitalised, and nothing else. It is written
+// apart from the extension's own derivation for the reason the walk above is.
+const SPELLED: Readonly<Record<string, string>> = { ai: 'AI', cli: 'CLI', id: 'ID', jwks: 'JWKS', mcp: 'MCP', tls: 'TLS', url: 'URL', yaml: 'YAML' };
 function inWords(key: string): string {
-  const last = key.split('.').pop() ?? key;
-  const spaced = last.replace(/_/g, ' ');
-  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+  const words = (key.split('.').pop() ?? key).split('_').filter((w) => w !== '');
+  return words.map((w, i) => {
+    const spelled = Object.hasOwn(SPELLED, w) ? SPELLED[w] : w;
+    const shown = i === 0 ? spelled.charAt(0).toUpperCase() + spelled.slice(1) : spelled;
+    return i === 0 ? shown : words[i - 1] === 'x' ? `-${shown}` : ` ${shown}`;
+  }).join('');
+}
+
+// namedAs is the name the panel is to draw each of a page's settings with: its
+// key in words, and where two read alike, each with the key of the group it sits
+// in ahead of its own, one group further out while they still collide.
+function namedAs(paths: string[]): Map<string, string> {
+  const depth = new Map(paths.map((p) => [p, 1]));
+  const nameOf = (p: string): string => inWords(p.split('.').slice(-(depth.get(p) ?? 1)).join('_'));
+  for (;;) {
+    const byName = new Map<string, string[]>();
+    for (const p of paths) { byName.set(nameOf(p), [...(byName.get(nameOf(p)) ?? []), p]); }
+    let grew = false;
+    for (const alike of byName.values()) {
+      if (alike.length < 2) { continue; }
+      for (const p of alike) {
+        const d = depth.get(p) ?? 1;
+        if (d < p.split('.').length) { depth.set(p, d + 1); grew = true; }
+      }
+    }
+    if (!grew) { return new Map(paths.map((p) => [p, nameOf(p)])); }
+  }
 }
 
 // ---- the language server's own answers ---------------------------------------
@@ -299,8 +377,18 @@ const answerText = (a: ReferenceAnswer): string => JSON.stringify(a).slice(0, 30
 
 // ---- the panel as drawn -------------------------------------------------------
 
-interface TableRow { cells: number; path: string; name: string; set: string; dflt: string; effective: string; takes: string; source: string; circle: string | null; title: string; description: string }
-interface Block { path: string; label: string; description: string; shape: string; value: string; source: string; reach: string | null }
+// TableRow is one setting's row of the table as drawn: its cells, its path and
+// the companions named under it, its name and Global marker, its value with the
+// words naming its mark, what it takes and its source, its circle and the hover
+// on it, and the paragraphs the circle opens with the code drawn in the first.
+interface TableRow {
+  cells: number; path: string; companions: string[]; name: string; global: string | null; value: string; mark: string | null;
+  takes: string; source: string; circle: string | null; title: string; description: string; paragraphs: string[]; codes: string[];
+}
+// BodyEntry is one row of the table's body in order: a group's heading row, read
+// as the path it draws, or a setting's row, read as its path.
+type BodyEntry = { group: string; name: string } | { setting: string };
+interface Block { path: string; companions: string[]; label: string; description: string; descriptions: string[]; codes: string[]; shape: string; value: string; fold: string; source: string; reach: string | null }
 interface Heading { text: string; own: string; named: string }
 interface Census { forms: string[]; editable: string[]; saves: string[]; focusable: string[]; links: { words: string; href: string }[]; summaries: number; scripts: number }
 interface Summary { heading: string; notes: string[]; layers: string[] | null; lists: number[] }
@@ -311,10 +399,15 @@ interface Reading {
   shape: 'table' | 'expanded';
   tables: number;
   heads: Heading[];
+  body: BodyEntry[];
   rows: TableRow[];
   blocks: Block[];
-  groups: { path: string; heading: string }[];
+  groups: { path: string; heading: string; description: string }[];
   headings: { level: string; text: string; inSummary: boolean }[];
+  rule: { text: string; beforeSettings: boolean; count: number };
+  // drawn is every description the page draws — a paragraph or a hover — as its
+  // words, for the check that no backtick is drawn.
+  drawn: string[];
   summary: Summary | null;
   switcher: Switcher | null;
   census: Census;
@@ -331,19 +424,36 @@ const READING = `(() => {
     const off = th.querySelector('.config-offscreen');
     return { text: (th.innerText || '').trim(), own: text(th).replace(off ? text(off) : '\\u0000', '').trim(), named: text(th) };
   }) : [];
-  const rows = table ? [...table.querySelectorAll('tbody tr')].map((tr) => {
+  const isGroup = (tr) => tr.classList.contains('config-group-row');
+  const codesIn = (e) => (e ? [...e.querySelectorAll('code')].map(text) : []);
+  const bodyRows = table ? [...table.querySelectorAll('tbody tr')] : [];
+  const body = bodyRows.map((tr) => (isGroup(tr) ? { group: text(tr.children[0]), name: text(tr.children[1]) } : { setting: text(tr.children[0] ? tr.children[0].querySelector('code') : null) }));
+  const rows = bodyRows.filter((tr) => !isGroup(tr)).map((tr) => {
     const c = [...tr.children];
     const info = tr.querySelector('td.config-cell-info');
     const s = info ? info.querySelector('details.config-info > summary') : null;
-    return { cells: c.length, path: text(c[0]), name: text(c[1]), set: text(c[2]), dflt: text(c[3]), effective: text(c[4]), takes: text(c[5]), source: text(c[6]),
-      circle: s ? text(s) : null, title: s ? (s.getAttribute('title') || '').replace(/\\s+/g, ' ').trim() : '', description: info ? text(info.querySelector('.config-description')) : '' };
-  }) : [];
-  const blocks = [...d.querySelectorAll('dl.config-row')].map((dl) => ({ path: text(dl.querySelector('dt')), label: text(dl.querySelector('.config-label')), description: text(dl.querySelector('.config-description')),
-    shape: text(dl.querySelector('.config-shape')), value: text(dl.querySelector('.config-value')), source: text(dl.querySelector('.config-source')), reach: dl.querySelector('.config-reach') ? text(dl.querySelector('.config-reach')) : null }));
+    const mark = c[2] ? c[2].querySelector('.config-mark') : null;
+    const value = c[2] ? (c[2].querySelector('.config-value-text') || c[2]) : null;
+    const global = c[1] ? c[1].querySelector('.config-global') : null;
+    return { cells: c.length, path: text(c[0] ? c[0].querySelector('code') : null), companions: c[0] ? [...c[0].querySelectorAll('.config-companion code')].map(text) : [],
+      name: text(c[1] ? (c[1].querySelector('.config-name') || c[1]) : null), global: global ? text(global) : null, value: text(value), mark: mark ? (mark.getAttribute('aria-label') || text(mark)) : null,
+      takes: text(c[3]), source: text(c[4]),
+      circle: s ? text(s) : null, title: s ? (s.getAttribute('title') || '').replace(/\\s+/g, ' ').trim() : '', description: info ? text(info.querySelector('.config-description')) : '',
+      paragraphs: info ? [...info.querySelectorAll('details.config-info > p')].map(text) : [], codes: codesIn(info ? info.querySelector('.config-description') : null) };
+  });
+  const blocks = [...d.querySelectorAll('dl.config-row')].map((dl) => ({ path: text(dl.querySelector('dt')), companions: [...dl.querySelectorAll('dt')].slice(1).map(text), label: text(dl.querySelector('.config-label')), description: text(dl.querySelector('.config-description')),
+    descriptions: [...dl.querySelectorAll('.config-description')].map(text), codes: codesIn(dl.querySelector('.config-description')),
+    shape: text(dl.querySelector('.config-shape')), value: text(dl.querySelector('.config-value')), fold: text(dl.querySelector('.config-fold')), source: text(dl.querySelector('.config-source')), reach: dl.querySelector('.config-reach') ? text(dl.querySelector('.config-reach')) : null }));
   const groups = [...d.querySelectorAll('section.config-group')].map((g) => {
     const h = g.querySelector(':scope > h2, :scope > h3, :scope > h4, :scope > h5, :scope > h6');
-    return { path: h ? text(h.querySelector('code')) : '', heading: text(h) };
+    return { path: h ? text(h.querySelector('code')) : '', heading: text(h), description: text(g.querySelector(':scope > .config-description')) };
   });
+  const ruleEl = d.querySelector('p.config-reach-rule');
+  const firstBlock = d.querySelector('dl.config-row');
+  const rule = { text: text(ruleEl), count: d.querySelectorAll('p.config-reach-rule').length,
+    beforeSettings: !!ruleEl && !!firstBlock && !!(ruleEl.compareDocumentPosition(firstBlock) & Node.DOCUMENT_POSITION_FOLLOWING) };
+  const drawn = [...d.querySelectorAll('.config-description, .config-fold')].map(text)
+    .concat([...d.querySelectorAll('details.config-info > summary')].map((s) => s.getAttribute('title') || ''));
   const headings = [...d.querySelectorAll('h1, h2, h3, h4, h5, h6')].map((h) => ({ level: h.tagName.toLowerCase(), text: text(h), inSummary: !!h.closest('section.config-summary') }));
   const census = {
     forms: [...d.querySelectorAll('input, select, textarea, button, option, form')].map((e) => e.tagName.toLowerCase() + (e.type ? '[' + e.type + ']' : '')),
@@ -355,7 +465,7 @@ const READING = `(() => {
     scripts: d.scripts.length,
   };
   return {
-    shape: table ? 'table' : 'expanded', tables: d.querySelectorAll('table').length, heads, rows, blocks, groups, headings,
+    shape: table ? 'table' : 'expanded', tables: d.querySelectorAll('table').length, heads, body, rows, blocks, groups, headings, rule, drawn,
     summary: summary ? { heading: text(summary.querySelector('h2')), notes: [...summary.querySelectorAll('p.config-note')].map(text), layers: summary.querySelector('ul.config-layers') ? [...summary.querySelectorAll('ul.config-layers > li')].map(text) : null, lists: [...summary.querySelectorAll('ul')].map((u) => u.children.length) } : null,
     switcher: sw ? { words: text(link), afterSummary: !!summary && sw.previousElementSibling === summary, next: sw.nextElementSibling ? sw.nextElementSibling.tagName.toLowerCase() + (sw.nextElementSibling.className ? '.' + String(sw.nextElementSibling.className).split(' ')[0] : '') : '', top: sw.getBoundingClientRect().top, summaryBottom: summary ? summary.getBoundingClientRect().bottom : null } : null,
     census,
@@ -439,8 +549,12 @@ async function closePanels(ctx: SuiteContext): Promise<void> {
 
 const rowOf = (r: Reading, p: string): TableRow | undefined => r.rows.find((x) => x.path === p);
 const blockOf = (r: Reading, p: string): Block | undefined => r.blocks.find((x) => x.path === p);
-const describeRow = (r: TableRow | undefined): string => (r === undefined ? 'no such row' : JSON.stringify({ set: r.set, default: r.dflt, effective: r.effective, takes: r.takes, source: r.source }));
-const describeBlock = (b: Block | undefined): string => (b === undefined ? 'no such block' : JSON.stringify({ value: b.value, source: b.source, reach: b.reach }));
+const describeRow = (r: TableRow | undefined): string => (r === undefined ? 'no such row' : JSON.stringify({ companions: r.companions, value: r.value, mark: r.mark, takes: r.takes, source: r.source }));
+const describeBlock = (b: Block | undefined): string => (b === undefined ? 'no such block' : JSON.stringify({ companions: b.companions, value: b.value, fold: b.fold, source: b.source, reach: b.reach }));
+
+// valueAsDrawn is the value the table is to draw for a value the report gives:
+// the report's own spelling, or "none" where it gives none.
+const valueAsDrawn = (reported: string): string => (reported === '' ? NONE : reported);
 
 // waitNotice waits for the notification whose message opens as the panel's
 // refusal does, and answers with it, or with why none came within the bound.
@@ -626,67 +740,91 @@ export async function configurationReportChecks(ctx: SuiteContext, notABinary: s
     };
   });
 
-  await c.run('config-panel.every-setting-the-schema-declares-is-a-row', {
-    expected: `the table's first column holds, once each, exactly the settings the configuration schema the language server serves declares (aggrega/getSchema asked for "${CONFIG_SCHEMA_KIND}" over the same folder): a declaration that groups others is descended into and is no row itself, as ${NAMED_GROUP} is not and its members are, and a list of entries is one row; and the last row, scrolled to, stands drawn whole in the panel's view`,
+  await c.run('config-panel.every-setting-the-schema-declares-is-a-row-or-named-on-its-lists', {
+    expected: `the table's settings — each row's path, and each companion named under it — are, once each, exactly the settings the configuration schema the language server serves declares (aggrega/getSchema asked for "${CONFIG_SCHEMA_KIND}" over the same folder): a declaration that groups others is descended into and is no row itself, as ${NAMED_GROUP} is not and its members are, a list of entries is one row, and a list's additive companion — its key the list's followed by "_append", as ${COMPANION} — is named on its list's row and is no row of its own; and the last row, scrolled to, stands drawn whole in the panel's view`,
     plant: 'in the scratch copy, out/src/config-schema.js with the last declaration at every level of the schema left out of the walk',
   }, async () => {
     need(table !== null && panel !== null, 'no panel was drawn by the check opening it');
     const { schema, seen } = await servedSchema();
     if (schema === null) { return { passed: false, seen }; }
     const declared = declaredSettings(schema);
-    const drawn = table.rows.map((r) => r.path);
+    const drawn = [...table.rows.map((r) => r.path), ...table.rows.flatMap((r) => r.companions)];
     const want = declared.settings.map((s) => s.path);
     const missing = want.filter((p) => !drawn.includes(p));
     const extra = drawn.filter((p) => !want.includes(p));
     const twice = drawn.filter((p, i) => drawn.indexOf(p) !== i);
     const groupRows = drawn.filter((p) => declared.groups.includes(p));
+    // Each companion is named on its own list's row and on no other, and is no row.
+    const misplaced = declared.settings.filter((s) => s.addsTo !== null)
+      .filter((s) => rowOf(table as Reading, s.addsTo as string)?.companions.includes(s.path) !== true || rowOf(table as Reading, s.path) !== undefined)
+      .map((s) => s.path);
+    const companions = declared.settings.filter((s) => s.addsTo !== null).map((s) => `${s.path} on ${s.addsTo}`);
     const last = await panel.read<{ path: string; top: number; bottom: number; height: number; view: number } | null>(`(() => {
       const rows = d.querySelectorAll('table.config-table tbody tr');
       const r = rows[rows.length - 1];
       if (!r) { return null; }
       r.scrollIntoView({ block: 'end' });
       const b = r.getBoundingClientRect();
-      return { path: (r.children[0].textContent || '').trim(), top: b.top, bottom: b.bottom, height: b.height, view: d.defaultView.innerHeight };
+      const code = r.children[0].querySelector('code');
+      return { path: ((code || r.children[0]).textContent || '').trim(), top: b.top, bottom: b.bottom, height: b.height, view: d.defaultView.innerHeight };
     })()`);
     await panel.read('(d.scrollingElement.scrollTop = 0, true)');
     const lastInView = last !== null && last.height > 0 && last.top >= -0.5 && last.bottom <= last.view + 0.5;
     return {
-      passed: want.length > 0 && missing.length === 0 && extra.length === 0 && twice.length === 0 && groupRows.length === 0 && lastInView,
-      seen: `the served schema declares ${want.length} settings in ${declared.groups.length} groups; the table draws ${drawn.length} rows${missing.length > 0 ? `, missing ${JSON.stringify(missing)}` : ''}${extra.length > 0 ? `, beyond the schema ${JSON.stringify(extra)}` : ''}${twice.length > 0 ? `, twice ${JSON.stringify(twice)}` : ''}${groupRows.length > 0 ? `, a group drawn as a row ${JSON.stringify(groupRows)}` : ''}; the last row ${last === null ? 'not found' : `"${last.path}" scrolled to stands ${Math.round(last.top)} to ${Math.round(last.bottom)} px in a view ${last.view} px tall`}`,
+      passed: want.length > 0 && missing.length === 0 && extra.length === 0 && twice.length === 0 && groupRows.length === 0 && companions.length > 0 && misplaced.length === 0 && lastInView,
+      seen: `the served schema declares ${want.length} settings in ${declared.groups.length} groups, ${companions.length} of them a list's companion (${companions.join('; ')}); the table draws ${table.rows.length} rows naming ${drawn.length} settings${missing.length > 0 ? `, missing ${JSON.stringify(missing)}` : ''}${extra.length > 0 ? `, beyond the schema ${JSON.stringify(extra)}` : ''}${twice.length > 0 ? `, twice ${JSON.stringify(twice)}` : ''}${groupRows.length > 0 ? `, a group drawn as a row ${JSON.stringify(groupRows)}` : ''}${misplaced.length > 0 ? `, companions not named on their list's row alone ${JSON.stringify(misplaced)}` : ''}; the last row ${last === null ? 'not found' : `"${last.path}" scrolled to stands ${Math.round(last.top)} to ${Math.round(last.bottom)} px in a view ${last.view} px tall`}`,
     };
   });
 
-  await c.run('config-panel.coverage-sentence-counts-the-rows-and-what-the-report-names', {
-    expected: `the summary box says how much of the page the compiler's report covers in a sentence whose second number is the rows the table draws and whose first is how many of those rows the language server's own report names (aggrega/effectiveConfiguration over the same folder): "${coverageWords('<first>', '<second>')}"`,
-    plant: 'in the scratch copy, out/src/config-render.js with the coverage sentence counting one setting more than the page shows',
+  await c.run('config-panel.coverage-sentence-names-what-the-report-leaves-unattributed', {
+    expected: `the summary box carries a line opening "${NO_ROW_LEAD}" exactly where some row's setting is named nowhere in the language server's own report (aggrega/effectiveConfiguration over the same folder), and that line names each such setting; where the report names every row — as it does here, each list's companion being folded into its list's row — no such line is drawn`,
+    plant: 'in the scratch copy, out/src/config-render.js with the coverage sentence drawn whether or not a setting is left unattributed',
   }, async () => {
     need(table !== null, 'no panel was drawn by the check opening it');
     const { report, seen } = await servedReport();
     if (report === null) { return { passed: false, seen }; }
     const named = new Set(report.settings.map((s) => s.field));
-    const attributed = table.rows.filter((r) => named.has(r.path)).length;
-    const want = coverageWords(attributed, table.rows.length);
+    const unattributed = table.rows.filter((r) => !named.has(r.path)).map((r) => r.path);
     const notes = table.summary?.notes ?? [];
+    const lines = notes.filter((n) => n.startsWith(NO_ROW_LEAD));
+    const right = unattributed.length === 0
+      ? lines.length === 0
+      : lines.length === 1 && unattributed.every((p) => lines[0].includes(p));
     return {
-      passed: notes.includes(want),
-      seen: `${table.rows.length} rows drawn, ${attributed} of them named by the report's ${report.settings.length} settings; the summary's lines ${JSON.stringify(notes)}`,
+      passed: right,
+      seen: `${table.rows.length} rows drawn, ${unattributed.length === 0 ? 'every one named by the report' : `the report naming none of ${JSON.stringify(unattributed)}`} (${report.settings.length} settings reported); the summary's lines ${JSON.stringify(notes)}`,
     };
   });
 
-  await c.run('config-panel.nested-settings-and-entry-fields-are-drawn', {
-    expected: `the table is flat — no heading is drawn over its rows and no group is drawn as a section, the only heading beside the page's own title being the summary box's — and still reaches every depth: ${NESTED}, a member of a group within a group in the served schema, is a row, and the ${ENTRIES} row's Takes cell names, after "${EACH_CARRYING}", every field the served schema declares for one of its entries, at any depth`,
-    plant: 'in the scratch copy, out/src/config-schema.js with the fields an entry declares inside a group of its own left out of the fields named',
+  await c.run('config-panel.each-group-opens-with-a-heading-row-and-entry-fields-are-named', {
+    expected: `the table marks its groups: every setting inside a group stands beneath a heading row reading its group's path — the nearest heading row above it — and every heading row reads a group the served schema declares, once, followed by at least one setting of that group; the settings at the top level come before the first heading row; the table reaches every depth: ${NESTED}, a member of a group within a group, is a row beneath "lint.publishing_discipline"; and the ${ENTRIES} row's Takes cell names, after "${EACH_CARRYING}", every field the served schema declares for one of its entries, at any depth`,
+    plant: 'in the scratch copy, out/src/config-render.js with no heading row drawn over a group; out/src/config-schema.js with the fields an entry declares inside a group of its own left out of the fields named',
   }, async () => {
     need(table !== null, 'no panel was drawn by the check opening it');
     const { schema, seen } = await servedSchema();
     if (schema === null) { return { passed: false, seen }; }
     const declared = declaredSettings(schema);
-    const nestedDeclared = declared.settings.some((s) => s.path === NESTED);
+    const groupOf = (p: string): string => p.split('.').slice(0, -1).join('.');
+    const wrong: string[] = [];
+    let under: string | null = null;
+    const headed: string[] = [];
+    let since = 0;
+    for (const entry of table.body) {
+      if ('group' in entry) {
+        if (under !== null && since === 0) { wrong.push(`the heading ${under} heads no setting`); }
+        under = entry.group;
+        headed.push(entry.group);
+        since = 0;
+        if (!declared.groups.includes(entry.group)) { wrong.push(`a heading reads ${JSON.stringify(entry.group)}, no group the schema declares`); }
+        continue;
+      }
+      since++;
+      const want = groupOf(entry.setting);
+      if ((want === '' && under !== null) || (want !== '' && under !== want)) { wrong.push(`${entry.setting} stands under ${under === null ? 'no heading' : JSON.stringify(under)}`); }
+    }
+    if (under !== null && since === 0) { wrong.push(`the heading ${under} heads no setting`); }
+    const twice = headed.filter((g, i) => headed.indexOf(g) !== i);
     const nested = rowOf(table, NESTED);
-    const strayHeadings = table.headings.filter((h) => h.level !== 'h1' && !h.inSummary);
-    // The same reading finds the headings that are drawn: the page's title and the
-    // summary box's.
-    const control = table.headings.some((h) => h.level === 'h1') && table.headings.some((h) => h.inSummary);
     const entriesDeclared = declared.settings.find((s) => s.path === ENTRIES);
     const fields = entriesDeclared === undefined ? [] : entryFields(schema, entriesDeclared);
     const entries = rowOf(table, ENTRIES);
@@ -694,87 +832,164 @@ export async function configurationReportChecks(ctx: SuiteContext, notABinary: s
     const named = entries === undefined || after === -1 ? [] : entries.takes.slice(after + EACH_CARRYING.length + 1).split(', ');
     const unnamed = fields.filter((f) => !named.includes(f));
     return {
-      passed: control && strayHeadings.length === 0 && table.groups.length === 0 && nestedDeclared && nested !== undefined && fields.length > 0 && entries !== undefined && unnamed.length === 0,
-      seen: `the headings drawn ${JSON.stringify(table.headings.map((h) => h.text))}, beside the title and the summary's ${JSON.stringify(strayHeadings.map((h) => h.text))}, ${table.groups.length} group section(s); ${NESTED} ${nestedDeclared ? 'declared' : 'not declared'} by the served schema and ${nested === undefined ? 'drawn as no row' : 'drawn as a row'}; the ${ENTRIES} entry declares ${JSON.stringify(fields)} and its row takes ${JSON.stringify(entries?.takes ?? null)}${unnamed.length > 0 ? `, naming none of ${JSON.stringify(unnamed)}` : ''}`,
+      passed: headed.length > 0 && wrong.length === 0 && twice.length === 0 && nested !== undefined && fields.length > 0 && entries !== undefined && unnamed.length === 0,
+      seen: `${headed.length} heading rows ${JSON.stringify(headed)}${twice.length > 0 ? `, drawn twice ${JSON.stringify(twice)}` : ''}${wrong.length > 0 ? `; out of place: ${JSON.stringify(wrong.slice(0, 5))}` : '; every setting beneath its own group\'s heading, the top-level ones first'}; ${NESTED} ${nested === undefined ? 'drawn as no row' : 'drawn as a row'}; the ${ENTRIES} entry declares ${JSON.stringify(fields)} and its row takes ${JSON.stringify(entries?.takes ?? null)}${unnamed.length > 0 ? `, naming none of ${JSON.stringify(unnamed)}` : ''}`,
     };
   });
 
-  await c.forPerson('config-panel.flat-table-is-the-right-shape', {
-    expected: 'the table as it opens, one flat run of rows whose first column carries each setting as written in the file, its dotted path carrying the grouping',
-    plant: 'none: whether the flat table is right is the judgement asked for',
-    question: 'The capture shows the configuration table as it opens; the text below lists its rows in order. Is one flat table, with the dotted path carrying the grouping, right — or do you want the groups marked?',
+  await c.forPerson('config-panel.grouped-table-is-the-right-shape', {
+    expected: 'the table as it opens, its settings beneath a heading row for each group of the configuration, the top-level settings first',
+    plant: 'none: whether the grouped table is right is the judgement asked for',
+    question: 'The capture shows the configuration table as it opens; the text below lists its rows in order, each group\'s heading row marked "▸". Do the group headings make the table read right — and do the names beside each path read well under them?',
   }, async () => {
     need(table !== null, 'no panel was drawn by the check opening it');
     const left = await clearForCapture(ctx);
-    return { screenshot: await capture(ctx, 'config-table-as-it-opens'), drawnText: `${table.rows.length} rows:\n${table.rows.map((r) => `${r.path} | ${r.name}`).join('\n')}${left}` };
+    const rows = table.body.map((entry) => ('group' in entry ? `▸ ${entry.group} | ${entry.name}` : `${entry.setting} | ${rowOf(table as Reading, entry.setting)?.name ?? ''}`));
+    return { screenshot: await capture(ctx, 'config-table-as-it-opens'), drawnText: `${table.rows.length} rows:\n${rows.join('\n')}${left}` };
   });
 
-  await c.run('config-panel.columns-read-in-order-ending-in-the-circle', {
-    expected: `the table's headings read, left to right, ${HEADINGS.join(', ')}, and then a heading that draws no words and names its column for assistive technology; every row has a cell under each, the last holding the small circle marked "${CIRCLE}", so no column is given to a setting's reach; and ${PARSE_CACHE_CAP} takes "${wholeNumberTakes('<the minimum the served schema declares for it>')}"`,
-    plant: 'in the scratch copy, out/src/config-render.js with the first heading reading "config keyword"',
+  await c.run('config-panel.columns-read-in-order-under-visible-headings', {
+    expected: `the table's headings read, left to right, ${HEADINGS.join(', ')} and ${LAST_HEADING}, every one drawn in words — the last too, over the column of circles; every setting's row has a cell under each, the last holding the small circle marked "${CIRCLE}", so no column is given to a setting's reach; ${PARSE_CACHE_CAP} takes "${wholeNumberTakes('<the minimum the served schema declares for it>')}"; and ${KEYED}, a collection of entries keyed by name, takes "${NAMED_ENTRIES}…"`,
+    plant: 'in the scratch copy, out/src/config-render.js with the first heading reading "config keyword"; out/src/config-render.js with the last heading drawing no words',
   }, async () => {
     need(table !== null, 'no panel was drawn by the check opening it');
     const { schema, seen } = await servedSchema();
     if (schema === null) { return { passed: false, seen }; }
-    const labelled = table.heads.slice(0, -1).map((h) => h.text);
-    const last = table.heads[table.heads.length - 1];
-    const lastSilent = last !== undefined && last.own === '' && last.named !== '';
+    const drawn = table.heads.map((h) => h.text);
+    const visible = table.heads.every((h) => h.own !== '' && h.own === h.text);
     const offRows = table.rows.filter((r) => r.cells !== HEADINGS.length + 1 || r.circle !== CIRCLE);
     const minimum = declaredSettings(schema).settings.find((s) => s.path === PARSE_CACHE_CAP)?.node.minimum;
     const bounded = rowOf(table, PARSE_CACHE_CAP);
+    const keyed = rowOf(table, KEYED);
     return {
-      passed: JSON.stringify(labelled) === JSON.stringify(HEADINGS) && lastSilent && offRows.length === 0 && typeof minimum === 'number' && bounded !== undefined && bounded.takes === wholeNumberTakes(minimum),
-      seen: `the headings ${JSON.stringify(table.heads.map((h) => h.text))}, the last naming its column ${JSON.stringify(last?.named ?? null)} and drawing ${JSON.stringify(last?.own ?? null)}; ${offRows.length === 0 ? 'every row ends in the circle' : `rows not ending in the circle ${JSON.stringify(offRows.slice(0, 3).map((r) => `${r.path}: ${r.cells} cells, ${JSON.stringify(r.circle)}`))}`}; ${PARSE_CACHE_CAP} declared at least ${String(minimum)} and taking ${JSON.stringify(bounded?.takes ?? null)}`,
+      passed: JSON.stringify(drawn) === JSON.stringify([...HEADINGS, LAST_HEADING]) && visible && offRows.length === 0 && typeof minimum === 'number' && bounded !== undefined && bounded.takes === wholeNumberTakes(minimum)
+        && keyed !== undefined && keyed.takes.startsWith(NAMED_ENTRIES),
+      seen: `the headings drawn ${JSON.stringify(drawn)}${visible ? ', each in words' : `, as read for assistive technology ${JSON.stringify(table.heads.map((h) => h.named))}`}; ${offRows.length === 0 ? 'every row ends in the circle' : `rows not ending in the circle ${JSON.stringify(offRows.slice(0, 3).map((r) => `${r.path}: ${r.cells} cells, ${JSON.stringify(r.circle)}`))}`}; ${PARSE_CACHE_CAP} declared at least ${String(minimum)} and taking ${JSON.stringify(bounded?.takes ?? null)}; ${KEYED} taking ${JSON.stringify(keyed?.takes ?? null)}`,
     };
   });
 
   await c.forPerson('config-panel.columns-and-their-headings-are-the-ones-wanted', {
-    expected: 'the table\'s columns as they are drawn: the setting as written, its name in words, Set, Default, Effective, Takes — what the setting accepts, its type with the permitted values or bounds where the schema declares them — Source, and the circle',
+    expected: `the table's columns as they are drawn: the setting as written, its name in words, the one Value column — what applies now, marked "${MARK}" where a file or the environment set it or it is not the declared default — Takes, Source, and ${LAST_HEADING} over the circles`,
     plant: 'none: whether the columns and their headings are the right ones is the judgement asked for',
-    question: 'The capture shows the configuration table\'s columns; the text below gives each row\'s Takes cell. Is Takes — what a setting accepts: its type, with the permitted values or the bounds where the schema declares them — what you meant by that column, and should the first heading read "Setting" or "config keyword"?',
+    question: `The capture shows the configuration table's columns; the text below gives the headings and each row's Value and Takes cells. Do the one Value column with its mark, and the headings as drawn — the last reading "${LAST_HEADING}" — say what you want them to?`,
   }, async () => {
     need(table !== null, 'no panel was drawn by the check opening it');
     const left = await clearForCapture(ctx);
-    return { screenshot: await capture(ctx, 'config-table-columns'), drawnText: `headings: ${JSON.stringify(table.heads.map((h) => h.text))}\n${table.rows.map((r) => `${r.path} takes ${r.takes}`).join('\n')}${left}` };
+    return { screenshot: await capture(ctx, 'config-table-columns'), drawnText: `headings: ${JSON.stringify(table.heads.map((h) => h.text))}\n${table.rows.map((r) => `${r.path} | ${r.mark === null ? '' : `${MARK} `}${r.value} | takes ${r.takes}`).join('\n')}${left}` };
   });
 
-  await c.run('config-panel.set-is-empty-where-nothing-was-set', {
-    expected: `with nothing in force but what the folder's own ${CONFIG_FILENAME} sets, each row's Set cell holds the value the language server's own report gives it exactly where that report attributes it to a file or to the environment, and is empty on every other row — every row the report attributes to the built-in defaults, and every row it does not name; the file's own setting is a row that carries a value, and a setting at the built-in defaults is one that leaves it empty`,
-    plant: 'in the scratch copy, out/src/config-model.js with a built-in default read as a value the reader set',
+  await c.run('config-panel.one-value-column-marked-where-not-the-declared-default', {
+    expected: `each row's one value cell reads what applies now — the value the language server's own report gives it, "${NONE}" where the report gives none — and carries the mark "${MARK}" exactly where that report attributes the value to a file or to the environment, or gives a value that is not the default the served schema declares; the mark's words say why, as "${markWords(SET_IN_A_FILE, '<the declared default>')}"; here the folder's own ${CONFIG_FILENAME} sets ${COMPANION}, so the ${COMPANION_LIST} row is marked, and the rows at the built-in defaults are not`,
+    plant: 'in the scratch copy, out/src/config-model.js with every value the report gives marked as one a file set',
+  }, async () => {
+    need(table !== null, 'no panel was drawn by the check opening it');
+    const { schema, seen: schemaSeen } = await servedSchema();
+    const { report, seen } = await servedReport();
+    if (schema === null || report === null) { return { passed: false, seen: `${schemaSeen} ${seen}`.trim() }; }
+    const declared = declaredSettings(schema).settings;
+    const wrong: string[] = [];
+    for (const r of table.rows) {
+      const rep = report.settings.find((s) => s.field === r.path);
+      if (rep === undefined) { continue; }
+      const d = declared.find((s) => s.path === r.path);
+      const dflt = d !== undefined && d.hasDefault ? spelled(d.dflt) : null;
+      const asReported = d !== undefined && d.hasDefault ? reportSpelling(d.dflt) : null;
+      const why = rep.source.startsWith('env:') ? SET_IN_THE_ENVIRONMENT
+        : rep.source !== '' && rep.source !== DEFAULTS_SOURCE ? SET_IN_A_FILE
+          : asReported !== null && asReported !== rep.value ? NOT_THE_DEFAULT : null;
+      const mark = why === null ? null : markWords(why, dflt);
+      if (r.value !== valueAsDrawn(rep.value) || r.mark !== mark) { wrong.push(`${r.path}: ${describeRow(r)} where ${JSON.stringify({ value: valueAsDrawn(rep.value), mark })}`); }
+    }
+    const marked = table.rows.filter((r) => r.mark !== null).map((r) => r.path);
+    const unmarkedAtDefaults = table.rows.filter((r) => r.mark === null && report.settings.some((s) => s.field === r.path && s.source === DEFAULTS_SOURCE)).length;
+    return {
+      passed: wrong.length === 0 && marked.includes(COMPANION_LIST) && unmarkedAtDefaults > 0,
+      seen: `rows carrying the mark ${JSON.stringify(marked)}; ${unmarkedAtDefaults} row(s) at the built-in defaults carry none${wrong.length > 0 ? `; otherwise than the report: ${JSON.stringify(wrong.slice(0, 5))}` : ''}`,
+    };
+  });
+
+  await c.run('config-panel.none-where-no-value-is-in-force', {
+    expected: `every row the language server's own report gives no value for reads "${NONE}" in its value cell rather than drawing nothing, and an empty list reads "[]" as the report gives it; no value cell is drawn empty`,
+    plant: 'in the scratch copy, out/src/config-render.js with "none" drawn as nothing',
   }, async () => {
     need(table !== null, 'no panel was drawn by the check opening it');
     const { report, seen } = await servedReport();
     if (report === null) { return { passed: false, seen }; }
-    const wrong: string[] = [];
-    for (const r of table.rows) {
-      const rep = report.settings.find((s) => s.field === r.path);
-      const want = rep !== undefined && rep.source !== '' && rep.source !== DEFAULTS_SOURCE ? rep.value : '';
-      if (r.set !== want) { wrong.push(`${r.path}: ${JSON.stringify(r.set)} where ${JSON.stringify(want)}`); }
-    }
-    const carrying = table.rows.filter((r) => r.set !== '').map((r) => r.path);
-    const emptyAtDefaults = table.rows.filter((r) => r.set === '' && report.settings.some((s) => s.field === r.path && s.source === DEFAULTS_SOURCE)).length;
+    const givenNone = report.settings.filter((s) => s.value === '').map((s) => s.field);
+    const emptyLists = report.settings.filter((s) => s.value === '[]').map((s) => s.field);
+    const notNone = givenNone.filter((p) => rowOf(table as Reading, p)?.value !== NONE);
+    const notList = emptyLists.filter((p) => rowOf(table as Reading, p)?.value !== '[]');
+    const blank = table.rows.filter((r) => r.value === '').map((r) => r.path);
     return {
-      passed: wrong.length === 0 && carrying.length > 0 && emptyAtDefaults > 0,
-      seen: `rows carrying a value under Set ${JSON.stringify(carrying)}; ${emptyAtDefaults} row(s) at the built-in defaults leave it empty${wrong.length > 0 ? `; otherwise than the report: ${JSON.stringify(wrong.slice(0, 5))}` : ''}`,
+      passed: givenNone.length > 0 && emptyLists.length > 0 && notNone.length === 0 && notList.length === 0 && blank.length === 0,
+      seen: `${givenNone.length} setting(s) the report gives no value, ${notNone.length === 0 ? `each reading "${NONE}"` : `these not reading "${NONE}": ${JSON.stringify(notNone.map((p) => `${p}: ${JSON.stringify(rowOf(table as Reading, p)?.value ?? null)}`))}`}; ${emptyLists.length} empty list(s), ${notList.length === 0 ? 'each reading "[]"' : `these otherwise ${JSON.stringify(notList)}`}; value cells drawn empty ${JSON.stringify(blank)}`,
+    };
+  });
+
+  await c.run('config-panel.no-value-breaks-inside-a-word', {
+    expected: 'as the table opens in the editor area, no line break inside a value cell or a Source cell falls between two letters or digits — every break comes after a space, "/", ".", "_" or "-" — read character by character from each cell\'s own text',
+    plant: 'in the scratch copy, media/config.css with a value or a source allowed to break anywhere',
+  }, async () => {
+    need(panel !== null, 'no panel was drawn by the check opening it');
+    const read = await panel.read<{ cells: number; wrapped: number; breaks: { path: string; pair: string }[] }>(`(() => {
+      const rows = [...d.querySelectorAll('table.config-table tbody tr:not(.config-group-row)')];
+      const breaks = [];
+      let wrapped = 0;
+      let cells = 0;
+      for (const tr of rows) {
+        const code = tr.children[0] ? tr.children[0].querySelector('code') : null;
+        const key = code ? (code.textContent || '').trim() : '';
+        for (const cell of [tr.querySelector('td.config-cell-value'), tr.querySelector('td.config-cell-source')]) {
+          if (!cell) { continue; }
+          cells++;
+          let before = null;
+          let lines = 0;
+          const walk = d.createTreeWalker(cell, NodeFilter.SHOW_TEXT);
+          for (let n = walk.nextNode(); n !== null; n = walk.nextNode()) {
+            for (let i = 0; i < n.data.length; i++) {
+              const r = d.createRange();
+              r.setStart(n, i);
+              r.setEnd(n, i + 1);
+              const b = [...r.getClientRects()].find((x) => x.width > 0);
+              if (!b) { continue; }
+              const top = Math.round(b.top);
+              if (before === null) { lines = 1; } else if (top > before.top + 1) { lines++; breaks.push({ path: key, pair: before.ch + n.data[i] }); }
+              before = { ch: n.data[i], top };
+            }
+          }
+          if (lines > 1) { wrapped++; }
+        }
+      }
+      return { cells, wrapped, breaks };
+    })()`);
+    const midWord = read.breaks.filter((b) => /^[\p{L}\p{N}][\p{L}\p{N}]$/u.test(b.pair));
+    return {
+      passed: read.cells > 0 && midWord.length === 0,
+      seen: `${read.cells} value and Source cells, ${read.wrapped} of them on more than one line, ${read.breaks.length} breaks in all; ${midWord.length === 0 ? 'none between two letters or digits' : `inside a word: ${JSON.stringify(midWord.slice(0, 5).map((b) => `${b.path} at "${b.pair[0]}|${b.pair[1]}"`))}`}`,
     };
   });
 
   await c.run('config-panel.each-description-is-the-schemas-own-sentence', {
-    expected: `every row's circle carries, as the words its hover shows (the control's title) and in the paragraph it opens, the description the served schema declares for that setting — its declaration's own, or the definition's it refers to — and none is empty; pressing the circle on the ${OFFLINE} row opens that paragraph in the row, drawn with a height, and pressing it again closes it; and the page holds no script`,
+    expected: `every row's circle carries, as the words its hover shows (the control's title) and in the paragraph it opens, the description the served schema declares for that setting — its declaration's own, or the definition's it refers to — in the words the panel draws it in, each run the schema writes between backticks drawn as code; and none is empty; a row a companion is folded into carries after it the companion's own sentence, opened by the companion's path, and what the report gives for the two; pressing the circle on the ${OFFLINE} row opens that paragraph in the row, drawn with a height, and pressing it again closes it; and the page holds no script`,
     plant: 'in the scratch copy, out/src/config-render.js with each circle\'s hover reading the words that name its control instead of the setting\'s description',
   }, async () => {
     need(table !== null && panel !== null, 'no panel was drawn by the check opening it');
     const { schema, seen } = await servedSchema();
     if (schema === null) { return { passed: false, seen }; }
     const declared = declaredSettings(schema).settings;
+    const sentenceOf = (p: string): string => drawnWords(declared.find((s) => s.path === p)?.description ?? '');
     const off = table.rows.filter((r) => {
-      const want = declared.find((s) => s.path === r.path)?.description ?? '';
-      return want === '' || r.title !== want || r.description !== want;
+      const want = sentenceOf(r.path);
+      const after = r.companions.flatMap((c) => [`${c}: ${sentenceOf(c)}`]).concat(r.companions.length > 0 ? [foldWords(r.companions.join(' and '))] : []);
+      return want === '' || r.title !== want || r.description !== want || JSON.stringify(r.paragraphs) !== JSON.stringify([want, ...after]);
     });
     const at = table.rows.findIndex((r) => r.path === OFFLINE);
     if (at === -1) { return { passed: false, seen: `the table draws no ${OFFLINE} row to press the circle of` }; }
-    const details = `table.config-table tbody tr:nth-child(${at + 1}) details.config-info`;
+    // The row is found by the path it draws, and marked for the reads below, so a
+    // group's heading row before it does not count among the rows.
     const p = panel;
+    await p.read(`(() => { for (const tr of d.querySelectorAll('table.config-table tbody tr')) { const code = tr.children[0] ? tr.children[0].querySelector('code') : null; if (code && (code.textContent || '').trim() === ${JSON.stringify(OFFLINE)}) { tr.dataset.suiteRow = 'pressed'; } } return true; })()`);
+    const details = 'table.config-table tbody tr[data-suite-row="pressed"] details.config-info';
     const opened = (): Promise<{ open: boolean; height: number; text: string }> => p.read(`(() => { const det = d.querySelector(${JSON.stringify(details)}); const para = det ? det.querySelector('.config-description') : null; return { open: !!det && det.open, height: para ? para.getBoundingClientRect().height : 0, text: para ? (para.textContent || '').replace(/\\s+/g, ' ').trim() : '' }; })()`);
     const press = async (): Promise<void> => {
       await p.read(`(d.querySelector(${JSON.stringify(`${details} > summary`)}).scrollIntoView({ block: 'center' }), true)`);
@@ -789,7 +1004,7 @@ export async function configurationReportChecks(ctx: SuiteContext, notABinary: s
     await press();
     await until(`the ${OFFLINE} row's description closing on the second press`, 5000, opened, (v) => !v.open);
     await p.read('(d.scrollingElement.scrollTop = 0, true)');
-    const want = declared.find((s) => s.path === OFFLINE)?.description ?? '';
+    const want = sentenceOf(OFFLINE);
     return {
       passed: off.length === 0 && shown.text === want && table.census.scripts === 0,
       seen: `${off.length === 0 ? `every one of the ${table.rows.length} rows carries the schema's sentence on its hover and in its paragraph` : `rows otherwise: ${JSON.stringify(off.slice(0, 3).map((r) => `${r.path}: hover ${JSON.stringify(r.title.slice(0, 80))}, paragraph ${JSON.stringify(r.description.slice(0, 80))}`))}`}; the ${OFFLINE} circle pressed opened its paragraph ${Math.round(shown.height)} px tall ${openMs} ms after the press, reading ${JSON.stringify(shown.text.slice(0, 120))}, and a second press closed it; ${table.census.scripts} script element(s) on the page`,
@@ -809,7 +1024,7 @@ export async function configurationReportChecks(ctx: SuiteContext, notABinary: s
     panel = await pressSwitch(ctx, panel, 'expanded');
     expanded = await readPanel(panel);
     const declared = declaredSettings(schema).settings;
-    const undescribed = expanded.blocks.filter((b) => b.description === '' || b.description !== (declared.find((s) => s.path === b.path)?.description ?? ''));
+    const undescribed = expanded.blocks.filter((b) => b.description === '' || b.description !== drawnWords(declared.find((s) => s.path === b.path)?.description ?? ''));
     const same = sameSet(expanded.blocks.map((b) => b.path), table.rows.map((r) => r.path));
     return {
       passed: placed && headed && same && undescribed.length === 0 && expanded.switcher?.words === TO_TABLE,
@@ -832,10 +1047,42 @@ export async function configurationReportChecks(ctx: SuiteContext, notABinary: s
     };
   });
 
+  await c.run('config-panel.descriptions-draw-their-code-as-code', {
+    expected: 'no description the panel draws — behind a row\'s circle, on its hover, on a block or a group in the per-setting shape — carries a literal backtick; and every run the served schema writes between backticks in a setting\'s sentence is drawn as code, in the table and in the per-setting shape alike',
+    plant: 'in the scratch copy, out/src/config-render.js with a sentence drawn with its backticks as written',
+  }, async () => {
+    need(table !== null && expanded !== null, 'the panel was not drawn in both shapes by the checks before this one');
+    const { schema, seen } = await servedSchema();
+    if (schema === null) { return { passed: false, seen }; }
+    const declared = declaredSettings(schema).settings;
+    const ticked = [...table.drawn, ...expanded.drawn].filter((t) => t.includes('`'));
+    const runsOf = (p: string): string[] => codeRuns(declared.find((s) => s.path === p)?.description ?? '');
+    const tableOff = table.rows.filter((r) => JSON.stringify(r.codes) !== JSON.stringify(runsOf(r.path))).map((r) => r.path);
+    const blockOff = expanded.blocks.filter((b) => JSON.stringify(b.codes) !== JSON.stringify(runsOf(b.path))).map((b) => b.path);
+    const withCode = table.rows.filter((r) => r.codes.length > 0).length;
+    return {
+      passed: ticked.length === 0 && tableOff.length === 0 && blockOff.length === 0 && withCode > 0,
+      seen: `${table.drawn.length + expanded.drawn.length} descriptions drawn across both shapes, ${ticked.length === 0 ? 'none carrying a backtick' : `${ticked.length} carrying one, as ${JSON.stringify(ticked.slice(0, 2).map((t) => t.slice(0, 120)))}`}; ${withCode} row(s) drawing code in their sentence${tableOff.length > 0 ? `; in the table drawing other code than the schema writes ${JSON.stringify(tableOff.slice(0, 5))}` : ''}${blockOff.length > 0 ? `; on the blocks ${JSON.stringify(blockOff.slice(0, 5))}` : ''}`,
+    };
+  });
+
+  await c.run('config-panel.global-marker-on-the-machine-wide-rows-and-its-rule-at-the-head', {
+    expected: `in the table the rows of exactly ${MACHINE_WIDE.join(', ')} carry the one word "${GLOBAL}" beside their name, and no other row does; in the per-setting shape the rule for it, "${REACH_RULE}", is drawn once, ahead of every setting`,
+    plant: 'in the scratch copy, out/src/config-render.js with the Global marker left off the table\'s rows',
+  }, async () => {
+    need(table !== null && expanded !== null, 'the panel was not drawn in both shapes by the checks before this one');
+    const marked = table.rows.filter((r) => r.global !== null);
+    const wrongWord = marked.filter((r) => r.global !== GLOBAL).map((r) => `${r.path}: ${r.global}`);
+    return {
+      passed: sameSet(marked.map((r) => r.path), MACHINE_WIDE) && wrongWord.length === 0 && expanded.rule.text === REACH_RULE && expanded.rule.count === 1 && expanded.rule.beforeSettings,
+      seen: `the rows marked ${JSON.stringify(marked.map((r) => `${r.path}: ${r.global}`))}; the per-setting shape draws ${expanded.rule.count} rule line(s), ${JSON.stringify(expanded.rule.text)}, ${expanded.rule.beforeSettings ? 'ahead of every setting' : 'not ahead of the settings'}`,
+    };
+  });
+
   await c.forPerson('config-panel.reach-note-placement-and-its-narrowness-read-right', {
-    expected: `the per-setting shape at the ${ENTRIES} block, its note drawn in place; the table, which the panel opens in, carries no reach column`,
-    plant: 'none: whether the trade on where the note is drawn, and the narrowness of the settings it is drawn on, are right is the judgement asked for',
-    question: `The capture shows the per-setting shape at the ${ENTRIES} block; the text below gives every note the shape draws. The note is drawn in this shape only, so in the table a reader opens first ${CONTRAST} looks like any other row: is that trade acceptable? And ${DEFAULT_REGISTRY} and the top-level ${UNCLASSIFIED_GROUP} block carry no note though they look alike: does that read as an inconsistency?`,
+    expected: `the per-setting shape at the ${ENTRIES} block, its note drawn in place, the rule for the Global marker at the head of that shape; the table, which the panel opens in, marking the same settings "${GLOBAL}" on their rows`,
+    plant: 'none: whether the marker, its rule and the narrowness of the settings it is drawn on read right is the judgement asked for',
+    question: `The capture shows the per-setting shape at the ${ENTRIES} block; the text below gives the rule drawn at the head of that shape, every note it draws, and the rows the table marks "${GLOBAL}". Does the marker in the table, with the rule stated once here, tell a reader enough — say, that ${CONTRAST} written in a project's file is not the cap in force? And ${DEFAULT_REGISTRY} and the top-level ${UNCLASSIFIED_GROUP} block carry no marker though they look alike: does that read as an inconsistency?`,
   }, async () => {
     need(expanded !== null && panel !== null, 'the panel was not drawn in the per-setting shape by the check switching to it');
     // A block not drawn is the product's own answer, so it is said in the text and
@@ -847,30 +1094,33 @@ export async function configurationReportChecks(ctx: SuiteContext, notABinary: s
     const shot = await capture(ctx, 'config-reach-notes');
     await panel.read('(d.scrollingElement.scrollTop = 0, true)');
     const missing = at === -1 ? `the per-setting shape draws no ${ENTRIES} block, so the capture shows it where it opens\n` : '';
-    return { screenshot: shot, drawnText: `${missing}${expanded.blocks.filter((b) => b.reach !== null).map((b) => `${b.path}: ${b.reach}`).join('\n')}${left}` };
+    const rows = (table?.rows ?? []).filter((r) => r.global !== null).map((r) => `table: ${r.path} | ${r.name} ${r.global}`);
+    return { screenshot: shot, drawnText: `${missing}rule: ${expanded.rule.text}\n${expanded.blocks.filter((b) => b.reach !== null).map((b) => `${b.path}: ${b.reach}`).join('\n')}\n${rows.join('\n')}${left}` };
   });
 
-  await c.run('config-panel.labels-are-each-key-in-words', {
-    expected: `each setting's name — the table's second column, and the label of its block in the per-setting shape — is the last segment of the key a reader types with each underscore read as a space and its first letter capitalised, and nothing else: ${NAMED_LABELS.map((n) => `${n.path} reads "${n.label}"`).join(', ')}, and ${ALIKE.join(' and ')} read alike; each group heading in the per-setting shape reads its path and then its last segment derived the same way, as ${NAMED_GROUP} reads "${NAMED_GROUP} ${inWords(NAMED_GROUP)}"`,
-    plant: 'in the scratch copy, out/src/config-schema.js with every word of a label capitalised',
+  await c.run('config-panel.names-derived-from-the-keys-read-apart', {
+    expected: `each setting's name — the table's second column, and the label of its block in the per-setting shape — is derived from the key a reader types: its last segment with each underscore read as a space, an acronym in capitals (yaml, cli, url, ai, jwks, mcp, tls, id), "x" joined to the word after it with a hyphen, the first letter capitalised, and, where two settings' names would read alike, the key of the group each sits in ahead of its own; so no two rows share a name, and ${NAMED_LABELS.map((n) => `${n.path} reads "${n.label}"`).join(', ')}; each group heading in the per-setting shape reads its path and then its last segment derived the same way, as ${NAMED_GROUP} reads "${NAMED_GROUP} ${inWords(NAMED_GROUP)}"`,
+    plant: 'in the scratch copy, out/src/config-schema.js with every word of a name capitalised; out/src/config-schema.js with yaml spelled as the key writes it; out/src/config-model.js with names left to read alike',
   }, async () => {
     need(table !== null && expanded !== null, 'the panel was not drawn in both shapes by the checks before this one');
-    const tableOff = table.rows.filter((r) => r.name !== inWords(r.path)).map((r) => `${r.path}: ${r.name}`);
-    const blockOff = expanded.blocks.filter((b) => b.label !== inWords(b.path)).map((b) => `${b.path}: ${b.label}`);
+    const want = namedAs(table.rows.map((r) => r.path));
+    const tableOff = table.rows.filter((r) => r.name !== want.get(r.path)).map((r) => `${r.path}: ${r.name}`);
+    const blockOff = expanded.blocks.filter((b) => b.label !== want.get(b.path)).map((b) => `${b.path}: ${b.label}`);
     const groupOff = expanded.groups.filter((g) => g.heading !== `${g.path} ${inWords(g.path)}`).map((g) => g.heading);
     const namedOff = NAMED_LABELS.filter((n) => rowOf(table as Reading, n.path)?.name !== n.label).map((n) => `${n.path}: ${rowOf(table as Reading, n.path)?.name ?? 'no row'}`);
-    const alike = new Set(ALIKE.map((p) => rowOf(table as Reading, p)?.name ?? `no row for ${p}`));
+    const names = table.rows.map((r) => r.name);
+    const twice = names.filter((n, i) => names.indexOf(n) !== i);
     const namedGroup = expanded.groups.find((g) => g.path === NAMED_GROUP);
     return {
-      passed: tableOff.length === 0 && blockOff.length === 0 && groupOff.length === 0 && namedOff.length === 0 && alike.size === 1 && namedGroup !== undefined && expanded.groups.length > 0,
-      seen: `names otherwise than the rule: in the table ${JSON.stringify(tableOff.slice(0, 5))}, on the blocks ${JSON.stringify(blockOff.slice(0, 5))}, on ${expanded.groups.length} group heading(s) ${JSON.stringify(groupOff.slice(0, 5))}; the named ones ${namedOff.length === 0 ? 'as the rule gives them' : JSON.stringify(namedOff)}; ${ALIKE.join(' and ')} read ${JSON.stringify([...alike])}; the ${NAMED_GROUP} heading ${JSON.stringify(namedGroup?.heading ?? null)}`,
+      passed: tableOff.length === 0 && blockOff.length === 0 && groupOff.length === 0 && namedOff.length === 0 && twice.length === 0 && namedGroup !== undefined && expanded.groups.length > 0,
+      seen: `names otherwise than the rule: in the table ${JSON.stringify(tableOff.slice(0, 5))}, on the blocks ${JSON.stringify(blockOff.slice(0, 5))}, on ${expanded.groups.length} group heading(s) ${JSON.stringify(groupOff.slice(0, 5))}; the named ones ${namedOff.length === 0 ? 'as the rule gives them' : JSON.stringify(namedOff)}; ${twice.length === 0 ? `no two of the ${names.length} rows share a name` : `names drawn more than once ${JSON.stringify(twice)}`}; the ${NAMED_GROUP} heading ${JSON.stringify(namedGroup?.heading ?? null)}`,
     };
   });
 
   await c.forPerson('config-panel.plain-labels-read-well-enough', {
-    expected: 'the names each setting is drawn with, every one derived from its key and none written by hand',
-    plant: 'none: whether the plainness of the derived names bothers the reader is the judgement asked for',
-    question: `The text below gives every setting's name beside its key, and the capture shows the table. Each name is derived from the key alone, which keeps the page from falling behind the schema but reads plainly (${ALIKE.join(' and ')} both read "${inWords(ALIKE[0])}"). Does the plainness bother you enough to trade that guarantee for written names?`,
+    expected: 'the names each setting is drawn with, every one derived from its key and none written by hand, acronyms in capitals and the group added where two would read alike',
+    plant: 'none: whether the derived names read well enough is the judgement asked for',
+    question: `The text below gives every setting's name beside its key, and the capture shows the table. Each name is still derived from the key — an acronym spelled in capitals, and the group's key added where two would otherwise read alike (${ALIKE.join(' and ')} read "${namedAs(ALIKE).get(ALIKE[0])}" and "${namedAs(ALIKE).get(ALIKE[1])}"). Do the names read well enough now?`,
   }, async () => {
     need(table !== null && panel !== null, 'no panel was drawn by the check opening it');
     // The capture shows the table, so the panel is put back in it from the shape
@@ -880,43 +1130,41 @@ export async function configurationReportChecks(ctx: SuiteContext, notABinary: s
     return { screenshot: await capture(ctx, 'config-derived-names'), drawnText: `${table.rows.map((r) => `${r.path} → ${r.name}`).join('\n')}${left}` };
   });
 
-  await c.run('config-panel.uncovered-settings-read-their-declared-default-and-no-source', {
-    expected: `every setting the language server's own report names nowhere — ${COMPANION} among them — reads in the table "${NOT_REPORTED}" under Source and no path, nothing under Set, and its declared default followed by "${DECLARED_DEFAULT_MARK}" under Effective, and in the per-setting shape "${DECLARED_DEFAULT}" followed by that default and "${NOT_REPORTED_SOURCE}"; ${CONTRAST}, which the report covers at the built-in defaults, reads "${BUILT_IN}" under Source, nothing under Set and the report's own value under Effective with no "${DECLARED_DEFAULT_MARK}", and in the per-setting shape "${IN_FORCE}" followed by that value and "${BUILT_IN_SOURCE}"`,
-    plant: 'in the scratch copy, out/src/config-render.js with a declared default drawn under Effective as a bare value',
+  await c.run('config-panel.companion-set-in-the-folders-file-reads-on-its-lists-row', {
+    expected: `the folder's own ${CONFIG_FILENAME} sets ${COMPANION} and not ${COMPANION_LIST} — the scenario's preparation moves the folder's list there — and the language server's own report names the file on its ${COMPANION_LIST} row and carries no row for ${COMPANION}; the table draws no row of the companion's own and names it under the ${COMPANION_LIST} row's path, which reads the report's value, marked "${markWords(SET_IN_A_FILE, null)}", Source the folder's file, and behind its circle "${foldWords(COMPANION)}"; no row reads "${NOT_REPORTED}"; and the per-setting shape's ${COMPANION_LIST} block names ${COMPANION} beside its path and reads "${IN_FORCE}" followed by the report's value, "${SOURCE}" followed by the file, and the same sentence of what the report gives for the two; and ${CONTRAST}, at the built-in defaults, reads "${BUILT_IN}" and the report's value in both shapes, unmarked`,
+    plant: 'in the scratch copy, out/src/config-model.js with a companion drawn as a row of its own',
   }, async () => {
     need(table !== null && expanded !== null, 'the panel was not drawn in both shapes by the checks before this one');
-    const { schema, seen: schemaSeen } = await servedSchema();
-    const { report, seen: reportSeen } = await servedReport();
-    if (schema === null || report === null) { return { passed: false, seen: `${schemaSeen} ${reportSeen}`.trim() }; }
-    const declared = declaredSettings(schema).settings;
-    const named = new Set(report.settings.map((s) => s.field));
-    const uncovered = table.rows.filter((r) => !named.has(r.path)).map((r) => r.path);
-    const wrong: string[] = [];
-    for (const p of uncovered) {
-      const d = declared.find((s) => s.path === p);
-      const dflt = d !== undefined && d.hasDefault ? spelled(d.dflt) : null;
-      const r = rowOf(table, p);
-      const b = blockOf(expanded, p);
-      const ok = dflt !== null && r !== undefined && r.source === NOT_REPORTED && r.set === '' && r.effective === `${dflt} ${DECLARED_DEFAULT_MARK}`
-        && b !== undefined && b.value === `${DECLARED_DEFAULT}${dflt}` && b.source === NOT_REPORTED_SOURCE;
-      if (!ok) { wrong.push(`${p}: ${describeRow(r)}; ${describeBlock(b)}; declared default ${dflt ?? 'none'}`); }
-    }
+    const { report, seen } = await servedReport();
+    if (report === null) { return { passed: false, seen }; }
+    const file = path.join(ctx.folder, CONFIG_FILENAME);
+    const setInFile = fs.readFileSync(file, 'utf8');
+    const list = report.settings.find((s) => s.field === COMPANION_LIST);
+    const ownRow = report.settings.some((s) => s.field === COMPANION);
+    const r = rowOf(table, COMPANION_LIST);
+    const b = blockOf(expanded, COMPANION_LIST);
+    const tableOk = list !== undefined && list.source === file && !ownRow && rowOf(table, COMPANION) === undefined && r !== undefined
+      && JSON.stringify(r.companions) === JSON.stringify([COMPANION]) && r.value === list.value && r.mark === markWords(SET_IN_A_FILE, null)
+      && r.source === file && r.paragraphs.includes(foldWords(COMPANION));
+    const blockOk = list !== undefined && b !== undefined && JSON.stringify(b.companions) === JSON.stringify([COMPANION]) && b.value === `${IN_FORCE}${list.value}`
+      && b.source === `${SOURCE}${file}` && b.fold === foldWords(COMPANION) && blockOf(expanded, COMPANION) === undefined;
+    const unreported = table.rows.filter((x) => x.source === NOT_REPORTED).map((x) => x.path);
     const rep = report.settings.find((s) => s.field === CONTRAST);
     const cr = rowOf(table, CONTRAST);
     const cb = blockOf(expanded, CONTRAST);
-    const contrast = rep !== undefined && rep.source === DEFAULTS_SOURCE && cr !== undefined && cr.source === BUILT_IN && cr.set === '' && cr.effective === rep.value
-      && !cr.effective.includes(DECLARED_DEFAULT_MARK) && cb !== undefined && cb.value === `${IN_FORCE}${rep.value}` && cb.source === BUILT_IN_SOURCE;
+    const contrast = rep !== undefined && rep.source === DEFAULTS_SOURCE && cr !== undefined && cr.source === BUILT_IN && cr.mark === null && cr.value === rep.value
+      && !cr.value.includes(DECLARED_DEFAULT_MARK) && cb !== undefined && cb.value === `${IN_FORCE}${rep.value}` && cb.source === `${SOURCE}the built-in default, unchanged by any file`;
     const unread = ctx.out.text().split('\n').find((l) => l.includes(REPORT_UNREAD));
     return {
-      passed: uncovered.includes(COMPANION) && wrong.length === 0 && contrast,
-      seen: `the report names none of ${JSON.stringify(uncovered)}${wrong.length > 0 ? `; read otherwise: ${JSON.stringify(wrong)}` : ', each read as its declared default with no source'}; ${CONTRAST} reported ${JSON.stringify(rep ?? null)}, drawn ${describeRow(cr)} and ${describeBlock(cb)}${unread !== undefined ? `; the channel carries "${unread.trim()}"` : ''}`,
+      passed: setInFile.includes(`${COMPANION.slice(COMPANION.lastIndexOf('.') + 1)}:`) && tableOk && blockOk && unreported.length === 0 && contrast,
+      seen: `the folder's file reads ${JSON.stringify(setInFile)}; the report gives ${COMPANION_LIST} ${JSON.stringify(list ?? null)}${ownRow ? ` and a row for ${COMPANION}` : `, and no row for ${COMPANION}`}; the table's ${COMPANION_LIST} row ${describeRow(r)}, its circle's paragraphs ${JSON.stringify((r?.paragraphs ?? []).slice(1))}${rowOf(table, COMPANION) !== undefined ? `; a row of its own for ${COMPANION} ${describeRow(rowOf(table, COMPANION))}` : ''}; the block ${describeBlock(b)}; rows reading "${NOT_REPORTED}" ${JSON.stringify(unreported)}; ${CONTRAST} reported ${JSON.stringify(rep ?? null)}, drawn ${describeRow(cr)} and ${describeBlock(cb)}${unread !== undefined ? `; the channel carries "${unread.trim()}"` : ''}`,
     };
   });
 
   await c.forPerson('config-panel.coverage-sentence-earns-its-place', {
-    expected: 'the summary box with its coverage sentence, above the table',
-    plant: 'none: whether the coverage sentence is worth having is the judgement asked for',
-    question: 'The capture shows the summary box at the head of the configuration panel; the text below is what it says. Is the coverage sentence worth having, or is it noise?',
+    expected: 'the summary box above the table, with the coverage sentence where the report leaves a setting unattributed and none where it leaves none',
+    plant: 'none: whether the summary box says what it should is the judgement asked for',
+    question: 'The capture shows the summary box at the head of the configuration panel; the text below is what it says. Each list\'s companion is now named on its list\'s row, so the report attributes every row and no coverage sentence is drawn: is the box right as it stands?',
   }, async () => {
     need(panel !== null, 'no panel was drawn by the check opening it');
     panel = await inShape(ctx, panel, 'table');
@@ -996,7 +1244,12 @@ export async function configurationReportChecks(ctx: SuiteContext, notABinary: s
       }
     }
     const r = await readPanel(p);
-    return { screenshot: shots[0] ?? null, drawnText: `captures ${shots.join(', ')}; ${restored}${left.length > 0 ? `\n${left.join('\n')}` : ''}\n${r.heads.map((h) => h.text).join(' | ')}\n${r.rows.slice(0, ROWS_GIVEN).map((x) => [x.path, x.name, x.set, x.dflt, x.effective, x.takes, x.source].join(' | ')).join('\n')}` };
+    const given = r.body.slice(0, ROWS_GIVEN).map((entry) => {
+      if ('group' in entry) { return `▸ ${entry.group} | ${entry.name}`; }
+      const x = rowOf(r, entry.setting);
+      return x === undefined ? entry.setting : [x.path, `${x.name}${x.global === null ? '' : ` ${x.global}`}`, `${x.mark === null ? '' : `${MARK} `}${x.value}`, x.takes, x.source].join(' | ');
+    });
+    return { screenshot: shots[0] ?? null, drawnText: `captures ${shots.join(', ')}; ${restored}${left.length > 0 ? `\n${left.join('\n')}` : ''}\n${r.heads.map((h) => h.text).join(' | ')}\n${given.join('\n')}` };
   });
 
   // ---- a setting put in force by the folder's own file ----
@@ -1007,7 +1260,7 @@ export async function configurationReportChecks(ctx: SuiteContext, notABinary: s
   }, async () => {
     need(panel !== null, 'the panel was not drawn by the checks before this one');
     const p = panel;
-    const offlineEffective = async (): Promise<string> => rowOf(await readPanel(p), OFFLINE)?.effective ?? 'no row';
+    const offlineEffective = async (): Promise<string> => rowOf(await readPanel(p), OFFLINE)?.value ?? 'no row';
     const before = await offlineEffective();
     fs.appendFileSync(path.join(ctx.folder, CONFIG_FILENAME), `${OFFLINE}: true\n`);
     edited = true;
@@ -1032,7 +1285,7 @@ export async function configurationReportChecks(ctx: SuiteContext, notABinary: s
   });
 
   await c.run('config-panel.setting-in-the-folders-file-reads-in-every-column-of-both-shapes', {
-    expected: `with "${OFFLINE}: true" in the folder's ${CONFIG_FILENAME} and the language server restarted, the table's ${OFFLINE} row reads Set "true", Default the default the served schema declares for it, Effective "true", Takes "${TOGGLE_TAKES}" and Source the path the language server's own report names for it — the folder's own ${CONFIG_FILENAME}; and the per-setting shape reads "${IN_FORCE}true" and "${SOURCE}" followed by the same path, both shapes agreeing`,
+    expected: `with "${OFFLINE}: true" in the folder's ${CONFIG_FILENAME} and the language server restarted, the table's ${OFFLINE} row reads Value "true" carrying the mark, its words "${markWords(SET_IN_A_FILE, '<the default the served schema declares for it>')}", Takes "${TOGGLE_TAKES}" and Source the path the language server's own report names for it — the folder's own ${CONFIG_FILENAME}; and the per-setting shape reads "${IN_FORCE}true" and "${SOURCE}" followed by the same path, both shapes agreeing`,
     plant: 'in the scratch copy, out/src/config-model.js with a file named in the table by its base name alone',
   }, async () => {
     need(edited && panel !== null, `the folder's ${CONFIG_FILENAME} was not changed by the check before this one`);
@@ -1046,7 +1299,7 @@ export async function configurationReportChecks(ctx: SuiteContext, notABinary: s
     const file = path.join(ctx.folder, CONFIG_FILENAME);
     const r = rowOf(await readPanel(panel), OFFLINE);
     const tableOk = rep !== undefined && rep.value === 'true' && rep.source === file && dflt !== null && r !== undefined
-      && r.set === 'true' && r.dflt === dflt && r.effective === 'true' && r.takes === TOGGLE_TAKES && r.source === rep.source;
+      && r.value === 'true' && r.mark === markWords(SET_IN_A_FILE, dflt) && r.takes === TOGGLE_TAKES && r.source === rep.source;
     panel = await pressSwitch(ctx, panel, 'expanded');
     const b = blockOf(await readPanel(panel), OFFLINE);
     const blockOk = rep !== undefined && b !== undefined && b.value === `${IN_FORCE}true` && b.source === `${SOURCE}${rep.source}`;
@@ -1204,11 +1457,38 @@ export function proveNothingSetIn(folder: string, key: string): FixtureProof {
   return { fixture, built: true, proof: `${file} parses to ${documents.length} document(s), none setting ${key}` };
 }
 
+// setListThroughItsCompanion rewrites the folder's configuration file so it sets
+// its catalog directories through the list's additive companion rather than the
+// list: the same directories, read the same way — the built-in list is empty, and
+// the companion adds its entries to it — so the folder resolves as it did, while
+// its file sets the companion and not the list. Exactly one key is moved, and it
+// is refused unless the file carries the list's key once and the companion's
+// nowhere.
+export function setListThroughItsCompanion(folder: string): FixtureProof {
+  const file = path.join(folder, CONFIG_FILENAME);
+  const fixture = `${COMPANION} set in the folder's file in place of ${COMPANION_LIST}`;
+  const listKey = COMPANION_LIST.slice(COMPANION_LIST.lastIndexOf('.') + 1);
+  const companionKey = COMPANION.slice(COMPANION.lastIndexOf('.') + 1);
+  const list = `  ${listKey}:\n`;
+  const companion = `  ${companionKey}:\n`;
+  const text = fs.readFileSync(file, 'utf8');
+  if (text.split(list).length !== 2 || text.includes(companion)) {
+    throw new FixtureError(fixture, `${file} does not carry the line ${JSON.stringify(list)} exactly once with no ${JSON.stringify(companion)}`);
+  }
+  fs.writeFileSync(file, text.replace(list, companion));
+  const parsed = loadAll(fs.readFileSync(file, 'utf8'))[0] as { workspace?: Record<string, unknown> } | undefined;
+  const workspace = parsed?.workspace ?? {};
+  if (!Array.isArray(workspace[companionKey]) || Object.hasOwn(workspace, listKey)) {
+    throw new FixtureError(fixture, `${file} does not parse to a workspace block setting the companion and not the list`);
+  }
+  return { fixture, built: true, proof: `${file} sets ${COMPANION} to ${JSON.stringify(workspace[companionKey])} and does not set ${COMPANION_LIST}` };
+}
+
 export async function configurationFromTheEnvironmentChecks(ctx: SuiteContext): Promise<void> {
   const c = ctx.checks;
   await ready(ctx);
   await c.run('config-panel.setting-from-the-environment-names-the-variable-in-both-shapes', {
-    expected: `in an editor started with ${OFFLINE_VARIABLE}=true in its environment, which the language server it starts carries too, and ${OFFLINE} set in no file, the configuration table's ${OFFLINE} row reads Set "true", Effective "true" and Source "${environmentCell(OFFLINE_VARIABLE)}", and the per-setting shape reads "${IN_FORCE}true" and "${environmentSource(OFFLINE_VARIABLE)}", both shapes agreeing`,
+    expected: `in an editor started with ${OFFLINE_VARIABLE}=true in its environment, which the language server it starts carries too, and ${OFFLINE} set in no file, the configuration table's ${OFFLINE} row reads Value "true" carrying the mark, its words opening "${SET_IN_THE_ENVIRONMENT};", and Source "${environmentCell(OFFLINE_VARIABLE)}", and the per-setting shape reads "${IN_FORCE}true" and "${environmentSource(OFFLINE_VARIABLE)}", both shapes agreeing`,
     plant: 'in the scratch copy, out/src/config-model.js with the compiler\'s spelling of a value taken from an environment variable unrecognised, so it reads as a file',
   }, async () => {
     const server = await theServer(ctx);
@@ -1221,7 +1501,7 @@ export async function configurationFromTheEnvironmentChecks(ctx: SuiteContext): 
     const b = blockOf(await readPanel(p), OFFLINE);
     await pressSwitch(ctx, p, 'table');
     return {
-      passed: carried === 'true' && r !== undefined && r.set === 'true' && r.effective === 'true' && r.source === environmentCell(OFFLINE_VARIABLE) && b !== undefined && b.value === `${IN_FORCE}true` && b.source === environmentSource(OFFLINE_VARIABLE),
+      passed: carried === 'true' && r !== undefined && r.value === 'true' && (r.mark ?? '').startsWith(`${SET_IN_THE_ENVIRONMENT};`) && r.source === environmentCell(OFFLINE_VARIABLE) && b !== undefined && b.value === `${IN_FORCE}true` && b.source === environmentSource(OFFLINE_VARIABLE),
       seen: `the language server carries ${OFFLINE_VARIABLE}=${JSON.stringify(carried ?? null)}; the table's row ${describeRow(r)}; the block ${describeBlock(b)}`,
     };
   });
@@ -1242,7 +1522,7 @@ export async function nothingConfiguredChecks(ctx: SuiteContext): Promise<void> 
   const c = ctx.checks;
   await ready(ctx);
   await c.run('config-panel.nothing-configured-reads-every-setting-at-its-default', {
-    expected: `in a folder holding only a Release, with no configuration file in it, above it or in the home directory's configuration, the panel's summary box draws a line opening "${NO_FILE_LEAD}" and no list of files, empty or not, at every reading over ${SUMMARY_WATCH_MS} ms, and every row reads at its default: nothing under Set, and either Source "${BUILT_IN}" with the language server's own reported value under Effective, or Source "${NOT_REPORTED}" with the declared default followed by "${DECLARED_DEFAULT_MARK}"; once "${OFFLINE}: true" is written into a ${CONFIG_FILENAME} there, the language server restarted and the panel pressed again, the same reading lists that file and reads ${OFFLINE} set`,
+    expected: `in a folder holding only a Release, with no configuration file in it, above it or in the home directory's configuration, the panel's summary box draws a line opening "${NO_FILE_LEAD}" and no list of files, empty or not, at every reading over ${SUMMARY_WATCH_MS} ms, and every row reads at its default: no mark on its value, and either Source "${BUILT_IN}" with the language server's own reported value — "${NONE}" where it gives none — or Source "${NOT_REPORTED}" with the declared default followed by "${DECLARED_DEFAULT_MARK}"; once "${OFFLINE}: true" is written into a ${CONFIG_FILENAME} there, the language server restarted and the panel pressed again, the same reading lists that file and reads ${OFFLINE} set in it`,
     plant: 'in the scratch copy, out/src/config-render.js with the summary drawing its list of files whether or not a file contributed',
   }, async () => {
     const schemaAnswer = await ask(ctx, 'aggrega/getSchema', { kind: CONFIG_SCHEMA_KIND });
@@ -1262,9 +1542,9 @@ export async function nothingConfiguredChecks(ctx: SuiteContext): Promise<void> 
       const rep = report.settings.find((s) => s.field === row.path);
       const d = declared.find((s) => s.path === row.path);
       const atDefault = rep !== undefined
-        ? rep.source === DEFAULTS_SOURCE && row.source === BUILT_IN && row.effective === rep.value
-        : d !== undefined && d.hasDefault && row.source === NOT_REPORTED && row.effective === `${spelled(d.dflt)} ${DECLARED_DEFAULT_MARK}`;
-      if (row.set !== '' || !atDefault) { wrong.push(`${row.path}: ${describeRow(row)}`); }
+        ? rep.source === DEFAULTS_SOURCE && row.source === BUILT_IN && row.value === valueAsDrawn(rep.value)
+        : d !== undefined && d.hasDefault && row.source === NOT_REPORTED && row.value === `${spelled(d.dflt)} ${DECLARED_DEFAULT_MARK}`;
+      if (row.mark !== null || !atDefault) { wrong.push(`${row.path}: ${describeRow(row)}`); }
     }
     // The control: a file written, the server restarted, the panel pressed again,
     // read by the same reading.
@@ -1274,10 +1554,10 @@ export async function nothingConfiguredChecks(ctx: SuiteContext): Promise<void> 
     await send(ctx, RESTART_COMMAND);
     await runningAgain(ctx, mark, SERVER_BOUND_MS);
     await pressShowConfig(ctx);
-    const after = await until(`the panel listing ${file} and reading ${OFFLINE} set`, PANEL_DRAWN_MS, () => readPanel(panel), (x) => (x.summary?.layers ?? []).includes(file) && rowOf(x, OFFLINE)?.set === 'true');
+    const after = await until(`the panel listing ${file} and reading ${OFFLINE} set`, PANEL_DRAWN_MS, () => readPanel(panel), (x) => (x.summary?.layers ?? []).includes(file) && rowOf(x, OFFLINE)?.value === 'true' && (rowOf(x, OFFLINE)?.mark ?? '').startsWith(`${SET_IN_A_FILE};`));
     return {
       passed: noFile !== undefined && kept.held && r.rows.length > 0 && wrong.length === 0,
-      seen: `the summary's lines ${JSON.stringify(r.summary?.notes ?? [])}, its lists ${JSON.stringify(r.summary?.lists ?? [])}${kept.held ? ` over ${SUMMARY_WATCH_MS} ms` : `, otherwise ${kept.atMs} ms in`}; ${r.rows.length} rows${wrong.length > 0 ? `, these not at their default: ${JSON.stringify(wrong.slice(0, 5))}` : ', every one at its default with nothing under Set'}; with ${file} written the same reading lists ${JSON.stringify(after.summary?.layers ?? [])} and reads ${OFFLINE} ${describeRow(rowOf(after, OFFLINE))}`,
+      seen: `the summary's lines ${JSON.stringify(r.summary?.notes ?? [])}, its lists ${JSON.stringify(r.summary?.lists ?? [])}${kept.held ? ` over ${SUMMARY_WATCH_MS} ms` : `, otherwise ${kept.atMs} ms in`}; ${r.rows.length} rows${wrong.length > 0 ? `, these not at their default: ${JSON.stringify(wrong.slice(0, 5))}` : ', every one at its default with no mark on its value'}; with ${file} written the same reading lists ${JSON.stringify(after.summary?.layers ?? [])} and reads ${OFFLINE} ${describeRow(rowOf(after, OFFLINE))}`,
     };
   });
   await closeAllEditors(ctx);
