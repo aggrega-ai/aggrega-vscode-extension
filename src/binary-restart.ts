@@ -3,8 +3,8 @@
 
 // Pure helper for scheduling a daemon restart after a configurable
 // grace window. Extracted from extension.ts so the timer logic is
-// unit-testable with fake timers — the integration test covers the
-// activation-side wiring at the vscode-test tier.
+// unit-testable with fake timers — the end-to-end suite covers the
+// activation-side wiring in a real editor.
 
 // TimerLike abstracts the setTimeout/clearTimeout pair so tests can
 // substitute fake timers. Production passes `setTimeout` /

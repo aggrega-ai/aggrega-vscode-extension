@@ -586,7 +586,6 @@
     "build-fixtures": "node out/test/helpers/build-aggrega.js",
     "pretest": "npm run compile && npm run build-fixtures",
     "test": "mocha out/test/suite/**/*.test.js",
-    "test:integration": "npm run compile && vscode-test",
     "test:e2e": "node out/test/e2e/run.js"
   },
   "devDependencies": {
@@ -596,7 +595,6 @@
     "@types/semver": "^7.5.0",
     "@types/vscode": "^1.85.0",
     "@vscode/codicons": "^0.0.46-24",
-    "@vscode/test-cli": "^0.0.10",
     "@vscode/test-electron": "^2.4.0",
     "@vscode/vsce": "4.0.0",
     "@vscode/vsce-sign": "file:scripts/vsce-sign-stub",

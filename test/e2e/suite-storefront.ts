@@ -50,6 +50,7 @@ export const STOREFRONT_CHECKS = [
   'language-server.restarts-after-a-kill',
   'problems.authoring-mistake-lands-on-its-line-in-the-compilers-words',
   'problems.authoring-mistake-reads-as-actionable',
+  'problems.findings-leave-with-the-document-the-editor-closes',
   'problems.cascade-names-the-entity-that-broke',
   ...INSPECTION_CHECKS,
   'language-features.completion-offers-the-workspace-and-catalog-entities',
@@ -186,6 +187,31 @@ export async function pressViewAction(ctx: SuiteContext, viewTitle: string, acti
   await pressIn(ctx.d, null, `#workbench\\.parts\\.sidebar .pane-header .action-label[aria-label="${actionLabel}"]`);
 }
 
+// LanguageMode is a language as the editor's Change Language Mode lists it, and
+// the identifier the editor reports for a document given it.
+interface LanguageMode { name: string; id: string }
+const PLAIN_TEXT: LanguageMode = { name: 'Plain Text', id: 'plaintext' };
+const YAML_MODE: LanguageMode = { name: 'YAML', id: 'yaml' };
+
+// CLOSED_WATCH_MS is how long a closed document is watched carrying no finding.
+const CLOSED_WATCH_MS = 3000;
+
+// giveLanguage gives an open document another language as a person does — the
+// document in front, the editor's own Change Language Mode, the language's name
+// typed and its row pressed — and answers with the language the editor then
+// reports for the document.
+async function giveLanguage(ctx: SuiteContext, file: string, mode: LanguageMode): Promise<string> {
+  await open(ctx, file);
+  await send(ctx, 'workbench.action.editor.changeLanguageMode');
+  await waitQuickInput(ctx.d, 'the editor\'s list of languages', (q) => q.rows.length > 0);
+  await ctx.d.type(mode.name);
+  await waitQuickInput(ctx.d, `the list of languages offering ${mode.name}`, (q) => q.rows.some((r) => r.label === mode.name));
+  await pickQuickInputRow(ctx.d, mode.name);
+  const active = (): Promise<{ path: string; languageId: string } | null> => ctx.probe.request<{ path: string; languageId: string } | null>('editor.active');
+  const doc = await until(`the document reading as ${mode.id}`, 5000, active, (v) => v !== null && v.path === file && v.languageId === mode.id).catch(active);
+  return doc === null ? 'no active editor' : doc.languageId;
+}
+
 // killServer signals the language server this window started, by its recorded
 // PID, as a person does with `kill <pid>`, and returns what it signalled.
 export async function killServer(ctx: SuiteContext): Promise<{ pid: number; cwd: string }> {
@@ -264,6 +290,44 @@ export async function storefrontChecks(ctx: SuiteContext, referenceFolder: strin
   }, async () => {
     need(mistakeText !== '', 'no complaint was filed, so there is nothing to judge');
     return { screenshot: mistakeShot, drawnText: mistakeText };
+  });
+
+  // ---- findings leave with a document the editor closes ----
+  // The editor reports a document closed when it disposes of it or gives it
+  // another language. A closed tab disposes of a document only once nothing else
+  // holds it, and the editor keeps a document an extension opened — the probe's
+  // own openings among them — for minutes after its last tab closes; a change of
+  // language is reported at once. So the check closes the document by giving it
+  // another language, with the editor's own picker.
+  await c.run('problems.findings-leave-with-the-document-the-editor-closes', {
+    expected: `with the Feature's metadata.version deleted and left unsaved, and its complaint filed under "aggrega", giving the document the language ${PLAIN_TEXT.name} through the editor's Change Language Mode — which the editor reports as closing the YAML document — takes every finding on it out of the Problems panel, and none is filed on it again (watched for ${CLOSED_WATCH_MS} ms); giving it ${YAML_MODE.name} again files the complaint again, so the edit still stood and what took the complaint out was the close`,
+    plant: 'in the scratch copy, out/src/extension.js made to leave the findings of a YAML document the editor closes standing',
+  }, async () => {
+    const removed = await deleteLine(ctx, feature, 'version: 1.0.0');
+    try {
+      const complaintOn = (v: { source: string | null }[]): boolean => v.some((d) => d.source === 'aggrega');
+      const filed = await until('the complaint being filed', 20000, () => diagnostics(ctx, feature), complaintOn).catch(() => null);
+      need(filed !== null, 'no complaint was filed on the Feature with its metadata.version deleted, so there is nothing for the close to take out');
+      const closedAs = await giveLanguage(ctx, feature, PLAIN_TEXT);
+      const left = await until('every finding leaving the closed document', 3000, () => diagnostics(ctx, feature), (v) => v.length === 0).then(() => null, (err: unknown) => (err instanceof Error ? err.message : String(err)));
+      const out = left === null ? await holds(CLOSED_WATCH_MS, () => diagnostics(ctx, feature), (v) => v.length === 0) : null;
+      const reopenedAs = await giveLanguage(ctx, feature, YAML_MODE);
+      const back = await until('the complaint filed again once the document reads as YAML', 20000, () => diagnostics(ctx, feature), complaintOn).catch(() => null);
+      return {
+        passed: closedAs === PLAIN_TEXT.id && left === null && out !== null && out.held && reopenedAs === YAML_MODE.id && back !== null,
+        seen: `filed: ${describeDiagnostics(feature, filed)}; given ${PLAIN_TEXT.name}, the editor reports ${closedAs}, and ${left === null ? `no finding was left on it, ${out?.held ? `none filed again over ${CLOSED_WATCH_MS} ms` : `then ${describeDiagnostics(feature, out?.broke ?? [])} at ${out?.atMs} ms`}` : left}; given ${YAML_MODE.name} again, the editor reports ${reopenedAs}, and ${back === null ? 'no complaint was filed again' : `${describeDiagnostics(feature, back)} was filed again`}`,
+      };
+    } finally {
+      // The Feature as it was: read as YAML, the line back, saved, its complaint
+      // gone — whatever the check above saw — so the checks after it read the
+      // folder the scenario opened.
+      if ((await quickInput(ctx.d).catch(() => null)) !== null) { await ctx.d.press('Escape'); }
+      const active = await ctx.probe.request<{ path: string; languageId: string } | null>('editor.active').catch(() => null);
+      if (active === null || active.path !== feature || active.languageId !== YAML_MODE.id) { await giveLanguage(ctx, feature, YAML_MODE).catch(() => undefined); }
+      await putBack(ctx, feature, removed);
+      await until('the complaint clearing once the line is back', 20000, () => diagnostics(ctx, feature), (v) => !v.some((d) => d.source === 'aggrega')).catch(() => undefined);
+      await save(ctx, feature);
+    }
   });
 
   // ---- diagnostics across a cascade ----

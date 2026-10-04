@@ -297,6 +297,11 @@ export const PLANTS: readonly Plant[] = [
     says: 'a finding\'s message is cut at its note, which drops the part naming the file that broke',
   },
   {
+    name: 'closed-document-keeps-its-findings', scenario: 'storefront', checks: ['problems.findings-leave-with-the-document-the-editor-closes'], moves: 'red', target: 'extension',
+    file: EXTENSION, find: '            (0, diagnostics_1.clearUriInEverySource)(diagnosticCollections, doc.uri);\n', replace: '',
+    says: 'a YAML document the editor closes keeps its findings in the Problems panel',
+  },
+  {
     name: 'facet-row-dropped', scenario: 'storefront', checks: ['catalog-search.palette-shows-its-facets'], moves: 'red', target: 'extension',
     file: SEARCH_RUN,
     find: "        {\n            action: 'pluginType',\n            label: 'Plugin type',\n            description: pluginType || exports.ANY_VALUE_LABEL,\n            detail: 'Keep plugins attached at this socket',\n        },\n",
