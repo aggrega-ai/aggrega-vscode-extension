@@ -264,6 +264,24 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
+      - name: Print the managed identity's Marketplace member id (dry run)
+        # The identity can publish only once it is added to package.json's
+        # publisher as a Contributor, and the publisher adds it by an id that
+        # only a sign-in as the identity can read: the `id` of its profile. The
+        # Azure CLI the step above signed in reads that profile, with a token for
+        # the service --resource names (the one the packager's Microsoft Entra ID
+        # sign-in asks for), and prints its id alone, never the rest of the
+        # profile, so the id can be added to the publisher, as the sign-in check
+        # below needs. A failed lookup does not stop the job: the sign-in check
+        # runs whatever this step finds.
+        if: ${{ inputs.dry_run != false && steps.sign-in.outputs.identity == 'true' }}
+        continue-on-error: true
+        timeout-minutes: 3
+        run: |
+          set -euo pipefail
+          echo "the managed identity's Visual Studio Marketplace member id, to add to package.json's publisher as a Contributor:"
+          az rest -u https://app.vssps.visualstudio.com/_apis/profile/profiles/me --resource 499b84ac-1321-427f-aa17-267ca6975798 --query id -o tsv
+
       - name: Check the sign-in (dry run)
         if: ${{ inputs.dry_run != false }}
         # 🔴 BOUNDED, BECAUSE THE ENTRA ID SIGN-IN WAITS MINUTES BEFORE IT REFUSES.
