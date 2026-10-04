@@ -21,7 +21,7 @@ import { makeSigningKey, PUBLISHED_ENTITY, ScratchRegistry, StubRegistries, WITH
 import { capture, closeAllEditors, ready, run, send, SuiteContext, theServer } from './suite-context';
 import { INDEX_BUILD_OPENING, pressViewAction, REGISTRIES_HEAD } from './suite-storefront';
 import {
-  guard, holds, NotificationReading, notificationReadings, pickQuickInputRow, pressPanelAction, QuickInput, quickInput, RUNNING, sleep, stated, stopWatchingNotification, Toast, toasts,
+  drawnTreeRows, guard, holds, NotificationReading, notificationReadings, pickQuickInputRow, pressPanelAction, QuickInput, quickInput, RUNNING, sleep, stated, stopWatchingNotification, Toast, toasts,
   toastsSince, treeRows, until, waitQuickInput, waitStatus, waitToast, watchNotification,
 } from './workbench';
 
@@ -606,9 +606,10 @@ export async function registryChecks(ctx: SuiteContext, registry: ScratchRegistr
     await run(ctx, 'workbench.view.extension.aggrega');
     await pressViewAction(ctx, 'Registries', 'Refresh registries');
     await pressViewAction(ctx, 'Plugins', 'Refresh plugins');
-    await until('both views drawing their rows after the refresh', 15000, async () => [(await treeRows(ctx.d, 'Registries')) ?? [], (await treeRows(ctx.d, 'Plugins')) ?? []],
+    // What the two views draw, beside the capture of them: the rows in sight.
+    await until('both views drawing their rows after the refresh', 15000, async () => [(await drawnTreeRows(ctx.d, 'Registries')) ?? [], (await drawnTreeRows(ctx.d, 'Plugins')) ?? []],
       ([r, p]) => r.length > 0 && p.length > 0).catch(() => undefined);
-    const rows = [...((await treeRows(ctx.d, 'Registries')) ?? []).map((r) => `Registries: ${r.label} ${r.description}`), ...((await treeRows(ctx.d, 'Plugins')) ?? []).slice(0, 8).map((r) => `Plugins: ${r.label} ${r.description}`)];
+    const rows = [...((await drawnTreeRows(ctx.d, 'Registries')) ?? []).map((r) => `Registries: ${r.label} ${r.description}`), ...((await drawnTreeRows(ctx.d, 'Plugins')) ?? []).slice(0, 8).map((r) => `Plugins: ${r.label} ${r.description}`)];
     return { screenshot: await capture(ctx, 'views-after-refresh'), drawnText: rows.join('\n') };
   });
 

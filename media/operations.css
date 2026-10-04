@@ -222,8 +222,10 @@ body {
 
 /* A control that cannot run keeps its place in the row. Removing one would move
    the others under the reader's pointer as the state changes; dimming it leaves
-   the geometry alone and says the control is there but not now. */
-.op[disabled] {
+   the geometry alone and says the control is there but not now. The caret
+   beside a button that cannot run is dimmed with it, on the same terms. */
+.op[disabled],
+.op-caret[disabled] {
   opacity: 0.5;
   cursor: not-allowed;
 }
@@ -255,10 +257,10 @@ body {
    group's first button gets it rather than ending because a group ended.
 
    A narrow panel WRAPS. Scrolling sideways would hide operations behind a
-   gesture with no affordance, in a panel whose whole premise is that everything
-   is visible at once; shrinking would truncate a label at exactly the width
-   where the reader most needs to read it. Wrapping is the vertical shape the
-   reader already knows how to read.
+   gesture with no affordance, in a panel whose whole premise is that every
+   operation is in one flow, reached without opening anything; shrinking would
+   truncate a label at exactly the width where the reader most needs to read
+   it. Wrapping is the vertical shape the reader already knows how to read.
 
    How many lines it takes is decided by the width and the labels, and by
    nothing else. NO BREAK IS EVER FORCED: a break written in here would hold at
@@ -336,7 +338,7 @@ body {
   cursor: pointer;
 }
 
-.op-caret:hover {
+.op-caret:not([disabled]):hover {
   background: var(--vscode-button-secondaryHoverBackground, var(--vscode-button-hoverBackground));
 }
 
@@ -428,16 +430,30 @@ body {
 /* In the section shape the operations are full-width rows, so the caret is a
    row of its own beneath the button it belongs to rather than beside it. It is
    indented one level further, which is what says it belongs to the row above
-   rather than being another operation in the group. */
+   rather than being another operation in the group.
+
+   It draws its name as text, ahead of the glyph, rather than the glyph alone.
+   A chevron by itself on a row is what an open section's heading draws, so a
+   nameless one reads as a section to open; the name says what pressing it
+   opens. The name gives way with an ellipsis rather than pushing the row past
+   the panel's edge, and the glyph keeps its width. */
 .groups-sections .op-caret {
   display: flex;
   justify-content: flex-start;
+  gap: 0.4rem;
   width: 100%;
+  min-width: 0;
   height: 22px;
   color: inherit;
   background: none;
   border-radius: 0;
   padding: 0 0.6rem 0 2.5rem;
+}
+
+.groups-sections .op-caret-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* The unit a button and its caret are drawn in is a plain block here, so each
@@ -448,7 +464,7 @@ body {
   display: block;
 }
 
-.groups-sections .op-caret:hover {
+.groups-sections .op-caret:not([disabled]):hover {
   background: var(--vscode-list-hoverBackground);
 }
 
@@ -564,9 +580,11 @@ body {
   min-width: min(12rem, calc(100% - 0.4rem));
   max-width: calc(100% - 0.4rem);
   /* A long list scrolls inside the menu rather than running off the panel. The
-     cap is a fraction of the view, so it is right at every panel height
-     instead of being a length chosen for one. */
-  max-height: 60vh;
+     panel's script caps the height where it places the menu, at the room the
+     view has on the side of the control the menu opens on, so the menu's far
+     edge stays inside the view at every panel height; this is the bound it
+     narrows, never taller than the view. */
+  max-height: 100vh;
   overflow-y: auto;
   padding: 0.2rem 0;
   /* The editor's own menu tokens, so this reads as a menu the editor drew. They
@@ -593,6 +611,38 @@ body {
    it holds wherever either ends up. */
 .op-menu.op-menu-dials {
   min-width: 0;
+}
+
+/* A MENU OF CHOICES DRAWS ITS NAME AT ITS HEAD, AND THE NAME STAYS THERE WHILE
+   THE CHOICES SCROLL beneath it, so a menu cut down to the room beside its
+   control still says what it is choosing however far it is scrolled. It is
+   one line, cut short rather than wrapped, on the menu's own ground — the
+   choices pass under it — with a rule beneath it in the editor's separator
+   colour, so it reads as the menu's heading rather than as a first choice.
+
+   Its height is stated once, as a property of the menu, because the menu reads
+   it too: a choice the keys bring into sight is brought to just beneath the
+   name rather than under it. */
+.op-menu:has(> .op-menu-title) {
+  --op-menu-title-height: calc(1.4em + 0.5rem);
+  scroll-padding-top: var(--op-menu-title-height);
+}
+
+.op-menu-title {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  flex: none;
+  box-sizing: border-box;
+  height: var(--op-menu-title-height);
+  padding: 0.25rem 0.7rem;
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  background: var(--vscode-menu-background, var(--vscode-editorWidget-background));
+  box-shadow: 0 1px 0 var(--vscode-menu-separatorBackground, var(--vscode-widget-border, transparent));
 }
 
 /* Each choice is two lines: the name, then what choosing it does. The second

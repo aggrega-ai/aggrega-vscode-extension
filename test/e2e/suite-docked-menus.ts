@@ -4,7 +4,7 @@
 import { CACHE_OPERATIONS } from '../../src/operation-groups';
 import { need } from './checks';
 import {
-  ABSENCE_MS, chooseLayout, describeMenu, drawnPanel, DrawnPanel, FOCUS_LOG, focusLog, inWindow, MENU_CONTROLS, menuCommand, MenuOpened, moveContainer, openEverySection, openMenu, openMenuOf,
+  ABSENCE_MS, chooseLayout, describeMenu, drawnPanel, DrawnPanel, FOCUS_LOG, focusLog, headShown, inWindow, MENU_CONTROLS, menuCommand, MenuOpened, moveContainer, openEverySection, openMenu, openMenuOf,
   PanesAt, placement, pointerOff, restoring, rgb, sameColour, seen, waitMenuClosed, waitMenuOpen,
 } from './commands-panel';
 import { WebviewDocument } from './drivers';
@@ -32,6 +32,9 @@ export const DOCKED_MENUS_CHECKS = [
 // "a few hundred pixels wide" is taken to be.
 const WIDE_PX = 800;
 const DOCKED = { least: 200, most: 400 };
+
+// How many of a menu's choices are to stand whole beneath its name, docked.
+const HEAD_ROWS = 2;
 
 // The part of the window the container is docked in, and the entry under the
 // activity bar menu's "Move To" that docks it there, by the words it reads.
@@ -80,12 +83,18 @@ function cleared(p: DrawnPanel): boolean {
 // emptyPoint is a point of the panel, in the window's coordinates, where a press
 // lands on no control and not on the open menu — the panel's own ground — or null
 // where its view shows none.
+//
+// It keeps EDGE px inside the view on every side. The workbench draws the sash
+// that resizes a part over the outermost pixels of the view beside it, so a press
+// there lands on the sash rather than in the panel's document — and the panel,
+// never seeing it, closes nothing.
 async function emptyPoint(ctx: SuiteContext, doc: WebviewDocument): Promise<{ x: number; y: number } | null> {
   const at = await doc.evaluate<{ x: number; y: number } | null>(`(() => {
+    const EDGE = 4;
     const w = document.documentElement.clientWidth;
     const h = window.innerHeight;
-    for (let y = h - 4; y > 0; y -= 6) {
-      for (let x = w - 4; x > 0; x -= 6) {
+    for (let y = h - EDGE; y >= EDGE; y -= 6) {
+      for (let x = w - EDGE; x >= EDGE; x -= 6) {
         const e = document.elementFromPoint(x, y);
         if (e === null || e.closest('button, a, input, select, summary, [data-focus-key], [data-command], [data-toggle], [data-dials], [data-option], .op-menu')) { continue; }
         return { x, y };
@@ -160,8 +169,8 @@ export async function dockedMenusChecks(ctx: SuiteContext): Promise<void> {
   // ---- docked ----
   let docked: PanesAt | null = null;
   await c.run('commands-panel.menus-open-against-their-button-docked-a-few-hundred-pixels-wide', {
-    expected: `with the container moved by the activity bar's "Move To" to the ${DOCK_ENTRY}, every one of its panels drawn there and the Commands panel ${DOCKED.least} to ${DOCKED.most} px wide, each of the ${MENU_CONTROLS.map((id) => menuCommand(id).label).join(', ')} menus stands against its own button by the same rule — so none runs under the panel's scroll bar — and buttons on different lines open menus at different heights`,
-    plant: 'in the scratch copy, media/operations.js with a menu left where its button\'s left edge puts it, past the panel\'s right edge; and with the menu kept inside the window\'s width, the scroll bar counted in — in the script, and in the stylesheet\'s cap',
+    expected: `with the container moved by the activity bar's "Move To" to the ${DOCK_ENTRY}, every one of its panels drawn there and the Commands panel ${DOCKED.least} to ${DOCKED.most} px wide, each of the ${MENU_CONTROLS.map((id) => menuCommand(id).label).join(', ')} menus stands against its own button by the same rule — on the side with more room, its bottom edge inside the view, and none running under the panel's scroll bar — draws the words it is named by at its head, inside the view, with at least ${HEAD_ROWS} of its choices whole beneath them, and buttons on different lines open menus whose edges meet their buttons at different heights`,
+    plant: 'in the scratch copy, media/operations.js with a menu left where its button\'s left edge puts it, past the panel\'s right edge; with the menu kept inside the window\'s width, the scroll bar counted in — in the script, and in the stylesheet\'s cap; with the menu opened on the side with less room; with every menu opened beneath its button and capped at 60 percent of the view; with the menu capped at half the room beside its button; and out/src/operations-render.js with no name drawn at a menu\'s head',
   }, async () => {
     const at = await moveContainer(ctx, DOCK_ENTRY, DOCK_PART);
     panel = await commandsPanel(ctx.d);
@@ -173,11 +182,15 @@ export async function dockedMenusChecks(ctx: SuiteContext): Promise<void> {
       await close(menuCommand(id).label);
     }
     const breaks = opened.flatMap((o) => placement(o.menu).breaks.map((b) => `${o.label}: ${b}`));
-    // The tie to the button at this width: a menu stands against its own button's
-    // line, so two buttons on different lines open at different heights.
-    const tops = opened.map((o) => ({ line: Math.round(o.menu.opener?.y ?? 0), top: Math.round(o.menu.box?.y ?? 0) }));
-    const distinct = tops.every((a, i) => tops.every((b, j) => i === j || a.line === b.line || a.top !== b.top));
-    return { passed: breaks.length === 0 && distinct, seen: `docked in ${at.part}, the panels drawn there reading ${JSON.stringify(at.titles)} top to bottom, the Commands panel ${at.width} px wide; ${opened.map((o) => `${o.label}: ${describeMenu(o.menu)}`).join('; ')}` };
+    const heads = opened.flatMap((o) => headShown(o.menu, HEAD_ROWS).map((b) => `${o.label}: ${b}`));
+    // The tie to the button at this width: a menu's edge meets its own button's
+    // line, so two buttons on different lines open menus meeting them at
+    // different heights. The edge read is the one on the button's side — a menu
+    // above its button can fill the room up to the view's top, so where two do,
+    // their tops agree while the edges meeting their buttons do not.
+    const meets = opened.map((o) => ({ line: Math.round(o.menu.opener?.y ?? 0), at: Math.round(placement(o.menu).against) }));
+    const distinct = meets.every((a, i) => meets.every((b, j) => i === j || a.line === b.line || a.at !== b.at));
+    return { passed: breaks.length === 0 && heads.length === 0 && distinct, seen: `docked in ${at.part}, the panels drawn there reading ${JSON.stringify(at.titles)} top to bottom, ${JSON.stringify(at.heights)} px tall, the Commands panel ${at.width} px wide; ${opened.map((o) => `${o.label}: ${describeMenu(o.menu)}`).join('; ')}${heads.length > 0 ? `; short of its head: ${heads.join('; ')}` : ''}${distinct ? '' : `; buttons on different lines meet their menus at one height: ${JSON.stringify(meets)}`}` };
   });
 
   // ---- the mark ----

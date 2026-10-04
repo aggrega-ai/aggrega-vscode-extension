@@ -744,26 +744,124 @@ export async function pressDialogButton(driver: UiDriver, label: string): Promis
   await driver.click(at);
 }
 
-// TreeRow is one row of a tree view as drawn.
+// TreeRow is one row of a tree view.
 export interface TreeRow { label: string; description: string; aria: string; level: number; expanded: string | null; decorations: string }
 
-// treeRows reads the drawn rows of the side-bar view titled `title`.
+// TREE_PANE and TREE_ROW are the one reading of a side-bar view and of one of its
+// rows, in the workbench's own document: the pane whose header reads `title`, and
+// what a row reads as. Both of the readings below are made of them, so the list
+// read whole and the rows drawn now are read alike.
+const TREE_PANE = `(title) => [...document.querySelectorAll('.pane')].find((pane) => {
+  const h = pane.querySelector('.pane-header');
+  const t = h ? ((h.querySelector('h3.title, .title') || {}).innerText || '').trim() : '';
+  return t.toLowerCase() === title.toLowerCase();
+}) || null`;
+const TREE_ROW = `(r) => ({
+  label: ((r.querySelector('.label-name') || {}).innerText || '').trim(),
+  description: ((r.querySelector('.label-description') || {}).innerText || '').trim(),
+  aria: r.getAttribute('aria-label') || '',
+  level: Number(r.getAttribute('aria-level') || 0),
+  expanded: r.getAttribute('aria-expanded'),
+  decorations: [...r.querySelectorAll('.monaco-icon-label, .label-name')].map((e) => e.className).join(' '),
+})`;
+
+// treeRows reads every row the list in the side-bar view titled `title` holds,
+// in its order, wherever the view stands scrolled — the rows a person finds by
+// scrolling the list as well as the ones in sight — or null where no such view is
+// drawn.
+//
+// A tree draws only the rows in sight, so a row below the view's edge is not in
+// the document at all, and a reading of the rows drawn would wait in vain for a
+// row the list holds, or read a row that has merely scrolled away as gone. So a
+// list longer than its view is walked: turned to its start, then down by a view
+// less one row at a time, each row taken by its place in the list, and turned
+// back to where it stood. The walk is driven by wheel events sent to the list
+// itself, so the pointer stays where it is, and it runs inside one evaluation of
+// the window's script, so no frame is drawn while it moves and nothing watching
+// the view sees it move. A list that does not move when turned is reported as an
+// error rather than read as the rows in sight.
+//
+// The rows the view draws now, and only those, are `drawnTreeRows`.
 export function treeRows(driver: UiDriver, title: string): Promise<TreeRow[] | null> {
   return driver.workbench<TreeRow[] | null>(`((title) => {
-    for (const pane of document.querySelectorAll('.pane')) {
-      const h = pane.querySelector('.pane-header');
-      const t = h ? ((h.querySelector('h3.title, .title') || {}).innerText || '').trim() : '';
-      if (t.toLowerCase() !== title.toLowerCase()) { continue; }
-      return [...pane.querySelectorAll('.pane-body .monaco-list-row')].map((r) => ({
-        label: ((r.querySelector('.label-name') || {}).innerText || '').trim(),
-        description: ((r.querySelector('.label-description') || {}).innerText || '').trim(),
-        aria: r.getAttribute('aria-label') || '',
-        level: Number(r.getAttribute('aria-level') || 0),
-        expanded: r.getAttribute('aria-expanded'),
-        decorations: [...r.querySelectorAll('.monaco-icon-label, .label-name')].map((e) => e.className).join(' '),
-      }));
+    const paneOf = ${TREE_PANE};
+    const rowOf = ${TREE_ROW};
+    const pane = paneOf(title);
+    if (!pane) { return null; }
+    // The list's own rows and the element that scrolls them — never the copies of
+    // a parent the view pins at its top while the rows beneath it scroll, which
+    // stand in a container of their own.
+    const rows = pane.querySelector('.pane-body .monaco-list > .monaco-scrollable-element > .monaco-list-rows');
+    const view = rows ? rows.parentElement : null;
+    const drawn = () => rows ? [...rows.children].filter((r) => r.classList.contains('monaco-list-row')) : [];
+    if (!rows || !view) { return [...pane.querySelectorAll('.pane-body .monaco-list-row')].map(rowOf); }
+    // Each row by its place in the list; the list is whole once every place from
+    // its first row to the one marked as its last has been read.
+    const seen = new Map();
+    let last = -1;
+    const take = () => {
+      for (const r of drawn()) {
+        const i = Number(r.getAttribute('data-index'));
+        if (!Number.isInteger(i) || i < 0) { continue; }
+        if (!seen.has(i)) { seen.set(i, rowOf(r)); }
+        if (r.getAttribute('data-last-element') === 'true') { last = i; }
+      }
+    };
+    const whole = () => last >= 0 && seen.size === last + 1 && [...seen.keys()].every((i) => i <= last);
+    const ordered = () => [...seen.keys()].sort((a, b) => a - b).map((i) => seen.get(i));
+    take();
+    if (seen.size === 0 || whole()) { return ordered(); }
+    const at = () => view.getBoundingClientRect().top - rows.getBoundingClientRect().top;
+    // The list reads a wheel event's legacy delta where it carries one, and an
+    // event made in the page carries one of the same sign as its standard delta —
+    // the opposite of what a turn of the wheel gives — so it is stated here as a
+    // turn of the wheel states it, or the list would turn the other way.
+    const turn = (dy) => {
+      const e = new WheelEvent('wheel', { deltaY: dy, deltaMode: 0, bubbles: true, cancelable: true });
+      Object.defineProperty(e, 'wheelDeltaY', { value: -dy });
+      Object.defineProperty(e, 'wheelDeltaX', { value: 0 });
+      view.dispatchEvent(e);
+    };
+    // How far one unit of the wheel turns the list is learnt from each turn that
+    // moved it rather than assumed; the first turn down is half a step, so a first
+    // guess as much as twice too large still leaves no row unread between two
+    // readings.
+    let perUnit = 1 / 2.4;
+    const by = (px) => {
+      const before = at();
+      const units = px / perUnit;
+      turn(units);
+      const moved = at() - before;
+      if (Math.abs(moved) > 0.5) { perUnit = moved / units; }
+      return moved;
+    };
+    const start = at();
+    const step = Math.max(1, view.clientHeight - Math.max(0, ...drawn().map((r) => r.getBoundingClientRect().height)));
+    turn(-1000000);
+    take();
+    for (let n = 0; n < 1000 && !whole(); n++) {
+      if (by(n === 0 ? step / 2 : step) <= 0.5) { break; }
+      take();
     }
-    return null;
+    const read = whole();
+    // Back to where it stood: to its start, then down by the distance it stood at.
+    turn(-1000000);
+    for (let n = 0; n < 20 && Math.abs(at() - start) > 0.5; n++) {
+      if (Math.abs(by(start - at())) <= 0.5) { break; }
+    }
+    if (!read) { throw new Error('the ' + title + ' view did not turn through its whole list when scrolled, so the rows beyond its view could not be read; read ' + JSON.stringify(ordered().map((r) => r.label).slice(0, 12))); }
+    return ordered();
+  })(${JSON.stringify(title)})`);
+}
+
+// drawnTreeRows reads the rows the side-bar view titled `title` draws now — the
+// part of its list in sight, with any parent the view pins at its top — or null
+// where no such view is drawn. It is the reading for a check about what the view
+// shows; what the list holds is `treeRows`.
+export function drawnTreeRows(driver: UiDriver, title: string): Promise<TreeRow[] | null> {
+  return driver.workbench<TreeRow[] | null>(`((title) => {
+    const pane = (${TREE_PANE})(title);
+    return pane ? [...pane.querySelectorAll('.pane-body .monaco-list-row')].map(${TREE_ROW}) : null;
   })(${JSON.stringify(title)})`);
 }
 
@@ -1024,6 +1122,10 @@ export async function scrollTreeToTop(driver: UiDriver, title: string): Promise<
 // a reason beside its label — the sign such a row gives that it cannot run, as
 // the Commands panel greys a button — so a press that could only run nothing is
 // reported as what it is rather than waited on.
+//
+// A head row scrolls away with the list beneath it in a view too short to show
+// both, so the row is read wherever the list stands and then brought into sight
+// before the press, as a person scrolls up to it before pressing it.
 export async function pressPanelAction(driver: UiDriver, title: string, label: string, boundMs = 20000): Promise<void> {
   const rows = await until(`the "${label}" row at the head of the ${title} view`, boundMs, () => treeRows(driver, title),
     (v) => v !== null && v.some((r) => r.label === label));
@@ -1031,6 +1133,7 @@ export async function pressPanelAction(driver: UiDriver, title: string, label: s
   if (!row) { throw new Error(`the ${title} view draws no "${label}" row`); }
   if (row.level !== 1) { throw new Error(`the ${title} view draws "${label}" at level ${row.level}, not at its head`); }
   if (row.description !== '') { throw new Error(`the ${title} view's "${label}" row cannot run: ${row.description}`); }
+  await revealTreeRow(driver, title, label);
   if ((await treeRowCentre(driver, title, label)) === null) { throw new Error(`the ${title} view's "${label}" row is not drawn where it can be pressed`); }
   const target = treeRowTarget(title, label);
   await pressConfirmed(driver, { doc: null, target, what: `the "${label}" row of the ${title} view` }, () => driver.workbench<PressSite>(uncoveredMiddle(target)));

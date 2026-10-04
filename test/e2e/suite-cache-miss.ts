@@ -51,9 +51,6 @@ export async function cacheMissChecks(ctx: SuiteContext): Promise<void> {
     need(held !== source && onDisk !== held, 'the scratch Component no longer carries the name this check renames');
     need(!fs.existsSync(file), `${FILE} is already in the folder`);
     await closeAllEditors(ctx);
-    // The Component heading sits near the head of the list, so the list is read
-    // from its start.
-    need(await catalogPanelAtItsHead(ctx, CATALOG_FIRST_ROW), `the Catalog panel could not be brought back to "${CATALOG_FIRST_ROW}" at its head, where the Component's row is read`);
     fs.writeFileSync(file, held);
     await until(`the "${HELD_NAME}" row appearing`, 15000, () => treeRows(ctx.d, 'Catalog'), (v) => v !== null && v.some((r) => r.label === HELD_NAME));
     const name = await lineOf(ctx, file, `name: ${HELD_NAME}`);

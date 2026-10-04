@@ -11,7 +11,7 @@ import { Inputs } from './inputs';
 import { DiagnosticEntry, ProbeClient } from './probe-client';
 import { readCmdline } from './processes';
 import { relaunch, Relaunched, Scenario } from './scenario';
-import { commandsPanel, documentWith, openTabs, OutputLog, RUNNING, scrollTreeToTop, toastWindowPassed, treeRows, until, waitStatus } from './workbench';
+import { commandsPanel, documentWith, drawnTreeRows, openTabs, OutputLog, RUNNING, scrollTreeToTop, toastWindowPassed, until, waitStatus } from './workbench';
 
 // What every check body of the suite reaches: the launched editor, the probe,
 // the inputs, the output channel, and the scenario's contained home.
@@ -210,7 +210,7 @@ export async function catalogPanelAtItsHead(ctx: SuiteContext, firstRow: string)
   await run(ctx, 'aggrega.workspaceCatalog.focus');
   await run(ctx, 'list.focusFirst').catch(() => undefined);
   await scrollTreeToTop(ctx.d, 'Catalog');
-  return until(`the Catalog panel drawing "${firstRow}" first`, 10000, () => treeRows(ctx.d, 'Catalog'), (v) => v !== null && v.length > 0 && v[0].label === firstRow).then(() => true, () => false);
+  return until(`the Catalog panel drawing "${firstRow}" first`, 10000, () => drawnTreeRows(ctx.d, 'Catalog'), (v) => v !== null && v.length > 0 && v[0].label === firstRow).then(() => true, () => false);
 }
 
 // reopen closes the editor and opens it again on the same profile and folder,

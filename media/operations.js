@@ -168,24 +168,43 @@
     status.hidden = text === '';
   }
 
-  // placeBeside puts the menu under the control that opened it, and above it
-  // where there is no room below. Across, it hangs a menu of settings from the
-  // right of its control and a menu of choices from the left, for the reason
-  // given at the line that chooses between them.
+  // placeBeside puts the menu against the control that opened it, on whichever
+  // side of the control the view has more room — beneath it, or above it — and
+  // no taller than that room, so its edge meets the control and its far edge
+  // stays inside the view; a list longer than the room scrolls inside the menu.
+  // Across, it hangs a menu of settings from the right of its control and a menu
+  // of choices from the left, for the reason given at the line that chooses
+  // between them.
+  //
+  // The side is chosen by the room alone, never by whether the menu would fit
+  // beneath: in a panel docked in a short side bar a control often stands with
+  // too little room on either side for the whole menu, and the side with more
+  // room is then the one that shows more of it.
   //
   // The position is measured at the moment of opening and is deliberately not
   // maintained: the panel scrolls and the reader resizes it, and re-measuring
   // on either would be a menu that follows the button around while the reader
   // is reading it. Both of those close the menu instead, which is what a menu
-  // anchored to a control that has moved should do.
+  // anchored to a control that has moved should do. What the menu holds changing
+  // under the reader — choices arriving, typing narrowing them — places it again
+  // against the same control.
   function placeBeside(menu, control) {
     if (!control) { return; }
     const at = control.getBoundingClientRect();
-    // Measured while shown, because a hidden element has no size to read.
+    const below = window.innerHeight - at.bottom;
+    const above = at.top;
+    const upward = above > below;
+    // The style's cap holds what the menu's padding and borders enclose, so they
+    // are taken off the room before it becomes the cap.
+    const style = getComputedStyle(menu);
+    const frame = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom)
+      + parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth);
+    menu.style.maxHeight = Math.max(0, (upward ? above : below) - frame) + 'px';
+    // Measured while shown, and once capped, because a hidden element has no
+    // size to read and the cap is what decides how tall the menu stands.
     const height = menu.offsetHeight;
     const width = menu.offsetWidth;
-    const room = window.innerHeight - at.bottom;
-    const top = room < height && at.top > height ? at.top - height : at.bottom;
+    const top = upward ? at.top - height : at.bottom;
     // 🔴 A MENU OF SETTINGS LINES UP ITS RIGHT EDGE WITH THE RIGHT EDGE OF THE
     // CARET THAT OPENS IT, and reaches back across the button it adjusts. The
     // caret is a chevron a few characters wide sitting at the right of the
@@ -465,9 +484,12 @@
     // The caret beside a button opens that button's adjustments, and pressing it
     // again puts them away — which is what a reader expects of anything that
     // opened on a press. It carries no command, so it is answered here rather
-    // than falling through to the branch that runs one.
+    // than falling through to the branch that runs one. A caret drawn disabled,
+    // beside a button that cannot run, opens nothing, on the terms a disabled
+    // button runs nothing: the press only puts away whatever was open.
     const caret = event.target.closest('[data-dials]');
     if (caret) {
+      if (caret.disabled) { closeMenu(); return; }
       if (openedBy === caret) { closeMenu(); } else { openMenuFor(caret); }
       return;
     }

@@ -667,7 +667,7 @@ export async function storefrontChecks(ctx: SuiteContext, referenceFolder: strin
   await catalogPanelAtItsHead(ctx, CATALOG_HEAD[0]).catch(() => false);
 
   // ---- the operations heading each list panel, and the Commands panel without them ----
-  // headAndFold reads a list panel as drawn once it has settled, leaves a capture
+  // headAndFold reads a list panel's rows once it has settled, leaves a capture
   // of it, then folds the panel by its header and watches that none of its head
   // rows is drawn for 1.5 s, and unfolds it and waits for the head to be drawn
   // again — the positive control showing the same reading sees the rows when

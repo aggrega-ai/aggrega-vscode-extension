@@ -251,7 +251,8 @@ async function pressListHead(ctx: SuiteContext, panel: ListPanelId, id: PanelAct
   await pressPanelAction(ctx.d, LIST_PANEL_TITLES[panel], panelActionLabel(id));
 }
 
-// panelLabels are the labels of the rows the side-bar view titled `title` draws.
+// panelLabels are the labels of the rows the side-bar view titled `title` lists,
+// in sight or not.
 export async function panelLabels(ctx: SuiteContext, title: string): Promise<string[]> {
   return ((await treeRows(ctx.d, title)) ?? []).map((r) => r.label);
 }

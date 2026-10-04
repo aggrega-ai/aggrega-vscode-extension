@@ -80,6 +80,21 @@ const REFRESH_GRAPH = '        refreshGraphView();\n';
 // listener closing a menu when the panel's window loses the focus — the latter
 // taken out by a plant in each scenario that presses outside the panel.
 const MENU_CLAMP = '    const left = Math.max(0, Math.min(from, document.documentElement.clientWidth - width));';
+// The panel script's lines choosing the side of its control a menu opens on and
+// capping the menu's height at the room on that side, and the compiled line
+// drawing a menu of choices' name at its head.
+const MENU_SIDE = '    const upward = above > below;';
+const MENU_CAP = "    menu.style.maxHeight = Math.max(0, (upward ? above : below) - frame) + 'px';";
+const MENU_SIDE_TO_CAP = [
+  MENU_SIDE,
+  "    // The style's cap holds what the menu's padding and borders enclose, so they",
+  '    // are taken off the room before it becomes the cap.',
+  '    const style = getComputedStyle(menu);',
+  '    const frame = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom)',
+  '      + parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth);',
+  MENU_CAP,
+].join('\n');
+const MENU_HEAD = '    const title = `<div class="op-menu-title" aria-hidden="true">${(0, html_1.escapeHtml)(menu.label)}</div>`;';
 const OUTSIDE_PRESS_IGNORED = {
   file: PANEL_SCRIPT,
   find: "  window.addEventListener('blur', () => {\n    closeMenu(true);\n    tellFocus(false);\n  });",
@@ -476,11 +491,12 @@ export const PLANTS: readonly Plant[] = [
   },
   // ---- the workspace above the folder ----
   {
-    name: 'options-drawn-on-a-disabled-build', scenario: 'workspace-above', checks: ['build-options.control-is-absent-while-build-cannot-run'], moves: 'red', target: 'extension',
+    name: 'options-withdrawn-while-build-cannot-run', scenario: 'workspace-above',
+    checks: ['build-options.control-is-drawn-disabled-while-build-cannot-run', 'build-options.choosing-a-release-moves-nothing-under-the-pointer'], moves: 'red', target: 'extension',
     file: RENDER,
-    find: "    if ((body.unavailable[op.id] ?? null) !== null) {\n        return '';\n    }\n    const dials = dialsFor(op.id);",
-    replace: "    if (false) {\n        return '';\n    }\n    const dials = dialsFor(op.id);",
-    says: 'the Build options control is drawn whether or not Build can run',
+    find: "    const dials = dialsFor(op.id);\n    if (dials === null) {\n        return '';\n    }",
+    replace: "    if ((body.unavailable[op.id] ?? null) !== null) {\n        return '';\n    }\n    const dials = dialsFor(op.id);\n    if (dials === null) {\n        return '';\n    }",
+    says: 'the Build options control is withdrawn while Build cannot run and drawn once it can, so the flow re-wraps as a Release is selected',
   },
   {
     name: 'build-sends-no-output-parent', scenario: 'workspace-above', checks: ['build.writes-beneath-the-opened-folder-and-says-where'], moves: 'red', target: 'extension',
@@ -502,6 +518,11 @@ export const PLANTS: readonly Plant[] = [
     find: "const BUILD_DIALS_MENU_LABEL = 'Options for the next build';",
     replace: "const BUILD_DIALS_MENU_LABEL = 'Adjustments for the next build';",
     says: 'the menu beside Build is named "Adjustments for the next build"',
+  },
+  {
+    name: 'options-menu-opens-on-the-side-with-less-room', scenario: 'workspace-above', checks: ['build-options.menu-opens-below-the-chevron-aligned-right'], moves: 'red', target: 'extension',
+    file: PANEL_SCRIPT, find: MENU_SIDE, replace: '    const upward = !(above > below);',
+    says: 'a menu opens on the side of its control where the view has less room, so the menu beside Build opens above its chevron',
   },
   {
     name: 'row-press-closes-the-menu', scenario: 'workspace-above', checks: ['build-options.row-ticks-without-building-and-keeps-the-menu-open'], moves: 'red', target: 'extension',
@@ -2068,6 +2089,11 @@ export const PLANTS: readonly Plant[] = [
     says: 'the flow draws a mark after each group\'s last button',
   },
   {
+    name: 'commands-view-declared-with-no-size', scenario: 'gateway-commands-panel', checks: ['commands-panel.height-at-the-default-width'], moves: 'red', target: 'extension',
+    file: 'package.json', find: '          "type": "webview",\n          "initialSize": 50\n', replace: '          "type": "webview"\n',
+    says: 'the Commands view is declared with no initial size, so it opens with the share of the side bar each panel beside it gets',
+  },
+  {
     name: 'every-operation-a-tab-stop', scenario: 'gateway-commands-panel', checks: ['commands-panel.tab-reaches-each-row-control-then-the-operations-once'], moves: 'red', target: 'extension',
     file: RENDER, find: "    const tabindex = focused ? '0' : '-1';", replace: "    const tabindex = '0';",
     says: 'every operation\'s button is a tab stop of its own',
@@ -2103,6 +2129,11 @@ export const PLANTS: readonly Plant[] = [
     name: 'no-rule-above-publish', scenario: 'gateway-commands-panel', checks: ['commands-panel.sections-carry-group-titles-and-a-rule-above-publish'], moves: 'red', target: 'extension',
     file: 'media/operations.css', find: '.groups-sections .group-separated {\n  border-top: 1px solid', replace: '.groups-sections .group-separated {\n  border-top: 0px solid',
     says: 'the rule above the publish section is drawn no width',
+  },
+  {
+    name: 'caret-name-undrawn-in-sections', scenario: 'gateway-commands-panel', checks: ['commands-panel.caret-row-reads-build-options-in-the-section-shape'], moves: 'red', target: 'extension',
+    file: RENDER, find: "    const named = layout === 'sections'\n", replace: '    const named = false\n',
+    says: 'the control beside Build draws no name in the section shape, its chevron alone on its row',
   },
   {
     name: 'chevron-left-as-drawn', scenario: 'gateway-commands-panel', checks: ['commands-panel.section-chevrons-turn-as-they-open'], moves: 'red', target: 'extension',
@@ -2226,6 +2257,26 @@ export const PLANTS: readonly Plant[] = [
     name: 'menu-capped-at-the-window-width', scenario: 'gateway-docked-menus', checks: ['commands-panel.menus-open-against-their-button-docked-a-few-hundred-pixels-wide'], moves: 'red', target: 'extension',
     file: 'media/operations.css', find: '  max-width: calc(100% - 0.4rem);', replace: '  max-width: calc(100vw - 0.4rem);',
     says: 'a menu\'s widest is a share of the window\'s width, which counts the scroll bar in, so a wide menu runs under the bar',
+  },
+  {
+    name: 'menu-opens-on-the-side-with-less-room', scenario: 'gateway-docked-menus', checks: ['commands-panel.menus-open-against-their-button-docked-a-few-hundred-pixels-wide'], moves: 'red', target: 'extension',
+    file: PANEL_SCRIPT, find: MENU_SIDE, replace: '    const upward = !(above > below);',
+    says: 'a menu opens on the side of its button where the view has less room',
+  },
+  {
+    name: 'menu-beneath-its-button-capped-at-60-percent', scenario: 'gateway-docked-menus', checks: ['commands-panel.menus-open-against-their-button-docked-a-few-hundred-pixels-wide'], moves: 'red', target: 'extension',
+    file: PANEL_SCRIPT, find: MENU_SIDE_TO_CAP, replace: "    const upward = false;\n    menu.style.maxHeight = '60vh';",
+    says: 'every menu opens beneath its button whatever the room above it, as tall as 60 percent of the view, so its bottom edge can run past the view',
+  },
+  {
+    name: 'menu-capped-at-half-the-room', scenario: 'gateway-docked-menus', checks: ['commands-panel.menus-open-against-their-button-docked-a-few-hundred-pixels-wide'], moves: 'red', target: 'extension',
+    file: PANEL_SCRIPT, find: MENU_CAP, replace: "    menu.style.maxHeight = Math.max(0, (upward ? above : below) / 2 - frame) + 'px';",
+    says: 'a menu is no taller than half the room beside its button, so fewer of its choices stand whole beneath its name',
+  },
+  {
+    name: 'menu-head-undrawn', scenario: 'gateway-docked-menus', checks: ['commands-panel.menus-open-against-their-button-docked-a-few-hundred-pixels-wide'], moves: 'red', target: 'extension',
+    file: RENDER, find: MENU_HEAD, replace: "    const title = '';",
+    says: 'a menu of choices draws no name at its head',
   },
   {
     name: 'closing-menu-leaves-its-button-held', scenario: 'gateway-docked-menus', checks: ['commands-panel.held-button-marked-alone-and-cleared-by-every-close'], moves: 'red', target: 'extension',

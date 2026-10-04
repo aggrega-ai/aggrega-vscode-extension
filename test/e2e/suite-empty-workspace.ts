@@ -11,7 +11,7 @@ import { BINARY_PATH_SEARCH, notFoundAt, setBinaryPath, START_FAILED_OPENING } f
 import { HOVER_NOT_RUNNING_ANCHORED, LIFECYCLE_PLACEHOLDER, lifecycleReadings, RESTART_ACTION, START_ACTION } from './suite-readiness';
 import { killServer, pressViewAction, STOPPED_RESPONDING } from './suite-storefront';
 import {
-  commandsPanel, holds, hoverAt, NOT_RUNNING, pickQuickInputRow, quickInput, revealTreeRow, RUNNING, selectorRows, sleep, StatusItem, statusItems, statusNow, Toast, toasts,
+  commandsPanel, drawnTreeRows, holds, hoverAt, NOT_RUNNING, pickQuickInputRow, quickInput, revealTreeRow, RUNNING, selectorRows, sleep, StatusItem, statusItems, statusNow, Toast, toasts,
   toastsSince, treeRowCentre, treeRows, until, waitQuickInput, waitStatus, waitToast,
 } from './workbench';
 
@@ -54,7 +54,7 @@ async function pluginHeadings(ctx: SuiteContext): Promise<{ embedded: string | n
   await run(ctx, 'aggrega.plugins.focus');
   const embedded = await until('the Plugins panel\'s first heading', 15000, async () => ((await treeRows(ctx.d, 'Plugins')) ?? []).map((r) => r.label).find((l) => EMBEDDED.test(l)) ?? null, (v) => v !== null).catch(() => null);
   const configured = await revealTreeRow(ctx.d, 'Plugins', CONFIGURED_NONE, 10000).then(() => CONFIGURED_NONE, () => null);
-  const drawn = ((await treeRows(ctx.d, 'Plugins')) ?? []).map((r) => r.label);
+  const drawn = ((await drawnTreeRows(ctx.d, 'Plugins')) ?? []).map((r) => r.label);
   return { embedded, configured, drawn };
 }
 

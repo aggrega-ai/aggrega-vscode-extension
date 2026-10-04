@@ -66,6 +66,7 @@ export const COMMANDS_PANEL_CHECKS = [
   'settings.layout-value-descriptions-read-apart',
   'commands-panel.sections-carry-group-titles-and-a-rule-above-publish',
   'commands-panel.one-button-group-and-the-palettes-longer-titles',
+  'commands-panel.caret-row-reads-build-options-in-the-section-shape',
   'commands-panel.section-chevrons-turn-as-they-open',
   'commands-panel.keyboard-in-sections-opens-and-closes-with-the-arrows',
   'commands-panel.closing-a-section-hands-its-tab-stop-to-its-heading',
@@ -95,6 +96,10 @@ const VALIDATE_WITH_NO_SERVER = 'Aggrega: the language server is not running.';
 // The buttons that warning carries, in the order drawn: the output, the setting
 // naming the compiler, and the start the status bar offers for a stopped server.
 const WARNING_BUTTONS = ['Show output', 'Open binary path setting', 'Start'];
+
+// The name the control beside Build draws in the section shape, held as written
+// for the same reason.
+const CARET_NAME = 'Build options';
 
 // The prompts Sign and Deprecate open with, held as written for the same reason.
 const SIGN_PROMPT = 'Reference of the already-published artifact to sign';
@@ -555,17 +560,23 @@ export async function commandsPanelChecks(ctx: SuiteContext, notABinary: string,
     return { passed: faults.size === 0 && pairs > 0, seen: `${sweep.length} widths, ${pairs} neighbouring pairs measured at rest and read again over each window${faults.size > 0 ? `; ${[...faults].join('; ')}` : ', each the flow\'s gap apart, nothing but buttons in the flow and no group title or rule'}` };
   });
 
-  await c.forPerson('commands-panel.height-at-the-default-width', {
-    expected: 'the Commands panel, at the side bar\'s default width, reads at a glance',
-    plant: 'none: whether the height reads at a glance is a judgement of the drawing',
-    question: 'The capture shows the Commands panel at the side bar\'s default width, and the text below gives its lines and heights. Does the panel read at a glance at that height?',
+  await c.run('commands-panel.height-at-the-default-width', {
+    expected: 'at the side bar\'s default width, with the container laid out as the window first lays it out — read as the sweep above started — the Commands panel\'s pane is at least as tall as its document, so every line of the flow is in view and none is cut through by the pane\'s edge; each pane\'s height is reported beside it, and a capture is taken',
+    plant: 'in the scratch copy\'s package.json, the Commands view declared with no initial size',
   }, async () => {
     const s = sweep[0];
     need(s !== undefined, 'the sweep of widths above did not run, so the panel was not read at its default width');
     const ls = lines(s.panel);
     const top = Math.min(...s.panel.controls.map((o) => o.box.y));
     const bottom = Math.max(...s.panel.controls.map((o) => o.box.y + o.box.height));
-    return { screenshot: await capture(ctx, 'commands-panel-default-width'), drawnText: `width ${s.width} px; the operations on ${ls.length} lines (${ls.map((l) => l.map((o) => o.label || 'caret').join(' · ')).join(' / ')}), ${Math.round(bottom - top)} px from the first button's top to the last one's bottom; the three rows end ${Math.round(s.panel.rowsBottom)} px down; the document ${s.panel.view.scrollHeight} px tall in a pane ${s.panel.view.height} px tall` };
+    const panes = await panesOf(ctx);
+    const win = await ctx.d.workbench<{ width: number; height: number }>('({ width: window.innerWidth, height: window.innerHeight })');
+    const shot = await capture(ctx, 'commands-panel-default-width');
+    return {
+      passed: s.panel.view.height >= s.panel.view.scrollHeight,
+      seen: `in a ${win.width} × ${win.height} window, width ${s.width} px; the operations on ${ls.length} lines (${ls.map((l) => l.map((o) => o.label || 'caret').join(' · ')).join(' / ')}), ${Math.round(bottom - top)} px from the first button's top to the last one's bottom; the three rows end ${Math.round(s.panel.rowsBottom)} px down; the document ${s.panel.view.scrollHeight} px tall in a pane ${s.panel.view.height} px tall; the container's panes ${JSON.stringify(panes.titles)} ${JSON.stringify(panes.heights)} px tall, headers included; capture ${shot}`,
+      evidence: { screenshot: shot },
+    };
   });
 
   // ---- the keyboard ----
@@ -870,6 +881,31 @@ export async function commandsPanelChecks(ctx: SuiteContext, notABinary: string,
     const groups = p.heads.map((h) => ({ title: h.title, labels: ops(p).filter((o) => o.group === h.group).map((o) => o.label) }));
     const palette = ops(p).map((o) => `${o.label} — palette: ${paletteTitle(ctx, o.command)}`);
     return { screenshot: await capture(ctx, 'commands-panel-sections'), drawnText: `${groups.map((g) => `${g.title}: ${g.labels.join(' · ')}${g.labels.length === 1 ? ' (one button)' : ''}`).join('\n')}\n\n${palette.join('\n')}` };
+  });
+
+  await c.run('commands-panel.caret-row-reads-build-options-in-the-section-shape', {
+    expected: `in the section shape, with every section open, the control beside Build is a row of its own beneath Build that draws its name, "${CARET_NAME}", as text beside its chevron glyph — the whole name, not cut short, inside the panel's width — at every reading over ${ABSENCE_MS} ms; the same reading of the flow, taken at the default width above, finds no name drawn on it`,
+    plant: 'in the scratch copy, out/src/operations-render.js with the control\'s name left undrawn in the section shape',
+  }, async () => {
+    const flow = sweep[0];
+    need(flow !== undefined, 'the flow was not read at its default width above, so the reading is not shown to tell a drawn name from none');
+    const inFlow = flow.panel.controls.find((o) => o.kind === 'caret');
+    need(inFlow !== undefined && inFlow.named === null, `its control did not show the reading tells a drawn name from none: in the flow the control ${inFlow === undefined ? 'is not drawn' : `draws ${JSON.stringify(inFlow.named)}`}`);
+    await openEverySection(ctx, panel);
+    const read = async (): Promise<{ ok: boolean; note: string }> => {
+      const p = await drawnPanel(panel);
+      const k = p.controls.find((o) => o.kind === 'caret');
+      const b = p.controls.find((o) => o.command === 'aggrega.op.build');
+      if (k === undefined || b === undefined) { return { ok: false, note: `drawn as ${p.shape}; the control ${k === undefined ? 'not drawn' : 'drawn'}, Build ${b === undefined ? 'not drawn' : 'drawn'}` }; }
+      const n = k.named;
+      const beneath = k.box.y >= b.box.y + b.box.height - 0.5;
+      const inside = n !== null && n.box.x >= -0.5 && n.box.x + n.box.width <= p.view.width + 0.5;
+      const ok = p.shape === 'sections' && n !== null && n.text === CARET_NAME && !n.clipped && inside && k.glyph && k.icon === 'codicon-chevron-down' && beneath;
+      return { ok, note: `drawn as ${p.shape}; the control ${beneath ? 'a row beneath Build' : 'not beneath Build'}, its name ${n === null ? 'not drawn' : `"${n.text}"${n.clipped ? ' cut short' : ''} at ${Math.round(n.box.x)}–${Math.round(n.box.x + n.box.width)} px in a ${p.view.width} px panel`}, its glyph ${k.icon}${k.glyph ? '' : ' (no glyph)'}` };
+    };
+    const first = await read();
+    const kept = await holds(ABSENCE_MS, read, (v) => v.ok);
+    return { passed: first.ok && kept.held, seen: `${first.note}${kept.held ? `, the same for ${ABSENCE_MS} ms` : `; at ${kept.atMs} ms ${kept.broke?.note ?? ''}`}; in the flow the control draws no name` };
   });
 
   await c.run('commands-panel.section-chevrons-turn-as-they-open', {

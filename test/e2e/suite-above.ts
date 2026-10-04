@@ -10,6 +10,7 @@ import type { BuildResponse, DependencyResolutionReport } from '../../src/types'
 import { outputParentFor } from '../../src/workspace';
 import { need } from './checks';
 import { runCompiler } from './cli';
+import { ABSENCE_MS, drawnPanel, DrawnPanel, lines } from './commands-panel';
 import { WebviewDocument } from './drivers';
 import { referenceAnswer } from './reference';
 import { capture, closeAllEditors, open, ready, run, save, send, SuiteContext, theServer } from './suite-context';
@@ -27,8 +28,8 @@ import {
 // nobody asked for, and which operations still run the compiler as a command.
 
 export const ABOVE_CHECKS = [
-  'build-options.control-is-absent-while-build-cannot-run',
-  'build-options.removal-moves-nothing-under-the-pointer',
+  'build-options.control-is-drawn-disabled-while-build-cannot-run',
+  'build-options.choosing-a-release-moves-nothing-under-the-pointer',
   'build.writes-beneath-the-opened-folder-and-says-where',
   'build-options.control-is-named-build-options',
   'build-options.menu-opens-below-the-chevron-aligned-right',
@@ -106,8 +107,73 @@ const GRAPH_REFUSED = /^The topology of .* could not be drawn: .*lockfile/m;
 
 const BUILD = 'button.op[data-command="aggrega.op.build"]';
 const CARET = '.op-pair button.op-caret';
+// The control once Build can run, for a wait on that state: the control is drawn
+// in both states, so its being drawn says nothing about which one the panel is in.
+const RUNNABLE_CARET = `${CARET}:not([disabled])`;
 const MENU = '.op-menu.op-menu-dials';
 const ROW = '.op-menu.op-menu-dials button.op-menu-dial';
+
+// CaretDrawn is the control beside Build as drawn while Build cannot run: whether
+// it is drawn with a size, held in one unit with Build, and disabled; its hover;
+// the text its description names; whether it claims a menu, and whether the
+// document holds one for it; Build's own reason, read off Build; and whether a
+// press at its middle lands on it.
+interface CaretDrawn { drawn: boolean; paired: boolean; disabled: boolean; title: string; described: string; claimsMenu: boolean; menuComposed: boolean; buildReason: string; pressLandsOnIt: boolean }
+
+const CARET_DRAWN = `(() => {
+  const c = document.querySelector('button.op-caret[data-dials="build"]');
+  const b = document.querySelector(${JSON.stringify(BUILD)});
+  const pair = c ? c.closest('.op-pair') : null;
+  const describedBy = c ? c.getAttribute('aria-describedby') : null;
+  const why = describedBy ? document.getElementById(describedBy) : null;
+  const r = c ? c.getBoundingClientRect() : null;
+  const at = r ? document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2) : null;
+  return {
+    drawn: !!r && r.width > 0 && r.height > 0,
+    paired: !!pair && pair.firstElementChild === b && pair.lastElementChild === c,
+    disabled: !!c && c.disabled,
+    title: c ? c.title : '',
+    described: why ? (why.textContent || '').trim() : '',
+    claimsMenu: !!c && (c.hasAttribute('aria-haspopup') || c.hasAttribute('aria-controls') || c.hasAttribute('aria-expanded')),
+    menuComposed: !!document.getElementById('menu-dials-build'),
+    buildReason: b ? ((b.querySelector('.op-reason') || {}).textContent || '').trim() : '',
+    pressLandsOnIt: !!at && !!c && c.contains(at),
+  };
+})()`;
+
+// MENU_STANDING reads whether any menu stands open, and whether any control is
+// drawn as holding one open.
+const MENU_STANDING = `(() => ({ open: !!document.querySelector('.op-menu:not([hidden])'), held: document.querySelectorAll('[aria-expanded="true"]').length }))()`;
+
+// restingPanel reads the panel once two readings in a row draw every control in
+// the same place and the same state.
+function restingPanel(doc: WebviewDocument): Promise<DrawnPanel> {
+  const key = (p: DrawnPanel): string => JSON.stringify(p.controls.map((c) => [c.command, c.disabled, c.box]));
+  let before = '';
+  return until('the panel coming to rest', 5000, async () => {
+    const p = await drawnPanel(doc);
+    const k = key(p);
+    const still = k === before;
+    before = k;
+    return { p, still };
+  }, (r) => r.still, 200).then((r) => r.p);
+}
+
+// moves names every control of `before` that is not drawn in `after`, or is
+// drawn more than 1 px from where it stood or at another width or height.
+function moves(before: DrawnPanel, after: DrawnPanel): string[] {
+  return before.controls.flatMap((b) => {
+    const a = after.controls.find((x) => x.command === b.command);
+    if (a === undefined) { return [`${b.label || b.command}: not drawn after`]; }
+    const off = Math.max(Math.abs(a.box.x - b.box.x), Math.abs(a.box.y - b.box.y), Math.abs(a.box.width - b.box.width), Math.abs(a.box.height - b.box.height));
+    return off > 1 ? [`${b.label || b.command} by ${Math.round(off * 10) / 10} px (${Math.round(b.box.x)},${Math.round(b.box.y)} → ${Math.round(a.box.x)},${Math.round(a.box.y)})`] : [];
+  });
+}
+
+// lineWords words a drawing's lines of controls, for a check's report.
+function lineWords(p: DrawnPanel): string {
+  return lines(p).map((l) => l.map((o) => (o.kind === 'caret' ? `caret${o.disabled ? ' (greyed)' : ''}` : `${o.label}${o.disabled ? ' (greyed)' : ''}`)).join(' · ')).join(' / ');
+}
 
 interface MenuState { open: boolean; label: string; rows: { checked: string | null; icon: string; label: string; text: string; title: string }[]; caret: { title: string; aria: string } | null }
 
@@ -150,21 +216,40 @@ export async function aboveChecks(ctx: SuiteContext, layout: { root: string; ref
   await ready(ctx);
   let panel = await commandsPanel(ctx.d);
 
-  // ---- the control is removed while Build cannot run ----
-  let flowBefore: string[] = [];
+  // ---- the control is drawn disabled while Build cannot run ----
+  let flowBefore: DrawnPanel | null = null;
   let before = '';
-  await c.run('build-options.control-is-absent-while-build-cannot-run', {
-    expected: 'with no Release selected, Build is greyed and no Build options control is drawn beside it',
-    plant: 'in the scratch copy, out/src/operations-render.js made to draw the control whatever Build\'s state',
+  await c.run('build-options.control-is-drawn-disabled-while-build-cannot-run', {
+    expected: `with no Release selected, Build is greyed and the ${CONTROL_NAME} control is drawn beside it in the one unit the two share, greyed too: its hover reads "${CONTROL_NAME} — " and Build's own reason, its description is Build's reason, it claims no menu and the panel holds none for it, and a press at its middle — which lands on it — opens nothing and draws nothing held, watched for ${ABSENCE_MS} ms`,
+    plant: 'in the scratch copy, out/src/operations-render.js with the control withdrawn while Build cannot run',
   }, async () => {
     const rows = await selectorRows(panel);
     const release = rows.find((r) => r.label === 'Release');
     need(release !== undefined && !release.value.endsWith('.yaml'), `a Release is selected at open (${release?.value ?? '?'}), so Build can run from the start`);
     const build = (await operationButtons(panel)).find((b) => b.command === 'aggrega.op.build');
-    const caret = await panel.evaluate<boolean>(`!!document.querySelector(${JSON.stringify(CARET)})`);
-    flowBefore = (await operationButtons(panel)).map((b) => b.label);
+    const k = await panel.evaluate<CaretDrawn>(CARET_DRAWN);
+    flowBefore = await restingPanel(panel);
     before = await capture(ctx, 'flow-before-a-release');
-    return { passed: build?.disabled === true && !caret, seen: `Release row "${release.value}"; Build ${build?.disabled ? 'greyed' : 'enabled'}; the control ${caret ? 'drawn' : 'absent'}` };
+    // A press at the control's middle, where a person presses it. It is made
+    // directly rather than through the confirmed press, which waits for the
+    // control's own event: a disabled control receives none, by design.
+    const at = await ctx.d.box(panel, 'button.op-caret[data-dials="build"]');
+    const pressed = at !== null && at.width > 0;
+    let opened: { held: boolean; atMs?: number } = { held: false };
+    if (pressed && at !== null) {
+      await ctx.d.click(centre(at));
+      opened = await holds(ABSENCE_MS, () => panel.evaluate<{ open: boolean; held: number }>(MENU_STANDING), (v) => !v.open && v.held === 0);
+    }
+    const press = !pressed
+      ? 'no press was made, there being no control drawn to press'
+      : `a press at its middle ${k.pressLandsOnIt ? 'lands on it' : 'lands elsewhere'} and ${opened.held ? `opened nothing and drew nothing held for ${ABSENCE_MS} ms` : `opened a menu or drew a control held at ${opened.atMs ?? 0} ms`}`;
+    const hover = `${CONTROL_NAME} — ${k.buildReason}`;
+    const passed = build?.disabled === true && k.drawn && k.paired && k.disabled && k.buildReason !== '' && k.title === hover && k.described === k.buildReason
+      && !k.claimsMenu && !k.menuComposed && k.pressLandsOnIt && opened.held;
+    return {
+      passed,
+      seen: `Release row "${release.value}"; Build ${build?.disabled ? 'greyed' : 'enabled'}, its reason "${k.buildReason}"; the control ${k.drawn ? 'drawn' : 'not drawn'}, ${k.paired ? 'in one unit with Build' : 'not in one unit with Build'}, ${k.disabled ? 'greyed' : 'enabled'}; its hover "${k.title}"; its description "${k.described}"; ${k.claimsMenu ? 'it claims a menu' : 'it claims no menu'}, and the panel ${k.menuComposed ? 'holds one for it' : 'holds none for it'}; ${press}`,
+    };
   });
 
   // Choose this folder's Release, from the workspace above's candidates.
@@ -173,16 +258,31 @@ export async function aboveChecks(ctx: SuiteContext, layout: { root: string; ref
   await pickQuickInputRow(ctx.d, picker.rows.find((r) => r.text.includes(releaseRel))?.label ?? RELEASE_FILE);
   panel = await commandsPanel(ctx.d);
   await until('the Release row naming this folder\'s Release', 15000, () => selectorRows(panel), (r) => r.some((x) => x.label === 'Release' && x.value === releaseRel)).catch(() => undefined);
-  await until('the Build options control being drawn', 10000, () => panel.evaluate<boolean>(`!!document.querySelector(${JSON.stringify(CARET)})`), (v) => v).catch(() => undefined);
+  await until('the Build options control becoming runnable', 10000, () => panel.evaluate<boolean>(`!!document.querySelector(${JSON.stringify(RUNNABLE_CARET)})`), (v) => v).catch(() => undefined);
 
-  await c.forPerson('build-options.removal-moves-nothing-under-the-pointer', {
-    expected: 'removing the control while Build cannot run moves nothing a person is about to press',
-    plant: 'none: this is a judgement of the layout',
-    question: 'Compare the two captures: before a Release was selected (path below) and after. Did removing the control move anything under the pointer?',
+  await c.run('build-options.choosing-a-release-moves-nothing-under-the-pointer', {
+    expected: `every control the flow draws with no Release selected — each operation's button and the ${CONTROL_NAME} control — is drawn once one is selected too, within 1 px of where it stood and as wide and as tall, Build and the control having become runnable between the two readings`,
+    plant: 'in the scratch copy, out/src/operations-render.js with the control withdrawn while Build cannot run',
   }, async () => {
-    need(before !== '', 'no capture was taken before a Release was selected');
-    const after = await operationButtons(panel);
-    return { screenshot: await capture(ctx, 'flow-after-a-release'), drawnText: `before (${before}): ${flowBefore.join(' · ')}\nafter: ${after.map((b) => b.label).join(' · ')}` };
+    const was = flowBefore as DrawnPanel | null;
+    need(was !== null, 'the flow was not read before a Release was selected');
+    const now = await restingPanel(panel);
+    const runnable = (p: DrawnPanel, command: string): boolean | null => {
+      const x = p.controls.find((o) => o.command === command);
+      return x === undefined ? null : !x.disabled;
+    };
+    // The control on the reading: Build and the control beside it are greyed in
+    // the first and runnable in the second, so the two readings are of the two
+    // states rather than of one state twice.
+    need(runnable(was, 'aggrega.op.build') === false && runnable(now, 'aggrega.op.build') === true && runnable(now, 'caret:build') === true,
+      `its positive control did not fire: Build reads ${runnable(was, 'aggrega.op.build') ? 'runnable' : 'greyed'} before and ${runnable(now, 'aggrega.op.build') ? 'runnable' : 'greyed'} after, the control ${runnable(now, 'caret:build') === null ? 'not drawn' : runnable(now, 'caret:build') ? 'runnable' : 'greyed'} after, so the two readings are not of the two states`);
+    const moved = moves(was, now);
+    const added = now.controls.filter((a) => !was.controls.some((b) => b.command === a.command)).map((a) => a.label || a.command);
+    const shot = await capture(ctx, 'flow-after-a-release');
+    return {
+      passed: moved.length === 0 && added.length === 0,
+      seen: `${was.controls.length} controls before, ${now.controls.length} after; ${moved.length === 0 ? 'every one within 1 px of where it stood' : `moved: ${moved.join(', ')}`}${added.length > 0 ? `; drawn only after: ${added.join(', ')}` : ''}; before (${before}): ${lineWords(was)}; after (${shot}): ${lineWords(now)}`,
+    };
   });
 
   // ---- a build writes beneath the folder opened, and says where ----
@@ -221,7 +321,7 @@ export async function aboveChecks(ctx: SuiteContext, layout: { root: string; ref
   });
   await c.run('build-options.menu-opens-below-the-chevron-aligned-right', {
     expected: `pressing the chevron opens a menu below it with its right edge in line with the chevron's, named "${MENU_NAME}", holding one row: an empty box and the words "${ROW_LABEL}" and nothing else, whose hover reads "${ROW_HOVER}"; the menu ends just after the words`,
-    plant: 'in the scratch copy, media/operations.css with the menu anchored to the chevron\'s left edge',
+    plant: 'in the scratch copy, media/operations.css with the menu anchored to the chevron\'s left edge; or media/operations.js with a menu opened on the side of its control with less room',
   }, async () => {
     await pressIn(ctx.d, panel, CARET);
     const m = await menuOpen();
@@ -231,9 +331,11 @@ export async function aboveChecks(ctx: SuiteContext, layout: { root: string; ref
     const body = await ctx.d.box(panel, 'body');
     const viewport = await panel.evaluate<number>('innerHeight');
     need(k !== null && box !== null && label !== null && body !== null, 'the menu or the chevron is not drawn');
-    // Below the chevron, or above it where the panel leaves no room below.
+    // Below the chevron, which is the side of it with more room here: a menu
+    // opens on whichever side of its control the panel has more room.
     const roomBelow = (body.y + viewport) - (k.y + k.height);
-    const below = box.y >= k.y + k.height - 1 || (roomBelow < box.height && box.y + box.height <= k.y + 1);
+    const roomAbove = k.y - body.y;
+    const below = box.y >= k.y + k.height - 1 && roomBelow >= roomAbove;
     const aligned = Math.abs((box.x + box.width) - (k.x + k.width)) <= 1;
     const tail = (box.x + box.width) - (label.x + label.width);
     const row = m.rows[0];
@@ -241,7 +343,7 @@ export async function aboveChecks(ctx: SuiteContext, layout: { root: string; ref
       row.label === ROW_LABEL && row.text === ROW_LABEL && row.title === ROW_HOVER;
     await ctx.d.press('Escape');
     await menuClosed();
-    return { passed, seen: `menu ${below ? 'below (or above, with no room below)' : 'neither below nor above for want of room'} the chevron (menu top ${Math.round(box.y)}, chevron ${Math.round(k.y)}–${Math.round(k.y + k.height)}, room below ${Math.round(roomBelow)} px for a ${Math.round(box.height)} px menu), right edges ${aligned ? 'in line' : `${Math.round(box.x + box.width - k.x - k.width)} px apart`}, ${Math.round(tail)} px after the words; named "${m.label}"; rows ${JSON.stringify(m.rows)}` };
+    return { passed, seen: `menu ${below ? 'below' : 'not below'} the chevron (menu top ${Math.round(box.y)}, chevron ${Math.round(k.y)}–${Math.round(k.y + k.height)}, room below ${Math.round(roomBelow)} px and above ${Math.round(roomAbove)} px for a ${Math.round(box.height)} px menu), right edges ${aligned ? 'in line' : `${Math.round(box.x + box.width - k.x - k.width)} px apart`}, ${Math.round(tail)} px after the words; named "${m.label}"; rows ${JSON.stringify(m.rows)}` };
   });
   await c.run('build-options.row-ticks-without-building-and-keeps-the-menu-open', {
     expected: 'pressing the row ticks the box, keeps the menu open, builds nothing (watched for 2 s) and leaves the words where they were; pressing it again empties the box',
@@ -364,7 +466,7 @@ export async function aboveChecks(ctx: SuiteContext, layout: { root: string; ref
     await continueHere(ctx);
     await ready(ctx);
     panel = await commandsPanel(ctx.d);
-    await until('the Build options control after the reload', 15000, () => panel.evaluate<boolean>(`!!document.querySelector(${JSON.stringify(CARET)})`), (v) => v);
+    await until('the Build options control runnable after the reload', 15000, () => panel.evaluate<boolean>(`!!document.querySelector(${JSON.stringify(RUNNABLE_CARET)})`), (v) => v);
     await pressIn(ctx.d, panel, CARET);
     const m = await menuOpen();
     await ctx.d.press('Escape');

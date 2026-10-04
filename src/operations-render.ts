@@ -9,6 +9,7 @@ import {
   OperationId,
   OperationsLayout,
   commandIdFor,
+  controlHint,
   operationHint,
 } from './operation-groups';
 import {
@@ -277,15 +278,44 @@ function menuId(id: MenuControlId): string {
 // It takes a place in the roving walk, so a reader who cannot use a pointer
 // reaches the adjustments with the same arrow keys they reach every other
 // control with, rather than by a gesture of its own.
-function dialsCaretHtml(op: OperationDef, focused: boolean): string {
+//
+// 🔴 WHERE ITS BUTTON CANNOT RUN, THE CARET IS DRAWN IN PLACE AND DISABLED,
+// CARRYING THE BUTTON'S REASON, on exactly the terms every other control here
+// is: in a wrapping flow a control that comes and goes with the state moves
+// every control after it under the reader's pointer, and a disabled one keeps
+// the geometry and can say why. Disabled, it claims no menu and names no region,
+// because the adjustments are not composed for a button that cannot run, so it
+// opens nothing; it holds no place in the walk, which focusKeys decides from the
+// same rule; and its hover and its description carry the button's reason, the
+// way the button's own do.
+//
+// IN THE SECTION SHAPE IT DRAWS ITS NAME, ahead of its glyph. There it is a
+// full-width row of its own beneath its button, and a chevron alone on a row is
+// what an open section's heading draws, so a nameless one reads as a section to
+// open rather than as the button's options. In the flow it sits on its button's
+// line, where the glyph alone already reads as part of the button, and the width
+// a word would spend is the width that shape exists to save.
+function dialsCaretHtml(op: OperationDef, layout: OperationsLayout, reason: string | null, focused: boolean): string {
   const control = dialsControlId(op.id);
-  // The name says which button's options these are, because the caret draws no
-  // word of its own and a reader meeting it by keyboard is told only what it is
-  // called. It is the same whatever is ticked: nothing on the caret counts what
-  // is on, and each option's own box is where its state is read.
+  // The name says which button's options these are, because in the flow the
+  // caret draws no word of its own and a reader meeting it by keyboard is told
+  // only what it is called. It is the same whatever is ticked: nothing on the
+  // caret counts what is on, and each option's own box is where its state is
+  // read.
   const label = `${op.label} options`;
-  return `<button class="op-caret" type="button" tabindex="${focused ? '0' : '-1'}" data-dials="${escapeHtml(op.id)}" data-focus-key="${escapeHtml(control)}" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}" aria-haspopup="menu" aria-expanded="false" aria-controls="${menuId(control)}">
-      <span class="codicon codicon-chevron-down" aria-hidden="true"></span>
+  const reasonId = `why-${control}`;
+  const disabled = reason === null ? '' : ` disabled aria-describedby="${reasonId}"`;
+  const opens = reason === null
+    ? ` aria-haspopup="menu" aria-expanded="false" aria-controls="${menuId(control)}"`
+    : '';
+  const named = layout === 'sections'
+    ? `\n      <span class="op-caret-label">${escapeHtml(label)}</span>`
+    : '';
+  const note = reason === null
+    ? ''
+    : `<span class="op-reason" id="${reasonId}">${escapeHtml(reason)}</span>`;
+  return `<button class="op-caret" type="button"${disabled} tabindex="${focused ? '0' : '-1'}" data-dials="${escapeHtml(op.id)}" data-focus-key="${escapeHtml(control)}" aria-label="${escapeHtml(label)}" title="${escapeHtml(controlHint(label, reason))}"${opens}>${named}
+      <span class="codicon codicon-chevron-down" aria-hidden="true"></span>${note}
     </button>`;
 }
 
@@ -298,21 +328,22 @@ function dialsFor(id: OperationId): MenuDial[] | null {
 }
 
 // dialsDrawnFor reports the caret an operation is drawn with, or the empty
-// string where it has none.
+// string where it offers no adjustments.
 //
-// It is withheld from a control that cannot run, on exactly the terms a menu is:
-// a disabled button cannot be pressed, so adjustments to it would be settings
-// for a press the reader cannot make.
+// It is drawn whether or not the operation can run, disabled and carrying the
+// operation's own reason where it cannot. What is withheld from a control that
+// cannot run is the adjustments themselves, on exactly the terms a menu is: a
+// disabled button cannot be pressed, so adjustments to it would be settings for
+// a press the reader cannot make, and menusHtml composes none for it.
 function dialsDrawnFor(
   op: OperationDef,
   body: OperationsBody,
   rovingKey: string | null,
 ): string {
-  if ((body.unavailable[op.id] ?? null) !== null) { return ''; }
   const dials = dialsFor(op.id);
   if (dials === null) { return ''; }
   const control = dialsControlId(op.id);
-  return dialsCaretHtml(op, control === rovingKey);
+  return dialsCaretHtml(op, body.layout, body.unavailable[op.id] ?? null, control === rovingKey);
 }
 
 // operationEntryHtml draws one operation as a reader meets it: its button and,
@@ -329,11 +360,14 @@ function dialsDrawnFor(
 // single item is never broken across lines — so the pair is made one item, and
 // the stylesheet keeps its two controls on one line inside it.
 //
-// The unit is drawn ONLY where a caret is. An operation that offers no
-// adjustments, and one whose caret is withheld because it cannot run, is its
-// button alone, exactly as every other entry is. The unit carries no role, no
-// name and no focus key, so it adds nothing a reader is told about or can stop
-// on: the walk, the names and the presses remain the two controls' own.
+// The unit is drawn ONLY where a caret is, and a caret is wherever an operation
+// offers adjustments, whether or not it can run: an operation that cannot run
+// keeps its unit, its caret disabled beside its disabled button, so the flow
+// wraps the same way in both states and nothing after it moves as the state
+// changes. An operation that offers no adjustments is its button alone, exactly
+// as every other entry is. The unit carries no role, no name and no focus key,
+// so it adds nothing a reader is told about or can stop on: the walk, the names
+// and the presses remain the two controls' own.
 function operationEntryHtml(
   op: OperationDef,
   group: OperationGroupId,
@@ -415,6 +449,11 @@ function menuDialHtml(dial: MenuDial, on: boolean): string {
 // It carries no status line either. A status line says what a menu is waiting
 // for or how far a reader's typing has narrowed it; this menu waits for nothing
 // and holds a set small enough to read whole.
+//
+// Nor does it draw its name at its head, as a menu of choices does. It opens
+// from the caret beside the one button it adjusts, a control already named for
+// that button, and it is as wide as its settings' own words and no wider — so a
+// name drawn above them would either widen it past those words or be cut short.
 function dialsMenuHtml(id: MenuControlId, menu: Extract<OperationMenu, { kind: 'dials' }>, on: string[]): string {
   const entries = menu.dials
     .map((dial) => menuDialHtml(dial, on.includes(dial.value)))
@@ -444,6 +483,14 @@ function dialsMenuHtml(id: MenuControlId, menu: Extract<OperationMenu, { kind: '
 // than silently swapped in. It is hidden when it has nothing to say, because a
 // choice announced with no text is worse than no choice at all.
 //
+// A MENU OF CHOICES DRAWS ITS NAME AT ITS HEAD, as text a reader sees, wherever
+// the menu stands — beneath its control or above it, in a panel docked in the
+// side bar or anywhere else — because a menu open beside a row of buttons does
+// not otherwise say which button it answers or what it is choosing. The name is
+// the same words the menu is announced by, so the drawn line is kept out of the
+// accessibility tree: a reader using assistive technology hears the name once,
+// on entering the menu, rather than again as the menu's first line.
+//
 // The parameter admits the two kinds whose entries are CHOICES and refuses the
 // kind whose entries are settings, so a settings menu drawn through here is a
 // compile error rather than a menu that would carry a command and run something
@@ -453,6 +500,7 @@ function menuHtml(
   command: string,
   menu: Exclude<OperationMenu, { kind: 'dials' }>,
 ): string {
+  const title = `<div class="op-menu-title" aria-hidden="true">${escapeHtml(menu.label)}</div>`;
   const waiting = menu.kind === 'fetched' ? menu.pending : '';
   const status = `<div class="op-menu-status" role="menuitem" aria-disabled="true" aria-live="polite" data-menu-status${waiting === '' ? ' hidden' : ''}>${escapeHtml(waiting)}</div>`;
   const options = menu.kind === 'fixed'
@@ -467,6 +515,7 @@ function menuHtml(
     ? ` data-menu-fetched data-menu-pending="${escapeHtml(menu.pending)}"`
     : '';
   return `<div class="op-menu" id="${menuId(id)}" role="menu" aria-label="${escapeHtml(menu.label)}" hidden data-menu="${escapeHtml(id)}" data-menu-command="${escapeHtml(command)}"${fetched}>
+    ${title}
     ${status}${options}
   </div>`;
 }

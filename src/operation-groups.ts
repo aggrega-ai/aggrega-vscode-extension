@@ -387,11 +387,18 @@ export function panelActionLabel(id: PanelActionId): string {
   return action.label;
 }
 
+// controlHint is the hover a control carries: what it is, and where it cannot
+// run, why. Every control that is drawn unable to run composes its hover here,
+// so the reason reads the same way wherever a reader points.
+export function controlHint(what: string, reason: string | null): string {
+  return reason === null ? what : `${what} — ${reason}`;
+}
+
 // operationHint is the hover an operation's control carries: what it does, and
 // where it cannot run, why. The Commands panel's button and a list panel's row
 // read it from here, so the two surfaces say one thing about one operation.
 export function operationHint(op: OperationDef, reason: string | null): string {
-  return reason === null ? op.detail : `${op.detail} — ${reason}`;
+  return controlHint(op.detail, reason);
 }
 
 // --- the two shapes ------------------------------------------------------
@@ -407,8 +414,11 @@ export function operationHint(op: OperationDef, reason: string | null): string {
 export type OperationsLayout = 'buttons' | 'sections';
 
 // Buttons is the default: it is the shape in which every operation is a labelled
-// control the reader can see and reach without opening anything, which is what
-// this panel exists for.
+// control in one flow, reached without opening anything, which is what this
+// panel exists for. Whether the whole flow is in view at once is the pane's
+// height, which the reader decides: the view declares a larger first share of
+// the side bar than the panels beside it, so that in a window 900 pixels tall
+// the flow at the side bar's default width opens whole.
 export const DEFAULT_OPERATIONS_LAYOUT: OperationsLayout = 'buttons';
 
 // readLayout decides the shape from whatever the editor reports the setting to

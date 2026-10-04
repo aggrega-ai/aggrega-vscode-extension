@@ -241,14 +241,39 @@ function sectionEntriesOf(html: string): string[][] {
 
 // entriesExpected is what a container must hold for a run of operations: each
 // operation's button alone, except that an operation in the literal list of
-// adjustable ones, while it can run, is ONE unit holding its button and then
-// its caret, and nothing else.
-function entriesExpected(ops: OperationDef[], cannotRun: OperationId[] = []): string[] {
+// adjustable ones is ONE unit holding its button and then its caret, and nothing
+// else — whether or not it can run, because a caret that came and went with the
+// state would move every control after it.
+function entriesExpected(ops: OperationDef[]): string[] {
   return ops.map((op) => {
     const button = `op:${commandIdFor(op)}`;
     const adjustable = DIALS_RULED.some((ruled) => ruled.holder === op.id);
-    return adjustable && !cannotRun.includes(op.id) ? `pair(${button}, caret:${op.id})` : button;
+    return adjustable ? `pair(${button}, caret:${op.id})` : button;
   });
+}
+
+// caretButtonOf reports the whole caret drawn beside one button — its opening
+// tag, what it holds and its closing tag — or undefined.
+function caretButtonOf(html: string, holder: OperationId): string | undefined {
+  return Array.from(html.matchAll(/<button class="op-caret"[^>]*>[\s\S]*?<\/button>/g))
+    .map((m) => m[0])
+    .find((button) => button.includes(`data-dials="${holder}"`));
+}
+
+// drawnWordsOf reports the words a control draws as text: what it holds, with
+// the glyphs the stylesheet draws from the icon font and the reason it carries
+// for a reader who cannot see it taken out, and its tags and spacing gone. A
+// control drawing no word reads as the empty string, so an equality says both
+// which word is drawn and that nothing else is.
+function drawnWordsOf(button: string): string {
+  return button
+    .replace(/^<button [^>]*>/, '')
+    .replace(/<\/button>$/, '')
+    .replace(/<span class="codicon [^"]*" aria-hidden="true"><\/span>/g, '')
+    .replace(/<span class="op-reason"[^>]*>[\s\S]*?<\/span>/g, '')
+    .replace(/<[^>]+>/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 // operationsCss is the stylesheet the panel is drawn through, read from the file
@@ -1005,7 +1030,10 @@ describe('an operation whose invocation cannot succeed', () => {
     // In a horizontal row removing one moves the others under the reader's
     // pointer as the state changes, so a press lands on something other than
     // what was there a moment ago. The row's geometry is what a disabled control
-    // preserves.
+    // preserves — and the caret beside an adjustable entry that cannot run is
+    // disabled with it, on the same terms, so it is counted here too.
+    const caretsBeside = DIALS_RULED.filter((ruled) => (noRelease[ruled.holder] ?? null) !== null).length;
+    assert.ok(caretsBeside > 0, 'no adjustable entry is among the ones that cannot run, so the caret is not counted here');
     for (const layout of BOTH) {
       const html = operationsBodyHtml(body({ layout, unavailable: noRelease }));
       assert.deepStrictEqual(
@@ -1014,8 +1042,8 @@ describe('an operation whose invocation cannot succeed', () => {
         `the ${layout} shape drew a different number of controls than there are entries and rows`,
       );
       assert.strictEqual(
-        occurrences(html, / disabled/), 2,
-        `the ${layout} shape disabled a number of controls other than the two that cannot run`,
+        occurrences(html, / disabled/), 2 + caretsBeside,
+        `the ${layout} shape disabled a number of controls other than the two that cannot run and the caret beside the adjustable one`,
       );
     }
   });
@@ -1639,6 +1667,41 @@ describe('a control that offers its choices beside itself', () => {
     );
   });
 
+  it('heads every menu of choices with its name, drawn for the eye and kept out of the accessibility tree', () => {
+    // A menu open beside a row of buttons does not otherwise say which button it
+    // answers or what it is choosing — least of all docked in a short side bar,
+    // where it can open above its button. The words drawn are the ones the menu
+    // is announced by, so the drawn line is hidden from assistive technology,
+    // which hears the name once, on entering the menu, rather than twice.
+    for (const layout of BOTH) {
+      const html = operationsBodyHtml(body({ layout }));
+      for (const ruled of MENUS_RULED) {
+        const chunk = menuChunkFor(html, ruled.id);
+        const heads = Array.from(chunk.matchAll(/<div class="op-menu-title"([^>]*)>(.*?)<\/div>/g));
+        assert.strictEqual(heads.length, 1, `${ruled.id} draws ${heads.length} names at its head in the ${layout} shape`);
+        assert.strictEqual(heads[0][2], ruled.label, `${ruled.id}'s head reads other than the name it is announced by`);
+        assert.strictEqual(
+          attributeOf(`<div${heads[0][1]}>`, 'aria-hidden'), 'true',
+          `${ruled.id}'s head is announced a second time, as the menu's own content`,
+        );
+        assert.ok(
+          chunk.indexOf('class="op-menu-title"') < chunk.indexOf('data-menu-status'),
+          `${ruled.id}'s name is drawn beneath its status line rather than at its head`,
+        );
+      }
+      // The settings menu draws none. It is as wide as its settings' own words,
+      // and a name drawn above them would widen it past them or be cut short. The
+      // name the clauses above find on every menu of choices is what shows this
+      // absence is read by an instrument that sees one where there is one.
+      for (const dials of DIALS_RULED) {
+        assert.ok(
+          !menuChunkFor(html, dials.control).includes('op-menu-title'),
+          `${dials.control} draws a name at its head, in the ${layout} shape`,
+        );
+      }
+    }
+  });
+
   it('offers no menu at all on a control that cannot run', () => {
     // A disabled control cannot be pressed, so a menu composed for one would be
     // a choice the reader can never reach — and the document would carry an
@@ -1666,47 +1729,59 @@ describe('a control that offers its choices beside itself', () => {
     }
   });
 
-  it('withdraws the caret AND its adjustments from a button that cannot run', () => {
-    // 🔴 THE SAME RULE AS ABOVE, ASSERTED FOR THE OTHER KIND OF MENU, and it is
-    // not covered by that clause: the button whose adjustments these are is one
-    // the panel CAN disable, so the case is reachable rather than theoretical.
-    // Adjustments to a press a reader cannot make are settings for a build that
-    // cannot start — and a caret left standing beside a disabled button would
-    // let them be turned, with the panel remembering a setting nothing will
-    // carry.
+  it('🔴 draws the caret beside a button that cannot run disabled, carrying the button\'s reason, and composes no adjustments for it', () => {
+    // The caret keeps its place, on the terms every other control here does: in
+    // a wrapping flow a control that came and went with the state would move
+    // every control after it under the reader's pointer. What is withheld is the
+    // adjustments themselves — the same rule as the clause above, asserted for
+    // the other kind of menu — because they are settings for a press the reader
+    // cannot make: so the caret claims no menu, names no region, opens nothing
+    // and takes no place in the walk, and the layer holds no menu for it.
+    //
+    // Asserted by EQUALITY on each attribute and on the reason's own text, so a
+    // reason dropped, reworded or carried for the wrong button changes the
+    // comparison rather than passing a search for a fragment of it.
+    const reason = NO_RELEASE_SELECTED_CONTROL_REASON;
     for (const layout of BOTH) {
-      const html = operationsBodyHtml(body({
-        layout,
-        unavailable: { build: NO_RELEASE_SELECTED_CONTROL_REASON },
-      }));
       for (const ruled of DIALS_RULED) {
+        const html = operationsBodyHtml(body({ layout, unavailable: { [ruled.holder]: reason } }));
+        const caret = caretTagOf(html, ruled.holder);
+        assert.ok(caret !== undefined, `the ${layout} shape draws no caret beside ${ruled.holder}, which cannot run`);
+        assert.strictEqual(/\sdisabled[\s>]/.test(caret), true, `the ${layout} shape draws the caret beside ${ruled.holder} as if it could run`);
         assert.strictEqual(
-          caretTagOf(html, ruled.holder), undefined,
-          `the ${layout} shape still draws a caret beside ${ruled.holder}, which cannot run`,
+          attributeOf(caret, 'title'), `${ruled.caretName} — ${reason}`,
+          `the ${layout} shape's caret beside ${ruled.holder} does not give the button's reason on its hover`,
+        );
+        const describedBy = attributeOf(caret, 'aria-describedby');
+        assert.strictEqual(describedBy, `why-${ruled.control}`, `the ${layout} shape's caret points at no reason of its own`);
+        assert.deepStrictEqual(
+          Array.from(html.matchAll(new RegExp(`<span class="op-reason" id="${describedBy}">([^<]*)</span>`, 'g'))).map((m) => m[1]),
+          [reason],
+          `the ${layout} shape's caret does not carry the button's reason, exactly once, where its description points`,
+        );
+        assert.strictEqual(attributeOf(caret, 'aria-label'), ruled.caretName, `the ${layout} shape's disabled caret is not named ${JSON.stringify(ruled.caretName)}`);
+        for (const claim of ['aria-haspopup', 'aria-controls', 'aria-expanded']) {
+          assert.strictEqual(attributeOf(caret, claim), undefined, `the ${layout} shape's disabled caret still carries ${claim}, claiming a menu nothing composes`);
+        }
+        assert.strictEqual(attributeOf(caret, 'tabindex'), '-1', `the ${layout} shape gives the disabled caret a tab stop it cannot take`);
+        assert.deepStrictEqual(
+          menuIdsIn(html),
+          MENU_IDS_IN_ORDER.filter((id) => id !== ruled.control),
+          `the ${layout} shape holds an adjustment menu no control can open`,
         );
       }
-      assert.deepStrictEqual(
-        menuIdsIn(html),
-        MENU_IDS_IN_ORDER.filter((id) => !DIALS_RULED.some((d) => d.control === id)),
-        `the ${layout} shape holds an adjustment menu no control can open`,
-      );
-      // And the caret is not merely disabled in place: it is gone, so the walk
-      // cannot stop on it. A disabled control cannot take focus, so a stop
-      // placed on one would be a stop the reader can never reach.
-      assert.strictEqual(
-        occurrences(html, /class="op-caret"/), 0,
-        `the ${layout} shape left the caret in place rather than withdrawing it`,
-      );
     }
-    // A negative control on all three: with the button available every one of
-    // them IS drawn, so the absences above measure the rule rather than a
-    // document that never carried a caret.
+    // A negative control: with the button available the same caret claims its
+    // menu and the layer holds it, so the absences above measure the state
+    // rather than a caret that never claimed one.
     const available = operationsBodyHtml(body({ layout: 'buttons' }));
-    assert.strictEqual(
-      occurrences(available, /class="op-caret"/),
-      DIALS_RULED.length,
-      'no caret is drawn when the button can run, so the withdrawal above proves nothing',
-    );
+    for (const ruled of DIALS_RULED) {
+      const caret = caretTagOf(available, ruled.holder);
+      assert.ok(caret !== undefined, `no caret is drawn beside ${ruled.holder} when it can run`);
+      assert.strictEqual(attributeOf(caret, 'aria-controls'), `menu-${ruled.control}`, 'the runnable caret claims no menu, so the absence above proves nothing');
+      assert.strictEqual(/\sdisabled[\s>]/.test(caret), false, 'the runnable caret is drawn disabled');
+    }
+    assert.deepStrictEqual(menuIdsIn(available), MENU_IDS_IN_ORDER, 'the layer does not hold every menu when every control can run');
   });
 
   it('draws the menus OUTSIDE the flow, so the flow still holds only its buttons', () => {
@@ -1908,30 +1983,68 @@ describe('a button whose next press can be adjusted', () => {
     );
   });
 
-  it('draws a button that cannot run as its button alone, with no unit around it', () => {
-    // The caret is withdrawn from a button that cannot run, so there is no pair
-    // left to hold together — and a unit drawn around the button by itself would
-    // be an element the reader's panel carries for nothing. It is drawn exactly as
-    // a button that has no adjustments is.
+  it('keeps a button that cannot run in its unit, beside its caret, exactly as when it can', () => {
+    // The caret stays beside a button that cannot run, drawn disabled, so the
+    // pair stays one item of the flow and the flow wraps the same way in both
+    // states: nothing after it moves as the state changes. Asserted as the same
+    // EQUALITY over everything each container holds that the runnable case is
+    // held to, so a unit dropped, a caret left outside it, or the button drawn
+    // alone changes the comparison.
     const cannotRun = DIALS_RULED.map((ruled) => ruled.holder);
     const unavailable: Partial<Record<OperationId, string | null>> = {};
     for (const holder of cannotRun) { unavailable[holder] = NO_RELEASE_SELECTED_CONTROL_REASON; }
     const flow = operationsBodyHtml(body({ layout: 'buttons', unavailable }));
     assert.deepStrictEqual(
-      flowEntriesOf(flow), entriesExpected(commandsPanelOperations(), cannotRun),
-      'the flow draws a unit around a button that cannot run, or no longer holds that button directly',
+      flowEntriesOf(flow), entriesExpected(commandsPanelOperations()),
+      'the flow does not keep a button that cannot run in its unit beside its caret',
     );
     const sections = operationsBodyHtml(body({ layout: 'sections', unavailable }));
     assert.deepStrictEqual(
       sectionEntriesOf(sections),
-      OPERATION_GROUPS.map((group) => entriesExpected(group.operations, cannotRun)),
-      'a section draws a unit around a button that cannot run, or no longer holds that button directly',
+      OPERATION_GROUPS.map((group) => entriesExpected(group.operations)),
+      'a section does not keep a button that cannot run in its unit beside its caret',
     );
     for (const html of [flow, sections]) {
       assert.strictEqual(
-        occurrences(html, new RegExp(`\\b${PAIR_CLASS}\\b`)), 0,
-        'a unit is drawn although no button beside a caret can run',
+        occurrences(html, new RegExp(`\\b${PAIR_CLASS}\\b`)), DIALS_RULED.length,
+        'a unit is lost, or gained, when the button beside a caret cannot run',
       );
+    }
+  });
+
+  it('draws the caret\'s name as text in the section shape, and its glyph alone in the flow', () => {
+    // In the section shape the caret is a full-width row of its own beneath its
+    // button, and a chevron alone on a row is what an open section's heading
+    // draws: a nameless one reads as a section to open. So there it draws its
+    // name, the same name it is announced by. In the flow it sits on its
+    // button's line and draws the glyph alone.
+    //
+    // Asserted by EQUALITY on the words each draws, with the glyph and the
+    // reason a reader who cannot see it is given taken out — so a name dropped,
+    // a second word drawn, or a name drawn in the flow too each change it — and
+    // in both states, because the caret is drawn in both.
+    for (const unavailable of [{}, { build: NO_RELEASE_SELECTED_CONTROL_REASON }] as Partial<Record<OperationId, string | null>>[]) {
+      for (const ruled of DIALS_RULED) {
+        const sections = caretButtonOf(operationsBodyHtml(body({ layout: 'sections', unavailable })), ruled.holder);
+        assert.ok(sections !== undefined, `no caret is drawn beside ${ruled.holder} in the section shape`);
+        assert.strictEqual(
+          drawnWordsOf(sections), ruled.caretName,
+          `in the section shape the caret beside ${ruled.holder} does not draw exactly its name`,
+        );
+        // Ahead of the glyph, so the row reads as a name with a chevron after
+        // it rather than as a heading's chevron followed by a title.
+        assert.ok(
+          sections.indexOf('class="op-caret-label"') < sections.indexOf('codicon-chevron-down'),
+          `in the section shape the caret beside ${ruled.holder} draws its glyph ahead of its name`,
+        );
+        const flow = caretButtonOf(operationsBodyHtml(body({ layout: 'buttons', unavailable })), ruled.holder);
+        assert.ok(flow !== undefined, `no caret is drawn beside ${ruled.holder} in the flow`);
+        assert.strictEqual(drawnWordsOf(flow), '', `in the flow the caret beside ${ruled.holder} draws a word`);
+        // A negative control on the reading: the glyph IS in the flow's caret,
+        // so the empty string above is the words taken out of a drawn control
+        // rather than of nothing.
+        assert.ok(flow.includes('codicon-chevron-down'), 'the flow draws the caret with no glyph, so its empty reading measures nothing');
+      }
     }
   });
 
@@ -2011,9 +2124,9 @@ describe('a button whose next press can be adjusted', () => {
           caret.includes('aria-expanded="false"'),
           'the caret does not report its region closed, so a reader is told neither open nor closed',
         );
-        // It draws no word of its own, so it says what it is for a reader who
-        // meets it without seeing it — and that name says whose adjustments
-        // these are rather than merely that adjustments exist.
+        // In the flow it draws no word of its own, so it says what it is for a
+        // reader who meets it without seeing it — and that name says whose
+        // adjustments these are rather than merely that adjustments exist.
         assert.ok(
           caret.includes(`aria-label="${ruled.caretName}"`),
           'the caret carries no name, so a reader who cannot see it is told nothing',
@@ -2023,8 +2136,8 @@ describe('a button whose next press can be adjusted', () => {
   });
 
   it('names the caret the same whatever is ticked, and counts nothing on it', () => {
-    // The caret draws no word, so its name and its hover are all a reader is
-    // told about it, and both read the same with nothing ticked and with an
+    // In the flow the caret draws no word, so its name and its hover are all a
+    // reader is told about it, and both read the same with nothing ticked and with an
     // option ticked: each option's own box is where its state is read, and
     // nothing on the caret counts what is on. Asserted by EQUALITY on both
     // attributes, because a count appended to the name still begins with the

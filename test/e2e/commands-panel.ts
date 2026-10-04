@@ -141,6 +141,10 @@ export interface PanelControl {
   expanded: string | null;
   box: PanelBox;
   labelClipped: boolean;
+  // named is the name a caret draws as text, where it draws one with a size —
+  // its text, whether it is cut short, and its box — and null where it draws
+  // none.
+  named: { text: string; clipped: boolean; box: PanelBox } | null;
   icon: string;
   glyph: boolean;
   borderWidth: number;
@@ -230,6 +234,8 @@ const DRAWN_PANEL = `(() => {
     const cs = getComputedStyle(b);
     const l = b.querySelector('.op-label');
     const i = b.querySelector('.codicon');
+    const n = b.querySelector('.op-caret-label');
+    const nr = n ? n.getBoundingClientRect() : null;
     return {
       kind: b.classList.contains('op-caret') ? 'caret' : 'op',
       command: b.dataset.command || ('caret:' + (b.dataset.dials || '')),
@@ -240,6 +246,7 @@ const DRAWN_PANEL = `(() => {
       expanded: b.getAttribute('aria-expanded'),
       box: box(b),
       labelClipped: !!l && l.scrollWidth > l.clientWidth + 0.5,
+      named: n && nr && nr.width > 0 && nr.height > 0 && getComputedStyle(n).visibility === 'visible' ? { text: (n.innerText || '').trim(), clipped: n.scrollWidth > n.clientWidth + 0.5, box: box(n) } : null,
       icon: iconOf(i),
       glyph: glyph(i),
       borderWidth: parseFloat(cs.borderTopWidth) || 0,
@@ -351,7 +358,17 @@ export interface OpenMenu {
   // needed is what the widest of its rows takes, with the menu's own edges: the
   // width at which no row would be cut short.
   needed: number;
-  rows: { text: string; label: string; clipped: boolean }[];
+  // rows are its choices or settings as drawn, each with its box in the panel's
+  // window.
+  rows: { text: string; label: string; clipped: boolean; box: PanelBox }[];
+  // title is the menu's own name drawn at its head, where it draws one with a
+  // size, and null where it draws none.
+  title: { text: string; box: PanelBox } | null;
+  // edges are the menu's own top and bottom borders, and scroll how its list
+  // stands inside it: the height of everything it holds, the height it shows, and
+  // how far it is scrolled.
+  edges: { top: number; bottom: number };
+  scroll: { content: number; shown: number; top: number };
   status: string;
   // marked is every control drawn as held open, and opener the one whose menu
   // this is.
@@ -402,7 +419,14 @@ const OPEN_MENU = `(() => {
     cap: m ? resolved('max', getComputedStyle(m).maxWidth) : 0,
     floor: m ? resolved('min', getComputedStyle(m).minWidth) : 0,
     needed,
-    rows: entries.map((o) => ({ text: (o.innerText || '').replace(/\\s+/g, ' ').trim(), label: ((o.querySelector('.op-menu-label') || {}).innerText || '').trim(), clipped: [...o.querySelectorAll('.op-menu-label, .op-menu-detail')].some((p) => p.scrollWidth > p.clientWidth + 0.5) })),
+    rows: entries.map((o) => ({ text: (o.innerText || '').replace(/\\s+/g, ' ').trim(), label: ((o.querySelector('.op-menu-label') || {}).innerText || '').trim(), clipped: [...o.querySelectorAll('.op-menu-label, .op-menu-detail')].some((p) => p.scrollWidth > p.clientWidth + 0.5), box: box(o) })),
+    title: (() => {
+      const t = m ? m.querySelector('.op-menu-title') : null;
+      const r = t ? t.getBoundingClientRect() : null;
+      return t && r && r.width > 0 && r.height > 0 && getComputedStyle(t).visibility === 'visible' ? { text: (t.innerText || '').trim(), box: box(t) } : null;
+    })(),
+    edges: m ? { top: px(getComputedStyle(m).borderTopWidth), bottom: px(getComputedStyle(m).borderBottomWidth) } : { top: 0, bottom: 0 },
+    scroll: m ? { content: m.scrollHeight, shown: m.clientHeight, top: m.scrollTop } : { content: 0, shown: 0, top: 0 },
     status: m ? (((m.querySelector('[data-menu-status]') || {}).textContent) || '').trim() : '',
     marked: marked.map((e) => e.dataset.command || ('caret:' + (e.dataset.dials || ''))),
     opener: box(opener),
@@ -415,39 +439,80 @@ export function openMenu(doc: WebviewDocument): Promise<OpenMenu> {
 }
 
 // Placement is where a menu of choices stands against the control that opened it,
-// by the rule a reader is promised: beneath the control, or above it where there is
-// no room below; its left edge on the control's left edge, pulled in from the
-// panel's right edge where it would otherwise run past it — the edge left of the
-// panel's scroll bar, where it draws one, since a menu's end under the bar is out
-// of sight; and never narrower than its rows need, up to as wide as the panel lets
-// it be.
-export interface Placement { below: boolean; across: 'on the control\'s left edge' | 'pulled in from the right edge'; breaks: string[] }
+// by the rule a reader is promised: on whichever side of the control the panel's
+// view has more room — beneath it, or above it — with its edge on the control's,
+// no taller than the room on that side, and so with its far edge — its bottom
+// edge, beneath the control — inside the view; its left edge on the control's
+// left edge, pulled in from the panel's right edge where it would otherwise run
+// past it — the edge left of the panel's scroll bar, where it draws one, since a
+// menu's end under the bar is out of sight; and never narrower than its rows
+// need, up to as wide as the panel lets it be. `against` is where its edge on the
+// control's side stands: its top beneath the control, its bottom above it.
+export interface Placement { below: boolean; against: number; across: 'on the control\'s left edge' | 'pulled in from the right edge'; breaks: string[] }
 
 export function placement(m: OpenMenu): Placement {
   if (m.box === null || m.opener === null) {
-    return { below: false, across: 'on the control\'s left edge', breaks: ['no menu, or no control it belongs to, is drawn'] };
+    return { below: false, against: 0, across: 'on the control\'s left edge', breaks: ['no menu, or no control it belongs to, is drawn'] };
   }
   const breaks: string[] = [];
   const b = m.box;
   const o = m.opener;
   const edge = m.view.contentWidth;
-  const room = m.view.height - (o.y + o.height);
-  const above = room < b.height && o.y > b.height;
-  if (above && Math.abs(b.y + b.height - o.y) > 1) { breaks.push(`with ${Math.round(room)} px below the control for a ${Math.round(b.height)} px menu it is to end at the control's top (${Math.round(o.y)}), and ends at ${Math.round(b.y + b.height)}`); }
-  if (!above && Math.abs(b.y - (o.y + o.height)) > 1) { breaks.push(`it is to start at the control's bottom (${Math.round(o.y + o.height)}), and starts at ${Math.round(b.y)}`); }
+  const roomBelow = m.view.height - (o.y + o.height);
+  const roomAbove = o.y;
+  const above = roomAbove > roomBelow;
+  const room = above ? roomAbove : roomBelow;
+  const side = above ? 'above' : 'beneath';
+  if (above && Math.abs(b.y + b.height - o.y) > 1) { breaks.push(`with ${Math.round(roomAbove)} px above the control and ${Math.round(roomBelow)} px below it, it is to end at the control's top (${Math.round(o.y)}), and ends at ${Math.round(b.y + b.height)}`); }
+  if (!above && Math.abs(b.y - (o.y + o.height)) > 1) { breaks.push(`with ${Math.round(roomBelow)} px below the control and ${Math.round(roomAbove)} px above it, it is to start at the control's bottom (${Math.round(o.y + o.height)}), and starts at ${Math.round(b.y)}`); }
+  if (b.height > room + 1) { breaks.push(`it is ${Math.round(b.height)} px tall where the room ${side} the control is ${Math.round(room)} px`); }
+  if (b.y + b.height > m.view.height + 1) { breaks.push(`its bottom edge is at ${Math.round(b.y + b.height)}, past the bottom of the ${m.view.height} px view`); }
+  if (b.y < -1) { breaks.push(`its top edge is at ${Math.round(b.y)}, above the view`); }
   const wanted = Math.max(0, Math.min(o.x, edge - b.width));
   if (Math.abs(b.x - wanted) > 1) { breaks.push(`its left edge is to be at ${Math.round(wanted)} (the control's left edge ${Math.round(o.x)}, the panel ${edge} px wide left of its scroll bar), and is at ${Math.round(b.x)}`); }
   if (b.x + b.width > edge + 1) { breaks.push(`it runs ${Math.round(b.x + b.width - edge)} px past the panel's right edge${edge < m.view.width ? ', under the panel\'s scroll bar' : ''}`); }
   const least = Math.min(Math.max(m.needed, m.floor), m.cap);
   if (b.width < least - 1) { breaks.push(`it is ${Math.round(b.width)} px wide where its rows need ${Math.round(m.needed)} px and the panel lets it be ${Math.round(m.cap)}`); }
-  return { below: !above, across: wanted < o.x - 1 ? 'pulled in from the right edge' : 'on the control\'s left edge', breaks };
+  return { below: !above, against: above ? b.y + b.height : b.y, across: wanted < o.x - 1 ? 'pulled in from the right edge' : 'on the control\'s left edge', breaks };
+}
+
+// headShown reads, for a menu of choices as it stands, the head a reader is
+// promised in a short panel: its name drawn at its head as the words it is named
+// by, the whole line inside the view, and beneath it at least `rows` of its
+// choices whole — or all of them, where it holds fewer. Each requirement not met
+// is one sentence.
+export function headShown(m: OpenMenu, rows: number): string[] {
+  if (m.box === null) { return ['no menu is drawn']; }
+  const out: string[] = [];
+  const t = m.title;
+  if (t === null) {
+    out.push('its name is not drawn at its head');
+  } else {
+    if (t.text !== m.label) { out.push(`its head reads "${t.text}" where it is named "${m.label}"`); }
+    if (t.box.y < -0.5 || t.box.y + t.box.height > m.view.height + 0.5) { out.push(`its head stands at ${Math.round(t.box.y)}–${Math.round(t.box.y + t.box.height)}, not inside the ${m.view.height} px view`); }
+  }
+  const least = Math.min(rows, m.rows.length);
+  const whole = wholeRows(m);
+  if (whole < least) { out.push(`${whole} of its choices whole beneath its head where at least ${least} are to be`); }
+  return out;
+}
+
+// wholeRows counts the menu's rows a reader sees whole where it stands: each one
+// inside the part of the menu that shows its list — beneath the title where one
+// is drawn, inside the menu's own borders — and inside the panel's view.
+export function wholeRows(m: OpenMenu): number {
+  if (m.box === null) { return 0; }
+  const top = Math.max(m.box.y + m.edges.top, m.title === null ? 0 : m.title.box.y + m.title.box.height, 0);
+  const bottom = Math.min(m.box.y + m.box.height - m.edges.bottom, m.view.height);
+  return m.rows.filter((r) => r.box.height > 0 && r.box.y >= top - 0.5 && r.box.y + r.box.height <= bottom + 0.5).length;
 }
 
 // describeMenu words a menu and where it stands, for a check's report.
 export function describeMenu(m: OpenMenu): string {
   if (!m.open || m.box === null) { return 'no menu open'; }
   const p = placement(m);
-  return `"${m.label}" ${Math.round(m.box.width)} px wide at ${Math.round(m.box.x)},${Math.round(m.box.y)}, its right edge at ${Math.round(m.box.x + m.box.width)}, for a control at ${m.opener ? `${Math.round(m.opener.x)},${Math.round(m.opener.y)}–${Math.round(m.opener.y + m.opener.height)}` : 'nowhere'} in a ${m.view.width} × ${m.view.height} panel${m.view.contentWidth < m.view.width ? `, ${m.view.contentWidth} px of it left of its scroll bar` : ''}; ${p.below ? 'beneath it' : 'above it'}, ${p.across}; its rows need ${Math.round(m.needed)} px${m.rows.some((r) => r.clipped) ? ', some cut short' : ''}${p.breaks.length > 0 ? `; against the rule: ${p.breaks.join('; ')}` : ''}`;
+  const heights = [...new Set(m.rows.map((r) => Math.round(r.box.height * 10) / 10))];
+  return `"${m.label}" ${Math.round(m.box.width)} px wide at ${Math.round(m.box.x)},${Math.round(m.box.y)}, its right edge at ${Math.round(m.box.x + m.box.width)}, for a control at ${m.opener ? `${Math.round(m.opener.x)},${Math.round(m.opener.y)}–${Math.round(m.opener.y + m.opener.height)}` : 'nowhere'} in a ${m.view.width} × ${m.view.height} panel${m.view.contentWidth < m.view.width ? `, ${m.view.contentWidth} px of it left of its scroll bar` : ''}; ${p.below ? 'beneath it' : 'above it'}, ${p.across}; its rows need ${Math.round(m.needed)} px${m.rows.some((r) => r.clipped) ? ', some cut short' : ''}${p.breaks.length > 0 ? `; against the rule: ${p.breaks.join('; ')}` : ''}; ${Math.round(m.box.height)} px tall, its bottom edge at ${Math.round(m.box.y + m.box.height)}, holding ${Math.round(m.scroll.content)} px and showing ${Math.round(m.scroll.shown)}; its title ${m.title === null ? 'not drawn' : `"${m.title.text}" drawn ${Math.round(m.title.box.height)} px tall`}; ${wholeRows(m)} of its ${m.rows.length} rows whole, each ${heights.join(' or ')} px tall`;
 }
 
 // MENU_CONTROLS are the operations whose press opens a menu of choices beside their
@@ -577,9 +642,10 @@ export function drawnActions(t: TitleActions | null): string[] {
 }
 
 // PanesAt is where the container's panes are drawn: in which part of the window,
-// in what order, and how wide the Commands panel's own document is — null where
-// that document is not drawn, or did not answer, at the reading.
-export interface PanesAt { part: string; titles: string[]; width: number | null }
+// in what order and how tall each is, header included, and how wide the Commands
+// panel's own document is — null where that document is not drawn, or did not
+// answer, at the reading.
+export interface PanesAt { part: string; titles: string[]; heights: number[]; width: number | null }
 
 const PANES = `[...document.querySelectorAll('.pane')].map((p) => {
   const h = p.querySelector('.pane-header');
@@ -599,7 +665,7 @@ export async function panesOf(ctx: SuiteContext): Promise<PanesAt> {
   const doc = await documentNow(ctx.d, COMMANDS_PANEL);
   const width = doc === null ? null : await doc.evaluate<number>('document.documentElement.clientWidth').catch(() => null);
   const parts = [...new Set(panes.map((p) => p.part))];
-  return { part: parts.join(', '), titles: panes.map((p) => p.title), width };
+  return { part: parts.join(', '), titles: panes.map((p) => p.title), heights: panes.map((p) => Math.round(p.height)), width };
 }
 
 // ContainerManifest is what the manifest of the copy under test says about the
