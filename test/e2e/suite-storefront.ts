@@ -25,7 +25,7 @@ import { INSPECTION_CHECKS, inspectionChecks } from './suite-inspection';
 import { BINARY_PATH_SEARCH, notFoundAt, OPEN_BINARY_PATH_SETTING, RUNTIME_WORDS, START_FAILED_OPENING } from './suite-killed';
 import {
   commandsPanel, describeRowMenu, guard, holds, NOT_RUNNING, operationButtons, paneState, pickQuickInputRow, pressIn, pressKeyIn, pressMenuItem, pressOperation, pressPaneHeader,
-  pressPanelAction, pressToastButton, QuickInput, quickInput, rowMenu, RUNNING, sleep, stated, statusLog, STARTING, Toast, toasts, toastsSince, TreeRow,
+  pressPanelAction, pressToastButton, QuickInput, quickInput, rowMenu, RUNNING, sleep, stated, statusLog, STARTING, Toast, toasts, toastsSince, toastWindowPassed, TreeRow,
   treeRowCentre, treeRows, until, waitQuickInput, waitStatus, waitToast,
 } from './workbench';
 
@@ -40,7 +40,9 @@ const BINARY_PATH = 'aggrega.server.binaryPath';
 // search with no registry and the filter it keeps from one search to the next,
 // the workspace catalog panel, the operations heading the Catalog, Registries and
 // Plugins panels and the Commands panel that holds none of them, the operations
-// that end in words, and what the extension says about settings that are wrong.
+// that end in words, what the extension says about settings that are wrong, and a
+// failure of the Release's dependencies filed on the Release and not on a YAML file
+// that is not an Aggrega document.
 
 export const STOREFRONT_CHECKS = [
   'commands-panel.context-rows-name-the-opened-folder',
@@ -75,6 +77,7 @@ export const STOREFRONT_CHECKS = [
   'operations.lint-ends-in-a-sentence',
   'operations.build-ends-in-words-and-writes-its-files',
   'settings-that-are-wrong.missing-catalog-and-unreachable-registry-are-named',
+  'settings-that-are-wrong.failing-dependencies-are-not-filed-on-a-ci-workflow',
   'settings-that-are-wrong.missing-compiler-is-named',
   'settings-that-are-wrong.what-the-extension-says-is-enough',
 ] as const;
@@ -128,6 +131,22 @@ const CHECK_REFUSED_OPENING = 'The check did not complete: ';
 
 // The stopped-responding notification, held as written for the same reason.
 export const STOPPED_RESPONDING = 'Aggrega language server has stopped responding. Run "Aggrega: Start or restart the language server" to recover.';
+
+// A continuous-integration workflow: YAML the editor sends for validation, and no
+// document of Aggrega's own — it carries no apiVersion and no kind.
+const CI_WORKFLOW = [
+  'name: ci',
+  'on:',
+  '  push:',
+  '    branches: [main]',
+  'jobs:',
+  '  build:',
+  '    runs-on: ubuntu-latest',
+  '    steps:',
+  '      - uses: actions/checkout@v4',
+  '      - run: npm test',
+  '',
+].join('\n');
 
 // entityNames reads the metadata.name of every document of `kind` under a
 // catalog directory, as the compiler's catalog would list them.
@@ -255,53 +274,70 @@ export async function storefrontChecks(ctx: SuiteContext, referenceFolder: strin
     plant: 'in the scratch copy, out/src/diagnostics-shape.js made to cut a message at its note, which drops the part naming the file that broke',
   }, async () => {
     await open(ctx, aggregate);
+    const whole = fs.readFileSync(moduleFile, 'utf8');
     const removed = await deleteLine(ctx, moduleFile, 'version: 1.0.0');
-    await save(ctx, moduleFile);
-    // Whether the cascade reaches the Aggregate without asking is recorded, not
-    // judged: either answer is a behaviour a reader may meet, and the check's
-    // verdict rests on what Validate reports. So it is watched for a stated 10 s:
-    // a guard would make every run where it does not arrive wait the guard out.
-    await open(ctx, aggregate);
-    const unasked = await until('the cascade reaching the Aggregate unasked', stated(10000), () => diagnostics(ctx, aggregate), (v) => v.some((d) => d.message.includes(moduleFile))).then(() => true, () => false);
-    // The reference: the same document against the same broken module on disk.
-    fs.writeFileSync(referenceModule, fs.readFileSync(moduleFile, 'utf8'));
-    const answer = await referenceAnswer({ binary: bin, root: referenceFolder, method: 'aggrega/validate', params: buildValidateParams(referenceAggregate, fs.readFileSync(aggregate, 'utf8'), RELEASE), home: ctx.home, table: ctx.s.table, log: ctx.cliLog });
-    const ref = answer.ok ? ((answer.result as { diagnostics?: { message: string }[] }).diagnostics ?? []).map((d) => d.message.split(referenceFolder).join(ctx.folder)) : [];
-    const mark = (await toasts(ctx.d)).length;
-    await pressOperation(ctx.d, await commandsPanel(ctx.d), 'aggrega.op.validate');
-    const report = await waitToast(ctx.d, 'the validation ending in a sentence', mark, (t) => t.message.startsWith('Aggrega: validated aggregate.yaml'), 30000).then((t) => t.message, () => '');
-    const after = await until('the Aggregate\'s entries after Validate', 20000, () => diagnostics(ctx, aggregate), (v) => v.some((d) => d.message.includes(moduleFile)));
-    const naming = after.find((d) => d.message.includes(moduleFile));
-    const words = naming !== undefined && ref.includes(naming.message);
-    const namesField = naming !== undefined && naming.message.includes('metadata.version');
-    await putBack(ctx, moduleFile, removed);
-    await save(ctx, moduleFile);
-    // Recorded, not judged: the module's component type broken instead, a second
-    // kind of fault in an imported module, kept as evidence beside the verdict.
-    const typed = await lineOf(ctx, moduleFile, 'type: core/datastore/valkey');
-    await ctx.probe.request('document.edit', { path: moduleFile, start: { line: typed.index, character: 0 }, end: { line: typed.index + 1, character: 0 }, text: `${typed.text}x\n` });
-    await save(ctx, moduleFile);
-    await open(ctx, aggregate);
-    const typeMark = (await toasts(ctx.d)).length;
-    await pressOperation(ctx.d, await commandsPanel(ctx.d), 'aggrega.op.validate');
-    await waitToast(ctx.d, 'the second validation ending', typeMark, (t) => t.message.startsWith('Aggrega: validated aggregate.yaml'), 30000).catch(() => undefined);
-    const typeEntries = (await diagnostics(ctx, aggregate)).map((d) => d.message.split('\n')[0]);
-    await open(ctx, moduleFile);
-    await ctx.probe.request('document.edit', { path: moduleFile, start: { line: typed.index, character: 0 }, end: { line: typed.index + 1, character: 0 }, text: `${typed.text}\n` });
-    await save(ctx, moduleFile);
-    fs.writeFileSync(referenceModule, fs.readFileSync(moduleFile, 'utf8'));
-    // Validate once more with the module whole, so no entry of this check stays
-    // on the Aggregate for the checks after it.
-    await open(ctx, aggregate);
-    const cleanMark = (await toasts(ctx.d)).length;
-    await pressOperation(ctx.d, await commandsPanel(ctx.d), 'aggrega.op.validate');
-    await waitToast(ctx.d, 'the validation with the module whole', cleanMark, (t) => t.message.startsWith('Aggrega: validated aggregate.yaml'), 30000).catch(() => undefined);
-    await until('the Aggregate clear of this check\'s entries', 20000, () => diagnostics(ctx, aggregate), (v) => !v.some((d) => d.message.includes('valkeyx') || d.message.includes(moduleFile))).catch(() => undefined);
-    return {
-      passed: words && namesField,
-      seen: `unasked, the cascade ${unasked ? 'reached' : 'did not reach'} the Aggregate within 10 s; Validate said "${report}"; the entry naming the module: ${naming ? JSON.stringify(naming.message.split('\n').slice(0, 3).join(' / ')) : 'none'}; the compiler's words ${words ? 'carried unchanged' : 'differ'}; with the module's type broken instead, the Aggregate reads ${JSON.stringify(typeEntries)}`,
-      evidence: { reference: ref, entries: after, typeBroken: typeEntries },
-    };
+    // 🔴 THE MODULE IS PUT BACK, IN THE FOLDER AND IN THE REFERENCE COPY, AND THE
+    // AGGREGATE VALIDATED WHOLE AGAIN, WHATEVER THE WAITS BELOW DO. A wait that runs
+    // out throws, and a check stopped with the module broken would leave every check
+    // after it reading a workspace whose dependencies do not resolve.
+    try {
+      await save(ctx, moduleFile);
+      // Whether the cascade reaches the Aggregate without asking is recorded, not
+      // judged: either answer is a behaviour a reader may meet, and the check's
+      // verdict rests on what Validate reports. So it is watched for a stated 10 s:
+      // a guard would make every run where it does not arrive wait the guard out.
+      await open(ctx, aggregate);
+      const unasked = await until('the cascade reaching the Aggregate unasked', stated(10000), () => diagnostics(ctx, aggregate), (v) => v.some((d) => d.message.includes(moduleFile))).then(() => true, () => false);
+      // The reference: the same document against the same broken module on disk.
+      fs.writeFileSync(referenceModule, fs.readFileSync(moduleFile, 'utf8'));
+      const answer = await referenceAnswer({ binary: bin, root: referenceFolder, method: 'aggrega/validate', params: buildValidateParams(referenceAggregate, fs.readFileSync(aggregate, 'utf8'), RELEASE), home: ctx.home, table: ctx.s.table, log: ctx.cliLog });
+      const ref = answer.ok ? ((answer.result as { diagnostics?: { message: string }[] }).diagnostics ?? []).map((d) => d.message.split(referenceFolder).join(ctx.folder)) : [];
+      const mark = (await toasts(ctx.d)).length;
+      await pressOperation(ctx.d, await commandsPanel(ctx.d), 'aggrega.op.validate');
+      const report = await waitToast(ctx.d, 'the validation ending in a sentence', mark, (t) => t.message.startsWith('Aggrega: validated aggregate.yaml'), 30000).then((t) => t.message, () => '');
+      const after = await until('the Aggregate\'s entries after Validate', 20000, () => diagnostics(ctx, aggregate), (v) => v.some((d) => d.message.includes(moduleFile)));
+      const naming = after.find((d) => d.message.includes(moduleFile));
+      const words = naming !== undefined && ref.includes(naming.message);
+      const namesField = naming !== undefined && naming.message.includes('metadata.version');
+      await putBack(ctx, moduleFile, removed);
+      await save(ctx, moduleFile);
+      // Recorded, not judged: the module's component type broken instead, a second
+      // kind of fault in an imported module, kept as evidence beside the verdict.
+      const typed = await lineOf(ctx, moduleFile, 'type: core/datastore/valkey');
+      await ctx.probe.request('document.edit', { path: moduleFile, start: { line: typed.index, character: 0 }, end: { line: typed.index + 1, character: 0 }, text: `${typed.text}x\n` });
+      await save(ctx, moduleFile);
+      await open(ctx, aggregate);
+      const typeMark = (await toasts(ctx.d)).length;
+      await pressOperation(ctx.d, await commandsPanel(ctx.d), 'aggrega.op.validate');
+      await waitToast(ctx.d, 'the second validation ending', typeMark, (t) => t.message.startsWith('Aggrega: validated aggregate.yaml'), 30000).catch(() => undefined);
+      const typeEntries = (await diagnostics(ctx, aggregate)).map((d) => d.message.split('\n')[0]);
+      await open(ctx, moduleFile);
+      await ctx.probe.request('document.edit', { path: moduleFile, start: { line: typed.index, character: 0 }, end: { line: typed.index + 1, character: 0 }, text: `${typed.text}\n` });
+      await save(ctx, moduleFile);
+      return {
+        passed: words && namesField,
+        seen: `unasked, the cascade ${unasked ? 'reached' : 'did not reach'} the Aggregate within 10 s; Validate said "${report}"; the entry naming the module: ${naming ? JSON.stringify(naming.message.split('\n').slice(0, 3).join(' / ')) : 'none'}; the compiler's words ${words ? 'carried unchanged' : 'differ'}; with the module's type broken instead, the Aggregate reads ${JSON.stringify(typeEntries)}`,
+        evidence: { reference: ref, entries: after, typeBroken: typeEntries },
+      };
+    } finally {
+      // The module's text as it was found, written through the editor wherever it
+      // differs or is unsaved, so the editor holds no other version of it; the
+      // reference copy's module from the same text.
+      const now = await open(ctx, moduleFile);
+      if (now.text !== whole) {
+        const lines = (now.text ?? '').split('\n');
+        await ctx.probe.request('document.edit', { path: moduleFile, start: { line: 0, character: 0 }, end: { line: lines.length - 1, character: lines[lines.length - 1].length }, text: whole });
+      }
+      if (now.text !== whole || now.isDirty) { await save(ctx, moduleFile); }
+      fs.writeFileSync(referenceModule, whole);
+      // Validate once more with the module whole, so no entry of this check stays
+      // on the Aggregate for the checks after it.
+      await open(ctx, aggregate);
+      const cleanMark = (await toasts(ctx.d)).length;
+      await pressOperation(ctx.d, await commandsPanel(ctx.d), 'aggrega.op.validate');
+      await waitToast(ctx.d, 'the validation with the module whole', cleanMark, (t) => t.message.startsWith('Aggrega: validated aggregate.yaml'), 30000).catch(() => undefined);
+      await until('the Aggregate clear of this check\'s entries', 20000, () => diagnostics(ctx, aggregate), (v) => !v.some((d) => d.message.includes('valkeyx') || d.message.includes(moduleFile))).catch(() => undefined);
+    }
   });
 
   // ---- an inspection refused because of the document declaring the entity ----
@@ -990,6 +1026,85 @@ export async function storefrontChecks(ctx: SuiteContext, referenceFolder: strin
       evidence: { said: lines, refusal, channelLine, notices, featureEntries, featureWords, entityEntries },
     };
   });
+
+  // A failing dependency resolution is reported on the Release's own document and
+  // on no YAML file that is not an Aggrega document. Its state is one edit more:
+  // the Manifest's Feature mapping rewritten on disk to name an entity no catalog
+  // holds, which fails the selected Release's dependencies. The Manifest is put
+  // back, and the workflow file removed, whatever the check does, so the
+  // configuration's restore below and every check after it read the folder as it
+  // was.
+  const manifest = path.join(ctx.folder, 'manifest-compose.yaml');
+  const workflow = path.join(ctx.folder, '.github', 'workflows', 'ci.yml');
+  const workflowDir = path.join(ctx.folder, '.github');
+  const featureMapping = 'core/secret-value:1.0.0: dotenv-secret:1.0.0';
+  const unheldMapping = 'core/secret-value:1.0.0: no-such-recipe:1.0.0';
+  const cleanEnding = `Aggrega: validated ${path.basename(workflow)}: no problems found.`;
+  await c.run('settings-that-are-wrong.failing-dependencies-are-not-filed-on-a-ci-workflow', {
+    expected: `with the Manifest's Feature mapping "${featureMapping}" rewritten on disk to "${unheldMapping}", an entity no catalog holds, Validate pressed with the Release in front files on it every finding of the language server's own answer for the same document over the reference copy configured and mapped the same way, among them one opening "Dependencies:"; and Validate pressed with a continuous-integration workflow in front — ${path.relative(ctx.folder, workflow)}, a YAML file that is not an Aggrega document — ends in "${cleanEnding}" and leaves no Aggrega entry on it, watched for 3 s after`,
+    plant: 'in the scratch copy, out/src/extension.js made to send, for the document Validate is pressed in front of, the selected Release\'s path as the file',
+  }, async () => {
+    need((await statusLog(ctx.d)).slice(-1)[0]?.reading === RUNNING, 'the language server is not running, so no document can be validated');
+    const found = fs.readFileSync(manifest, 'utf8');
+    need(found.split(featureMapping).length === 2, `the Manifest does not map "${featureMapping}" once`);
+    need(!fs.existsSync(workflowDir), `${workflowDir} exists before the check writes it`);
+    const refConfig = path.join(referenceFolder, '.aggrega-config.yaml');
+    const refManifest = path.join(referenceFolder, path.basename(manifest));
+    need(fs.readFileSync(refConfig, 'utf8') === original && fs.readFileSync(refManifest, 'utf8') === found, 'the reference copy\'s configuration or Manifest is not the folder\'s as it was found');
+    // validated presses Validate with `file` in front and reads what it ended in:
+    // the sentence counting the answer's findings, and the Aggrega entries the
+    // file then carries, which are filed before that sentence is raised.
+    const validated = async (file: string): Promise<{ ending: string; entries: string[] }> => {
+      await open(ctx, file);
+      await toastWindowPassed(ctx.d);
+      const mark = (await toasts(ctx.d)).length;
+      await pressOperation(ctx.d, await commandsPanel(ctx.d), 'aggrega.op.validate');
+      const name = path.basename(file);
+      const ending = (await waitToast(ctx.d, `the validation of ${name} ending in a sentence`, mark, (t) => t.message.startsWith(`Aggrega: validated ${name}`), 30000)).message;
+      return { ending, entries: (await diagnostics(ctx, file)).filter((d) => d.source === 'aggrega').map((d) => d.message) };
+    };
+    try {
+      fs.writeFileSync(manifest, found.replace(featureMapping, unheldMapping));
+      fs.mkdirSync(path.dirname(workflow), { recursive: true });
+      fs.writeFileSync(workflow, CI_WORKFLOW);
+      // The Release's words are the language server's own for the same document over
+      // the reference copy, configured and mapped as the folder is while asked.
+      fs.writeFileSync(refConfig, fs.readFileSync(config, 'utf8'));
+      fs.writeFileSync(refManifest, fs.readFileSync(manifest, 'utf8'));
+      const releaseRef = await (async () => {
+        try {
+          return await referenceAnswer({ binary: bin, root: referenceFolder, method: 'aggrega/validate', params: buildValidateParams(referenceRelease, fs.readFileSync(path.join(ctx.folder, RELEASE), 'utf8'), RELEASE), home: ctx.home, table: ctx.s.table, log: ctx.cliLog });
+        } finally {
+          fs.writeFileSync(refConfig, original);
+          fs.writeFileSync(refManifest, found);
+        }
+      })();
+      need(releaseRef.ok, `the language server gave no reference answer for the Release: ${releaseRef.ok ? '' : releaseRef.error.message}`);
+      const releaseWords = ((releaseRef.result as { diagnostics?: { message: string }[] | null }).diagnostics ?? []).map((d) => d.message.split(referenceFolder).join(ctx.folder));
+      need(releaseWords.some((m) => m.startsWith('Dependencies: ')), `the language server's own answer for the Release over the reference copy carries no "Dependencies:" finding, so the Release's dependencies do not fail in this state: ${JSON.stringify(releaseWords)}`);
+      // The positive control first, so the workflow is read in a state shown to fail
+      // the Release's dependencies. The Manifest was rewritten from outside the
+      // editor, so Validate is pressed again until the language server has read it.
+      const release = await until('the Release carrying the language server\'s own answer', 20000, () => validated(path.join(ctx.folder, RELEASE)), (r) => releaseWords.every((w) => r.entries.includes(w)), 1000);
+      await open(ctx, workflow);
+      const active = await ctx.probe.request<{ languageId: string } | null>('editor.active');
+      need(active?.languageId === 'yaml', `the editor reads ${path.basename(workflow)} as ${active?.languageId ?? 'nothing'}, not as YAML, so the extension sends it nowhere`);
+      const read = await validated(workflow);
+      // An absence is watched for a while after the answer that should carry it, so
+      // an answer arriving later — the one sent as the file opened — is read too.
+      const quiet = await holds(3000, async () => (await diagnostics(ctx, workflow)).filter((d) => d.source === 'aggrega').map((d) => d.message), (v) => v.length === 0);
+      const filed = quiet.held ? read.entries : [...read.entries, ...(quiet.broke ?? [])];
+      return {
+        passed: read.ending === cleanEnding && read.entries.length === 0 && quiet.held,
+        seen: `the Release's validation ended "${release.ending}", its Aggrega entries ${JSON.stringify(release.entries)} carrying the language server's own answer ${JSON.stringify(releaseWords)}; with ${path.basename(workflow)} in front Validate ended "${read.ending}", ${filed.length === 0 ? `and it carried no Aggrega entry, watched for 3 s after (${quiet.readings} readings)` : `and it carried ${JSON.stringify([...new Set(filed)])}`}`,
+        evidence: { releaseWords, release, workflow: read, quiet },
+      };
+    } finally {
+      fs.writeFileSync(manifest, found);
+      fs.rmSync(workflowDir, { recursive: true, force: true });
+    }
+  });
+
   // Put the configuration back and let the server read it.
   fs.writeFileSync(config, original);
   await closeAllEditors(ctx);

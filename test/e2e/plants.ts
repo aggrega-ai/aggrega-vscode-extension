@@ -474,6 +474,12 @@ export const PLANTS: readonly Plant[] = [
     says: 'a finding\'s message is cut at its first clause, so an entity file\'s entry for a missing catalog directory drops where the directory is listed and what to do about it',
   },
   {
+    name: 'validate-sends-the-release-as-the-file', scenario: 'storefront', checks: ['settings-that-are-wrong.failing-dependencies-are-not-filed-on-a-ci-workflow'], moves: 'red', target: 'extension',
+    file: EXTENSION, find: "client.request('aggrega/validate', validateParamsFor(doc), signal)",
+    replace: "client.request('aggrega/validate', { ...validateParamsFor(doc), file: selectedRelease() ?? doc.uri.fsPath }, signal)",
+    says: 'Validate, pressed, names the selected Release as the file of the document in front, so the language server answers that document as the Release\'s own and files a failure of the Release\'s dependencies on whatever it holds',
+  },
+  {
     name: 'column-grips-not-resizable', scenario: 'storefront',
     checks: ['config-panel.setting-column-follows-its-grip-and-stops-at-its-floor', 'config-panel.source-column-follows-its-grip-and-keeps-its-paths-inside'],
     moves: 'red', target: 'extension',
