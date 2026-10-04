@@ -18,8 +18,8 @@ import {
   CHOOSE_PROJECT_FOLDER_COMMAND,
   CHOOSE_PROJECT_FOLDER_INVITATION,
 } from './project-folder';
-import { NO_ANCHORED_WORKSPACE_ROW_TOOLTIP, workspaceSitsAboveFolder } from './workspace';
-import { WORKSPACE_ABOVE_HEADLINE, workspaceAboveAccount } from './workspace-above';
+import { NO_ANCHORED_WORKSPACE_ROW_TOOLTIP, compareWorkspaceWithFolder } from './workspace';
+import { WORKSPACE_ABOVE_HEADLINE, workspacePathsAccount } from './workspace-above';
 
 // SelectorCreate is a row's SECOND control: the one that makes a new value for
 // that level, standing beside the one that chooses among the values there are.
@@ -329,12 +329,12 @@ const WARNING_SIGN = '\u26A0\uFE0F';
 //
 // 🔴 THAT SAME DIFFERENCE IS WHERE THIS ROW'S OFFER COMES FROM, AND IT IS AN
 // OFFER RATHER THAN SOMETHING DONE ON THE READER'S BEHALF. Where the workspace
-// sits above the folder the editor opened, the editor can be made to work in
-// the workspace itself — but that takes the window down and stands it back up,
-// with the language server, this extension and everything unsaved in the window
-// going with it. Nothing else drawn on this panel reaches past the window it is
-// drawn in. So the press is the reader's, the control's name says what it will
-// cost them, and no path here performs it for them.
+// is not the folder the editor opened, above it or inside it, the editor can be
+// made to work in the workspace itself — but that takes the window down and
+// stands it back up, with the language server, this extension and everything
+// unsaved in the window going with it. Nothing else drawn on this panel reaches
+// past the window it is drawn in. So the press is the reader's, the control's
+// name says what it will cost them, and no path here performs it for them.
 //
 // 🔴 ITS TWO EMPTY READINGS ARE NOT ONE STATE. A project holding no Aggrega
 // workspace and a project holding several with none of them in use are as far
@@ -373,9 +373,9 @@ export function workspaceRow(
     // no anchored folder at all, which leaves nothing to open.
     offer: null,
     // The mark belongs to a reading for the offer's reason, and to the same
-    // reading: both turn on the workspace sitting somewhere other than the
-    // folder it was reached from, which the two readings without an anchored
-    // folder cannot be in.
+    // reading: both turn on where the workspace sits against the folder it was
+    // reached from, which the two readings without an anchored folder have no
+    // answer to.
     warning: null,
   };
   if (anchoredRoot === null) {
@@ -409,14 +409,15 @@ export function workspaceRow(
     };
   }
   // 🔴 READ FROM THE ONE COMPARISON OF THOSE TWO PATHS RATHER THAN MADE HERE.
-  // Four things turn on it now — what this row explains, whether it offers to
-  // open the workspace, whether it carries a mark, and whether the reader is
-  // interrupted at all — and a comparison written here for the row's own use
-  // would agree with the one the interruption reads until the day either side
-  // learned about a symbolic link or a filesystem that ignores case. The
-  // symptom would be the row marking a state nobody was told about, or the
-  // reverse.
-  const differs = workspaceSitsAboveFolder(anchoredRoot, openedFolder);
+  // Four things turn on its two answers. Where the workspace is not the folder,
+  // this row names the folder and offers to open the workspace; where it sits
+  // outside the folder — neither the folder nor beneath it — the row carries a
+  // mark and the warning sentence, and the reader is interrupted. A comparison
+  // written here for the row's own use would agree with the one the interruption
+  // reads until the day either side learned about a symbolic link or a
+  // filesystem that ignores case. The symptom would be the row marking a state
+  // nobody was told about, or the reverse.
+  const { differs, outside } = compareWorkspaceWithFolder(anchoredRoot, openedFolder);
   // The account is the whole of what the reader is told about the open folder,
   // and it is the interruption's own — the headline and the folder's line, read
   // from where that text is written rather than restated here, so dismissing the
@@ -426,15 +427,19 @@ export function workspaceRow(
   // would say one thing twice. The folder's line is the one that names the open
   // folder, so no other sentence on this hover names it again.
   //
+  // 🔴 THE HEADLINE GOES ABOVE THE FOLDER'S LINE ONLY WHERE THE WORKSPACE SITS
+  // OUTSIDE THE FOLDER. A workspace inside the folder is a different directory,
+  // so the folder is still named; the headline says the workspace is from
+  // outside the folder, which for a workspace inside it is false.
+  //
   // 🔴 THE WARNING SIGN LEADS THE HEADLINE HERE AND ON NO OTHER SURFACE.
   // The hover is plain text with no icon of its own, so the sign is what tells a
   // reader hovering the row that this sentence is the warning the mark beside
   // the value stands for. The interruption draws a warning icon of its own, and
   // the mark IS the sign, so its name — the bare headline — does not repeat it.
-  const account = workspaceAboveAccount(anchoredRoot, openedFolder);
-  const opened = account === null
-    ? ''
-    : `\n\n${WARNING_SIGN} ${WORKSPACE_ABOVE_HEADLINE}\n\n${account.project}`;
+  const account = workspacePathsAccount(anchoredRoot, openedFolder);
+  const warned = outside ? `\n\n${WARNING_SIGN} ${WORKSPACE_ABOVE_HEADLINE}` : '';
+  const opened = account === null ? '' : `${warned}\n\n${account.project}`;
   return {
     ...base,
     value: path.basename(anchoredRoot),
@@ -443,6 +448,11 @@ export function workspaceRow(
     // and whether there is anything here to open, because they are the same
     // question asked twice; a comparison written again beside this one would
     // agree today and would be the thing that drifted.
+    //
+    // It stands wherever the two differ, a workspace inside the folder
+    // included: what its name offers — the workspace opened as the folder, at
+    // the cost of a reload — is true whichever side of the folder the
+    // workspace is on.
     //
     // Where the two coincide there is no offer, and the absence is the truth
     // rather than an omission: the folder this row names is already the one the
@@ -464,13 +474,15 @@ export function workspaceRow(
         label: `Open the ${SELECTOR_ROW_LABELS.workspace} as the ${SELECTOR_ROW_LABELS.project}. The window reloads.`,
       }
       : null,
-    // 🔴 THE MARK AND THE OFFER STAND ON THE SAME READING AND MEAN DIFFERENT
-    // THINGS. The offer is something the reader may do; the mark is something
-    // that is true whether or not they do anything about it. It is drawn from
-    // the same comparison for the reason the offer is — one question asked
-    // twice — and it stays for as long as that comparison holds, which is what
-    // carries the fact after the interruption that first announced it is gone.
-    warning: differs ? WORKSPACE_ABOVE_HEADLINE : null,
+    // 🔴 THE MARK AND THE OFFER ARE READ FROM THE SAME COMPARISON AND ANSWER
+    // DIFFERENT QUESTIONS. The offer is something the reader may do, and it
+    // stands wherever the workspace is not the folder; the mark is something
+    // that is true whether or not they do anything about it — the workspace
+    // sits outside the folder — and it is named by a sentence saying so, which
+    // a workspace inside the folder would make false. It stays for as long as
+    // that answer holds, which is what carries the fact after the interruption
+    // that first announced it is gone.
+    warning: outside ? WORKSPACE_ABOVE_HEADLINE : null,
     // The closing sentence promises a CHOICE, not a change, and the distinction
     // is what makes it true in every case. A click opens what the editor can
     // work in together with the way to make another workspace available — so

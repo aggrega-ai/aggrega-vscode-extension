@@ -467,8 +467,8 @@ export const PLANTS: readonly Plant[] = [
   {
     name: 'build-sends-no-output-parent', scenario: 'workspace-above', checks: ['build.writes-beneath-the-opened-folder-and-says-where'], moves: 'red', target: 'extension',
     file: 'out/src/workspace.js',
-    find: '    return relativeIfInside(workspaceRoot, projectFolder);\n}\n// workspaceSitsAboveFolder',
-    replace: '    return null;\n}\n// workspaceSitsAboveFolder',
+    find: '    return relativeIfInside(workspaceRoot, projectFolder);\n}\n// compareWorkspaceWithFolder',
+    replace: '    return null;\n}\n// compareWorkspaceWithFolder',
     says: 'a build is sent without the folder it is to write beneath, so it writes where a build at the workspace root writes',
   },
   {
@@ -1627,6 +1627,11 @@ export const PLANTS: readonly Plant[] = [
     file: 'out/src/workspace.js', find: "const YAML_SUFFIXES = ['.yaml', '.yml'];", replace: "const YAML_SUFFIXES = ['.yaml'];",
     says: 'a Release spelled with .yml marks no root in the editor, though the compiler anchors on it',
   },
+  {
+    name: 'inside-read-as-outside', scenario: 'workspace-discovery-layouts', checks: ['workspace-discovery.one-below-carries-no-outside-mark-and-one-above-does'], moves: 'red', target: 'extension',
+    file: 'out/src/workspace.js', find: "    return { differs: beneath !== '', outside: beneath === null };", replace: "    return { differs: beneath !== '', outside: beneath !== '' };",
+    says: 'a workspace is read as outside the folder wherever it is not the folder, one beneath it included, so its row carries the mark and the sentence saying it is from outside the folder',
+  },
   // ---- a documentation example beneath the workspace root ----
   {
     name: 'workspace-row-drawn-unmarked-beneath', scenario: 'release-beneath-a-workspace-root', checks: ['beneath-a-workspace.rows-name-the-folder-and-the-root-above-it'], moves: 'red', target: 'extension',
@@ -1690,7 +1695,7 @@ export const PLANTS: readonly Plant[] = [
   {
     name: 'open-control-offered-always', scenario: 'workspace-above-interruption', checks: ['workspace-above.open-control-opens-the-workspace-when-pressed'], moves: 'red', target: 'extension',
     file: 'out/src/selector-rows.js', find: '        offer: differs\n            ? {', replace: '        offer: anchoredRoot !== null\n            ? {',
-    says: 'the open control is offered whether or not the workspace sits outside the folder opened',
+    says: 'the open control is offered whether or not the workspace is the folder opened',
   },
   {
     name: 'dialog-open-action-opens-nothing', scenario: 'workspace-above-interruption', checks: ['workspace-above.dialog-open-action-opens-the-workspace-when-pressed'], moves: 'red', target: 'extension',
@@ -2476,7 +2481,7 @@ function everyAddReadAsMakingANewWorkspace(): SharedEdit {
 
 function workspaceRowDrawnUnmarked(): SharedEdit {
   return {
-    file: 'out/src/selector-rows.js', find: '        warning: differs ? workspace_above_1.WORKSPACE_ABOVE_HEADLINE : null,', replace: '        warning: null,',
+    file: 'out/src/selector-rows.js', find: '        warning: outside ? workspace_above_1.WORKSPACE_ABOVE_HEADLINE : null,', replace: '        warning: null,',
     says: 'the Aggrega workspace row is drawn without its mark where the workspace sits outside the folder opened',
   };
 }

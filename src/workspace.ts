@@ -321,8 +321,9 @@ export function fromWorkspaceRelative(workspaceRoot: string, reported: string): 
 // relativeIfInside is this module's one containment judgement: it answers with
 // the relative form of target when target names somewhere inside the root, and
 // null when it does not. The workspace-relative request parameters on this
-// surface share it, and so does the question whether a remembered workspace's
-// root sits inside a folder.
+// surface share it, and so do the question whether a remembered workspace's
+// root sits inside a folder and the comparison of the workspace in force with
+// the folder it was reached from.
 //
 // The contract belongs to the surface rather than to any one parameter, which is
 // why it is judged here once and each parameter below adds only the one reading
@@ -347,9 +348,10 @@ export function fromWorkspaceRelative(workspaceRoot: string, reported: string): 
 // would decide it for all of them.
 //
 // It stays private, and every reading of it is in this file — the two parameters
-// below, and the judgement of whether a remembered workspace's root sits inside a
-// folder — so a surface reaching for the rule reaches it through one of them,
-// which is what stops another reading of it growing somewhere this file cannot see.
+// below, the judgement of whether a remembered workspace's root sits inside a
+// folder, and the comparison of the workspace in force with its folder — so a
+// surface reaching for the rule reaches it through one of them, which is what
+// stops another reading of it growing somewhere this file cannot see.
 //
 // This is a DELIBERATE second implementation of the containment rule the daemon
 // applies to these same parameters — it refuses an absolute value and one that
@@ -451,32 +453,58 @@ export function outputParentFor(
   return relativeIfInside(workspaceRoot, projectFolder);
 }
 
-// workspaceSitsAboveFolder reports whether the Aggrega workspace in force is a
-// different directory from the folder it was reached from.
+// WorkspaceFolderComparison is where the Aggrega workspace in force sits against
+// the folder it was reached from, as the two answers the surfaces turn on.
+//
+// 🔴 TWO ANSWERS, BECAUSE A WORKSPACE BENEATH THE FOLDER IS ONE AND NOT THE
+// OTHER. A workspace found by looking inside the folder is a different directory
+// from it, so there is something to open and a second path worth naming; it is
+// not outside it, so nothing the reader is told may say it is. A workspace found
+// by walking up past the folder is both.
+export interface WorkspaceFolderComparison {
+  // differs is true where the workspace is a directory other than the folder:
+  // outside it, or beneath it.
+  differs: boolean;
+  // outside is true where the workspace is neither the folder nor beneath it.
+  outside: boolean;
+}
+
+// compareWorkspaceWithFolder answers both questions about the Aggrega workspace
+// in force and the folder it was reached from.
 //
 // 🔴 IT IS THE ONE COMPARISON OF THOSE TWO PATHS AND EVERY SURFACE THAT TURNS ON
-// THE FACT READS IT FROM HERE. Three surfaces do: the row that names the
-// workspace explains itself differently, it offers to open the workspace, and
-// the reader is told out loud that the editor is working outside their window.
-// A second comparison written beside any of them would agree today and be the
+// EITHER ANSWER READS IT FROM HERE. The row that names the workspace names the
+// folder too and offers to open the workspace where the two differ; it carries a
+// mark and a warning sentence, and the reader is told out loud that the editor
+// is working outside their folder, only where the workspace is outside it. A
+// second comparison written beside any of them would agree today and be the
 // thing that drifted the first time either side learned about a symbolic link or
 // a filesystem that ignores case — and the symptom would be one surface warning
 // while another said nothing, which is worse than neither.
+//
+// Containment is judged by relativeIfInside above and not again here, so "beneath
+// the folder" means what it means for every other path this module judges:
+// judged on the resolved paths rather than on how they are spelled, a sibling
+// whose name merely extends the folder's sits outside it, and symbolic links are
+// not followed. The folder itself is the empty answer, which is the one reading
+// this function adds: the workspace is the folder, so the two do not differ.
 //
 // It lives here rather than beside any of those surfaces because it is a fact
 // about a workspace root and a folder rather than about a row, a modal or a
 // marker, and this module is where the rest of that arithmetic already is.
 //
-// Both absences answer false, and they are the same answer for different
-// reasons: with no workspace in force there is nothing sitting above anything,
-// and with no folder reached there is nothing for a workspace to sit above.
-export function workspaceSitsAboveFolder(
+// Both absences answer false to both questions, and for different reasons: with
+// no workspace in force there is nothing to place, and with no folder reached
+// there is nothing to place a workspace against.
+export function compareWorkspaceWithFolder(
   anchoredRoot: string | null,
   openedFolder: string | null,
-): boolean {
-  return anchoredRoot !== null
-    && openedFolder !== null
-    && path.resolve(anchoredRoot) !== path.resolve(openedFolder);
+): WorkspaceFolderComparison {
+  if (anchoredRoot === null || openedFolder === null) {
+    return { differs: false, outside: false };
+  }
+  const beneath = relativeIfInside(path.resolve(openedFolder), path.resolve(anchoredRoot));
+  return { differs: beneath !== '', outside: beneath === null };
 }
 
 // findAllAnchoredFolders runs findAggregaWorkspaceAnchor against each entry in

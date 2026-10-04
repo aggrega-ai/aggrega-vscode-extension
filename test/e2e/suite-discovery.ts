@@ -9,12 +9,13 @@ import { need } from './checks';
 import { WORKSPACE_ANCHOR_ONLY } from './fixtures';
 import { Layout } from './layouts';
 import {
-  CONFIG_CREATED, closeChooser, describePending, describeRows, dialogsSeen, droppedAnchor, LevelRow, LOCAL_ADD_COST, NO_WORKSPACE, NO_WORKSPACE_HOVER,
-  noChoicePending, NOTHING_TO_CHOOSE, nowWorkingIn, openFolderHere, PENDING_CHOICE_ACTION, pendingChoiceNotice, pickersSeen, pressRow, pressRowControl, readyAnyway,
+  ABOVE_CONTINUE, ABOVE_MESSAGE, CONFIG_CREATED, closeChooser, describePending, describeRows, dialogsSeen, drawnDialog, droppedAnchor, LevelRow, LOCAL_ADD_COST, NO_WORKSPACE, NO_WORKSPACE_HOVER,
+  noChoicePending, NOTHING_TO_CHOOSE, nowWorkingIn, OPEN_ROOT, openFolderHere, PENDING_CHOICE_ACTION, pendingChoiceNotice, pickersSeen, pressRow, pressRowControl, readyAnyway,
   reloadWindow, rowChooser, rowsNow, serverIn, serversWorking, statusItem, takeChooserRow, ToastLedger, waitChooser, waitRows, WIDEN_ANOTHER, WIDEN_DETAIL, WIDEN_FIRST, WindowChange,
+  workspaceHover,
 } from './levels';
 import { capture, languageServers, SuiteContext } from './suite-context';
-import { guard, holds, NOT_RUNNING, pressToastButton, RUNNING, toasts, toastsSince, until, waitStatus, waitToast } from './workbench';
+import { guard, holds, NOT_RUNNING, pressDialogButton, pressToastButton, RUNNING, toasts, toastsSince, until, waitStatus, waitToast } from './workbench';
 
 // The checks run over folder layouts that each place a workspace marker
 // somewhere different relative to the folder opened, each opened alone in turn:
@@ -22,8 +23,9 @@ import { guard, holds, NOT_RUNNING, pressToastButton, RUNNING, toasts, toastsSin
 // workspace row's create control makes the folder a root; one marker beneath
 // another; markers only below the folder opened, two and then one, a choice of
 // one of them kept through a reload and dropped, and said to be, once its marker
-// is gone; and the spellings that mark a root, each read on the row as the folder
-// opens and again after a reload.
+// is gone; the spellings that mark a root, each read on the row as the folder
+// opens and again after a reload; and, last, a marker above the folder opened,
+// whose row carries the mark that a workspace below the folder must not.
 
 export const DISCOVERY_CHECKS = [
   'workspace-row.nothing-reachable-reads-none-available-and-the-ways-out',
@@ -39,15 +41,18 @@ export const DISCOVERY_CHECKS = [
   'workspace-discovery.one-below-survives-a-reload-unsaid',
   'workspace-discovery.a-remembered-workspace-whose-marker-is-gone-is-dropped-and-said',
   'workspace-discovery.root-marker-spellings-read-as-roots',
+  'workspace-discovery.one-below-carries-no-outside-mark-and-one-above-does',
 ] as const;
 
 // The layouts, each named by where its markers sit relative to the folder opened:
 // none at all; one in the folder and one in sub/ below it; one in each of a/ and
-// b/ below it and none in it; and one in sub/ below it alone.
+// b/ below it and none in it; one in sub/ below it alone; and one in the layout's
+// own directory, with the folder opened the empty sub/ beneath it.
 const UNMARKED = 'unmarked';
 const NESTED_ROOTS = 'nested-roots';
 const TWO_BELOW = 'two-below';
 const ONE_BELOW = 'one-below';
+const ONE_ABOVE = 'one-above';
 
 // Spelling is a layout whose one marker is spelled differently, with the value
 // the Aggrega workspace row is to read for the folder named. `files` are written
@@ -74,6 +79,7 @@ export const DISCOVERY_LAYOUTS: readonly Layout[] = [
   { folder: NESTED_ROOTS, files: { [CONFIG_FILENAME]: WORKSPACE_ANCHOR_ONLY, [path.join('sub', CONFIG_FILENAME)]: WORKSPACE_ANCHOR_ONLY } },
   { folder: TWO_BELOW, files: { [path.join('a', CONFIG_FILENAME)]: WORKSPACE_ANCHOR_ONLY, [path.join('b', CONFIG_FILENAME)]: WORKSPACE_ANCHOR_ONLY } },
   { folder: ONE_BELOW, files: { [path.join('sub', CONFIG_FILENAME)]: WORKSPACE_ANCHOR_ONLY } },
+  { folder: ONE_ABOVE, files: { [CONFIG_FILENAME]: WORKSPACE_ANCHOR_ONLY }, dirs: ['sub'] },
   ...SPELLINGS.filter((s) => s.files !== undefined).map((s) => ({ folder: s.folder, files: s.files ?? {} })),
 ];
 
@@ -350,5 +356,39 @@ export async function discoveryChecks(ctx: SuiteContext, layouts: string): Promi
       seen.push(`${s.folder}: "${first[1]?.value ?? ''}", after a reload "${again[1]?.value ?? ''}"; the row's hover names the root ${rootOnHover(first[1]) ?? 'none'}`);
     }
     return { passed, seen: seen.join('; ') };
+  });
+
+  // The row for the workspace below the folder was read when that folder opened;
+  // the layout above it is opened last, and its interruption answered "Continue
+  // here", so nothing it raises reaches a check after it.
+  const aboveRoot = path.join(layouts, ONE_ABOVE);
+  const aboveSub = path.join(aboveRoot, 'sub');
+  const insideHover = workspaceHover(insideSub, inside, 'inside');
+  const aboveHover = workspaceHover(aboveRoot, aboveSub);
+  await c.run('workspace-discovery.one-below-carries-no-outside-mark-and-one-above-does', {
+    expected: `with ${insideSub} in use from ${inside}, the Aggrega workspace row as read in workspace-discovery.one-below-is-taken-without-a-press carries no warning mark, its hover reads ${JSON.stringify(insideHover)} — the folder named, and no sentence saying the workspace is from outside it — it carries the open control named "${OPEN_ROOT}", and no interruption was raised; beside it, as the positive control, opening ${aboveSub} alone, beneath ${aboveRoot} which carries a marker, raises the interruption "${ABOVE_MESSAGE}", and once it is answered "${ABOVE_CONTINUE}" the row carries the mark named ${JSON.stringify(ABOVE_MESSAGE)}, its hover reads ${JSON.stringify(aboveHover)}, and it carries the same open control`,
+    plant: 'in the scratch copy, out/src/workspace.js with a workspace read as outside the folder wherever it is not the folder, one beneath it included',
+  }, async () => {
+    need(insideRows.length >= 3, 'the rows for the folder with its workspace below it were not read');
+    const below = insideRows[1];
+    await openFolderHere(ctx, ledger, aboveSub);
+    const raised = await until('the interruption being drawn', 60000, () => drawnDialog(ctx.d), (v) => v !== null).catch(() => null);
+    if (raised !== null) {
+      await pressDialogButton(ctx.d, ABOVE_CONTINUE);
+      await until('the interruption closing', 5000, () => drawnDialog(ctx.d), (v) => v === null).catch(() => undefined);
+    }
+    await readyAnyway(ctx);
+    const rows = await waitRows(ctx, `the rows naming sub and ${ONE_ABOVE}`, (r) => r[0]?.value === 'sub' && r[1]?.value === ONE_ABOVE && r[1].mark !== null);
+    const above = rows[1];
+    const describe = (row: LevelRow | undefined): string => `the mark ${row?.mark ? `drawn, named ${JSON.stringify(row.mark.name)}` : 'not drawn'}; the open control ${row?.offer ? `named ${JSON.stringify(row.offer.name)}` : 'not drawn'}; the hover ${JSON.stringify(row?.title ?? '')}`;
+    const seenAbove = `${raised ? `the interruption ${JSON.stringify(raised.message)}` : `no interruption within ${guard(60000)} ms`}; the rows ${describeRows(rows)}; ${describe(above)}`;
+    need(
+      raised?.message === ABOVE_MESSAGE && above?.mark?.name === ABOVE_MESSAGE && above.title === aboveHover && above.offer?.name === OPEN_ROOT,
+      `its positive control did not fire: for the workspace above the folder, ${seenAbove}`,
+    );
+    return {
+      passed: below.mark === null && below.title === insideHover && below.offer?.name === OPEN_ROOT && insideDialogs === 0,
+      seen: `the workspace below the folder: ${describe(below)}; interruptions raised since that folder opened ${insideDialogs}. The workspace above the folder: ${seenAbove}`,
+    };
   });
 }

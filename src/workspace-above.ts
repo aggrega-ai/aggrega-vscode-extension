@@ -3,10 +3,11 @@
 
 import { WorkspaceStateLike } from './anchor-picker';
 import { SELECTOR_ROW_LABELS } from './selector-levels';
-import { workspaceSitsAboveFolder } from './workspace';
+import { compareWorkspaceWithFolder } from './workspace';
 
-// The reader is told, out loud, when the Aggrega workspace in force sits above
-// the folder their window is open on.
+// The reader is told, out loud, when the Aggrega workspace in force sits outside
+// the folder their window is open on — neither that folder nor beneath it. A
+// workspace inside the folder is not outside it, and nothing here says it is.
 //
 // 🔴 THE ACCOUNT REACHES THEM ON TWO SURFACES AND THE DIFFERENCE BETWEEN THEM IS
 // THE WHOLE DESIGN. The first is an interruption they have to dismiss, because
@@ -43,8 +44,9 @@ import { workspaceSitsAboveFolder } from './workspace';
 export const WORKSPACE_ABOVE_HEADLINE =
   'Aggrega is using a workspace from outside the folder you opened.';
 
-// WorkspaceAboveAccount is what the reader is told beneath the headline: the two
-// paths, each on a line of its own behind its label.
+// WorkspacePathsAccount is the two paths, each on a line of its own behind its
+// label: what the dialogue says beneath the headline, and what the row's hover
+// names wherever the workspace is not the folder.
 //
 // 🔴 THE LINES ARE NAMED RATHER THAN LISTED, BECAUSE THE SURFACES DO NOT SHOW
 // THE SAME ONES. The dialogue shows both. The row's hover shows only the
@@ -53,15 +55,21 @@ export const WORKSPACE_ABOVE_HEADLINE =
 // the line it needs by what the line says rather than by where it sits, so
 // neither surface writes a line of its own and neither depends on an order that
 // nothing checks.
-export interface WorkspaceAboveAccount {
+export interface WorkspacePathsAccount {
   // workspace names the Aggrega workspace in force.
   workspace: string;
   // project names the folder the workspace was reached from.
   project: string;
 }
 
-// workspaceAboveAccount composes the account, or answers with null where the
-// workspace does not sit above the folder at all.
+// workspacePathsAccount composes the account, or answers with null where the
+// workspace is the folder, or either is absent.
+//
+// It answers wherever the two differ, a workspace beneath the folder included,
+// because both lines are true there too: the row's hover names the folder for a
+// workspace inside it as it does for one outside it. Whether the headline goes
+// above the lines is a different question, answered by whether the workspace
+// sits outside the folder, and every surface carrying the headline asks it.
 //
 // 🔴 IT IS THE TWO PATHS AND NOTHING ELSE. The reader acts on the paths — the
 // workspace they are being worked from, and the folder they opened — so each is
@@ -74,7 +82,7 @@ export interface WorkspaceAboveAccount {
 // things. That makes the workspace's line the very line the row's hover opens
 // with. The name is what the two share; each line is composed where it is
 // drawn, because the row draws its line in every state and this one exists
-// only while the workspace sits above the folder.
+// only while the workspace is not the folder.
 //
 // 🔴 IT NAMES NO DISTANCE. The walk that finds the workspace climbs to the
 // nearest marked ancestor, which may be several directories up, so any phrasing
@@ -82,11 +90,11 @@ export interface WorkspaceAboveAccount {
 // and false in precisely the deep tree this is most worth saying in. A number
 // changes nothing the reader would do differently and is one more fact to keep
 // true as the walk changes.
-export function workspaceAboveAccount(
+export function workspacePathsAccount(
   anchoredRoot: string | null,
   openedFolder: string | null,
-): WorkspaceAboveAccount | null {
-  if (!workspaceSitsAboveFolder(anchoredRoot, openedFolder)) { return null; }
+): WorkspacePathsAccount | null {
+  if (!compareWorkspaceWithFolder(anchoredRoot, openedFolder).differs) { return null; }
   return {
     workspace: `${SELECTOR_ROW_LABELS.workspace}: ${anchoredRoot}`,
     project: `${SELECTOR_ROW_LABELS.project}: ${openedFolder}`,
@@ -123,7 +131,8 @@ export interface WorkspaceAboveNotice {
 }
 
 // workspaceAboveNotice composes the interruption, or answers with null where
-// there is nothing to interrupt anyone about.
+// there is nothing to interrupt anyone about: where the workspace is the folder
+// or beneath it, or either is absent.
 //
 // 🔴 IT CARRIES NO MARKUP AND NO ICON, and both absences are the content
 // arriving rather than being dropped. The dialogue renders plain text, so an
@@ -148,7 +157,8 @@ export function workspaceAboveNotice(
   anchoredRoot: string | null,
   openedFolder: string | null,
 ): WorkspaceAboveNotice | null {
-  const account = workspaceAboveAccount(anchoredRoot, openedFolder);
+  if (!compareWorkspaceWithFolder(anchoredRoot, openedFolder).outside) { return null; }
+  const account = workspacePathsAccount(anchoredRoot, openedFolder);
   if (account === null) { return null; }
   return {
     message: WORKSPACE_ABOVE_HEADLINE,
@@ -229,7 +239,7 @@ export function readFoldersSilenced(state: WorkspaceStateLike): string[] {
 // workspaceAboveNoticeDue reports whether the reader should be interrupted now.
 //
 // Three things have to hold and each rules out a different way of being wrong:
-// the workspace has to sit above the folder at all, the reader must not have
+// the workspace has to sit outside the folder at all, the reader must not have
 // asked to be left alone about that folder, and this window must not already
 // have told them about this workspace for it. The condition itself is read from
 // the one comparison of those two paths rather than made again here.
@@ -239,7 +249,7 @@ export function workspaceAboveNoticeDue(
   anchoredRoot: string | null,
   openedFolder: string | null,
 ): boolean {
-  if (!workspaceSitsAboveFolder(anchoredRoot, openedFolder)) { return false; }
+  if (!compareWorkspaceWithFolder(anchoredRoot, openedFolder).outside) { return false; }
   const folder = openedFolder as string;
   if (readFoldersSilenced(silenced).includes(folder)) { return false; }
   return !told.has(folder, anchoredRoot as string);

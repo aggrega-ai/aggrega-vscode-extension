@@ -201,6 +201,15 @@ describe('the offer to open the Aggrega workspace', () => {
     assert.strictEqual(row.offer?.command, OPEN_WORKSPACE_ROOT_COMMAND);
   });
 
+  it('is there when the workspace sits inside the folder the editor opened', () => {
+    // What the offer's name says — the workspace opened as the folder, at the
+    // cost of a reload — is as true for a workspace inside the folder as for one
+    // above it.
+    assert.strictEqual(
+      workspaceRow(OPENED_INSIDE, ANCHORED, 2).offer?.command, OPEN_WORKSPACE_ROOT_COMMAND,
+    );
+  });
+
   it('is absent when the folder the editor opened IS the workspace', () => {
     // Nothing to open: pressing would cost a reader everything a window reload
     // costs and leave them exactly where they already are. The absence is the
@@ -227,11 +236,20 @@ describe('the offer to open the Aggrega workspace', () => {
     const differing = workspaceRow(ANCHORED, OPENED_INSIDE, 2);
     assert.ok(differing.tooltip.includes(`Project folder: ${OPENED_INSIDE}`), differing.tooltip);
     assert.notStrictEqual(differing.offer, null);
-    // And the mark stands on the same occasions, from the same comparison. It is
-    // read here beside the other two because a mark that appeared without the
-    // explanation, or an explanation without the mark, is the drift a second
+    // And the mark stands where the workspace sits outside the folder, from the
+    // same comparison's other answer. It is read here beside the other two
+    // because a mark that appeared without the explanation is the drift a second
     // comparison would produce.
     assert.notStrictEqual(differing.warning, null);
+
+    // A workspace inside the folder is a different directory and not outside
+    // it: the folder is named and the offer drawn, and there is no mark.
+    const inside = workspaceRow(OPENED_INSIDE, ANCHORED, 2);
+    assert.deepStrictEqual(
+      [inside.tooltip.includes(`Project folder: ${ANCHORED}`), inside.offer?.command ?? null, inside.warning],
+      [true, OPEN_WORKSPACE_ROOT_COMMAND, null],
+      inside.tooltip,
+    );
 
     const same = workspaceRow(ANCHORED, ANCHORED, 2);
     assert.ok(!same.tooltip.includes('Project folder: '), same.tooltip);

@@ -772,8 +772,12 @@ export function projectHover(folder: string, sole: boolean): string {
   return [`Project folder: ${folder}`, ...(sole ? [SOLE_PROJECT_FOLDER] : []), 'The Aggrega workspaces on offer are the ones this folder reaches.', 'Click to choose which Project folder the editor works from.'].join('\n');
 }
 
-export function workspaceHover(root: string, openedElsewhere?: string): string {
-  const between = openedElsewhere === undefined ? '' : `\n\n⚠️ Aggrega is using a workspace from outside the folder you opened.\n\nProject folder: ${openedElsewhere}`;
+// workspaceHover is the Aggrega workspace row's hover for `root`: naming the folder
+// opened where that is somewhere else, beneath the warning sentence where the
+// workspace sits outside that folder and with none where it sits inside it.
+export function workspaceHover(root: string, openedElsewhere?: string, where: 'outside' | 'inside' = 'outside'): string {
+  const warned = where === 'outside' ? '\n\n⚠️ Aggrega is using a workspace from outside the folder you opened.' : '';
+  const between = openedElsewhere === undefined ? '' : `${warned}\n\nProject folder: ${openedElsewhere}`;
   return `Aggrega workspace: ${root}${between}\n\nClick to choose which Aggrega workspace the editor works in.`;
 }
 

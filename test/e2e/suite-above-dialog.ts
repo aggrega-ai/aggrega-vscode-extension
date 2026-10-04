@@ -224,7 +224,7 @@ export async function aboveDialogChecks(ctx: SuiteContext, layouts: string): Pro
 
   await c.run('workspace-above.open-control-opens-the-workspace-when-pressed', {
     expected: `with "sub" chosen, pressing the Aggrega workspace row's folder-shaped control reloads the window with ${above3} as its only folder; the Aggrega workspace row then carries no mark and no open control, an empty space keeping its other controls where they were, the Project folder row reads "${ROOT_FOR_ITS_CONTROL}", and no dialog is raised (watched for ${NO_DIALOG_MS} ms)`,
-    plant: 'in the scratch copy, out/src/selector-rows.js with the open control offered whether or not the workspace sits outside the folder opened',
+    plant: 'in the scratch copy, out/src/selector-rows.js with the open control offered whether or not the workspace is the folder opened',
   }, async () => {
     const rowsBefore = await waitRows(ctx, 'the rows naming sub with the open control drawn', (r) => r[0]?.value === 'sub' && r[1]?.offer !== null && r[1]?.offer !== undefined);
     need(rowsBefore[1]?.offer !== null && rowsBefore[1]?.offer !== undefined, 'the Aggrega workspace row carries no open control to press');

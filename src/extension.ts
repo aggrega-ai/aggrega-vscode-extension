@@ -1137,7 +1137,8 @@ async function reactivate(context: vscode.ExtensionContext): Promise<void> {
 }
 
 // tellWorkspaceSitsAbove interrupts the reader when the Aggrega workspace in
-// force sits above the folder their window is open on.
+// force sits outside the folder their window is open on — neither that folder
+// nor beneath it.
 //
 // 🔴 IT IS AN INTERRUPTION AND NOT A NOTIFICATION, and the difference is the
 // reason this exists at all. The reader's mental model is the folder they

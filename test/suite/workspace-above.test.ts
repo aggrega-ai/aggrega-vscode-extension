@@ -15,12 +15,12 @@ import {
   readFoldersSilenced,
   silenceFolder,
   tellWorkspaceAboveIfDue,
-  workspaceAboveAccount,
   workspaceAboveNotice,
   workspaceAboveNoticeDue,
+  workspacePathsAccount,
 } from '../../src/workspace-above';
 import { SELECTOR_ROW_LABELS } from '../../src/selector-levels';
-import { workspaceSitsAboveFolder } from '../../src/workspace';
+import { compareWorkspaceWithFolder } from '../../src/workspace';
 import { selectorRows, workspaceRow } from '../../src/selector-rows';
 import { operationsBodyHtml } from '../../src/operations-render';
 import { commandsPanelOperations, OperationId } from '../../src/operation-groups';
@@ -38,6 +38,15 @@ const ROOT = path.join(path.sep, 'work', 'repo');
 const DEEP = path.join(ROOT, 'services', 'api', 'docs');
 const SIBLING = path.join(ROOT, 'tools');
 const CANDIDATES = { projectFolders: 2, aggregaWorkspaces: 1, releases: null };
+
+// The other places a workspace can sit against a folder opened at ROOT: a
+// directory beside it, and one beside it whose name merely extends the folder's
+// — the case a comparison of the two paths as text would read as beneath it.
+const BESIDE = path.join(path.sep, 'work', 'other');
+const NAME_EXTENDED = `${ROOT}-tools`;
+// A workspace beneath ROOT spelled with a step that climbs out and back in, so
+// what is judged is where the path lands rather than how it is written.
+const CLIMBING_BACK_IN = `${ROOT}${path.sep}services${path.sep}..${path.sep}tools`;
 
 // The operator's text, written out rather than composed from the constants the
 // source reads. A composed expectation moves with whatever it is checking and
@@ -112,26 +121,56 @@ const HANDLER =
 // everythingSaid is the headline and both of the account's lines, which is every
 // sentence either surface is given — so a sweep over it reads all of them.
 function everythingSaid(anchoredRoot: string, openedFolder: string): string {
-  const account = workspaceAboveAccount(anchoredRoot, openedFolder);
+  const account = workspacePathsAccount(anchoredRoot, openedFolder);
   const lines = account === null ? [] : [account.workspace, account.project];
   return [WORKSPACE_ABOVE_HEADLINE, ...lines].join('\n');
 }
 
+// 🔴 EACH PLACEMENT IS READ BY EQUALITY OVER BOTH ANSWERS AT ONCE. The two
+// answers are what the surfaces turn on, and a reading of one of them alone
+// would pass a comparison that had quietly started answering the other question
+// — which is exactly how a workspace inside the folder came to be called
+// outside it.
 describe('the condition has one home and every surface reads it from there', () => {
-  it('answers true only where a workspace and a folder are both in hand and differ', () => {
-    assert.strictEqual(workspaceSitsAboveFolder(ROOT, DEEP), true);
-    assert.strictEqual(workspaceSitsAboveFolder(ROOT, ROOT), false);
-    // Both absences, which are the same answer for different reasons: nothing
-    // sits above anything with no workspace in force, and there is nothing for a
-    // workspace to sit above with no folder reached.
-    assert.strictEqual(workspaceSitsAboveFolder(null, DEEP), false);
-    assert.strictEqual(workspaceSitsAboveFolder(ROOT, null), false);
-    assert.strictEqual(workspaceSitsAboveFolder(null, null), false);
-    // And it compares resolved paths rather than the strings, so a folder
+  it('reads the folder itself as neither different nor outside', () => {
+    assert.deepStrictEqual(compareWorkspaceWithFolder(ROOT, ROOT), { differs: false, outside: false });
+    // And it compares where the paths land rather than the strings, so a folder
     // spelled with a step that goes nowhere is the same folder.
     const spelledLonger = `${ROOT}${path.sep}.`;
     assert.notStrictEqual(spelledLonger, ROOT, 'the two spellings are the same text');
-    assert.strictEqual(workspaceSitsAboveFolder(ROOT, spelledLonger), false);
+    assert.deepStrictEqual(compareWorkspaceWithFolder(ROOT, spelledLonger), { differs: false, outside: false });
+  });
+
+  it('reads a workspace beneath the folder as different and not outside it', () => {
+    assert.deepStrictEqual(compareWorkspaceWithFolder(DEEP, ROOT), { differs: true, outside: false });
+    // Judged on where the path lands: a step out and back in is still beneath.
+    assert.deepStrictEqual(
+      compareWorkspaceWithFolder(CLIMBING_BACK_IN, ROOT), { differs: true, outside: false },
+    );
+  });
+
+  it('reads a workspace above the folder as different and outside it', () => {
+    assert.deepStrictEqual(compareWorkspaceWithFolder(ROOT, DEEP), { differs: true, outside: true });
+  });
+
+  it('reads a workspace beside the folder as different and outside it', () => {
+    assert.deepStrictEqual(compareWorkspaceWithFolder(BESIDE, ROOT), { differs: true, outside: true });
+  });
+
+  it('reads a workspace whose name merely extends the folder\'s as beside it, not beneath it', () => {
+    // 🔴 THE CASE A TEXT PREFIX GETS WRONG. The workspace's path starts with the
+    // folder's, and it is still not inside it.
+    assert.ok(NAME_EXTENDED.startsWith(ROOT), 'the fixture no longer extends the folder\'s name');
+    assert.deepStrictEqual(compareWorkspaceWithFolder(NAME_EXTENDED, ROOT), { differs: true, outside: true });
+  });
+
+  it('answers neither where either path is absent', () => {
+    // Both absences, which are the same answer for different reasons: with no
+    // workspace in force there is nothing to place, and with no folder reached
+    // there is nothing to place a workspace against.
+    assert.deepStrictEqual(compareWorkspaceWithFolder(null, DEEP), { differs: false, outside: false });
+    assert.deepStrictEqual(compareWorkspaceWithFolder(ROOT, null), { differs: false, outside: false });
+    assert.deepStrictEqual(compareWorkspaceWithFolder(null, null), { differs: false, outside: false });
   });
 
   it('is read from that one function by every surface that turns on it', () => {
@@ -145,15 +184,19 @@ describe('the condition has one home and every surface reads it from there', () 
     //
     // An equality is its own control: a reading whose extraction stopped working
     // returns an empty list, and an empty list is not the recorded shape.
+    //
+    // The row reads it once for both answers; the account, the interruption and
+    // the decision to raise it read it once each.
     assert.deepStrictEqual(
-      callSites('workspaceSitsAboveFolder').map((site) => [site.module, site.args]),
+      callSites('compareWorkspaceWithFolder').map((site) => [site.module, site.args]),
       [
         ['selector-rows.ts', ['anchoredRoot', 'openedFolder']],
         ['workspace-above.ts', ['anchoredRoot', 'openedFolder']],
         ['workspace-above.ts', ['anchoredRoot', 'openedFolder']],
+        ['workspace-above.ts', ['anchoredRoot', 'openedFolder']],
       ],
-      'a surface that turns on the workspace sitting above the folder reads something other than '
-      + 'the one comparison of those two paths',
+      'a surface that turns on where the workspace sits against the folder reads something other '
+      + 'than the one comparison of those two paths',
     );
   });
 });
@@ -161,15 +204,25 @@ describe('the condition has one home and every surface reads it from there', () 
 describe('what the reader is told', () => {
   it('is the two paths, each on a line of its own behind its label', () => {
     assert.deepStrictEqual(
-      workspaceAboveAccount(ROOT, DEEP),
+      workspacePathsAccount(ROOT, DEEP),
       { workspace: WORKSPACE_LINE, project: PROJECT_LINE },
     );
   });
 
+  it('is the two paths for a workspace beneath the folder too, where both are still true', () => {
+    // The row's hover names the folder wherever the two differ; whether the
+    // headline goes above it is asked separately, of whether the workspace sits
+    // outside the folder.
+    assert.deepStrictEqual(
+      workspacePathsAccount(DEEP, ROOT),
+      { workspace: `Aggrega workspace: ${DEEP}`, project: `Project folder: ${ROOT}` },
+    );
+  });
+
   it('says nothing at all where the workspace is the folder, or either is absent', () => {
-    assert.strictEqual(workspaceAboveAccount(ROOT, ROOT), null);
-    assert.strictEqual(workspaceAboveAccount(null, DEEP), null);
-    assert.strictEqual(workspaceAboveAccount(ROOT, null), null);
+    assert.strictEqual(workspacePathsAccount(ROOT, ROOT), null);
+    assert.strictEqual(workspacePathsAccount(null, DEEP), null);
+    assert.strictEqual(workspacePathsAccount(ROOT, null), null);
   });
 
   it('carries nothing beyond the headline and the two paths', () => {
@@ -219,7 +272,7 @@ describe('what the reader is told', () => {
   it('names both levels from the one place the levels are named', () => {
     // The account and the rows must not come to call one level two different
     // things. This is the reading that fails if either moves.
-    const account = workspaceAboveAccount(ROOT, DEEP);
+    const account = workspacePathsAccount(ROOT, DEEP);
     const workspace = account?.workspace ?? '';
     const project = account?.project ?? '';
     assert.ok(workspace.startsWith(`${SELECTOR_ROW_LABELS.workspace}: `), workspace);
@@ -306,9 +359,18 @@ describe('the interruption, and what it offers', () => {
     );
   });
 
-  it('composes nothing where the workspace does not sit above the folder', () => {
+  it('composes nothing where the workspace does not sit outside the folder', () => {
     assert.strictEqual(workspaceAboveNotice(ROOT, ROOT), null);
     assert.strictEqual(workspaceAboveNotice(null, DEEP), null);
+  });
+
+  it('composes nothing for a workspace beneath the folder, and the dialogue for one beside it', () => {
+    // 🔴 THE HEADLINE WOULD BE FALSE FOR A WORKSPACE INSIDE THE FOLDER, and the
+    // interruption opens with it. One beside the folder is outside it, and is
+    // the control on the absence.
+    assert.strictEqual(workspaceAboveNotice(DEEP, ROOT), null);
+    assert.strictEqual(workspaceAboveNotice(CLIMBING_BACK_IN, ROOT), null);
+    assert.strictEqual(workspaceAboveNotice(NAME_EXTENDED, ROOT)?.message, HEADLINE);
   });
 });
 
@@ -431,12 +493,24 @@ describe('the interruption lives no longer than the window', () => {
     );
   });
 
-  it('is never due where the workspace does not sit above the folder', () => {
+  it('is never due where the workspace does not sit outside the folder', () => {
     const store = new Memory();
     const told = new FoldersTold();
     assert.strictEqual(workspaceAboveNoticeDue(store, told, ROOT, ROOT), false);
     assert.strictEqual(workspaceAboveNoticeDue(store, told, null, DEEP), false);
     assert.strictEqual(workspaceAboveNoticeDue(store, told, ROOT, null), false);
+  });
+
+  it('is never due for a workspace beneath the folder, and raises nothing for one', async () => {
+    // Read beside a workspace beside the folder, which IS due: the control on
+    // the absence, in the same store and record.
+    const store = new Memory();
+    const told = new FoldersTold();
+    assert.strictEqual(workspaceAboveNoticeDue(store, told, DEEP, ROOT), false);
+    const below = answering(CONTINUE_LABEL);
+    assert.strictEqual(await tellWorkspaceAboveIfDue(store, told, below.editor, DEEP, ROOT), null);
+    assert.strictEqual(below.raised.length, 0, 'a workspace inside the folder interrupted the reader');
+    assert.strictEqual(workspaceAboveNoticeDue(store, told, BESIDE, ROOT), true);
   });
 });
 
@@ -660,6 +734,19 @@ describe('the mark on the row', () => {
     assert.strictEqual(workspaceRow(null, null, 0).warning, null);
   });
 
+  it('is absent for a workspace beneath the folder, whose row still offers to open it', () => {
+    // 🔴 THE MARK IS NAMED BY A SENTENCE SAYING THE WORKSPACE IS FROM OUTSIDE
+    // THE FOLDER, which a workspace inside it would make false. The offer is true
+    // on either side of the folder and stays; the mark on a workspace beside the
+    // folder is the control on the absence.
+    const below = workspaceRow(DEEP, ROOT, 1);
+    assert.deepStrictEqual(
+      [below.warning, below.offer?.label ?? null],
+      [null, 'Open the Aggrega workspace as the Project folder. The window reloads.'],
+    );
+    assert.strictEqual(workspaceRow(BESIDE, ROOT, 1).warning, HEADLINE);
+  });
+
   it('is the only row that can carry one', () => {
     const rows = selectorRows(ROOT, DEEP, DEEP, { kind: 'unknown' }, CANDIDATES);
     assert.deepStrictEqual(
@@ -678,7 +765,7 @@ describe('the mark on the row', () => {
     // once, first, and never adds it a second time.
     const row = workspaceRow(ROOT, DEEP, 1);
     const notice = workspaceAboveNotice(ROOT, DEEP);
-    const account = workspaceAboveAccount(ROOT, DEEP);
+    const account = workspacePathsAccount(ROOT, DEEP);
     assert.ok(notice !== null && account !== null);
     const hover = row.tooltip.split('\n');
     assert.ok(row.tooltip.includes(notice.message), row.tooltip);
@@ -714,6 +801,16 @@ describe('the mark on the row', () => {
     assert.strictEqual(
       workspaceRow(ROOT, ROOT, 1).tooltip,
       `Aggrega workspace: ${ROOT}\n`
+      + '\n'
+      + 'Click to choose which Aggrega workspace the editor works in.',
+    );
+    // A workspace beneath the folder: the folder is named, as it is wherever the
+    // two differ, and nothing says the workspace is from outside it.
+    assert.strictEqual(
+      workspaceRow(DEEP, ROOT, 1).tooltip,
+      `Aggrega workspace: ${DEEP}\n`
+      + '\n'
+      + `Project folder: ${ROOT}\n`
       + '\n'
       + 'Click to choose which Aggrega workspace the editor works in.',
     );
@@ -818,6 +915,16 @@ describe('the mark is drawn as a mark and not as part of the value', () => {
     assert.ok(
       !document(ROOT, ROOT).includes('selector-warning'),
       'a row is marked in a window whose workspace is the folder it has open',
+    );
+  });
+
+  it('is absent from every row when the workspace is inside the folder', () => {
+    // The same control as above: the document for a workspace above the folder
+    // draws the mark, so an absence here is the row's and not the reading's.
+    assert.ok(document(ROOT, DEEP).includes('selector-warning'), 'the marked document draws none');
+    assert.ok(
+      !document(DEEP, ROOT).includes('selector-warning'),
+      'a row is marked in a window whose workspace is inside the folder it has open',
     );
   });
 });
