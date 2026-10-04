@@ -137,7 +137,7 @@
     if (msg.type === 'loading') {
       setStatus(`Laying out ${msg.release}…`, false);
     } else if (msg.type === 'error') {
-      reportFailure(msg.release, msg.message);
+      reportFailure(msg.release, msg.message, msg.line);
     } else if (msg.type === 'render') {
       // Whether the setting that shows sensitive values was on for this graph is
       // handed to the projection as it arrived: the projection is where it is
@@ -205,14 +205,20 @@
   // differently from the others.
   //
   // A panel that has drawn nothing yet has no such claim to withdraw, and is
-  // told only what went wrong.
-  function reportFailure(release, message) {
+  // told only what went wrong: the line the extension composed for the failure,
+  // the same line its output channel carries — that the topology of the Release
+  // could not be drawn, then the compiler's own words. It arrives composed rather
+  // than being worded again here, so the panel and the channel cannot come to
+  // say two things about one failure. A drawing that fails in this panel's own
+  // layout arrives with no such line, and is named after its Release with the
+  // layout's own words.
+  function reportFailure(release, message, line) {
     const subject = release ? `${release}: ` : '';
     const stale = hasDrawing();
     setStatus(stale
       ? `${subject}the topology could not be rebuilt, so the graph on screen is out of date. `
         + `${message}`
-      : `${subject}${message}`, true);
+      : (line || `${subject}${message}`), true);
     canvas.classList.toggle('out-of-date', stale);
   }
 

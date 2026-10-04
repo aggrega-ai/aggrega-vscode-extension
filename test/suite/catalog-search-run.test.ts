@@ -13,10 +13,10 @@ import {
   KeptFilter,
   NOTHING_SET_LABEL,
   NO_REGISTRIES_MESSAGE,
-  REFRESH_REMEDIATION,
   RESET_ROW_LABEL,
   RUN_ROW_LABEL,
   RegistrySearchParams,
+  STALE_LINE,
   SearchDoc,
   SearchOutcome,
   chooseFilter,
@@ -24,7 +24,9 @@ import {
   emptyFilter,
   filterRows,
   freshnessReport,
+  noMatchesMessage,
   normalizeKinds,
+  notSearched,
   parseLimit,
   rowForRecord,
   searchCatalog,
@@ -660,6 +662,53 @@ describe('catalog-search-run: outcomes', () => {
     );
   });
 
+  it('🔴 AN EMPTY ANSWER NAMES THE REGISTRY IT DID NOT SEARCH, WHY, AND HOW TO BUILD ITS INDEX', async () => {
+    // "No matches" alone reads as "it does not exist", when a registry that may
+    // publish it was never consulted. Read whole: the registries searched, then
+    // the one that was not, why, and the build that would let it be searched.
+    const h = harness('/w', () => Promise.resolve({
+      ...CONFIGURED,
+      records: [],
+      indexes: [{ host: '127.0.0.1:34457', lastUpdated: '2026-10-03T16:20:12Z' }],
+      missingIndexHosts: ['registry.invalid'],
+    }));
+    const outcome = await h.search({ ...emptyFilter(), query: 'no-entity-is-called-this' });
+    assert.deepStrictEqual(outcome, {
+      kind: 'no-matches',
+      message: 'Aggrega: no catalog matches for "no-entity-is-called-this" in 127.0.0.1:34457; '
+        + 'registry.invalid has no local index and was not searched — build its index with '
+        + '“Update index” in the Registries panel.',
+    });
+  });
+
+  it('an empty answer names every registry it did not search, in one sentence', () => {
+    const doc = partialDoc({
+      indexes: [{ host: 'a.example.test' }, { host: 'b.example.test' }],
+      missingIndexHosts: ['c.example.test', 'd.example.test', 'e.example.test'],
+      stale: true,
+    });
+    // The staleness verdict is the channel's to report, on its own line with its
+    // own repair; the empty answer is about what was and was not searched.
+    assert.strictEqual(
+      noMatchesMessage(doc, { ...emptyFilter(), kinds: ['plugin'] }),
+      'Aggrega: no catalog matches for kind plugin in a.example.test and b.example.test; '
+      + 'c.example.test, d.example.test and e.example.test have no local index and were not searched '
+      + '— build their indexes with “Update index” in the Registries panel.',
+    );
+  });
+
+  it('an empty answer over every configured registry says only that nothing matched', () => {
+    const doc = partialDoc({
+      indexes: [{ host: 'a.example.test', lastUpdated: '2026-10-03T16:20:12Z' }],
+      missingIndexHosts: [],
+      stale: true,
+    });
+    assert.strictEqual(
+      noMatchesMessage(doc, { ...emptyFilter(), query: 'postgres' }),
+      'Aggrega: no catalog matches for "postgres".',
+    );
+  });
+
   it('an unreadable snapshot is a FAILURE carrying the compiler’s own remediation', async () => {
     // The compiler names what to build. That text reaches the reader instead of
     // a re-worded wrapper, so the hint is the compiler's own.
@@ -747,11 +796,17 @@ describe('catalog-search-run: outcomes', () => {
     // a change to a label is a diff here rather than a sentence that followed it
     // unread.
     assert.strictEqual(
-      REFRESH_REMEDIATION,
-      'Refresh with “Update index” in the Registries panel.',
+      STALE_LINE,
+      'One or more indexes are stale — refresh them with “Update index” in the Registries panel.',
+    );
+    const missing = notSearched(['registry.invalid']);
+    assert.strictEqual(
+      missing,
+      'registry.invalid has no local index and was not searched — build its index with “Update index” '
+      + 'in the Registries panel',
     );
     const drawn = PANEL_ACTIONS.registries.map((action) => action.label);
-    for (const sentence of [NO_REGISTRIES_MESSAGE, REFRESH_REMEDIATION]) {
+    for (const sentence of [NO_REGISTRIES_MESSAGE, STALE_LINE, missing]) {
       const quoted = Array.from(sentence.matchAll(/“([^”]+)”/g)).map((m) => m[1]);
       assert.ok(quoted.length > 0, `the census found no quoted name in "${sentence}", so it measures nothing`);
       for (const name of quoted) {
@@ -803,12 +858,19 @@ describe('catalog-search-run: freshness', () => {
     );
   });
 
-  it('a configured registry with no snapshot is named, with the editor’s own repair', () => {
+  it('a configured registry with no snapshot is named as not searched, with the build on its own line', () => {
+    // 🔴 THE REPAIR IS ON THE LINE IT APPLIES TO, AND IT IS A BUILD. A repair on a
+    // line of its own reads as advice about whichever line it follows, and
+    // "refresh" suits an index that exists, while this one has to be built.
     assert.deepStrictEqual(
-      freshnessReport(partialDoc({ missingIndexHosts: ['other.example.test'] })),
+      freshnessReport(partialDoc({
+        missingIndexHosts: ['registry.invalid'],
+        indexes: [{ host: '127.0.0.1:34457', lastUpdated: '2026-10-03T16:20:12Z' }],
+      })),
       [
-        'registry other.example.test: no local index has been built.',
-        REFRESH_REMEDIATION,
+        'registry.invalid has no local index and was not searched — build its index with '
+        + '“Update index” in the Registries panel.',
+        'Index for 127.0.0.1:34457 last updated 2026-10-03T16:20:12Z',
       ],
     );
   });
@@ -828,30 +890,33 @@ describe('catalog-search-run: freshness', () => {
     }));
     assert.deepStrictEqual(stale, [
       'Index for h last updated 2026-09-08T00:00:00Z',
-      'One or more indexes are stale.',
-      REFRESH_REMEDIATION,
+      'One or more indexes are stale — refresh them with “Update index” in the Registries panel.',
     ]);
   });
 
-  it('the repair is named ONCE however many registries need it', () => {
+  it('a missing index and a stale one each carry their own repair, worded apart', () => {
     const lines = freshnessReport(partialDoc({
       missingIndexHosts: ['a.example.test', 'b.example.test'],
+      indexes: [{ host: 'h', lastUpdated: '2026-09-08T00:00:00Z' }],
       stale: true,
     }));
-    assert.strictEqual(
-      lines.filter((l) => l === REFRESH_REMEDIATION).length,
-      1,
-      lines.join(' | '),
-    );
+    assert.deepStrictEqual(lines, [
+      'a.example.test has no local index and was not searched — build its index with '
+      + '“Update index” in the Registries panel.',
+      'b.example.test has no local index and was not searched — build its index with '
+      + '“Update index” in the Registries panel.',
+      'Index for h last updated 2026-09-08T00:00:00Z',
+      'One or more indexes are stale — refresh them with “Update index” in the Registries panel.',
+    ]);
   });
 
-  it('a healthy answer produces no repair line at all', () => {
+  it('a healthy answer produces no repair at all', () => {
     const lines = freshnessReport(partialDoc({
       indexes: [{ host: 'h', lastUpdated: '2026-09-08T00:00:00Z' }],
       stale: false,
       missingIndexHosts: [],
     }));
-    assert.ok(!lines.includes(REFRESH_REMEDIATION), lines.join(' | '));
+    assert.deepStrictEqual(lines, ['Index for h last updated 2026-09-08T00:00:00Z']);
   });
 
   it('an answer carrying no provenance produces no lines', () => {

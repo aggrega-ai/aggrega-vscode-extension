@@ -2,21 +2,24 @@
 // Copyright 2026 Cognitio S.r.l.
 
 import * as assert from 'node:assert';
-import { reportGraphFailure } from '../../src/graph-failure';
+import { GraphFailure, reportGraphFailure } from '../../src/graph-failure';
 import { DaemonErrorRouting, WhoAsked } from '../../src/error-surfaces';
 import { ERR_ENTITY_NOT_RESOLVABLE, ERR_LOCKFILE_ABSENT, JsonRpcError } from '../../src/types';
 
 interface Recorder {
   routed: Array<{ err: unknown; fallbackPath: string; whoAsked: WhoAsked }>;
   logged: string[];
+  // notified holds the compiler's words the panel was told; told holds the
+  // whole of what it was told, the line beside them included.
   notified: string[];
+  told: GraphFailure[];
   // order records which sink was written, in the order they were written, so
   // the routing-before-reporting sequence is asserted rather than described.
   order: string[];
 }
 
 function recorder(): Recorder {
-  return { routed: [], logged: [], notified: [], order: [] };
+  return { routed: [], logged: [], notified: [], told: [], order: [] };
 }
 
 function sinksOver(rec: Recorder, routing: DaemonErrorRouting = 'surfaced') {
@@ -30,8 +33,9 @@ function sinksOver(rec: Recorder, routing: DaemonErrorRouting = 'surfaced') {
       rec.logged.push(line);
       rec.order.push('logged');
     },
-    notifyPanel: (message: string): void => {
-      rec.notified.push(message);
+    notifyPanel: (failure: GraphFailure): void => {
+      rec.notified.push(failure.message);
+      rec.told.push(failure);
       rec.order.push('notified');
     },
   };
@@ -59,6 +63,26 @@ describe('reportGraphFailure', () => {
     // The panel is told the reason, not a re-wording of it, so the two surfaces
     // cannot drift into saying different things about one failure.
     assert.ok(rec.logged[0].endsWith(rec.notified[0]));
+  });
+
+  it('hands the panel the channel\'s own line, saying what could not be drawn ahead of the compiler\'s words', () => {
+    const rec = recorder();
+    const envelope: JsonRpcError = {
+      code: ERR_ENTITY_NOT_RESOLVABLE,
+      message: '/w/no-such-catalog: catalog load: no such directory',
+    };
+
+    reportGraphFailure(envelope, 'release-compose.yaml', 'reader', sinksOver(rec));
+
+    // A panel with nothing drawn shows this line as it stands, so it is asserted
+    // whole: the act a reader knows, the Release, then the compiler's words —
+    // and no request name or transport code anywhere in it.
+    assert.deepStrictEqual(rec.told, [{
+      message: '/w/no-such-catalog: catalog load: no such directory',
+      line: 'The topology of release-compose.yaml could not be drawn: /w/no-such-catalog: catalog load: no such directory',
+    }]);
+    // One line on both surfaces, composed once.
+    assert.strictEqual(rec.told[0].line, rec.logged[0]);
   });
 
   it('routes the envelope before it logs or notifies, and does both either way', () => {
@@ -134,6 +158,6 @@ describe('reportGraphFailure', () => {
     assert.deepStrictEqual(quiet.routed.map((r) => r.whoAsked), ['nobody']);
     // The channel and the panel hear the same thing either way.
     assert.deepStrictEqual(asked.logged, quiet.logged);
-    assert.deepStrictEqual(asked.notified, quiet.notified);
+    assert.deepStrictEqual(asked.told, quiet.told);
   });
 });

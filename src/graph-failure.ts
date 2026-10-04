@@ -19,7 +19,20 @@ export interface GraphFailureSinks {
   // after the panel is closed.
   logLine(line: string): void;
   // notifyPanel tells the open panel that the graph is not coming, and why.
-  notifyPanel(message: string): void;
+  notifyPanel(failure: GraphFailure): void;
+}
+
+// GraphFailure is what the open panel is told about a drawing that could not be
+// made.
+//
+// line is the account the channel carries — what could not be drawn, then the
+// compiler's own words — and it is handed over composed rather than rebuilt in
+// the panel's script, so the panel and the channel say one sentence about one
+// failure. message is those words alone, for the panel to put after its own
+// account of a drawing still on screen that the failure has left out of date.
+export interface GraphFailure {
+  message: string;
+  line: string;
 }
 
 // reportGraphFailure surfaces a failed graph render on every surface that has
@@ -53,14 +66,15 @@ export function reportGraphFailure(
 ): void {
   sinks.reportDaemonError(err, release, whoAsked);
   const message = describeError(err);
-  sinks.logLine(graphFailureLine(release, message));
-  sinks.notifyPanel(message);
+  const line = graphFailureLine(release, message);
+  sinks.logLine(line);
+  sinks.notifyPanel({ message, line });
 }
 
-// graphFailureLine is the channel's line for a drawing that could not be made:
-// what could not be drawn, named after the Release a reader picked, then the
-// compiler's own words for why. It names the act as a reader knows it rather
-// than by the request that carries it.
+// graphFailureLine is the line for a drawing that could not be made, on the
+// channel and in a panel that has nothing drawn: what could not be drawn, named
+// after the Release a reader picked, then the compiler's own words for why. It
+// names the act as a reader knows it rather than by the request that carries it.
 export function graphFailureLine(release: string, message: string): string {
   return `The topology of ${release} could not be drawn: ${message}`;
 }

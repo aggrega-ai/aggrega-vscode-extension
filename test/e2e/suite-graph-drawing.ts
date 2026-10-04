@@ -15,7 +15,7 @@ import {
   watchNotice, watchVisibility,
 } from './graph-drawing';
 import {
-  findGraphPanel, graphState, graphTabInFront, pointAtNode, pressNode, putAwayNotifications, readPanel, revealGraphTab, showGraph,
+  findGraphPanel, graphCouldNotBeDrawn, graphState, graphTabInFront, pointAtNode, pressNode, putAwayNotifications, readPanel, revealGraphTab, showGraph,
 } from './graph-panel';
 import { DiagnosticEntry } from './probe-client';
 import { readStat } from './processes';
@@ -859,7 +859,7 @@ export async function graphDrawingChecks(ctx: SuiteContext, reference: string): 
   });
 
   await c.run('graph.failure-with-nothing-drawn-claims-no-drawing-out-of-date', {
-    expected: `with the panel closed and the fault saved again, pressing Graph opens a panel that names the failure as "${RELEASE}: <message>" — the language server's own words for the same fault over the reference copy broken the same way — and that, from its opening until ${SETTLE_MS / 1000} s after it names the failure, draws no card and is never dimmed, so it claims no drawing out of date; read by the observer the dimming of the failed redraw is read by in this scenario`,
+    expected: `with the panel closed and the fault saved again, pressing Graph opens a panel that names the failure as "${graphCouldNotBeDrawn(RELEASE, '<message>')}" — <message> being the language server's own words for the same fault over the reference copy broken the same way — and that, from its opening until ${SETTLE_MS / 1000} s after it names the failure, draws no card and is never dimmed, so it claims no drawing out of date; read by the observer the dimming of the failed redraw is read by in this scenario`,
     plant: 'in the scratch copy, media/graph.js made to read the canvas as holding a drawing whether or not it does',
   }, async () => {
     need(doc !== null && words !== '', 'the language server\'s words for the fault were not read');
@@ -876,7 +876,7 @@ export async function graphDrawingChecks(ctx: SuiteContext, reference: string): 
     const after = named.met ? await holds(SETTLE_MS, () => noticeReadings(d), nothing) : null;
     const readings = await noticeReadings(d);
     const last = readings.filter((x) => x.text !== '' && !x.text.startsWith(layingOut(RELEASE))).pop();
-    const passed = named.met && after !== null && after.held && nothing(readings) && last?.text === `${RELEASE}: ${words}`;
+    const passed = named.met && after !== null && after.held && nothing(readings) && last?.text === graphCouldNotBeDrawn(RELEASE, words);
     return {
       passed,
       seen: `${named.met ? `the notice "${last?.text ?? ''}"` : `the failure not named (${named.missed})`}; from the panel's opening ${nothing(readings) ? `until ${SETTLE_MS} ms after it named the failure, no card drawn and never dimmed` : `the readings ${JSON.stringify(readings.map((x) => `${x.text || '(none)'}${x.outOfDate ? ' [dimmed]' : ''}, ${x.nodes} cards`))}`}`,

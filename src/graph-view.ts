@@ -357,8 +357,8 @@ async function renderGraph(
     reportGraphFailure(err, release, whoAsked, {
       reportDaemonError: (thrown, fallbackPath, asker) => deps.reportDaemonError(thrown, fallbackPath, asker),
       logLine: (line) => { deps.output.appendLine(line); },
-      notifyPanel: (message) => {
-        toPanel.post({ type: 'error', release, message });
+      notifyPanel: (failure) => {
+        toPanel.post({ type: 'error', release, message: failure.message, line: failure.line });
       },
     });
   }

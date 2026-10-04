@@ -23,6 +23,9 @@ import { DRAWABLE_GRAPH, GraphWebview, loadGraphWebview } from '../helpers/webvi
 
 const RELEASE = 'releases/dev.yaml';
 const REFUSAL = 'the Aggregate names a component the catalog does not carry';
+// The line the extension composes for the failure and hands the panel beside
+// the compiler's words: the one its output channel carries.
+const LINE = `The topology of ${RELEASE} could not be drawn: ${REFUSAL}`;
 
 // A graph the layout engine refuses: an edge naming neither end. It is refused
 // after the transform and before the canvas is touched, which is what makes it
@@ -75,7 +78,7 @@ describe('what the topology panel presents when a graph could not be drawn', () 
       const view = loadGraphWebview();
       const drawn = await drawOnce(view);
 
-      view.post({ type: 'error', release: RELEASE, message: REFUSAL });
+      view.post({ type: 'error', release: RELEASE, message: REFUSAL, line: LINE });
 
       assert.strictEqual(
         view.drawn(), drawn,
@@ -108,7 +111,7 @@ describe('what the topology panel presents when a graph could not be drawn', () 
     // The refresh that follows a document reaching disk shows no notice first.
     const watched = loadGraphWebview();
     await drawOnce(watched);
-    watched.post({ type: 'error', release: RELEASE, message: REFUSAL });
+    watched.post({ type: 'error', release: RELEASE, message: REFUSAL, line: LINE });
 
     // The reader pressing the command shows one first, which is what makes this
     // a different route rather than the same one twice.
@@ -120,7 +123,7 @@ describe('what the topology panel presents when a graph could not be drawn', () 
       'the second route did not take the path that shows a notice first, so the two readings '
       + 'below are of one route rather than of two',
     );
-    pressed.post({ type: 'error', release: RELEASE, message: REFUSAL });
+    pressed.post({ type: 'error', release: RELEASE, message: REFUSAL, line: LINE });
 
     // A drawing the layout engine refuses fails inside the panel rather than at
     // the compiler, and reaches the notice by a third path entirely.
@@ -158,7 +161,7 @@ describe('what the topology panel presents when a graph could not be drawn', () 
     const view = loadGraphWebview();
     assert.strictEqual(view.drawn(), 0, 'the canvas is not empty before anything is rendered');
 
-    view.post({ type: 'error', release: RELEASE, message: REFUSAL });
+    view.post({ type: 'error', release: RELEASE, message: REFUSAL, line: LINE });
 
     assert.ok(
       !view.statusText().includes('out of date'),
@@ -169,16 +172,19 @@ describe('what the topology panel presents when a graph could not be drawn', () 
       !view.canvasClasses().includes('out-of-date'),
       'an empty canvas was marked as holding a drawing that is out of date',
     );
-    assert.ok(
-      view.statusText().includes(REFUSAL),
-      `the reader was not told what went wrong. The notice said: ${view.statusText()}`,
+    // Read whole: the line the extension handed over, which its channel carries
+    // too — what could not be drawn, then the compiler's words — and nothing the
+    // panel worded again.
+    assert.strictEqual(
+      view.statusText(), LINE,
+      'a panel with nothing drawn did not show the line the extension composed for the failure',
     );
   });
 
   it('withdraws the mark when a drawing is rebuilt', async () => {
     const view = loadGraphWebview();
     await drawOnce(view);
-    view.post({ type: 'error', release: RELEASE, message: REFUSAL });
+    view.post({ type: 'error', release: RELEASE, message: REFUSAL, line: LINE });
     assert.ok(
       view.canvasClasses().includes('out-of-date'),
       'the drawing was not marked in the first place, so the withdrawal below would pass '

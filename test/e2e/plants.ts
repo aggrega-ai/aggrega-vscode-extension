@@ -124,8 +124,10 @@ const GRAPH_SCRIPT = 'media/graph.js';
 const GRAPH_MODEL = 'media/graph-model.js';
 const GRAPH_STYLE = 'media/graph.css';
 const GRAPH_FAILURE = 'out/src/graph-failure.js';
-// The compiled line writing a failed drawing to the channel.
-const GRAPH_FAILURE_LINE = '    sinks.logLine(graphFailureLine(release, message));';
+// The compiled line composing what a failed drawing is called, on the channel and
+// in a panel with nothing drawn, and the line telling the panel.
+const GRAPH_FAILURE_LINE = '    const line = graphFailureLine(release, message);';
+const GRAPH_FAILURE_TOLD = '    sinks.notifyPanel({ message, line });';
 // The module rendering a thrown value as a reader's line, and its line for a
 // language-server refusal.
 const ERROR_TEXT = 'out/src/error-text.js';
@@ -396,8 +398,13 @@ export const PLANTS: readonly Plant[] = [
   },
   {
     name: 'refusal-kept-from-the-graph-panel', scenario: 'storefront', checks: ['settings-that-are-wrong.missing-catalog-and-unreachable-registry-are-named'], moves: 'red', target: 'extension',
-    file: GRAPH_FAILURE, find: '    sinks.notifyPanel(message);', replace: "    sinks.notifyPanel('The graph could not be drawn.');",
+    file: GRAPH_FAILURE, find: GRAPH_FAILURE_TOLD, replace: "    sinks.notifyPanel({ message: 'The graph could not be drawn.', line: 'The graph could not be drawn.' });",
     says: 'a failed drawing is reported to the panel in a sentence of the extension\'s own, without the language server\'s reason, while the channel and the Problems panel still carry it',
+  },
+  {
+    name: 'empty-panel-words-the-failure-itself', scenario: 'storefront', checks: ['settings-that-are-wrong.missing-catalog-and-unreachable-registry-are-named'], moves: 'red', target: 'extension',
+    file: GRAPH_SCRIPT, find: '      : (line || `${subject}${message}`), true);', replace: '      : `${subject}${message}`, true);',
+    says: 'a graph panel with nothing drawn words a failed drawing itself, as the Release and the compiler\'s words, rather than in the line the extension handed it saying the topology could not be drawn',
   },
   {
     name: 'refusal-carries-the-transport-code', scenario: 'storefront', checks: ['settings-that-are-wrong.missing-catalog-and-unreachable-registry-are-named'], moves: 'red', target: 'extension',
@@ -406,8 +413,8 @@ export const PLANTS: readonly Plant[] = [
   },
   {
     name: 'graph-failure-line-names-the-request', scenario: 'storefront', checks: ['settings-that-are-wrong.missing-catalog-and-unreachable-registry-are-named'], moves: 'red', target: 'extension',
-    file: GRAPH_FAILURE, find: GRAPH_FAILURE_LINE, replace: '    sinks.logLine(`irGraph failed for ${release}: ${message}`);',
-    says: 'the channel\'s line for a drawing that could not be made names the request carrying it rather than the topology a reader asked for',
+    file: GRAPH_FAILURE, find: GRAPH_FAILURE_LINE, replace: '    const line = `irGraph failed for ${release}: ${message}`;',
+    says: 'the line for a drawing that could not be made, on the channel and in the panel, names the request carrying it rather than the topology a reader asked for',
   },
   {
     name: 'configuration-restart-offered-and-not-made', scenario: 'storefront', checks: ['settings-that-are-wrong.missing-catalog-and-unreachable-registry-are-named'], moves: 'red', target: 'extension',
@@ -648,11 +655,23 @@ export const PLANTS: readonly Plant[] = [
     says: 'a search writes nothing to the channel about the indexes it read',
   },
   {
+    name: 'build-advice-left-off-its-line', scenario: 'storefront-with-registries', checks: ['catalog-search.index-freshness-is-named-in-the-channel'], moves: 'red', target: 'extension',
+    file: SEARCH_RUN,
+    find: '    for (const host of doc.missingIndexHosts ?? []) {\n        lines.push(`${notSearched([host])}.`);\n    }',
+    replace: '    for (const host of doc.missingIndexHosts ?? []) {\n        lines.push(`registry ${host}: no local index has been built.`);\n    }\n    if ((doc.missingIndexHosts ?? []).length > 0) {\n        lines.push(\'Refresh with “Update index” in the Registries panel.\');\n    }',
+    says: 'a registry with no index is named on a line of its own and the advice to refresh follows every per-registry line, so it reads as advice about the healthy registry\'s index',
+  },
+  {
     name: 'no-matches-read-as-no-registries', scenario: 'storefront-with-registries', checks: ['catalog-search.nothing-matched-names-the-filter'], moves: 'red', target: 'extension',
     file: SEARCH_RUN,
-    find: '            message: `Aggrega: no catalog matches for ${describeFilter(filter)}.`,',
+    find: '            message: noMatchesMessage(doc, filter),',
     replace: '            message: exports.NO_REGISTRIES_MESSAGE,',
     says: 'a search that matched nothing is answered as a search with no registry configured',
+  },
+  {
+    name: 'empty-answer-names-no-registry-left-unsearched', scenario: 'storefront-with-registries', checks: ['catalog-search.nothing-matched-names-the-filter'], moves: 'red', target: 'extension',
+    file: SEARCH_RUN, find: '    if (missing.length === 0) {', replace: '    if (true) {',
+    says: 'a search that matched nothing says only that, naming no configured registry it could not search',
   },
   {
     name: 'index-build-never-settles', scenario: 'storefront-with-registries', checks: ['registries-panel.update-index-ends-with-a-registry-whose-listing-repeats'], moves: 'red', target: 'extension',
@@ -911,7 +930,7 @@ export const PLANTS: readonly Plant[] = [
   {
     name: 'graph-failure-written-as-a-string', scenario: 'storefront-graph-panel',
     checks: ['graph.failed-render-names-its-reason-in-the-panel-and-the-channel', 'graph.failed-render-with-the-server-stopped-names-the-extensions-reason'], moves: 'red', target: 'extension',
-    file: GRAPH_FAILURE, find: GRAPH_FAILURE_LINE, replace: '    sinks.logLine(graphFailureLine(release, String(err)));',
+    file: GRAPH_FAILURE, find: GRAPH_FAILURE_LINE, replace: '    const line = graphFailureLine(release, String(err));',
     says: 'a failed drawing is written to the channel as the thrown value rendered as a string, which reads "[object Object]" for a refusal the language server answered',
   },
   {
@@ -1059,7 +1078,7 @@ export const PLANTS: readonly Plant[] = [
   },
   {
     name: 'panel-sent-the-thrown-value', scenario: 'storefront-graph-drawing', checks: ['graph.failed-redraw-after-a-save-dims-the-drawing-and-says-so'], moves: 'red', target: 'extension',
-    file: GRAPH_FAILURE, find: '    sinks.notifyPanel(message);', replace: '    sinks.notifyPanel(String(err));',
+    file: GRAPH_FAILURE, find: GRAPH_FAILURE_TOLD, replace: '    sinks.notifyPanel({ message: String(err), line });',
     says: 'a failed drawing is reported to the panel as the thrown value rendered as a string, which reads "[object Object]" for a refusal the language server answered',
   },
   {
@@ -1069,7 +1088,7 @@ export const PLANTS: readonly Plant[] = [
   },
   {
     name: 'pressed-failure-sent-without-its-release', scenario: 'storefront-graph-drawing', checks: ['graph.press-on-the-same-fault-ends-in-the-same-presentation'], moves: 'red', target: 'extension',
-    file: GRAPH_VIEW, find: "                toPanel.post({ type: 'error', release, message });", replace: "                toPanel.post({ type: 'error', release: opts.quiet ? release : '', message });",
+    file: GRAPH_VIEW, find: "                toPanel.post({ type: 'error', release, message: failure.message, line: failure.line });", replace: "                toPanel.post({ type: 'error', release: opts.quiet ? release : '', message: failure.message, line: failure.line });",
     says: 'a failure the reader pressed for reaches the panel without the Release it is about, so its notice reads otherwise than a save\'s for the same fault',
   },
   {

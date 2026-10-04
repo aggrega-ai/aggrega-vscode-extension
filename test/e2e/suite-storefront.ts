@@ -12,7 +12,7 @@ import { COMMANDS_PANEL_LABELS } from './commands-panel';
 import { WebviewDocument } from './drivers';
 import { UNREACHABLE_HOST } from './fixtures';
 import { NoticeReading, noticeReadings, watchNotice } from './graph-drawing';
-import { findGraphPanel, graphCouldNotBeDrawn } from './graph-panel';
+import { findGraphPanel, GRAPH_PANEL_OPENING, graphCouldNotBeDrawn } from './graph-panel';
 import { referenceAnswer } from './reference';
 import { CACHE_MISS_CHECKS, cacheMissChecks } from './suite-cache-miss';
 import { CONFIG_PANEL_CHECKS, configPanelChecks } from './suite-config-panel';
@@ -867,7 +867,7 @@ export async function storefrontChecks(ctx: SuiteContext, referenceFolder: strin
   const original = fs.readFileSync(config, 'utf8');
   const missingCatalog = path.join(ctx.folder, 'no-such-catalog');
   await c.run('settings-that-are-wrong.missing-catalog-and-unreachable-registry-are-named', {
-    expected: `with "- ./no-such-catalog" under catalog_dirs and a top-level registries list holding "${UNREACHABLE_HOST}" saved, the restart the warning offers (or, where none is offered, the restart command) brings up a new language server that runs; Graph then opens a panel that draws no card and names the refusal "${RELEASE}: <message>", and the channel says "${graphCouldNotBeDrawn(RELEASE, '<message>')}" — <message> being the language server's own answer to the same graph request over a reference copy configured the same way, whose message names ${missingCatalog}; no line the channel or the panel draws carries "irGraph failed" or a "code=<n>"; and the Registries panel names ${UNREACHABLE_HOST}`,
+    expected: `with "- ./no-such-catalog" under catalog_dirs and a top-level registries list holding "${UNREACHABLE_HOST}" saved, the restart the warning offers (or, where none is offered, the restart command) brings up a new language server that runs; Graph then opens a panel that draws no card and names the refusal "${graphCouldNotBeDrawn(RELEASE, '<message>')}", and the channel says the same line — <message> being the language server's own answer to the same graph request over a reference copy configured the same way, whose message names ${missingCatalog}; no line the channel or the panel draws carries "irGraph failed" or a "code=<n>"; and the Registries panel names ${UNREACHABLE_HOST}`,
     plant: 'in the scratch copy, out/src/graph-failure.js made to tell the panel a sentence of its own in place of the refusal; or out/src/extension.js made to restart nothing when the warning\'s restart is pressed; or out/src/error-text.js made to put the transport\'s code ahead of a refusal\'s words; or out/src/graph-failure.js made to name the request on the channel',
   }, async () => {
     const mark = ctx.out.mark();
@@ -911,17 +911,20 @@ export async function storefrontChecks(ctx: SuiteContext, referenceFolder: strin
     })();
     need(!ref.ok, 'the language server drew the reference copy configured with a catalog directory it does not hold');
     const words = ref.error.message.split(referenceFolder).join(ctx.folder);
-    const refusal = `${RELEASE}: ${words}`;
     const channelLine = graphCouldNotBeDrawn(RELEASE, words);
+    const refusal = channelLine;
     const directoryNamed = words.includes(missingCatalog);
     need(await findGraphPanel(ctx) === null, 'a graph panel is open before Graph is pressed, so the panel read would not be the one the press opens');
     await pressOperation(ctx.d, await commandsPanel(ctx.d), 'aggrega.graph.show');
     const panel = await until('the graph panel opening', 30000, () => findGraphPanel(ctx), (x) => x !== null) as WebviewDocument;
     await watchNotice(panel);
-    // The press ends in a failure the panel names after the Release, or in a
-    // drawing; either ends the wait, and the words are judged after it, so a
-    // panel ending in other words is read at once rather than waited out.
-    await until('the graph panel ending the press', 60000, () => noticeReadings(panel), (v) => v.some((x) => x.text.startsWith(`${RELEASE}: `) || x.nodes > 0)).catch(() => undefined);
+    // The press ends in a notice other than the sentence the panel opens with and
+    // the one it shows while laying out, or in a drawing; either ends the wait,
+    // and the words are judged after it, so a panel ending in words other than the
+    // expected ones is read at once rather than waited out.
+    const ended = (x: NoticeReading): boolean => x.nodes > 0
+      || (x.text !== '' && x.text !== GRAPH_PANEL_OPENING && !x.text.startsWith('Laying out '));
+    await until('the graph panel ending the press', 60000, () => noticeReadings(panel), (v) => v.some(ended)).catch(() => undefined);
     const panelNamed = (await noticeReadings(panel)).some((x) => x.text === refusal);
     const drewNothing = (v: NoticeReading[]): boolean => v.every((x) => x.nodes === 0 && !x.outOfDate);
     const quiet = panelNamed ? await holds(3000, () => noticeReadings(panel), drewNothing) : null;
@@ -949,7 +952,7 @@ export async function storefrontChecks(ctx: SuiteContext, referenceFolder: strin
     const coded = lines.filter((l) => (l.startsWith('channel: ') || l.startsWith('graph panel: ')) && /irGraph failed|\bcode=-?\d+/.test(l));
     return {
       passed: running && panelNamed && nothingDrawn && directoryNamed && hostNamed && channelNamed && coded.length === 0,
-      seen: `${restartedBy}: language server ${before.pid} replaced by ${after.pid}, the status bar ${running ? 'running' : 'not running'}; the graph panel ${panelNamed ? 'named the refusal as the language server words it' : `read ${JSON.stringify(shown)}, not "${refusal}"`}, ${nothingDrawn ? 'drawing no card up to 3 s after' : `its readings ${JSON.stringify(notices.map((x) => `${x.nodes} cards${x.outOfDate ? ' [dimmed]' : ''}`))}`}; the channel ${channelNamed ? 'says the topology could not be drawn, in the server\'s words' : `does not carry "${channelLine}"`}; ${coded.length === 0 ? 'no line carries a code-facing label' : `code-facing labels on ${JSON.stringify(coded)}`}; the language server's own answer "${words}" ${directoryNamed ? 'names' : 'does not name'} ${missingCatalog}; ${UNREACHABLE_HOST} ${hostNamed ? 'named' : 'not named'} in the Registries panel`,
+      seen: `${restartedBy}: language server ${before.pid} replaced by ${after.pid}, the status bar ${running ? 'running' : 'not running'}; the graph panel ${panelNamed ? 'said the topology could not be drawn, in the server\'s words' : `read ${JSON.stringify(shown)}, not "${refusal}"`}, ${nothingDrawn ? 'drawing no card up to 3 s after' : `its readings ${JSON.stringify(notices.map((x) => `${x.nodes} cards${x.outOfDate ? ' [dimmed]' : ''}`))}`}; the channel ${channelNamed ? 'says the topology could not be drawn, in the server\'s words' : `does not carry "${channelLine}"`}; ${coded.length === 0 ? 'no line carries a code-facing label' : `code-facing labels on ${JSON.stringify(coded)}`}; the language server's own answer "${words}" ${directoryNamed ? 'names' : 'does not name'} ${missingCatalog}; ${UNREACHABLE_HOST} ${hostNamed ? 'named' : 'not named'} in the Registries panel`,
       evidence: { said: lines, refusal, channelLine, notices },
     };
   });

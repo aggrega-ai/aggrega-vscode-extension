@@ -68,11 +68,14 @@ const SEARCH_TITLE = 'Aggrega: search published catalog';
 const QUERY = 'adminer';
 const NO_MATCH_QUERY = 'no-entity-is-called-this';
 
-// The empty answer for a filter nothing matched opens with these words, and the
-// channel's remediation reads so. Both are held as the words a reader is to
-// meet, so a change of wording is a change these checks report.
+// The empty answer for a filter nothing matched opens with these words; a
+// configured registry the search could not consult is said so, with the build
+// that would let it be consulted; and the compiler judging a snapshot stale is
+// said so, with the refresh. Each is held as the words a reader is to meet, so a
+// change of wording is a change these checks report.
 const NO_MATCHES_OPENING = 'Aggrega: no catalog matches for ';
-const REFRESH_REMEDIATION = 'Refresh with “Update index” in the Registries panel.';
+const notSearchedClause = (host: string): string => `${host} has no local index and was not searched — build its index with “Update index” in the Registries panel`;
+const STALE_LINE = 'One or more indexes are stale — refresh them with “Update index” in the Registries panel.';
 
 // The row at the head of the Catalog panel that opens the search, by the words
 // it reads.
@@ -532,36 +535,56 @@ export async function registryChecks(ctx: SuiteContext, registry: ScratchRegistr
     return { passed, seen: `the row reads ${JSON.stringify(row.text.replace(/\s+/g, ' ').slice(0, 300))}` };
   });
 
+  // The registries the compiler's own search consulted, and the configured ones it
+  // could not, read off what it writes beside its answer: a line naming each
+  // snapshot's freshness, and a line naming each registry with none.
+  const referenceLines = `${reference.stderr}`.split('\n');
+  const searchedHosts = referenceLines.map((l) => /^Index for (\S+) last updated /.exec(l)?.[1]).filter((h): h is string => h !== undefined);
+  const unsearchedHosts = referenceLines.map((l) => /^registry (\S+): no local index;/.exec(l)?.[1]).filter((h): h is string => h !== undefined);
+  const missingLine = `${notSearchedClause(UNREACHABLE_HOST)}.`;
+
   await c.run('catalog-search.index-freshness-is-named-in-the-channel', {
-    expected: `after the search, the channel names each registry's index: "Index for ${registry.host} last updated <time>", <time> being the one the compiler's own search reports, and "registry ${UNREACHABLE_HOST}: no local index has been built.", followed by "${REFRESH_REMEDIATION}"`,
-    plant: 'in the scratch copy, out/src/catalog-search-run.js made to write no freshness lines',
+    expected: `after the search, the channel names each registry's index: "Index for ${registry.host} last updated <time>", <time> being the one the compiler's own search reports, and "${missingLine}" — the build on the line about the registry it applies to — while no other line of the search sends the reader to “${UPDATE_INDEX_ROW}” (but for "${STALE_LINE}", where the compiler's own search judges an index stale), so no advice follows the line about ${registry.host}'s index`,
+    plant: 'in the scratch copy, out/src/catalog-search-run.js made to write no freshness lines; or made to name the registry with no index on a line of its own and put the advice to refresh after every per-registry line',
   }, async () => {
     need(searched, 'no search ran, so the channel has nothing to say about it');
-    const updated = `${reference.stderr}`.split('\n').find((l) => l.startsWith(`Index for ${registry.host} last updated `)) ?? '';
+    const updated = referenceLines.find((l) => l.startsWith(`Index for ${registry.host} last updated `)) ?? '';
     need(updated !== '', `the compiler's own search named no freshness for ${registry.host}: ${reference.stderr.slice(0, 200)}`);
+    need(unsearchedHosts.includes(UNREACHABLE_HOST), `the compiler's own search did not name ${UNREACHABLE_HOST} as having no index: ${reference.stderr.slice(0, 300)}`);
     const lines = channelAfterSearch.split('\n').map((l) => l.trim());
     const at = (s: string): number => lines.findIndex((l) => l === s);
     const iUpdated = at(updated.trim());
-    const iMissing = at(`registry ${UNREACHABLE_HOST}: no local index has been built.`);
-    const iRemedy = at(REFRESH_REMEDIATION);
-    return { passed: iUpdated !== -1 && iMissing !== -1 && iRemedy > Math.max(iUpdated, iMissing), seen: `the channel after the search: ${JSON.stringify(lines.filter((l) => l !== '').slice(0, 8))}` };
+    const iMissing = at(missingLine);
+    // Every line of the search that sends the reader to the row, read off the
+    // channel: the one about the registry with no index, and the staleness line
+    // only where the compiler's own search judged an index stale.
+    const advice = lines.filter((l) => l.includes(`“${UPDATE_INDEX_ROW}”`));
+    const allowed = reference.stderr.includes('One or more indexes are stale') ? [missingLine, STALE_LINE] : [missingLine];
+    const stray = advice.filter((l) => !allowed.includes(l));
+    return {
+      passed: iUpdated !== -1 && iMissing !== -1 && stray.length === 0,
+      seen: `the channel after the search: ${JSON.stringify(lines.filter((l) => l !== '').slice(0, 8))}${stray.length > 0 ? `; advice on lines of its own or about another registry: ${JSON.stringify(stray)}` : ''}`,
+    };
   });
 
   c.notRun('catalog-search.stale-index-is-named', {
-    expected: 'where the compiler judges an index stale, the channel adds "One or more indexes are stale." before the remediation',
+    expected: `where the compiler judges an index stale, the channel adds "${STALE_LINE}"`,
     plant: 'in the scratch copy, out/src/catalog-search-run.js made to drop the staleness line',
   }, 'every index this run can build is built fresh, and whether one is stale is the compiler\'s judgement of its age, so no stale index can be built without waiting out that age');
 
   let emptyAnswer = '';
+  const emptyWant = `${NO_MATCHES_OPENING}"${NO_MATCH_QUERY}" in ${searchedHosts.join(' and ')}; ${notSearchedClause(unsearchedHosts.join(' and '))}.`;
   await c.run('catalog-search.nothing-matched-names-the-filter', {
-    expected: `a query nothing in the index matches ("${NO_MATCH_QUERY}") is answered by a sentence opening "${NO_MATCHES_OPENING}" and naming the query`,
-    plant: 'in the scratch copy, out/src/catalog-search-run.js made to answer no matches as no registries',
+    expected: `a query nothing in the index matches ("${NO_MATCH_QUERY}") is answered by the sentence "${NO_MATCHES_OPENING}"${NO_MATCH_QUERY}" in ${registry.host}; ${notSearchedClause(UNREACHABLE_HOST)}." — naming the query, the registry searched and the one not searched, as the compiler's own search names them (${registry.host} consulted, ${UNREACHABLE_HOST} with no index), why, and the build`,
+    plant: 'in the scratch copy, out/src/catalog-search-run.js made to answer no matches as no registries; or made to name no registry it could not search',
   }, async () => {
+    need(searchedHosts.length === 1 && searchedHosts[0] === registry.host && unsearchedHosts.length === 1 && unsearchedHosts[0] === UNREACHABLE_HOST,
+      `the compiler's own search did not consult ${registry.host} alone with ${UNREACHABLE_HOST} alone left unsearched: consulted ${JSON.stringify(searchedHosts)}, no index ${JSON.stringify(unsearchedHosts)}`);
     const mark = (await toasts(ctx.d)).length;
     const list = await searchFor(ctx, NO_MATCH_QUERY);
     const t = await waitToast(ctx.d, 'the empty answer', mark, (x) => x.message.startsWith('Aggrega:'), 20000);
     emptyAnswer = t.message;
-    return { passed: list === null && t.message.startsWith(NO_MATCHES_OPENING) && t.message.includes(NO_MATCH_QUERY), seen: `"${t.message}"${list ? `; a list was drawn: ${list.placeholder}` : ''}` };
+    return { passed: list === null && t.message === emptyWant, seen: `"${t.message}"${list ? `; a list was drawn: ${list.placeholder}` : ''}` };
   });
 
   await c.forPerson('catalog-search.index-sentences-direct-the-reader', {

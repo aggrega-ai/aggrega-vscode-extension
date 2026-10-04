@@ -281,12 +281,38 @@ export const NO_REGISTRIES_MESSAGE =
   `Aggrega: ${EMPTY_LABEL} Add one with “${panelActionLabel('registryAdd')}” in the `
   + `Registries panel, then build its index with “${panelActionLabel('registryIndex')}”.`;
 
-// REFRESH_REMEDIATION names the editor's own way to fix a missing or stale
-// snapshot. The compiler names a command line for the same repair; this reader
-// is in an editor, and the Registries panel's row is the thing they can press,
-// named in the words it carries.
-export const REFRESH_REMEDIATION =
-  `Refresh with “${panelActionLabel('registryIndex')}” in the Registries panel.`;
+// INDEX_ROW is the editor's own way to build or refresh a snapshot: the
+// Registries panel's row, named in the words it carries. The compiler names a
+// command line for the same repair; this reader is in an editor, and the row is
+// the thing they can press.
+const INDEX_ROW = `“${panelActionLabel('registryIndex')}” in the Registries panel`;
+
+// notSearched says which configured registries a search could not consult and
+// why, followed by the repair that applies to them.
+//
+// A registry with no snapshot was not searched at all, so an empty answer says
+// nothing about what it publishes; the sentence says so, rather than leaving a
+// reader to take "no matches" as "it does not exist". And the repair is worded as
+// building, not refreshing: there is nothing there yet to refresh. It is one
+// composition for the channel's line and the empty answer's clause, so the two
+// cannot come to give the same fact two accounts.
+export function notSearched(hosts: readonly string[]): string {
+  const one = hosts.length === 1;
+  return `${listOf(hosts)} ${one ? 'has' : 'have'} no local index and ${one ? 'was' : 'were'} not `
+    + `searched — build ${one ? 'its index' : 'their indexes'} with ${INDEX_ROW}`;
+}
+
+// STALE_LINE is the channel's line for the compiler judging a consulted snapshot
+// stale, with the repair that applies to it on the same line. The compiler's
+// verdict covers the snapshots consulted as a whole and names none of them, so
+// the line names none either.
+export const STALE_LINE = `One or more indexes are stale — refresh them with ${INDEX_ROW}.`;
+
+// listOf joins names for a sentence: "a", "a and b", "a, b and c".
+function listOf(names: readonly string[]): string {
+  if (names.length <= 1) { return names.join(''); }
+  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+}
 
 // SearchOutcome is what one search produced. The five cases are distinct types
 // rather than a message plus a flag, because four of them are easy to collapse
@@ -321,13 +347,14 @@ export type SearchOutcome =
 // value and never re-derived here, because judging a snapshot old is the
 // compiler's call and a second rule would be free to disagree.
 //
-// The remediation is appended once rather than per host, so a reader with
-// several unbuilt registries is told what to do once.
+// Each repair is on the line it applies to, and the two are worded apart: a
+// registry with no snapshot is told to have its index built, and stale snapshots
+// to be refreshed. A repair on a line of its own reads as advice about whichever
+// line it follows — the healthy registry's, as often as not.
 export function freshnessReport(doc: SearchDoc): string[] {
   const lines: string[] = [];
-  const missing = doc.missingIndexHosts ?? [];
-  for (const host of missing) {
-    lines.push(`registry ${host}: no local index has been built.`);
+  for (const host of doc.missingIndexHosts ?? []) {
+    lines.push(`${notSearched([host])}.`);
   }
   for (const index of doc.indexes ?? []) {
     lines.push(
@@ -336,14 +363,29 @@ export function freshnessReport(doc: SearchDoc): string[] {
         : `Index for ${index.host} last updated (timestamp unavailable)`,
     );
   }
-  const stale = doc.stale === true;
-  if (stale) {
-    lines.push('One or more indexes are stale.');
-  }
-  if (missing.length > 0 || stale) {
-    lines.push(REFRESH_REMEDIATION);
+  if (doc.stale === true) {
+    lines.push(STALE_LINE);
   }
   return lines;
+}
+
+// noMatchesMessage is the empty answer: nothing in the snapshots consulted fits
+// the filter.
+//
+// Where a configured registry had no snapshot, the answer is about the
+// registries that were searched and no others, so it names those, then the ones
+// that were not and why, with the repair — a reader told only "no matches" takes
+// it as "it does not exist", when a registry that may publish it was never
+// consulted. Every name in it is read off the answer's own fields.
+export function noMatchesMessage(doc: SearchDoc, filter: CatalogFilter): string {
+  const missing = doc.missingIndexHosts ?? [];
+  const opening = `Aggrega: no catalog matches for ${describeFilter(filter)}`;
+  if (missing.length === 0) {
+    return `${opening}.`;
+  }
+  const searched = (doc.indexes ?? []).map((index) => index.host);
+  const where = searched.length > 0 ? ` in ${listOf(searched)}` : '';
+  return `${opening}${where}; ${notSearched(missing)}.`;
 }
 
 // CatalogSearchLog is the reader-visible channel the run appends to.
@@ -411,7 +453,7 @@ export async function searchCatalog(
   if (records.length === 0) {
     return {
       kind: 'no-matches',
-      message: `Aggrega: no catalog matches for ${describeFilter(filter)}.`,
+      message: noMatchesMessage(doc, filter),
     };
   }
   return { kind: 'matches', rows: records.map(rowForRecord) };
