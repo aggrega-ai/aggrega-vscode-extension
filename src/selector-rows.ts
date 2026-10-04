@@ -8,6 +8,7 @@ import {
   describeSelection,
 } from './release-selection';
 import {
+  SELECTOR_ROW_DRAWN_LABELS,
   SELECTOR_ROW_LABELS,
   SelectorRowKey,
   soleCandidateNote,
@@ -17,6 +18,7 @@ import { CHOOSE_ANCHOR_INVITATION, SWITCH_ANCHOR_COMMAND } from './anchor-picker
 import {
   CHOOSE_PROJECT_FOLDER_COMMAND,
   CHOOSE_PROJECT_FOLDER_INVITATION,
+  SOLE_PROJECT_FOLDER_INVITATION,
 } from './project-folder';
 import { NO_ANCHORED_WORKSPACE_ROW_TOOLTIP, compareWorkspaceWithFolder } from './workspace';
 import { WORKSPACE_ABOVE_HEADLINE, workspacePathsAccount } from './workspace-above';
@@ -85,6 +87,9 @@ export function offerControlKey(key: SelectorRowKey): string {
 // an indicator is for.
 export interface SelectorRow {
   key: SelectorRowKey;
+  // label is the field name as the row DRAWS it, which for the Aggrega
+  // workspace row is the shortened form (SELECTOR_ROW_DRAWN_LABELS); the
+  // tooltip names the level in full.
   label: string;
   value: string;
   tooltip: string;
@@ -260,7 +265,7 @@ export function projectFolderRow(
 ): SelectorRow {
   const base = {
     key: 'project' as const,
-    label: SELECTOR_ROW_LABELS.project,
+    label: SELECTOR_ROW_DRAWN_LABELS.project,
     command: CHOOSE_PROJECT_FOLDER_COMMAND,
     icon: 'folder-opened',
     create: null,
@@ -297,16 +302,20 @@ export function projectFolderRow(
     };
   }
   const sole = candidates === 1 ? `\n${soleCandidateNote('project')}` : '';
+  // With one folder open the hover has just said there is nothing to choose
+  // between, so its closing line names what a press offers there instead —
+  // opening or adding a folder — and never invites a choice between folders.
+  const invitation = candidates === 1 ? SOLE_PROJECT_FOLDER_INVITATION : CHOOSE_PROJECT_FOLDER_INVITATION;
   return {
     ...base,
     value: path.basename(chosenFolder),
-    // The closing sentence says what the choice DOES, because that is the part
-    // a reader cannot see: the Aggrega workspaces on offer below are the ones
-    // this folder reaches, so changing it changes that list.
+    // The line before the closing one says what the choice DOES, because that
+    // is the part a reader cannot see: the Aggrega workspaces on offer below are
+    // the ones this folder reaches, so changing it changes that list.
     tooltip:
       `${SELECTOR_ROW_LABELS.project}: ${chosenFolder}${sole}\n`
       + `The ${SELECTOR_ROW_LABELS.workspace}s on offer are the ones this folder reaches.\n`
-      + CHOOSE_PROJECT_FOLDER_INVITATION,
+      + invitation,
   };
 }
 
@@ -355,7 +364,9 @@ export function workspaceRow(
 ): SelectorRow {
   const base = {
     key: 'workspace' as const,
-    label: SELECTOR_ROW_LABELS.workspace,
+    // Drawn shortened, so the value beside it has room; every sentence below
+    // names the level in full, the hover's first line included.
+    label: SELECTOR_ROW_DRAWN_LABELS.workspace,
     command: SWITCH_ANCHOR_COMMAND,
     icon: 'root-folder',
     create: {
@@ -516,7 +527,7 @@ export function releaseRow(state: SelectionState, releases: number | null): Sele
   const described = describeSelection(state, releases);
   return {
     key: 'release',
-    label: SELECTOR_ROW_LABELS.release,
+    label: SELECTOR_ROW_DRAWN_LABELS.release,
     value: described.value,
     tooltip: described.detail,
     command: SELECT_RELEASE_COMMAND,

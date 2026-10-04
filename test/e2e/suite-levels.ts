@@ -9,9 +9,9 @@ import { CONFIG_FILENAME } from '../../src/workspace';
 import { need } from './checks';
 import { drawnPanel } from './commands-panel';
 import {
-  ADD_ENTRY, closeChooser, CREATE_RELEASE, CREATE_WORKSPACE, describeRows, droppedRelease, HOVER_LINES_NO_ROW_CARRIES, LEVEL_OBSERVERS, LevelRow, linesOf, NAME_PROMPT, needRows,
-  OPEN_ENTRY, PLACEHOLDER, pickersSeen, pressRowControl, projectHover, releaseHover, reloadWindow, ROW_LABELS, rowChooser, rowsNow, rowValues, SENTENCES_NO_SURFACE_DRAWS,
-  serverStarts, statusHover, takeChooserRow, ToastLedger, waitRows, WIDEN_ANOTHER, workspaceHover,
+  ADD_ENTRY, closeChooser, CREATE_RELEASE, CREATE_WORKSPACE, describeRows, droppedRelease, HOVER_LINES_NO_ROW_CARRIES, LEVEL_OBSERVERS, LevelRow, linesOf,
+  LONG_LABEL_VALUE_WIDTH, NAME_PROMPT, needRows, OPEN_ENTRY, PLACEHOLDER, pickersSeen, pressRowControl, projectHover, releaseHover, reloadWindow, ROW_LABELS, rowChooser,
+  rowsNow, rowValues, SENTENCES_NO_SURFACE_DRAWS, serverStarts, statusHover, takeChooserRow, ToastLedger, waitRows, WIDEN_ANOTHER, workspaceHover,
 } from './levels';
 import { capture, languageServers, ready, reopen, send, SuiteContext, theServer } from './suite-context';
 import { setBinaryPath } from './suite-killed';
@@ -29,6 +29,7 @@ export const LEVELS_CHECKS = [
   'context-rows.sole-candidates-taken-without-a-chooser',
   'context-rows.three-rows-on-lines-of-their-own',
   'context-rows.values-read-whole-at-the-default-width',
+  'context-rows.workspace-label-drawn-short-giving-the-values-room',
   'context-rows.create-controls-beside-the-workspace-and-release-rows',
   'context-rows.values-start-in-line',
   'context-rows.each-row-opens-its-own-chooser',
@@ -103,6 +104,23 @@ export async function levelsChecks(ctx: SuiteContext, missing: string): Promise<
     return {
       screenshot: await capture(ctx, 'context-rows-at-the-default-width'),
       drawnText: rows.slice(0, 3).map((r) => `${r.label}: "${r.value}" — ${r.valueClipped ? `cut off in ${Math.round(r.valueBox.width)} px` : 'drawn whole'}; hover ${JSON.stringify(r.title)}`).join('\n'),
+    };
+  });
+
+  await c.run('context-rows.workspace-label-drawn-short-giving-the-values-room', {
+    expected: `at the side bar's default width the Aggrega workspace row's label reads "${ROW_LABELS[1]}" and its hover opens by naming the level in full, "Aggrega workspace: "; and each of the three rows' values is drawn wider than the ${LONG_LABEL_VALUE_WIDTH} px each was given while that label drew the whole name`,
+    plant: 'in the scratch copy, out/src/selector-levels.js with the Aggrega workspace row drawing the whole name as its label',
+  }, async () => {
+    const rows = keep(await rowsNow(ctx));
+    needRows(rows);
+    const w = rows[1];
+    const short = w.label === ROW_LABELS[1];
+    const named = w.title.startsWith('Aggrega workspace: ');
+    const widths = rows.slice(0, 3).map((r) => r.valueBox.width);
+    const roomier = widths.every((x) => x > LONG_LABEL_VALUE_WIDTH);
+    return {
+      passed: short && named && roomier,
+      seen: `the label ${JSON.stringify(w.label)}; the hover ${JSON.stringify(w.title)}; the values ${JSON.stringify(rows.slice(0, 3).map((r) => r.value))} drawn ${JSON.stringify(widths.map((x) => Math.round(x * 10) / 10))} px wide`,
     };
   });
 

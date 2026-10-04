@@ -10,9 +10,9 @@ import { need } from './checks';
 import { WebviewDocument } from './drivers';
 import { FixtureError, FixtureProof } from './fixtures';
 import {
-  boundaryTitle, contains, containsPoint, describeFraming, Drawing, DrawnContainer, DrawnNode, drawnText, framingOf, layoutModel, lineEnters,
-  noticeReadings, onBorder, overlaps, readDrawing, readFrame, readLegend, rect, sameRect, shownDrawing, subsystemTitle, told, union, visibilityReadings,
-  watchNotice, watchVisibility,
+  boundaryTitle, contains, containsPoint, describeFraming, Drawing, DrawnContainer, DrawnNode, drawnText, framingOf, layoutModel, legendFor, LegendRow, lineEnters,
+  NONE_DECLARED, noticeReadings, onBorder, overlaps, Point, readDrawing, readFrame, readLegend, rect, sameRect, shownDrawing, subsystemTitle, told, union,
+  visibilityReadings, watchNotice, watchVisibility,
 } from './graph-drawing';
 import {
   findGraphPanel, graphCouldNotBeDrawn, graphState, graphTabInFront, pointAtNode, pressNode, putAwayNotifications, readPanel, revealGraphTab, showGraph,
@@ -30,7 +30,10 @@ import { Bound, commandsPanel, guard, holds, pressOperation, stated, toasts, toa
 // over one another, each component name inside its card, the Release's
 // boundaries and the Aggregate's subsystems drawn as declared, the imported
 // module's component in its boundary, each edge between the boxes of its two
-// ends and across no other box — and the legend; and when the open graph draws
+// ends and across no other box and marked at the end it points to, and the box
+// holding the nodes in no subsystem drawn apart from a subsystem — and the
+// legend, with its row for that box and a row naming each type colour drawn;
+// and when the open graph draws
 // itself again and what that leaves alone: a save redrawing it and typing not, a
 // write from outside the editor redrawing it, the reader's view and selection
 // kept through a redraw nobody pressed for while a press frames the whole
@@ -48,8 +51,11 @@ export const GRAPH_DRAWING_CHECKS = [
   'graph.edge-between-boundaries-runs-from-one-card-to-the-other',
   'graph.edge-inside-a-subsystem-stays-inside-it',
   'graph.no-edge-crosses-a-container-it-has-no-end-in',
+  'graph.each-edge-marked-at-the-end-it-points-to',
+  'graph.box-for-nodes-in-no-subsystem-drawn-apart-and-named-in-the-legend',
   'legend.lower-left-names-the-groupings-and-the-type-bar-and-bounds-the-colours',
   'legend.grouping-rows-name-the-declaring-document-and-are-drawn-whole',
+  'legend.names-each-type-colour-drawn',
   'legend.legible-in-the-panel-font',
   'graph.reads-well-as-a-whole',
   'graph.typing-moves-the-problems-panel-and-not-the-drawing',
@@ -167,14 +173,28 @@ function subsystemOf(d: Declared, component: string): string | null {
 }
 
 // IrNode is one node of the language server's own graph answer.
-interface IrNode { component?: string; boundary_path?: string; subsystem_path?: string }
+interface IrNode { component?: string; boundary_path?: string; subsystem_path?: string; labels?: Record<string, string> }
 
-async function irNodes(ctx: SuiteContext, reference: string): Promise<Record<string, IrNode>> {
+// IrGraph is the language server's own graph answer, as the panel is handed it.
+interface IrGraph { spec?: { nodes?: Record<string, IrNode>; edges?: unknown[] } }
+
+async function irGraph(ctx: SuiteContext, reference: string): Promise<IrGraph> {
   const a = await referenceAnswer({ binary: ctx.inputs.compiler.path, root: reference, method: 'aggrega/irGraph', params: { release: RELEASE }, home: ctx.home, table: ctx.s.table, log: ctx.cliLog });
   need(a.ok, `the language server drew no graph of the reference copy: ${a.ok ? '' : a.error.message}`);
-  const r = a.result as { graph?: { spec?: { nodes?: Record<string, IrNode> } }; spec?: { nodes?: Record<string, IrNode> } };
-  return (r.graph ?? r).spec?.nodes ?? {};
+  const r = a.result as { graph?: IrGraph } & IrGraph;
+  return r.graph ?? r;
 }
+
+// TYPE_LABEL is the label a node's type colour is read from, as an author
+// writes it on a Component.
+const TYPE_LABEL = 'component.aggrega.ai/type';
+
+// tipAt reads whether a mark's tip is the point a line ends at, to the half
+// pixel either side the two pick up on their way to the document's coordinates.
+const tipAt = (mark: Point[], points: Point[]): boolean => {
+  const end = points[points.length - 1];
+  return mark.length === 3 && end !== undefined && Math.abs(mark[0].x - end.x) <= 1 && Math.abs(mark[0].y - end.y) <= 1;
+};
 
 // ---- reading and editing the folder with the panel left where it is ----------
 
@@ -345,11 +365,12 @@ export async function graphDrawingChecks(ctx: SuiteContext, reference: string): 
   const legend = layoutModel();
   // The language server's own graph answer over the reference copy, asked for
   // once by whichever check needs it first.
-  let answered: Record<string, IrNode> | null = null;
-  const irAnswer = async (): Promise<Record<string, IrNode>> => {
-    if (answered === null) { answered = await irNodes(ctx, reference); }
+  let answered: IrGraph | null = null;
+  const irWhole = async (): Promise<IrGraph> => {
+    if (answered === null) { answered = await irGraph(ctx, reference); }
     return answered;
   };
+  const irAnswer = async (): Promise<Record<string, IrNode>> => (await irWhole()).spec?.nodes ?? {};
   await ready(ctx);
   await contextRowsCheck(ctx);
 
@@ -559,13 +580,78 @@ export async function graphDrawingChecks(ctx: SuiteContext, reference: string): 
     return { passed, seen: `${RELEASE}${undrawn.length > 0 ? `, not drawn: ${JSON.stringify(undrawn)}` : ''}; ${seen.join('; ')}` };
   });
 
+  await c.run('graph.each-edge-marked-at-the-end-it-points-to', {
+    expected: `each edge the Aggregate declares (${declared.uses.map((u) => `${u.from} → ${u.to}`).join(', ')}) is drawn with one mark, written straight after its line: the mark's tip on the point the line ends at, on the border of the card its hover names as the target and not on the card it names as the one that uses it, and the mark stroked in its line's own colour and dash`,
+    plant: 'in the scratch copy, media/graph.js made to draw each mark at the start of its line',
+  }, async () => {
+    need(first !== null, 'the graph was not drawn');
+    need(declared.uses.length > 0, 'the Aggregate declares no edge');
+    const d = first;
+    const seen: string[] = [];
+    let passed = true;
+    for (const u of declared.uses) {
+      const lines = d.edges.filter((x) => x.from === u.from && x.to === u.to);
+      const marked = lines.filter((x) => x.mark !== null);
+      const from = d.nodes.find((n) => n.id === u.from);
+      const to = d.nodes.find((n) => n.id === u.to);
+      if (lines.length === 0 || marked.length !== 1 || from === undefined || to === undefined) {
+        passed = false;
+        seen.push(`${u.from} → ${u.to}: ${lines.length} line(s) drawn, ${marked.length} of them marked`);
+        continue;
+      }
+      const line = marked[0];
+      const mark = line.mark as NonNullable<typeof line.mark>;
+      const tip = mark.points[0];
+      const atEnd = tipAt(mark.points, line.points);
+      const onTarget = tip !== undefined && onBorder(to.card, tip);
+      const offSource = tip !== undefined && !onBorder(from.card, tip);
+      const styled = mark.stroke.colour === line.stroke.colour && mark.stroke.dash === line.stroke.dash;
+      passed = passed && atEnd && onTarget && offSource && styled;
+      seen.push(`${u.from} → ${u.to}: the mark's tip ${tip === undefined ? 'not read' : `at (${tip.x.toFixed(1)}, ${tip.y.toFixed(1)})`}, ${atEnd ? 'where its line ends' : `not where its line ends (${JSON.stringify(line.points[line.points.length - 1])})`}, ${onTarget ? `on ${u.to}'s card` : `off ${u.to}'s card ${rect(to.card)}`}${offSource ? '' : `, on ${u.from}'s card`}; stroked ${JSON.stringify(mark.stroke)} against its line's ${styled ? 'same' : JSON.stringify(line.stroke)}`);
+    }
+    return { passed, seen: seen.join('; ') };
+  });
+
+  await c.run('graph.box-for-nodes-in-no-subsystem-drawn-apart-and-named-in-the-legend', {
+    expected: `the box titled "${subsystemTitle(NONE_DECLARED)}", which holds the nodes the Aggregate places in no subsystem, is drawn with a class and a stroke colour unlike every declared subsystem's box, and the legend carries the row the layout model composes for it, drawn whole — its drawn text the whole sentence, its box inside the legend's and inside the panel — beside a swatch bordered unlike the subsystem row's`,
+    plant: 'in the scratch copy, media/graph.js made to draw the box for nodes in no grouping with its kind\'s class alone',
+  }, async () => {
+    need(doc !== null && first !== null, 'the graph was not drawn');
+    const d = first;
+    const box = containerTitled(d, 'subsystem', subsystemTitle(NONE_DECLARED));
+    need(box !== undefined, `the drawing draws no box titled "${subsystemTitle(NONE_DECLARED)}", so there is nothing to tell apart`);
+    const declaredBoxes = d.containers.filter((k) => k.kind === 'subsystem' && k !== box);
+    need(declaredBoxes.length > 0, 'the drawing draws no declared subsystem to tell the box apart from');
+    const apart = declaredBoxes.every((k) => k.classes !== box.classes && k.stroke.colour !== box.stroke.colour);
+    const want = legendFor(await irWhole()).find((r) => r.swatch === 'undeclared' && r.text.includes('no subsystem'));
+    need(want !== undefined, 'the layout model composes no legend row for the box holding nodes in no subsystem');
+    const l = await readLegend(doc);
+    const row = l.rows.find((r) => r.text === want.text);
+    const subsystemRow = l.rows.find((r) => r.swatch === 'subsystem');
+    const whole = row !== undefined && row.drawn === row.text && contains(l.box, row.box) && contains(l.view, row.box);
+    const ownSwatch = row !== undefined && subsystemRow !== undefined && row.swatchBorder !== subsystemRow.swatchBorder;
+    return {
+      passed: apart && whole && ownSwatch,
+      seen: `the box ${JSON.stringify(box.classes)} stroked ${JSON.stringify(box.stroke)}; declared subsystems ${JSON.stringify(declaredBoxes.map((k) => [k.title, k.classes, k.stroke.colour]))}; the legend row ${row === undefined ? `"${want.text}" not drawn` : `${JSON.stringify(row.text)} drawn ${whole ? 'whole' : `as ${JSON.stringify(row.drawn)} at ${rect(row.box)}`}, its swatch bordered ${JSON.stringify(row.swatchBorder)} against the subsystem row's ${JSON.stringify(subsystemRow?.swatchBorder ?? null)}`}`,
+    };
+  });
+
   // ---- the legend ----
+  // The rows are what the layout model composes for this folder's graph, as the
+  // language server's own answer over the reference copy carries it: the rows
+  // every legend carries, and the rows this drawing earns.
+  let composed: LegendRow[] | null = null;
+  const composedRows = async (): Promise<LegendRow[]> => {
+    if (composed === null) { composed = legendFor(await irWhole()); }
+    return composed;
+  };
   await c.run('legend.lower-left-names-the-groupings-and-the-type-bar-and-bounds-the-colours', {
-    expected: `beside the first drawing, a legend at the lower left of the panel — nearer its left edge than its right, and nearer its foot than its head — reading as the layout model declares it: headed "${legend.LEGEND_TITLE}", its rows reading ${legend.LEGEND_ROWS.map((r) => `"${r.text}"`).join(', ')} in that order, and its note "${legend.LEGEND_NOTE}"`,
+    expected: `beside the first drawing, a legend at the lower left of the panel — nearer its left edge than its right, and nearer its foot than its head — reading as the layout model composes it for this graph: headed "${legend.LEGEND_TITLE}", its rows the ones every legend carries (${legend.LEGEND_ROWS.map((r) => `"${r.text}"`).join(', ')}) with the rows this graph earns among them, in the order composed, and its note "${legend.LEGEND_NOTE}"`,
     plant: 'in the scratch copy, media/graph.css made to draw the legend at the upper right; or media/graph-model.js made to drop the note\'s second sentence',
   }, async () => {
     need(doc !== null && first !== null, 'the graph was not drawn');
     const l = await readLegend(doc);
+    const want = (await composedRows()).map((r) => r.text);
     const cv = first.canvas;
     const left = l.box.x - cv.x;
     const right = cv.x + cv.width - (l.box.x + l.box.width);
@@ -573,7 +659,8 @@ export async function graphDrawingChecks(ctx: SuiteContext, reference: string): 
     const foot = cv.y + cv.height - (l.box.y + l.box.height);
     const lowerLeft = left < right && foot < top;
     const rows = l.rows.map((r) => r.text);
-    const passed = l.shown && lowerLeft && l.title === legend.LEGEND_TITLE && JSON.stringify(rows) === JSON.stringify(legend.LEGEND_ROWS.map((r) => r.text)) && l.note === legend.LEGEND_NOTE;
+    const everyLegend = legend.LEGEND_ROWS.every((r) => rows.includes(r.text));
+    const passed = l.shown && lowerLeft && l.title === legend.LEGEND_TITLE && everyLegend && JSON.stringify(rows) === JSON.stringify(want) && l.note === legend.LEGEND_NOTE;
     return {
       passed,
       seen: `${l.shown ? `drawn at ${rect(l.box)}, ${left.toFixed(0)} px from the left and ${right.toFixed(0)} from the right, ${foot.toFixed(0)} from the foot and ${top.toFixed(0)} from the head` : 'not drawn'}; headed ${JSON.stringify(l.title)}; rows ${JSON.stringify(rows)}; note ${l.note === legend.LEGEND_NOTE ? 'as declared' : JSON.stringify(l.note)}`,
@@ -599,6 +686,38 @@ export async function graphDrawingChecks(ctx: SuiteContext, reference: string): 
       seen.push(row === undefined ? `no ${want.swatch} row drawn` : `${JSON.stringify(row.text)}${worded ? '' : ` where "${want.text}" is declared`}, drawn ${whole ? 'whole' : `as ${JSON.stringify(row.drawn)} at ${rect(row.box)} in a legend at ${rect(l.box)} and a panel ${rect(l.view)}`}`);
     }
     return { passed, seen: seen.join('; ') };
+  });
+
+  await c.run('legend.names-each-type-colour-drawn', {
+    expected: `for every node of the first drawing, as the language server's own graph answer over a reference copy labels it: one carrying a ${TYPE_LABEL} label draws its bar in the colour of the legend row reading that label's value exactly as written; one carrying none draws no bar, and the legend then carries the row for nodes with no such label; and the legend names no type that no node drawn carries`,
+    plant: 'in the scratch copy, media/graph-model.js made to name each type row by its colour rather than by the value it stands for',
+  }, async () => {
+    need(doc !== null && first !== null, 'the graph was not drawn');
+    const d = first;
+    const ir = await irAnswer();
+    const l = await readLegend(doc);
+    const typeRows = l.rows.filter((r) => r.swatch === 'type');
+    const untypedRow = l.rows.find((r) => r.swatch === 'untyped');
+    const seen: string[] = [];
+    const carried = new Set<string>();
+    let passed = d.nodes.length > 0 && typeRows.length > 0;
+    for (const n of d.nodes) {
+      const type = ir[n.id]?.labels?.[TYPE_LABEL] ?? null;
+      if (type === null) {
+        const ok = n.accent === null && untypedRow !== undefined;
+        passed = passed && ok;
+        seen.push(`${n.id}: no ${TYPE_LABEL} label, ${n.accent === null ? 'no bar' : `a bar in ${n.accent}`}${untypedRow === undefined ? ', and the legend carries no row for it' : ''}`);
+        continue;
+      }
+      carried.add(type);
+      const row = typeRows.find((r) => r.text === type);
+      const ok = row !== undefined && n.accent !== null && row.swatchLead === n.accent;
+      passed = passed && ok;
+      seen.push(`${n.id}: ${JSON.stringify(type)}, its bar ${n.accent ?? 'not drawn'}, ${row === undefined ? 'named by no legend row' : `the row ${JSON.stringify(row.text)} ${row.swatchLead}`}`);
+    }
+    const unworn = typeRows.filter((r) => !carried.has(r.text)).map((r) => r.text);
+    passed = passed && unworn.length === 0;
+    return { passed, seen: `type rows ${JSON.stringify(typeRows.map((r) => [r.text, r.swatchLead]))}; ${seen.join('; ')}${unworn.length > 0 ? `; rows naming a type no node carries ${JSON.stringify(unworn)}` : ''}` };
   });
 
   await c.forPerson('legend.legible-in-the-panel-font', {
@@ -1071,13 +1190,22 @@ export async function graphIdleChecks(ctx: SuiteContext): Promise<void> {
 
 // The checks run in a folder of a few dozen components grouped in subsystems
 // inside boundaries: the first drawing showing the whole shape fitted to the
-// panel, however small that makes its names, and whether that trade reads right.
+// panel, however small that makes its names, that first fit using the panel's
+// width rather than a narrow column of it, and whether that trade reads right.
 
 export const FLEET_CHECKS = [
   'commands-panel.context-rows-name-the-opened-folder',
   'graph.large-topology-arrives-whole-in-its-first-drawing',
+  'graph.large-topology-first-fit-uses-the-panel-width',
   'graph.large-topology-arriving-small-reads-right',
 ] as const;
+
+// What the first fit of this folder's drawing measured with its tall sibling
+// groupings stacked in one column, on a canvas of the width named: a margin of
+// this many pixels left empty either side, and each card drawn this tall. A fit
+// that uses the panel's width leaves less either side and draws each card
+// taller.
+const STACKED_FIT = { canvasWidth: 1092, margin: 380, cardHeight: 23 } as const;
 
 export async function fleetChecks(ctx: SuiteContext): Promise<void> {
   const c = ctx.checks;
@@ -1101,6 +1229,21 @@ export async function fleetChecks(ctx: SuiteContext): Promise<void> {
       passed: missing.length === 0 && f.whole && f.centred,
       seen: `${d.nodes.length} cards drawn${missing.length > 0 ? `, missing ${JSON.stringify(missing)}` : ''}; ${describeFraming(f)}; a card drawn ${card === undefined ? '-' : `${card.card.width.toFixed(1)}×${card.card.height.toFixed(1)}, its id ${card.idBox.height.toFixed(1)} px high`}`,
       evidence: { drawing: d },
+    };
+  });
+  await c.run('graph.large-topology-first-fit-uses-the-panel-width', {
+    expected: `on a canvas ${STACKED_FIT.canvasWidth} px wide, the first drawing of the ${placed.length} components leaves less than ${STACKED_FIT.margin} px empty at its left and at its right, and draws every card taller than ${STACKED_FIT.cardHeight} px — the margin and the card height its first fit measured with its tall sibling groupings stacked in one column`,
+    plant: 'in the scratch copy, media/graph-model.js made to leave sibling groupings stacked in one column whatever their shape',
+  }, async () => {
+    need(first !== null, 'the graph was not drawn');
+    const d = first;
+    need(Math.abs(d.canvas.width - STACKED_FIT.canvasWidth) <= 1, `the canvas is ${d.canvas.width.toFixed(1)} px wide, not the ${STACKED_FIT.canvasWidth} px the margins are measured against`);
+    const f = framingOf(d);
+    const short = d.nodes.filter((n) => !(n.card.height > STACKED_FIT.cardHeight)).map((n) => `${n.id} ${n.card.height.toFixed(1)}`);
+    const heights = d.nodes.map((n) => n.card.height);
+    return {
+      passed: d.nodes.length > 0 && f.margins.left < STACKED_FIT.margin && f.margins.right < STACKED_FIT.margin && short.length === 0,
+      seen: `${describeFraming(f)}; cards drawn ${Math.min(...heights).toFixed(1)} to ${Math.max(...heights).toFixed(1)} px tall${short.length > 0 ? `, not taller than ${STACKED_FIT.cardHeight} px: ${JSON.stringify(short)}` : ''}; containers ${d.containers.map((k) => `${k.title} ${rect(k.box)}`).join(', ')}`,
     };
   });
   await c.forPerson('graph.large-topology-arriving-small-reads-right', {

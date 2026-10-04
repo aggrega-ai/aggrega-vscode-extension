@@ -52,8 +52,9 @@ const INSPECTION_FLAG = '--build-on-inspect';
 // change the check reports rather than follows.
 const TOGGLE_ON_NOTICE = "Aggrega: the build's analysis will run while inspecting a graph. The language server reads this setting when it starts, so restart it to apply the change.";
 
-// CONTEXT_ROW_LABELS are the three context rows, in the order they are drawn.
-export const CONTEXT_ROW_LABELS = ['Project folder', 'Aggrega workspace', 'Release'];
+// CONTEXT_ROW_LABELS are the three context rows' labels as drawn, in the order
+// they are drawn — the Aggrega workspace row's shortened.
+export const CONTEXT_ROW_LABELS = ['Project folder', 'Agg. worksp.', 'Release'];
 
 const GRAPH_DOCUMENT = `!!document.getElementById('canvas') && !!document.getElementById('legend')`;
 

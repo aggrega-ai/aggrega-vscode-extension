@@ -7,8 +7,12 @@ import * as path from 'path';
 import { SWITCH_ANCHOR_COMMAND } from '../../src/anchor-picker';
 import { CREATE_WORKSPACE_COMMAND, DRAFT_RELEASE_COMMAND } from '../../src/get-started-steps';
 import { SELECT_RELEASE_COMMAND } from '../../src/release-selection';
-import { SELECTOR_ROW_KEYS, SELECTOR_ROW_LABELS } from '../../src/selector-levels';
-import { CHOOSE_PROJECT_FOLDER_COMMAND } from '../../src/project-folder';
+import { SELECTOR_ROW_DRAWN_LABELS, SELECTOR_ROW_KEYS, SELECTOR_ROW_LABELS } from '../../src/selector-levels';
+import {
+  CHOOSE_PROJECT_FOLDER_COMMAND,
+  CHOOSE_PROJECT_FOLDER_INVITATION,
+  SOLE_PROJECT_FOLDER_INVITATION,
+} from '../../src/project-folder';
 import {
   OPEN_WORKSPACE_ROOT_COMMAND,
   SelectorCandidates,
@@ -50,7 +54,7 @@ describe('the three rows that name what the editor is acting on', () => {
 
     assert.deepStrictEqual(
       rows.map(r => r.label),
-      ['Project folder', 'Aggrega workspace', 'Release'],
+      ['Project folder', 'Agg. worksp.', 'Release'],
     );
     assert.deepStrictEqual(rows.map(r => r.key), ['project', 'workspace', 'release']);
     assert.deepStrictEqual(
@@ -62,21 +66,57 @@ describe('the three rows that name what the editor is acting on', () => {
   it('keeps the product name on the middle row, which is the ambiguity being fixed', () => {
     // "Workspace" alone already names the set of folders a window has open, so
     // the bare word would have this row naming two different things at once.
+    // The row draws the name shortened, so its value has room, and keeps the
+    // product in it.
     const rows = selectorRows(ANCHORED, OPENED_INSIDE, OPENED_INSIDE, SELECTED, SEVERAL);
-    assert.strictEqual(rows[1].label, 'Aggrega workspace');
+    assert.strictEqual(rows[1].label, 'Agg. worksp.');
     assert.notStrictEqual(
       rows[1].label, 'Workspace',
       'the middle row names two different things at once without the product name',
     );
   });
 
+  it('names the middle row in full on its hover in every reading, whatever its label draws', () => {
+    // The shortened label is the row's drawing and nothing else: the hover is
+    // where the level is named, so each reading opens with, or carries, the
+    // whole name. One reading per branch of the row: anchored with the folder
+    // inside the workspace, anchored at the folder, nothing anchored with
+    // workspaces to choose from, and none available.
+    const hovers = [
+      workspaceRow(ANCHORED, OPENED_INSIDE, 2),
+      workspaceRow(ANCHORED, ANCHORED, 1),
+      workspaceRow(null, OPENED_INSIDE, 2),
+      workspaceRow(null, null, 0),
+    ].map((row) => row.tooltip);
+    assert.deepStrictEqual(
+      hovers.map((t) => t.includes('Aggrega workspace')),
+      [true, true, true, true],
+      `a reading of the workspace row's hover does not name the level in full:\n${hovers.join('\n---\n')}`,
+    );
+    assert.deepStrictEqual(
+      hovers.slice(0, 2).map((t) => t.split('\n')[0]),
+      [`Aggrega workspace: ${ANCHORED}`, `Aggrega workspace: ${ANCHORED}`],
+    );
+    assert.deepStrictEqual(
+      hovers.map((t) => t.includes('Agg. worksp.')),
+      [false, false, false, false],
+      'a hover names the level by the label\'s shortened form',
+    );
+  });
+
   it('draws every name from the one place they are written', () => {
-    // A row and any sentence written about that row read the same constant, so
-    // one level cannot come to be called two things on one surface.
+    // A row's label is read from the one place the drawn labels are written, and
+    // every one of them but the shortened middle one IS its level's name, read
+    // from the one place the names are written; so one level cannot come to be
+    // called two things on one surface.
     const rows = selectorRows(ANCHORED, OPENED_INSIDE, OPENED_INSIDE, SELECTED, SEVERAL);
     for (const row of rows) {
-      assert.strictEqual(row.label, SELECTOR_ROW_LABELS[row.key]);
+      assert.strictEqual(row.label, SELECTOR_ROW_DRAWN_LABELS[row.key]);
     }
+    assert.deepStrictEqual(
+      SELECTOR_ROW_KEYS.filter((key) => SELECTOR_ROW_DRAWN_LABELS[key] !== SELECTOR_ROW_LABELS[key]),
+      ['workspace'],
+    );
   });
 
   it('gives each row a value of its own and never a neighbour\'s', () => {
@@ -347,6 +387,25 @@ describe('a level holding exactly one candidate', () => {
     assert.ok(
       rows[0].tooltip.includes('no others to choose between'),
       'the project row leaves the reader to press and find out',
+    );
+  });
+
+  it('closes the sole Project folder\'s hover on what a press offers there, and never on a choice between folders', () => {
+    // Having said there are no others to choose between, a hover that then
+    // invited a choice between folders would contradict itself; what a press
+    // offers with one folder open is opening a folder or adding one. With
+    // several open, the choice is real and the invitation stays.
+    const sole = projectFolderRow(OPENED_INSIDE, 1).tooltip.split('\n');
+    const several = projectFolderRow(OPENED_INSIDE, 3).tooltip.split('\n');
+    assert.deepStrictEqual(
+      [sole[sole.length - 1], several[several.length - 1]],
+      [SOLE_PROJECT_FOLDER_INVITATION, CHOOSE_PROJECT_FOLDER_INVITATION],
+    );
+    assert.strictEqual(SOLE_PROJECT_FOLDER_INVITATION, 'Click to open a folder or add one to this window.');
+    assert.deepStrictEqual(
+      sole.filter((line) => line === CHOOSE_PROJECT_FOLDER_INVITATION),
+      [],
+      'the sole folder\'s hover still invites a choice between folders',
     );
   });
 

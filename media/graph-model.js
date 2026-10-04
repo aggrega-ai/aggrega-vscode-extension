@@ -2,12 +2,13 @@
 // Copyright 2026 Cognitio S.r.l.
 //
 // The document-free half of the topology renderer: the transform from the
-// compiler's IR graph into an elk layout graph, the resolution of the laid-out
-// graph's nested coordinates into one absolute space, and the hover text for a
-// node and an edge. It reads no document, calls no layout engine and holds no
-// state between transforms, so the ordering, the geometry and the hover
-// contents can be exercised on their own. media/graph.js draws whatever this
-// produces.
+// compiler's IR graph into an elk layout graph, which of its groupings a first
+// layout says to lay side by side, the resolution of the laid-out graph's nested
+// coordinates into one absolute space, the mark at the end an edge points to,
+// the legend's rows for one drawing, and the hover text for a node and an edge.
+// It reads no document, calls no layout engine and holds no state between
+// transforms, so the ordering, the geometry, the legend and the hover contents
+// can be exercised on their own. media/graph.js draws whatever this produces.
 //
 // Text is MEASURED rather than estimated, and the measurement is supplied by
 // the caller: a per-character estimate cannot be right for a font it has never
@@ -54,6 +55,12 @@
   //
   // It says none was declared rather than naming one, because there is no
   // grouping called this: the box exists to hold the nodes that are in none.
+  // For the same reason the box is marked as declared by nobody (`_declared`
+  // on its container), so the drawing draws it apart from a grouping that was
+  // declared and the legend gives it a row of its own saying what it holds. A
+  // box titled this but drawn like a declared grouping reads as a grouping
+  // called "(none declared)", which the legend's row for that kind — a grouping
+  // a document declares — then contradicts.
   const UNGROUPED = '(none declared)';
 
   // The separator in each kind of grouping's path. The compiler composes the
@@ -90,16 +97,37 @@
   // cannot work out by looking. A grouping's shape and its position are both on
   // the canvas already; which document declares it is not, so each grouping row
   // names that document — which is what lets a reader go from a box to the file
-  // they would edit to change it. The accent bar is a colour whose meaning is
-  // local to the drawing it appears in, and a reader told nothing will read a
-  // colour as fixed and compare two graphs by it.
+  // they would edit to change it. An edge's line does not say which of its two
+  // ends uses the other, so its row says what the mark at one end means, in the
+  // words the documentation uses for an edge's two ends: the consuming component
+  // and its target. The accent bar is a colour whose meaning is local to the
+  // drawing it appears in, and a reader told nothing will read a colour as fixed
+  // and compare two graphs by it — and no colour says which type it stands for,
+  // so each one drawn is named beside its swatch (legendRows, below).
   const LEGEND_TITLE = 'Legend';
 
+  // LEGEND_ROWS are the rows every drawing's legend carries, in the order it
+  // draws them; legendRows adds the rows that depend on what one drawing holds.
+  // The two grouping rows come first and stay together.
   const LEGEND_ROWS = [
     { swatch: 'boundary', text: 'Boundary — a grouping the Release declares.' },
     { swatch: 'subsystem', text: 'Subsystem — a grouping the Aggregate declares.' },
-    { swatch: 'accent', text: 'Node type — the bar down a node\'s leading edge.' },
+    { swatch: 'edge', text: 'Edge — from the consuming component to its target, the arrowhead at the target.' },
+    { swatch: 'accent', text: `Node type — the bar down a node's leading edge, coloured by its ${TYPE_LABEL} label:` },
   ];
+
+  // The row each kind of box holding nodes in no declared grouping gets, where
+  // the drawing draws one. It says what the box holds, which is the one thing
+  // its title cannot: the title says only that nothing was declared.
+  const UNDECLARED_ROWS = {
+    boundary: { swatch: 'undeclared', text: `${UNGROUPED} — a box holding the nodes the Release places in no boundary.` },
+    subsystem: { swatch: 'undeclared', text: `${UNGROUPED} — a box holding the nodes the Aggregate places in no subsystem.` },
+  };
+
+  // The row for the nodes that carry no type label, where the drawing draws
+  // one: such a node draws no bar, and a legend naming only the colours would
+  // leave a reader to guess what a node without one is.
+  const UNTYPED_ROW = { swatch: 'untyped', text: `(no ${TYPE_LABEL} label)` };
 
   const LEGEND_NOTE =
     'Type colours are assigned as this graph is drawn, in the order the types are '
@@ -194,8 +222,11 @@
   // the title would run out past the border — the same spill the node boxes are
   // sized to avoid. The minimum is a floor: elk keeps the wider of it and what
   // the contents need.
-  function containerOpts(rank, minWidth) {
-    return partitioned(rank, {
+  //
+  // A container named as one whose groupings go side by side takes those
+  // options too (see SIDE_BY_SIDE).
+  function containerOpts(rank, minWidth, sideBySide) {
+    return partitioned(rank, Object.assign({
       // A container's own children are partitioned too, so a boundary holding
       // two waves shows them ordered inside itself.
       'elk.partitioning.activate': 'true',
@@ -203,7 +234,50 @@
       'elk.spacing.nodeNode': '22',
       'elk.nodeSize.constraints': 'MINIMUM_SIZE',
       'elk.nodeSize.minimum': `(${minWidth},0)`,
-    });
+    }, sideBySide ? SIDE_BY_SIDE : {}));
+  }
+
+  // SIDE_BY_SIDE lays the groupings one container holds side by side, each in
+  // a layer of its own along the layout's direction, rather than stacked in
+  // one: the layering that takes a bound on how many go in a layer, bounded to
+  // one.
+  //
+  // The default layering puts every grouping with no edge to a sibling in one
+  // layer, which stacks them in one column. Where they are tall, that column is
+  // what turns a large topology into a narrow strip, and a first fit — which
+  // scales the drawing until its longer side fits the panel — then shrinks it
+  // by its height and leaves most of the panel's width empty. Side by side, the
+  // same groupings make a drawing whose proportions are nearer the panel's, so
+  // the same fit draws it larger. Edges between siblings still decide which
+  // goes ahead of which.
+  const SIDE_BY_SIDE = {
+    'elk.layered.layering.strategy': 'COFFMAN_GRAHAM',
+    'elk.layered.layering.coffmanGraham.layerBound': '1',
+  };
+
+  // groupingsToSpread reads a laid-out graph and names each container, the
+  // graph itself included, whose groupings are to be laid side by side: one
+  // holding only groupings, two or more of which the layout drew taller than
+  // they are wide.
+  //
+  // It is decided from a layout rather than declared, because whether a
+  // grouping is tall is a fact about how it was laid out — how many nodes it
+  // stacks, and whether edges inside it run them across instead — which the
+  // graph alone does not say. Groupings that are not tall are left stacked: a
+  // drawing already wider than it is tall would only be widened further, and
+  // drawn smaller for it. The caller lays the graph out once, asks this, and
+  // where it names any container lays it out again with toElkGraph told which.
+  function groupingsToSpread(laid) {
+    const spread = [];
+    const visit = (k) => {
+      const held = (k && k.children) || [];
+      const groupings = held.filter((c) => c._kind);
+      const tall = groupings.filter((c) => (c.height || 0) > (c.width || 0));
+      if (groupings.length === held.length && tall.length > 1) { spread.push(k.id); }
+      for (const c of groupings) { visit(c); }
+    };
+    visit(laid);
+    return spread;
   }
 
   // groupingTree is an empty tree of groupings of one kind: each grouping by its
@@ -219,10 +293,10 @@
   // time it is met — and adding first the grouping it is declared inside, at
   // every depth, so a grouping that holds nothing of its own but holds one that
   // does still has its place. The grouping nobody declared, keyed by null, is
-  // declared inside nothing.
+  // declared inside nothing, and is the one grouping marked as not declared.
   function groupingIn(tree, path) {
     if (tree.byPath.has(path)) { return tree.byPath.get(path); }
-    const g = Object.assign({ title: path === null ? UNGROUPED : path, inner: [] }, tree.holds());
+    const g = Object.assign({ title: path === null ? UNGROUPED : path, declared: path !== null, inner: [] }, tree.holds());
     const outer = path === null ? '' : enclosingPath(path, tree.separator);
     if (outer === '') {
       tree.top.push(g);
@@ -245,10 +319,15 @@
   // three roles above. It is required rather than defaulted: a default would be
   // an estimate, and an estimate standing in silently for a measurement is the
   // fault this argument exists to remove.
-  function toElkGraph(graph, measure) {
+  //
+  // spread names the containers, by id, whose groupings are laid side by side —
+  // what groupingsToSpread reads off a first layout of the same graph. Left out,
+  // every container lays its groupings out as the default layering does.
+  function toElkGraph(graph, measure, spread) {
     const spec = (graph && graph.spec) || {};
     const nodes = spec.nodes || {};
     const edges = spec.edges || [];
+    const sideBySide = new Set(spread || []);
 
     // Group node ids by boundary, then subsystem, preserving encounter order
     // (the IR nodes object is already author-ordered); the wave ordering below
@@ -260,7 +339,7 @@
     const boundaries = groupingTree(BOUNDARY_SEPARATOR, () => ({
       subsystems: groupingTree(SUBSYSTEM_SEPARATOR, () => ({ ids: [] })),
     }));
-    const meta = new Map(); // nodeId -> { component, subLabel, version, wave, labels, catalog, sourceFile, accent }
+    const meta = new Map(); // nodeId -> { component, subLabel, version, wave, labels, catalog, sourceFile, type, accent }
     const waves = [];
     const accents = new Map();
 
@@ -271,6 +350,7 @@
 
       const wave = nodeWave(n);
       const component = n.component || id;
+      const type = typeOf(n.labels);
       waves.push(wave);
       meta.set(id, {
         component,
@@ -282,7 +362,10 @@
         labels: n.labels || {},
         catalog: n.catalog_metadata || null,
         sourceFile: n.source_file || '',
-        accent: accentColor(n.labels, accents),
+        // The type the accent is coloured by, kept beside the colour so the
+        // legend names each colour by the value it was assigned for.
+        type,
+        accent: accentColor(type, accents),
       });
     }
 
@@ -295,7 +378,9 @@
     // earliest wave it holds at any depth: a grouping whose first work happens
     // in an earlier wave is laid out ahead of one whose does not. Its layout
     // options are written once what it holds is ordered, so its rank is known.
-    const container = (kind, id, title, held) => {
+    // Whether anybody declared its grouping travels with it, for the drawing and
+    // the legend to read.
+    const container = (kind, id, title, declared, held) => {
       const ordered = byRank(held);
       const rank = ordered.length > 0 ? ordered[0].rank : 0;
       const label = containerLabel(kind, title);
@@ -305,14 +390,15 @@
         _label: label,
         _kind: kind,
         _rank: rank,
-        layoutOptions: containerOpts(rank, titleFloor(label)),
+        _declared: declared,
+        layoutOptions: containerOpts(rank, titleFloor(label), sideBySide.has(id)),
         children: ordered.map((h) => h.child),
       };
     };
     const ranked = (c) => ({ rank: c._rank, child: c });
     // A subsystem's container holds the boxes of the nodes declared directly in
     // it and the containers of the subsystems declared directly inside it.
-    const subsystemContainer = (boundaryTitle, s) => container('subsystem', `s::${boundaryTitle}::${s.title}`, s.title, [
+    const subsystemContainer = (boundaryTitle, s) => container('subsystem', `s::${boundaryTitle}::${s.title}`, s.title, s.declared, [
       ...s.ids.map((id) => ({
         rank: rankOf(id),
         child: {
@@ -327,7 +413,7 @@
     // A boundary's container holds the containers of the subsystems its own
     // nodes are declared in and the containers of the boundaries declared
     // directly inside it.
-    const boundaryContainer = (b) => container('boundary', `b::${b.title}`, b.title, [
+    const boundaryContainer = (b) => container('boundary', `b::${b.title}`, b.title, b.declared, [
       ...b.subsystems.top.map((s) => ranked(subsystemContainer(b.title, s))),
       ...b.inner.map((inner) => ranked(boundaryContainer(inner))),
     ]);
@@ -342,9 +428,12 @@
       _alias: e.alias || '',
     }));
 
+    // The graph itself is laid out with its boundaries the way a container is
+    // with its groupings, so it too may be named as one whose boundaries go
+    // side by side.
     const root = {
       id: 'root',
-      layoutOptions: {
+      layoutOptions: Object.assign({
         'elk.algorithm': 'layered',
         'elk.direction': 'RIGHT',
         'elk.hierarchyHandling': 'INCLUDE_CHILDREN',
@@ -356,7 +445,7 @@
         'elk.layered.spacing.nodeNodeBetweenLayers': '48',
         'elk.spacing.nodeNode': '28',
         'elk.padding': '[top=20,left=20,bottom=20,right=20]',
-      },
+      }, sideBySide.has('root') ? SIDE_BY_SIDE : {}),
       children: orderedBoundaries,
       edges: elkEdges,
     };
@@ -425,6 +514,41 @@
         .map((p) => ({ x: p.x + o.x, y: p.y + o.y })));
   }
 
+  // How far the direction mark reaches back along its line from the point it
+  // marks, and how far it spreads to either side of the line, in the layout's
+  // own units — so it scales with the drawing, as the line it ends does.
+  const MARK_LENGTH = 10;
+  const MARK_HALF_WIDTH = 5;
+
+  // directionMark is the arrowhead drawn where a line ends: its tip on the
+  // line's last point, its base back along the line's last segment, as three
+  // points with the tip first — or none for a line with no length to point
+  // along.
+  //
+  // An edge runs from the consuming component to its target — the layout is
+  // handed each edge's source and target as the compiler sent them — so its
+  // geometry ends on the target's border, and the mark at the end is the mark
+  // on the target. Its direction is the last segment's, which is the way the
+  // line arrives at the box it ends on.
+  function directionMark(points) {
+    const tip = points && points[points.length - 1];
+    let from = null;
+    for (let i = (points || []).length - 2; i >= 0; i--) {
+      if (points[i].x !== tip.x || points[i].y !== tip.y) { from = points[i]; break; }
+    }
+    if (!tip || !from) { return []; }
+    const length = Math.hypot(tip.x - from.x, tip.y - from.y);
+    const ux = (tip.x - from.x) / length;
+    const uy = (tip.y - from.y) / length;
+    const bx = tip.x - ux * MARK_LENGTH;
+    const by = tip.y - uy * MARK_LENGTH;
+    return [
+      { x: tip.x, y: tip.y },
+      { x: bx - uy * MARK_HALF_WIDTH, y: by + ux * MARK_HALF_WIDTH },
+      { x: bx + uy * MARK_HALF_WIDTH, y: by - ux * MARK_HALF_WIDTH },
+    ];
+  }
+
   // byRank orders what a container holds by wave rank, keeping the order it was
   // handed within a rank: its nodes in author order, then the containers beside
   // them in the order they were first met. Handing elk the children already
@@ -437,16 +561,65 @@
       .map((entry) => entry.h);
   }
 
-  // accentColor returns a stable accent colour for a node's type label, or null
-  // when the node carries no type label (the neutral node body stands alone).
-  function accentColor(labels, assignments) {
-    if (!labels) { return null; }
-    const key = labels[TYPE_LABEL];
-    if (!key) { return null; }
-    if (!assignments.has(key)) {
-      assignments.set(key, ACCENT_PALETTE[assignments.size % ACCENT_PALETTE.length]);
+  // typeOf is the value of a node's type label as its author wrote it, or null
+  // when the node carries none. It is read once, here, and both the accent and
+  // the legend row naming the accent are read from what it returns.
+  function typeOf(labels) {
+    const value = labels ? labels[TYPE_LABEL] : null;
+    return value ? value : null;
+  }
+
+  // accentColor returns a stable accent colour for a node's type, or null when
+  // the node carries no type label (the neutral node body stands alone).
+  function accentColor(type, assignments) {
+    if (type === null) { return null; }
+    if (!assignments.has(type)) {
+      assignments.set(type, ACCENT_PALETTE[assignments.size % ACCENT_PALETTE.length]);
     }
-    return assignments.get(key);
+    return assignments.get(type);
+  }
+
+  // legendRows composes the legend for one drawing, from the graph handed to
+  // the layout and the node table toElkGraph returned with it: the rows every
+  // legend carries (LEGEND_ROWS), a row for each kind of box holding nodes in no
+  // declared grouping where the drawing draws one, and, beneath the node-type
+  // row, one row for each type the drawing colours.
+  //
+  // A type row names the type label's value exactly as the author wrote it,
+  // beside the colour the drawing gave that value — read from the node table,
+  // where both were set together, so the row cannot name one value beside
+  // another's colour. The rows come in the order the colours were assigned,
+  // which is the order the types are first met. A row for the nodes carrying no
+  // type label comes last, where the drawing draws any.
+  function legendRows(root, meta) {
+    const undeclared = new Set();
+    const visit = (k) => {
+      for (const c of (k && k.children) || []) {
+        if (!c._kind) { continue; }
+        if (c._declared === false) { undeclared.add(c._kind); }
+        visit(c);
+      }
+    };
+    visit(root);
+    const types = new Map();
+    let untyped = false;
+    for (const m of meta.values()) {
+      if (m.type === null) { untyped = true; } else if (!types.has(m.type)) { types.set(m.type, m.accent); }
+    }
+    const rows = [];
+    for (const row of LEGEND_ROWS) {
+      rows.push(Object.assign({}, row));
+      // Each kind's row for its box holding the nodes in none goes after the
+      // grouping rows, which stay together as the first two.
+      if (row.swatch === 'subsystem') {
+        for (const kind of ['boundary', 'subsystem']) {
+          if (undeclared.has(kind)) { rows.push(Object.assign({}, UNDECLARED_ROWS[kind])); }
+        }
+      }
+    }
+    for (const [type, colour] of types) { rows.push({ swatch: 'type', text: type, colour }); }
+    if (untyped) { rows.push(Object.assign({}, UNTYPED_ROW)); }
+    return rows;
   }
 
   // nodeTooltip is the hover text for one node: what the compiler resolved for
@@ -501,8 +674,11 @@
 
   root.AggregaGraphModel = {
     toElkGraph,
+    groupingsToSpread,
     place,
     edgePaths,
+    directionMark,
+    legendRows,
     nodeTooltip,
     edgeTooltip,
     waveRanks,

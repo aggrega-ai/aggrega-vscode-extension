@@ -1024,6 +1024,21 @@ export const PLANTS: readonly Plant[] = [
     says: 'each container\'s box is drawn one width to the left of where it is laid out, so edges run through boxes they have no end in',
   },
   {
+    name: 'edge-mark-at-the-start', scenario: 'storefront-graph-drawing', checks: ['graph.each-edge-marked-at-the-end-it-points-to'], moves: 'red', target: 'extension',
+    file: GRAPH_SCRIPT, find: '        if (at === paths.length - 1) { drawDirectionMark(path, cls, hover); }', replace: '        if (at === paths.length - 1) { drawDirectionMark(path.slice().reverse(), cls, hover); }',
+    says: 'each edge\'s mark is drawn at the start of its line, on the component that uses the other, rather than at the end on its target',
+  },
+  {
+    name: 'undeclared-box-drawn-as-its-kind', scenario: 'storefront-graph-drawing', checks: ['graph.box-for-nodes-in-no-subsystem-drawn-apart-and-named-in-the-legend'], moves: 'red', target: 'extension',
+    file: GRAPH_SCRIPT, find: "    rect.setAttribute('class', box.node._declared === false ? `${kindClass} container-undeclared` : kindClass);", replace: "    rect.setAttribute('class', kindClass);",
+    says: 'the box holding the nodes in no declared grouping is drawn with its kind\'s class alone, exactly like a grouping a document declares',
+  },
+  {
+    name: 'legend-types-named-by-colour', scenario: 'storefront-graph-drawing', checks: ['legend.names-each-type-colour-drawn'], moves: 'red', target: 'extension',
+    file: GRAPH_MODEL, find: "    for (const [type, colour] of types) { rows.push({ swatch: 'type', text: type, colour }); }", replace: "    for (const [type, colour] of types) { rows.push({ swatch: 'type', text: colour, colour }); }",
+    says: 'each type row of the legend is named by its colour rather than by the type label\'s value it stands for',
+  },
+  {
     name: 'legend-at-the-upper-right', scenario: 'storefront-graph-drawing', checks: ['legend.lower-left-names-the-groupings-and-the-type-bar-and-bounds-the-colours'], moves: 'red', target: 'extension',
     file: GRAPH_STYLE, find: '  left: 8px;\n  bottom: 8px;', replace: '  right: 8px;\n  top: 8px;',
     says: 'the legend is drawn at the upper right of the panel',
@@ -1124,8 +1139,13 @@ export const PLANTS: readonly Plant[] = [
   { name: 'context-row-renamed-fleet', scenario: 'fleet-graph-first-fit', checks: ['commands-panel.context-rows-name-the-opened-folder'], moves: 'red', target: 'extension', ...CONTEXT_ROW_LABEL },
   {
     name: 'first-fit-held-to-a-smallest-zoom', scenario: 'fleet-graph-first-fit', checks: ['graph.large-topology-arrives-whole-in-its-first-drawing'], moves: 'red', target: 'extension',
-    file: GRAPH_SCRIPT, find: '    const scale = Math.min(box.width / (w + 40), box.height / (h + 40), 1.5);', replace: '    const scale = Math.max(0.75, Math.min(box.width / (w + 40), box.height / (h + 40), 1.5));',
+    file: GRAPH_SCRIPT, find: '    const scale = Math.min(box.width / (w + 40), box.height / (h + 40), 1.5);', replace: '    const scale = Math.max(1.25, Math.min(box.width / (w + 40), box.height / (h + 40), 1.5));',
     says: 'a fit is held to a smallest zoom, so a topology too large for the panel at that zoom runs past its edges',
+  },
+  {
+    name: 'groupings-left-stacked', scenario: 'fleet-graph-first-fit', checks: ['graph.large-topology-first-fit-uses-the-panel-width'], moves: 'red', target: 'extension',
+    file: GRAPH_MODEL, find: "    'elk.layered.layering.strategy': 'COFFMAN_GRAHAM',\n", replace: '',
+    says: 'sibling groupings are left in the default layering, which stacks the tall ones in one column, so the first fit is set by that column\'s height and most of the panel\'s width is left empty',
   },
   // ---- the storefront folder with boundaries declared inside boundaries ----
   { name: 'context-row-renamed-graph-nested-boundaries', scenario: 'storefront-graph-nested-boundaries', checks: ['commands-panel.context-rows-name-the-opened-folder'], moves: 'red', target: 'extension', ...CONTEXT_ROW_LABEL },
@@ -1448,6 +1468,18 @@ export const PLANTS: readonly Plant[] = [
     name: 'release-hover-ends-lowercase', scenario: 'two-releases-context-rows', checks: ['context-rows.hovers-promise-a-choice'], moves: 'red', target: 'extension',
     file: 'out/src/release-selection.js', find: 'Click to choose a different ${selector_levels_1.SELECTOR_ROW_LABELS.release}.`,', replace: 'Click to choose a different release.`,',
     says: 'the Release row\'s hover closes with a lowercase "release."',
+  },
+  {
+    name: 'sole-folder-hover-invites-a-choice', scenario: 'two-releases-context-rows', checks: ['context-rows.hovers-promise-a-choice'], moves: 'red', target: 'extension',
+    file: 'out/src/selector-rows.js',
+    find: '    const invitation = candidates === 1 ? project_folder_1.SOLE_PROJECT_FOLDER_INVITATION : project_folder_1.CHOOSE_PROJECT_FOLDER_INVITATION;',
+    replace: '    const invitation = project_folder_1.CHOOSE_PROJECT_FOLDER_INVITATION;',
+    says: 'the Project folder row\'s hover closes by inviting a choice between folders even where it has just said there are no others to choose between',
+  },
+  {
+    name: 'workspace-label-drawn-long', scenario: 'two-releases-context-rows', checks: ['context-rows.workspace-label-drawn-short-giving-the-values-room'], moves: 'red', target: 'extension',
+    file: 'out/src/selector-levels.js', find: "    workspace: 'Agg. worksp.',", replace: "    workspace: 'Aggrega workspace',",
+    says: 'the Aggrega workspace row draws the level\'s whole name as its label, so the label column takes the room the values would have had',
   },
   {
     name: 'chosen-release-not-remembered', scenario: 'two-releases-context-rows', checks: ['release-selection.survives-a-window-reload', 'release-selection.survives-closing-and-reopening-the-window'], moves: 'red', target: 'extension',

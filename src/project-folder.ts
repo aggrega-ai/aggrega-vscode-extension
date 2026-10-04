@@ -601,6 +601,17 @@ export async function pickAndAddFolder<L extends { fsPath: string }>(
 export const CHOOSE_PROJECT_FOLDER_INVITATION =
   `Click to choose which ${SELECTOR_ROW_LABELS.project} the editor works from.`;
 
+// SOLE_PROJECT_FOLDER_INVITATION is the closing line of the same hover where the
+// window has only one folder open.
+//
+// There the hover has just said there are no others to choose between, so an
+// invitation to choose would contradict the line above it. What a press does
+// offer there is the chooser's last two entries — opening a folder in place of
+// this one, and adding one beside it — so that is what the line names, in the
+// words those entries use.
+export const SOLE_PROJECT_FOLDER_INVITATION =
+  'Click to open a folder or add one to this window.';
+
 // CHOOSE_PROJECT_FOLDER_PLACEHOLDER is the same offer as the chooser's own
 // placeholder. A placeholder is read inside the control it belongs to, so it
 // drops the instruction to click and takes the product prefix every quick-pick

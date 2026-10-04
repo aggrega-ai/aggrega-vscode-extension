@@ -226,7 +226,16 @@
 
   async function renderGraph(graph, asked, showsSensitiveValues) {
     const { root, meta } = model.toElkGraph(graph, measureText);
-    const laid = await elk.layout(root);
+    // A first layout says which groupings came out tall; where two or more
+    // siblings did, the graph is laid out again with those siblings side by
+    // side, so a large topology fills the panel's width rather than a narrow
+    // column of it. The second layout is handed a graph built afresh rather
+    // than the first one changed in place.
+    let laid = await elk.layout(root);
+    const spread = model.groupingsToSpread(laid);
+    if (spread.length > 0) {
+      laid = await elk.layout(model.toElkGraph(graph, measureText, spread).root);
+    }
     hideStatus();
 
     // The selection survives a re-render when the new graph still holds the
@@ -254,7 +263,7 @@
       }
     }
     drawEdges(laid.edges || [], origins);
-    drawLegend();
+    drawLegend(model.legendRows(root, meta));
 
     if (wasSelected !== null && nodeGroups.has(wasSelected)) {
       selectNode(wasSelected);
@@ -281,7 +290,12 @@
     rect.setAttribute('width', box.width);
     rect.setAttribute('height', box.height);
     rect.setAttribute('rx', '6');
-    rect.setAttribute('class', box.kind === 'boundary' ? 'container-boundary' : 'container-subsystem');
+    // A box holding the nodes in no declared grouping keeps its kind's class,
+    // which says which axis it stands on, and takes one more that draws it apart
+    // from a grouping a document declares. The legend's row for it shows that
+    // drawing beside the words saying what the box holds.
+    const kindClass = box.kind === 'boundary' ? 'container-boundary' : 'container-subsystem';
+    rect.setAttribute('class', box.node._declared === false ? `${kindClass} container-undeclared` : kindClass);
     viewport.appendChild(rect);
 
     const title = document.createElementNS(SVGNS, 'text');
@@ -360,48 +374,103 @@
     viewport.appendChild(g);
   }
 
+  // drawEdges draws each edge's line and, at the end it points to, the mark
+  // saying which way it runs.
+  //
+  // The line alone says two components are joined and not which of them uses
+  // the other, so the end on the target carries an arrowhead (the legend says
+  // so). The arrowhead is written straight after the line it ends and carries
+  // the line's own classes, so it is stroked by the same declarations — the
+  // same colour, and the same dash where the edge's origin draws one — and an
+  // arrowhead cannot read as belonging to a different edge than its line. It is
+  // drawn on the last section of the edge, the one arriving at the target.
   function drawEdges(edges, origins) {
     for (const e of edges) {
       // An edge's geometry is stated against the container the layout engine
       // assigned it to rather than against the graph as a whole, so it is
       // resolved into the one absolute space the boxes were drawn in.
-      for (const path of model.edgePaths(e, origins)) {
+      const paths = model.edgePaths(e, origins);
+      let cls = 'edge';
+      if (e._origin === 'release') { cls += ' edge-release'; }
+      else if (e._origin === 'feature') { cls += ' edge-feature'; }
+      const hover = model.edgeTooltip(e);
+      paths.forEach((path, at) => {
         const pts = path.map((p) => `${p.x},${p.y}`).join(' ');
         const poly = document.createElementNS(SVGNS, 'polyline');
         poly.setAttribute('points', pts);
-        let cls = 'edge';
-        if (e._origin === 'release') { cls += ' edge-release'; }
-        else if (e._origin === 'feature') { cls += ' edge-feature'; }
         poly.setAttribute('class', cls);
         const tip = document.createElementNS(SVGNS, 'title');
-        tip.textContent = model.edgeTooltip(e);
+        tip.textContent = hover;
         poly.appendChild(tip);
         viewport.appendChild(poly);
-      }
+        if (at === paths.length - 1) { drawDirectionMark(path, cls, hover); }
+      });
     }
+  }
+
+  // drawDirectionMark draws the arrowhead at a line's last point, with the
+  // line's classes and its hover, so pointing at the arrowhead names the same
+  // edge pointing at the line does.
+  function drawDirectionMark(path, cls, hover) {
+    const points = model.directionMark(path);
+    if (points.length === 0) { return; }
+    const mark = document.createElementNS(SVGNS, 'polygon');
+    mark.setAttribute('points', points.map((p) => `${p.x},${p.y}`).join(' '));
+    mark.setAttribute('class', `${cls} edge-mark`);
+    const tip = document.createElementNS(SVGNS, 'title');
+    tip.textContent = hover;
+    mark.appendChild(tip);
+    viewport.appendChild(mark);
   }
 
   // --- the legend -----------------------------------------------------------
 
-  // drawLegend fills the legend from the rows the layout model declares, and
-  // reveals it once there is a graph for it to explain.
+  // drawLegend fills the legend with the rows the layout model composed for the
+  // drawing on the canvas, and reveals it once there is a graph for it to
+  // explain.
   //
   // It sits outside the pan/zoom group, so it stays put and stays readable
   // whatever the reader does to the canvas. What it names is the part of the
   // drawing a reader cannot work out by looking: which document declares each
-  // grouping, and that a node's accent colour is local to the graph in front of
-  // them.
-  function drawLegend() {
+  // grouping and what the box holding the nodes in none holds, which end of an
+  // edge is its target, which type each node colour stands for, and that those
+  // colours are local to the graph in front of them.
+  //
+  // Each swatch is drawn from the same declarations as the thing it stands for:
+  // a box's from its box's class, an edge's as a short line with its arrowhead
+  // carrying the edge's own classes, a type's in the colour that type's bar is
+  // drawn in.
+  function drawLegend(rows) {
     clear(legendEl);
     legendEl.appendChild(el('div', 'legend-title', model.LEGEND_TITLE));
-    for (const row of model.LEGEND_ROWS) {
+    for (const row of rows) {
       const line = el('div', 'legend-row');
-      line.appendChild(el('span', `legend-swatch legend-swatch-${row.swatch}`));
+      const swatch = el('span', `legend-swatch legend-swatch-${row.swatch}`);
+      if (row.swatch === 'edge') { swatch.appendChild(edgeSwatch()); }
+      if (row.colour) { swatch.style.borderLeftColor = row.colour; }
+      line.appendChild(swatch);
       line.appendChild(el('span', 'legend-text', row.text));
       legendEl.appendChild(line);
     }
     legendEl.appendChild(el('p', 'legend-note', model.LEGEND_NOTE));
     legendEl.classList.remove('hidden');
+  }
+
+  // edgeSwatch is an edge drawn the length of a swatch: a line and the
+  // arrowhead at its end, from the layout model's own mark.
+  function edgeSwatch() {
+    const svg = document.createElementNS(SVGNS, 'svg');
+    svg.setAttribute('viewBox', '0 0 24 12');
+    const path = [{ x: 1, y: 6 }, { x: 23, y: 6 }];
+    const line = document.createElementNS(SVGNS, 'polyline');
+    line.setAttribute('points', path.map((p) => `${p.x},${p.y}`).join(' '));
+    line.setAttribute('class', 'edge');
+    svg.appendChild(line);
+    const mark = document.createElementNS(SVGNS, 'polygon');
+    mark.setAttribute('points', model.directionMark(path).map((p) => `${p.x},${p.y}`).join(' '));
+    mark.setAttribute('class', 'edge edge-mark');
+    svg.appendChild(mark);
+    return svg;
   }
 
   // --- selection and the attachments panel --------------------------------

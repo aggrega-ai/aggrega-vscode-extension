@@ -20,7 +20,7 @@ import {
   operationsDocumentHtml,
 } from '../../src/operations-render';
 import { NO_RELEASE_SELECTED_CONTROL_REASON } from '../../src/release-selection';
-import { SELECTOR_ROW_KEYS, SELECTOR_ROW_LABELS } from '../../src/selector-levels';
+import { SELECTOR_ROW_DRAWN_LABELS, SELECTOR_ROW_KEYS, SELECTOR_ROW_LABELS } from '../../src/selector-levels';
 import {
   SelectorCandidates,
   createControlKey,
@@ -682,6 +682,12 @@ describe('the Commands panel document', () => {
       !drawn[workspaceAt].includes('Aggrega workspace: /work/demo'),
       'the workspace row still draws the anchored path rather than leaving it to the hover',
     );
+    // The workspace row draws its name shortened, so the value beside it has the
+    // room the whole name would take; the whole name is the hover's.
+    assert.strictEqual(
+      drawn[workspaceAt].replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim(),
+      'Agg. worksp. demo',
+    );
 
     // And every line of every row's text is on that row's hover, whole and
     // unfiltered — including the open folder, which is the fact that only
@@ -716,13 +722,22 @@ describe('the Commands panel document', () => {
         .map((m) => m[1]);
       assert.deepStrictEqual(
         drawn,
-        ['Project folder', 'Aggrega workspace', 'Release'],
+        ['Project folder', 'Agg. worksp.', 'Release'],
         `the ${layout} shape draws the levels in an order that teaches the wrong containment`,
       );
       assert.deepStrictEqual(
         drawn,
-        SELECTOR_ROW_KEYS.map((key) => SELECTOR_ROW_LABELS[key]),
-        `the ${layout} shape draws a name the rows do not declare`,
+        SELECTOR_ROW_KEYS.map((key) => SELECTOR_ROW_DRAWN_LABELS[key]),
+        `the ${layout} shape draws a label the rows do not declare`,
+      );
+      // The middle row's label is drawn shortened and its hover names the level
+      // in full, so the long form is still what the row is called.
+      const hovers = Array.from(html.matchAll(/<button class="selector"[^>]*title="([^"]*)"/gs))
+        .map((m) => m[1].split('\n')[0].split(':')[0]);
+      assert.deepStrictEqual(
+        hovers,
+        [SELECTOR_ROW_LABELS.project, SELECTOR_ROW_LABELS.workspace, 'Aggrega selected Release'],
+        `the ${layout} shape's hovers do not open by naming each level in full`,
       );
     }
   });

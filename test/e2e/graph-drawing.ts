@@ -10,8 +10,9 @@ import { REPO_ROOT } from './inputs';
 import { evaluateWithin, until } from './workbench';
 
 // The topology drawing read as shapes: where each container, each node's card,
-// each line of text and each edge is drawn in the graph panel's document, the
-// pan and zoom it is shown at, the legend beside them, every change of the
+// each line of text and each edge and the mark at its end is drawn in the graph
+// panel's document, and how each is styled where styling tells two of them
+// apart, the pan and zoom it is shown at, the legend beside them, every change of the
 // notice at the panel's top, and each time the panel is told whether it is on
 // screen.
 //
@@ -34,15 +35,21 @@ export interface Point { x: number; y: number }
 
 // LayoutModel is what media/graph-model.js declares about the words the drawing
 // writes: how a container's title is composed, and the legend's heading, rows
-// and note. It is read from the extension's own source, run in a context of its
-// own as the unit specs run it, so a check holds the drawing to the product's
-// declaration rather than to a second copy of its words; a plant edits the copy
-// under test and leaves this source alone. The unit specs load the file the same
-// way and are not imported here, because loading a spec file runs its specs.
+// and note — the rows every legend carries, and the rows it composes for one
+// graph from the graph's own answer. It is read from the extension's own
+// source, run in a context of its own as the unit specs run it, so a check
+// holds the drawing to the product's declaration rather than to a second copy
+// of its words; a plant edits the copy under test and leaves this source alone.
+// The unit specs load the file the same way and are not imported here, because
+// loading a spec file runs its specs.
+export interface LegendRow { swatch: string; text: string; colour?: string }
+
 interface LayoutModel {
   containerLabel(kind: 'boundary' | 'subsystem', title: string): string;
+  toElkGraph(graph: unknown, measure: (text: string, role: string) => number): { root: unknown; meta: unknown };
+  legendRows(root: unknown, meta: unknown): LegendRow[];
   LEGEND_TITLE: string;
-  LEGEND_ROWS: { swatch: string; text: string }[];
+  LEGEND_ROWS: LegendRow[];
   LEGEND_NOTE: string;
 }
 
@@ -66,22 +73,41 @@ export function layoutModel(): LayoutModel {
 export const boundaryTitle = (name: string): string => layoutModel().containerLabel('boundary', name);
 export const subsystemTitle = (name: string): string => layoutModel().containerLabel('subsystem', name);
 
+// legendFor is the legend the layout model composes for a graph, as a graph
+// answer carries it. What widths the boxes are measured at decides nothing the
+// legend says, so the layout is handed a measurement that answers nothing.
+export function legendFor(graph: unknown): LegendRow[] {
+  const model = layoutModel();
+  const { root, meta } = model.toElkGraph(graph, () => 0);
+  return JSON.parse(JSON.stringify(model.legendRows(root, meta))) as LegendRow[];
+}
+
 // NONE_DECLARED is the name a container is to be titled with where nobody
 // declared its grouping. The layout model keeps the words it writes there to
 // itself, so they are held here as a reader is to meet them.
 export const NONE_DECLARED = '(none declared)';
 
 // DrawnContainer is one boundary or subsystem as drawn: its kind, read from how
-// the drawing styles its box, and the title written into it.
-export interface DrawnContainer { kind: 'boundary' | 'subsystem'; title: string; box: Rect; titleBox: Rect }
+// the drawing styles its box, the title written into it, and the box's whole
+// class and the stroke the document computes for it, so two boxes of one kind
+// drawn apart can be told apart.
+export interface DrawnContainer { kind: 'boundary' | 'subsystem'; title: string; box: Rect; titleBox: Rect; classes: string; stroke: Stroke }
+
+// Stroke is how the document strokes a shape: its colour, its dash and its
+// opacity, as computed.
+export interface Stroke { colour: string; dash: string; opacity: string }
 
 // DrawnNode is one node as drawn: its id, the component name written beneath it
-// where one is, its card, the box of each line, and whether it is the selection.
-export interface DrawnNode { id: string; component: string | null; card: Rect; idBox: Rect; componentBox: Rect | null; selected: boolean }
+// where one is, its card, the box of each line, whether it is the selection,
+// and the colour the document computes for the bar down its leading edge, or
+// null where it draws none.
+export interface DrawnNode { id: string; component: string | null; card: Rect; idBox: Rect; componentBox: Rect | null; selected: boolean; accent: string | null }
 
-// DrawnEdge is one edge as drawn, its two ends named by the hover the drawing
-// gives it, and the points of its line.
-export interface DrawnEdge { from: string; to: string; points: Point[] }
+// DrawnEdge is one line of an edge as drawn, its two ends named by the hover the
+// drawing gives it, the points of its line and how it is stroked, and the mark
+// written straight after it — its points, the first of them its tip, and how it
+// is stroked — or null where none follows it.
+export interface DrawnEdge { from: string; to: string; points: Point[]; stroke: Stroke; mark: { points: Point[]; stroke: Stroke } | null }
 
 // Drawing is everything above, the canvas it is drawn on, and what could not be
 // read as one of them, so a shape the reading missed is reported rather than
@@ -91,29 +117,35 @@ export interface Drawing { canvas: Rect; containers: DrawnContainer[]; nodes: Dr
 const DRAWING = `(() => {
   const canvas = document.getElementById('canvas');
   const box = (e) => { const r = e.getBoundingClientRect(); return { x: r.left, y: r.top, width: r.width, height: r.height }; };
+  const stroke = (e) => { const s = getComputedStyle(e); return { colour: s.stroke, dash: s.strokeDasharray, opacity: s.strokeOpacity }; };
   const unread = [];
   const containers = [];
   for (const r of canvas.querySelectorAll('rect.container-boundary, rect.container-subsystem')) {
     // The drawing writes each container's title straight after its box.
     const t = r.nextElementSibling;
     if (!t || !t.classList.contains('container-title')) { unread.push('a container box with no title written after it'); continue; }
-    containers.push({ kind: r.classList.contains('container-boundary') ? 'boundary' : 'subsystem', title: t.textContent || '', box: box(r), titleBox: box(t) });
+    containers.push({ kind: r.classList.contains('container-boundary') ? 'boundary' : 'subsystem', title: t.textContent || '', box: box(r), titleBox: box(t), classes: r.getAttribute('class') || '', stroke: stroke(r) });
   }
   const nodes = [];
   for (const g of canvas.querySelectorAll('g.node')) {
     const card = g.querySelector(':scope > rect.node-rect');
     const id = g.querySelector(':scope > text.node-label');
     const sub = g.querySelector(':scope > text.node-sub');
+    const bar = g.querySelector(':scope > rect.node-accent');
     if (!card || !id) { unread.push('a node drawn without its card or its id'); continue; }
-    nodes.push({ id: id.textContent || '', component: sub ? sub.textContent || '' : null, card: box(card), idBox: box(id), componentBox: sub ? box(sub) : null, selected: g.classList.contains('node-selected') });
+    nodes.push({ id: id.textContent || '', component: sub ? sub.textContent || '' : null, card: box(card), idBox: box(id), componentBox: sub ? box(sub) : null, selected: g.classList.contains('node-selected'), accent: bar ? getComputedStyle(bar).fill : null });
   }
   const edges = [];
   for (const p of canvas.querySelectorAll('polyline.edge')) {
     const ends = (((p.querySelector(':scope > title') || {}).textContent || '').split('\\n')[0] || '').split(' → ');
     const m = p.getScreenCTM();
     if (ends.length !== 2 || !m) { unread.push('an edge whose hover names no two ends'); continue; }
-    const points = [...p.points].map((q) => ({ x: m.a * q.x + m.c * q.y + m.e, y: m.b * q.x + m.d * q.y + m.f }));
-    edges.push({ from: ends[0], to: ends[1], points });
+    const at = (q) => ({ x: m.a * q.x + m.c * q.y + m.e, y: m.b * q.x + m.d * q.y + m.f });
+    const points = [...p.points].map(at);
+    // The drawing writes an edge's mark straight after the line it ends.
+    const k = p.nextElementSibling;
+    const mark = k && k.matches('polygon.edge-mark') ? { points: [...k.points].map(at), stroke: stroke(k) } : null;
+    edges.push({ from: ends[0], to: ends[1], points, stroke: stroke(p), mark });
   }
   return { canvas: box(canvas), containers, nodes, edges, unread };
 })()`;
@@ -185,13 +217,15 @@ export function told(doc: WebviewDocument, from: number, visible: boolean, bound
 // ---- the legend --------------------------------------------------------------
 
 // DrawnLegend is the legend as drawn: whether it is shown, its box, its heading,
-// each row's text, the swatch beside it and its box, and its note, with the
-// panel's own drawing area, so a row the panel cuts off can be told.
+// each row's text, the swatch beside it — its kind, and the colour the document
+// computes for its leading edge and for its border — and the row's box, and its
+// note, with the panel's own drawing area, so a row the panel cuts off can be
+// told.
 export interface DrawnLegend {
   shown: boolean;
   box: Rect;
   title: string;
-  rows: { text: string; drawn: string; swatch: string; box: Rect }[];
+  rows: { text: string; drawn: string; swatch: string; swatchLead: string; swatchBorder: string; box: Rect }[];
   note: string;
   noteBox: Rect;
   view: Rect;
@@ -209,10 +243,13 @@ const LEGEND = `(() => {
     rows: [...l.querySelectorAll('.legend-row')].map((r) => {
       const t = r.querySelector('.legend-text');
       const s = r.querySelector('.legend-swatch');
+      const cs = s ? getComputedStyle(s) : null;
       return {
         text: t ? t.textContent || '' : '',
         drawn: t ? (t.innerText || '').trim() : '',
         swatch: s ? ([...s.classList].find((c) => c.startsWith('legend-swatch-')) || '').slice('legend-swatch-'.length) : '',
+        swatchLead: cs ? cs.borderLeftColor : '',
+        swatchBorder: cs ? cs.borderTopStyle + ' ' + cs.borderTopColor : '',
         box: t ? box(t) : none,
       };
     }),

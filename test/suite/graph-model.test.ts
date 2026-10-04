@@ -65,6 +65,7 @@ interface NodeMeta {
   labels: Record<string, string>;
   catalog: unknown;
   sourceFile: string;
+  type: string | null;
   accent: string | null;
 }
 
@@ -77,14 +78,17 @@ interface PlacedBox {
   height: number;
 }
 
-interface LegendRow { swatch: string; text: string }
+interface LegendRow { swatch: string; text: string; colour?: string }
 
 type Measure = (text: string, role: string) => number;
 
 interface GraphModel {
-  toElkGraph(graph: unknown, measure?: Measure): { root: ElkRoot; meta: Map<string, NodeMeta> };
+  toElkGraph(graph: unknown, measure?: Measure, spread?: string[]): { root: ElkRoot; meta: Map<string, NodeMeta> };
+  groupingsToSpread(laid: unknown): string[];
   place(laid: unknown): { boxes: PlacedBox[]; origins: Map<string, ElkPoint> };
   edgePaths(edge: unknown, origins: Map<string, ElkPoint>): ElkPoint[][];
+  directionMark(points: ElkPoint[]): ElkPoint[];
+  legendRows(root: unknown, meta: Map<string, NodeMeta>): LegendRow[];
   nodeTooltip(id: string, m: NodeMeta | undefined): string;
   edgeTooltip(edge: ElkEdge): string;
   waveRanks(waves: number[]): Map<number, number>;
@@ -127,9 +131,12 @@ function loadModel(): GraphModel {
   // it is also what makes the transform's output acceptable to the layout
   // engine, whose importer type-checks the arrays it is handed.
   return {
-    toElkGraph: (graph, measure) => structuredClone(model.toElkGraph(graph, measure ?? measured)),
+    toElkGraph: (graph, measure, spread) => structuredClone(model.toElkGraph(graph, measure ?? measured, spread)),
+    groupingsToSpread: (laid) => structuredClone(model.groupingsToSpread(laid)),
     place: (laid) => structuredClone(model.place(laid)),
     edgePaths: (edge, origins) => structuredClone(model.edgePaths(edge, origins)),
+    directionMark: (points) => structuredClone(model.directionMark(points)),
+    legendRows: (root, meta) => structuredClone(model.legendRows(root, meta)),
     waveRanks: (waves) => structuredClone(model.waveRanks(waves)),
     nodeTooltip: (id, m) => model.nodeTooltip(id, m),
     edgeTooltip: (edge) => model.edgeTooltip(edge),
@@ -792,7 +799,7 @@ describe('topology graph model — the legend', () => {
 
     assert.deepStrictEqual(
       model.LEGEND_ROWS.map(r => r.swatch),
-      ['boundary', 'subsystem', 'accent'],
+      ['boundary', 'subsystem', 'edge', 'accent'],
     );
   });
 
@@ -824,6 +831,261 @@ describe('topology graph model — the legend', () => {
       note.includes('another graph') || note.includes('other graph'),
       `the note never says what a colour does NOT mean: ${model.LEGEND_NOTE}`,
     );
+  });
+
+  it('says which end of an edge is its target, in the words the documentation uses for the two ends', () => {
+    // A line says two components are joined and not which uses the other. The
+    // documentation names an edge's two ends the consuming component and its
+    // target, and the edge's geometry runs from the first to the second.
+    assert.strictEqual(
+      rowFor(model, 'edge'),
+      'Edge — from the consuming component to its target, the arrowhead at the target.',
+    );
+  });
+});
+
+// legendFixture is a drawing holding every kind of row a legend can earn: a
+// subsystem the Aggregate declares and the box for a node in none, inside a
+// boundary the Release declares; two types, met server first; and a node
+// carrying no type label.
+function legendFixture(): unknown {
+  const typed = (type: string): Record<string, string> => ({ 'component.aggrega.ai/type': type });
+  return irGraph({
+    gate: node({ boundary_path: 'edge', subsystem_path: 'front', labels: typed('server') }),
+    db: node({ boundary_path: 'edge', subsystem_path: 'front', labels: typed('stateful-server') }),
+    cache: node({ boundary_path: 'edge', subsystem_path: 'front', labels: typed('server') }),
+    'sessions.store': node({ boundary_path: 'edge', subsystem_path: 'default', synthesized_subsystem: true }),
+  });
+}
+
+describe('topology graph model — the legend composed for one drawing', () => {
+  let model: GraphModel;
+
+  beforeEach(() => {
+    model = loadModel();
+  });
+
+  const legendOf = (graph: unknown): LegendRow[] => {
+    const { root, meta } = model.toElkGraph(graph);
+    return model.legendRows(root, meta);
+  };
+
+  it('names each type colour drawn by the label value it stands for, and the box holding nodes in no subsystem', () => {
+    // Asserted as the whole legend, row for row: a type row names the value of
+    // the node type label exactly as the author wrote it, beside the colour the
+    // nodes carrying it were drawn in — read from the same node table — in the
+    // order the types are first met; the box holding the nodes in no declared
+    // subsystem gets the row saying what it holds; a node with no type label
+    // gets the row for those; and nothing else is added.
+    const { root, meta } = model.toElkGraph(legendFixture());
+    assert.deepStrictEqual(model.legendRows(root, meta), [
+      { swatch: 'boundary', text: 'Boundary — a grouping the Release declares.' },
+      { swatch: 'subsystem', text: 'Subsystem — a grouping the Aggregate declares.' },
+      { swatch: 'undeclared', text: '(none declared) — a box holding the nodes the Aggregate places in no subsystem.' },
+      { swatch: 'edge', text: 'Edge — from the consuming component to its target, the arrowhead at the target.' },
+      { swatch: 'accent', text: 'Node type — the bar down a node\'s leading edge, coloured by its component.aggrega.ai/type label:' },
+      { swatch: 'type', text: 'server', colour: meta.get('gate')!.accent! },
+      { swatch: 'type', text: 'stateful-server', colour: meta.get('db')!.accent! },
+      { swatch: 'untyped', text: '(no component.aggrega.ai/type label)' },
+    ]);
+    // The colours named are the ones the nodes are drawn in, and the two types
+    // were given two.
+    assert.deepStrictEqual(
+      ['gate', 'db', 'cache', 'sessions.store'].map((id) => meta.get(id)!.accent),
+      ['#e69f00', '#56b4e9', '#e69f00', null],
+    );
+  });
+
+  it('carries a row for the box holding nodes in no boundary where the drawing draws one, and none where it does not', () => {
+    const undeclaredRows = (graph: unknown): string[] => legendOf(graph).filter((r) => r.swatch === 'undeclared').map((r) => r.text);
+    assert.deepStrictEqual(undeclaredRows(irGraph({
+      solo: node({ boundary_path: 'default', subsystem_path: 'default', synthesized_boundary: true, synthesized_subsystem: true }),
+    })), [
+      '(none declared) — a box holding the nodes the Release places in no boundary.',
+      '(none declared) — a box holding the nodes the Aggregate places in no subsystem.',
+    ]);
+    assert.deepStrictEqual(undeclaredRows(irGraph({
+      web: node({ boundary_path: 'serving', subsystem_path: 'front' }),
+    })), []);
+  });
+
+  it('adds no type row and no row for unlabelled nodes to a drawing that has neither', () => {
+    // Every node here carries no type label, so the only rows added are the one
+    // for unlabelled nodes; and a drawing whose nodes all carry one adds none.
+    const unlabelled = legendOf(irGraph({ web: node({ boundary_path: 'serving', subsystem_path: 'front' }) }));
+    assert.deepStrictEqual(unlabelled.slice(4).map((r) => r.swatch), ['untyped']);
+    const labelled = legendOf(irGraph({
+      web: node({ boundary_path: 'serving', subsystem_path: 'front', labels: { 'component.aggrega.ai/type': 'server' } }),
+    }));
+    assert.deepStrictEqual(labelled.slice(4).map((r) => [r.swatch, r.text]), [['type', 'server']]);
+  });
+});
+
+describe('topology graph model — the box for nodes in no declared grouping', () => {
+  let model: GraphModel;
+
+  beforeEach(() => {
+    model = loadModel();
+  });
+
+  it('marks the box nobody declared, on each axis, and no box an author declared', () => {
+    // The mark is what the drawing reads to draw the box apart from a declared
+    // grouping, so it is asserted over every container: the two declared ones
+    // carry it as declared, and the subsystem the compiler synthesized does not.
+    const { root } = model.toElkGraph(legendFixture());
+    assert.deepStrictEqual(
+      containers(root).map((c) => [c._kind, c._title, (c as ElkNode & { _declared?: boolean })._declared]),
+      [['boundary', 'edge', true], ['subsystem', 'front', true], ['subsystem', '(none declared)', false]],
+    );
+    const { root: bare } = model.toElkGraph(irGraph({
+      solo: node({ boundary_path: 'default', subsystem_path: 'default', synthesized_boundary: true, synthesized_subsystem: true }),
+    }));
+    assert.deepStrictEqual(
+      containers(bare).map((c) => [c._kind, (c as ElkNode & { _declared?: boolean })._declared]),
+      [['boundary', false], ['subsystem', false]],
+    );
+  });
+});
+
+describe('topology graph model — the mark at the end an edge points to', () => {
+  let model: GraphModel;
+
+  beforeEach(() => {
+    model = loadModel();
+  });
+
+  it('puts its tip on the line\'s last point and its base back along the last segment', () => {
+    // A line arriving from the left at (100, 50), turning from above first: the
+    // mark points along the last segment only.
+    assert.deepStrictEqual(
+      model.directionMark([{ x: 60, y: 0 }, { x: 60, y: 50 }, { x: 100, y: 50 }]),
+      [{ x: 100, y: 50 }, { x: 90, y: 55 }, { x: 90, y: 45 }],
+    );
+    // Arriving from below, the base sits beneath the tip.
+    assert.deepStrictEqual(
+      model.directionMark([{ x: 10, y: 80 }, { x: 10, y: 30 }]),
+      [{ x: 10, y: 30 }, { x: 15, y: 40 }, { x: 5, y: 40 }],
+    );
+  });
+
+  it('points along the last segment with a length, and marks no line without one', () => {
+    assert.deepStrictEqual(
+      model.directionMark([{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 20, y: 0 }]),
+      [{ x: 20, y: 0 }, { x: 10, y: 5 }, { x: 10, y: -5 }],
+    );
+    assert.deepStrictEqual(model.directionMark([{ x: 3, y: 3 }]), []);
+    assert.deepStrictEqual(model.directionMark([{ x: 3, y: 3 }, { x: 3, y: 3 }]), []);
+  });
+});
+
+// fleetLike is a topology whose groupings stack tall: in the internal boundary,
+// a data subsystem holding three subsystems with no edge among them, of six,
+// six and four nodes, beside the consoles that use the first; and a public
+// boundary whose gateways use the consoles.
+function fleetLike(): unknown {
+  const nodes: Record<string, Record<string, unknown>> = {};
+  const edges: Record<string, unknown>[] = [];
+  for (let i = 1; i <= 3; i++) {
+    nodes[`gateway-${i}`] = node({ boundary_path: 'public', subsystem_path: 'entry' });
+    edges.push({ source: `gateway-${i}`, target: `console-${i}` });
+  }
+  for (let i = 1; i <= 6; i++) {
+    nodes[`console-${i}`] = node({ boundary_path: 'internal', subsystem_path: 'consoles' });
+    edges.push({ source: `console-${i}`, target: `db-${i}` });
+  }
+  for (let i = 1; i <= 6; i++) { nodes[`db-${i}`] = node({ boundary_path: 'internal', subsystem_path: 'data.databases' }); }
+  for (let i = 1; i <= 6; i++) { nodes[`cache-${i}`] = node({ boundary_path: 'internal', subsystem_path: 'data.caches' }); }
+  for (let i = 1; i <= 4; i++) { nodes[`session-${i}`] = node({ boundary_path: 'internal', subsystem_path: 'data.sessions' }); }
+  return irGraph(nodes, edges);
+}
+
+describe('topology graph model — laying tall sibling groupings side by side', function () {
+  // Real layout runs, as the geometry tests below.
+  this.timeout(20000);
+
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const ELK = require('elkjs/lib/elk.bundled.js');
+
+  let model: GraphModel;
+
+  beforeEach(() => {
+    model = loadModel();
+  });
+
+  const layout = async (root: ElkRoot): Promise<ElkRoot> => JSON.parse(JSON.stringify(await new ELK().layout(root))) as ElkRoot;
+  const SIDE_BY_SIDE = {
+    'elk.layered.layering.strategy': 'COFFMAN_GRAHAM',
+    'elk.layered.layering.coffmanGraham.layerBound': '1',
+  };
+  const sideBySideOf = (n: ElkNode): Record<string, string> => Object.fromEntries(
+    Object.entries(n.layoutOptions ?? {}).filter(([k]) => k in SIDE_BY_SIDE),
+  );
+
+  it('names each container holding two or more groupings laid out taller than wide, and only those', async () => {
+    const laid = await layout(model.toElkGraph(fleetLike()).root);
+    assert.deepStrictEqual(model.groupingsToSpread(laid), ['root', 'b::internal', 's::internal::data']);
+  });
+
+  it('names none where fewer than two sibling groupings are tall', async () => {
+    // One boundary, holding a subsystem of three nodes, which stacks taller than
+    // wide, beside the box for one node in none, which does not: laying those
+    // two side by side would only widen the drawing for the one tall column.
+    const laid = await layout(model.toElkGraph(legendFixture()).root);
+    assert.deepStrictEqual(model.groupingsToSpread(laid), []);
+  });
+
+  it('gives the containers named, and no other, the layering that puts one grouping in each layer', () => {
+    const spread = ['root', 's::internal::data'];
+    const { root } = model.toElkGraph(fleetLike(), undefined, spread);
+    assert.deepStrictEqual(
+      [root, ...containers(root)].map((c) => [c.id, sideBySideOf(c)]),
+      [
+        ['root', SIDE_BY_SIDE],
+        ['b::public', {}],
+        ['s::public::entry', {}],
+        ['b::internal', {}],
+        ['s::internal::consoles', {}],
+        ['s::internal::data', SIDE_BY_SIDE],
+        ['s::internal::data.databases', {}],
+        ['s::internal::data.caches', {}],
+        ['s::internal::data.sessions', {}],
+      ],
+    );
+    const { root: unspread } = model.toElkGraph(fleetLike());
+    assert.deepStrictEqual([unspread, ...containers(unspread)].map(sideBySideOf).filter((o) => Object.keys(o).length > 0), []);
+  });
+
+  it('lays the named siblings out side by side where the first layout stacked them in one column', async () => {
+    const titles = ['data.databases', 'data.caches', 'data.sessions'];
+    const at = (laid: ElkRoot): PlacedBox[] => titles.map((t) => containerPlaced(model.place(laid), t));
+    const first = await layout(model.toElkGraph(fleetLike()).root);
+    const stacked = at(first);
+    // First: one column, each below the one before it.
+    assert.deepStrictEqual(stacked.map((b, i) => i === 0 || b.y >= stacked[i - 1].y + stacked[i - 1].height), [true, true, true]);
+    const second = await layout(model.toElkGraph(fleetLike(), undefined, model.groupingsToSpread(first)).root);
+    const spread = at(second);
+    // Then: one row, each to the right of the one before it, all at one height.
+    assert.deepStrictEqual(spread.map((b, i) => i === 0 || b.x >= spread[i - 1].x + spread[i - 1].width), [true, true, true]);
+    assert.deepStrictEqual(spread.map((b) => b.y), spread.map(() => spread[0].y));
+    // And the drawing's proportions come nearer a panel's, wider than tall.
+    assert.ok(first.height! > first.width!, `the first layout is ${first.width}x${first.height}, not tall`);
+    assert.ok(second.width! > second.height!, `the second layout is ${second.width}x${second.height}, not wide`);
+  });
+
+  it('keeps the wave order of groupings it lays side by side', async () => {
+    // Three tall subsystems met latest wave first: side by side, they still run
+    // from the earliest wave to the latest along the layout's direction.
+    const nodes: Record<string, Record<string, unknown>> = {};
+    for (const [sub, wave] of [['late', 2], ['early', 0], ['middle', 1]] as const) {
+      for (let i = 1; i <= 4; i++) { nodes[`${sub}-${i}`] = node({ boundary_path: 'zone', subsystem_path: sub, sync_wave: wave }); }
+    }
+    const graph = irGraph(nodes);
+    const first = await layout(model.toElkGraph(graph).root);
+    const spread = model.groupingsToSpread(first);
+    assert.deepStrictEqual(spread, ['b::zone']);
+    const placed = model.place(await layout(model.toElkGraph(graph, undefined, spread).root));
+    const xs = ['early', 'middle', 'late'].map((t) => containerPlaced(placed, t).x);
+    assert.deepStrictEqual(xs.map((x, i) => i === 0 || x > xs[i - 1]), [true, true, true]);
   });
 });
 

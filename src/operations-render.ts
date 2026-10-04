@@ -127,6 +127,12 @@ function selectorOfferHtml(row: SelectorRow, offer: SelectorOffer): string {
 // not decided here: the module that writes them owns that, and a filter here
 // would be a second editorial judgement over one text.
 //
+// The label drawn is the row's own, which for the Aggrega workspace row is the
+// shortened form so the value has room; the hover opens with the level's whole
+// name. The control's name is its drawn text and nothing written over it, so
+// the words a reader sees on the row are the words it is announced by, and the
+// hover, with the whole name, is its description.
+//
 // THE ROW IS A CONTAINER RATHER THAN A SINGLE BUTTON, because a level that can
 // be created carries two press targets and buttons do not nest.
 //

@@ -704,11 +704,18 @@ export function needRows(rows: readonly LevelRow[]): void {
 // ---- the words a reader is to meet ---------------------------------------------
 //
 // Held here as written, so a change of wording in the extension is a change these
-// checks report rather than follow. The names of the three levels are the rows'
-// own labels; every sentence below is one a reader reads on a row, a chooser, a
-// dialog or a notification.
+// checks report rather than follow. The rows draw the three levels' names as their
+// labels, the Aggrega workspace row's shortened; every sentence below is one a
+// reader reads on a row, a chooser, a dialog or a notification, and names that
+// level in full.
 
-export const ROW_LABELS: readonly string[] = ['Project folder', 'Aggrega workspace', 'Release'];
+export const ROW_LABELS: readonly string[] = ['Project folder', 'Agg. worksp.', 'Release'];
+
+// LONG_LABEL_VALUE_WIDTH is how wide each row's value was drawn, in pixels, at the
+// side bar's default width while the Aggrega workspace row drew the level's whole
+// name as its label. The shortened label gives the values the room the long one
+// took, so each is drawn wider than this.
+export const LONG_LABEL_VALUE_WIDTH = 76;
 
 export const PLACEHOLDER: Record<RowKey, string> = {
   project: 'Aggrega: choose which Project folder the editor works from',
@@ -768,8 +775,14 @@ export const HOVER_LINES_NO_ROW_CARRIES: readonly string[] = [
 
 export const SOLE_PROJECT_FOLDER = 'Only one Project folder is available, so there are no others to choose between.';
 
+// The Project folder row's closing line: the invitation to choose between the
+// folders a window has open, and, where it has only one, what a press offers
+// there instead.
+export const CHOOSE_PROJECT_FOLDER = 'Click to choose which Project folder the editor works from.';
+export const OPEN_OR_ADD_A_FOLDER = 'Click to open a folder or add one to this window.';
+
 export function projectHover(folder: string, sole: boolean): string {
-  return [`Project folder: ${folder}`, ...(sole ? [SOLE_PROJECT_FOLDER] : []), 'The Aggrega workspaces on offer are the ones this folder reaches.', 'Click to choose which Project folder the editor works from.'].join('\n');
+  return [`Project folder: ${folder}`, ...(sole ? [SOLE_PROJECT_FOLDER] : []), 'The Aggrega workspaces on offer are the ones this folder reaches.', sole ? OPEN_OR_ADD_A_FOLDER : CHOOSE_PROJECT_FOLDER].join('\n');
 }
 
 // workspaceHover is the Aggrega workspace row's hover for `root`: naming the folder

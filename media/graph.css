@@ -75,7 +75,9 @@ html, body {
 /* The legend, lower left. It sits outside the pan/zoom group so it stays put
    and stays the same size whatever the reader does to the canvas, and it names
    the parts of the drawing that cannot be worked out by looking: which box is
-   which kind, and what a node's accent colour does and does not mean. */
+   which kind and what the box holding nodes in none holds, which end of an edge
+   is its target, which type each accent colour stands for, and what those
+   colours do not mean. */
 .legend {
   position: fixed;
   left: 8px;
@@ -140,6 +142,40 @@ html, body {
   border-left: 5px solid #e69f00;
 }
 
+/* The box holding the nodes in no declared grouping, bordered as that box is. */
+.legend-swatch-undeclared {
+  background: none;
+  border: 1.25px dotted var(--vscode-descriptionForeground);
+}
+
+/* An edge, drawn as one: the swatch holds a short line and its arrowhead, each
+   carrying the edge's own classes, so it is stroked by the declarations an
+   edge is. */
+.legend-swatch-edge {
+  border-radius: 0;
+}
+
+.legend-swatch-edge svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+/* One type's swatch is a node body with its bar in the colour that type is
+   drawn in, which the drawing sets on the swatch from the value it set on the
+   bars. The swatch for the nodes carrying no type label is a node body with no
+   bar, as those nodes are drawn. */
+.legend-swatch-type,
+.legend-swatch-untyped {
+  background: var(--vscode-button-background);
+  border: 1px solid var(--vscode-contrastBorder, var(--vscode-panel-border));
+}
+
+.legend-swatch-type {
+  border-left-width: 5px;
+}
+
 .legend-text {
   color: var(--vscode-editorWidget-foreground);
 }
@@ -170,6 +206,18 @@ html, body {
   stroke: #a6de3a;
   stroke-width: 1.25;
   stroke-dasharray: 4 3;
+}
+
+/* The box holding the nodes in no declared grouping, on either axis. It is
+   nobody's grouping, so it takes neither brand colour a declared grouping is
+   drawn in: a neutral, dotted border and no fill of its own, which keeps it
+   from reading as a grouping called "(none declared)". It follows its kind's
+   class, so these declarations are the ones it is drawn with. */
+.container-undeclared {
+  fill: none;
+  stroke: var(--vscode-descriptionForeground);
+  stroke-width: 1.25;
+  stroke-dasharray: 1.5 3;
 }
 
 .container-title {
@@ -440,12 +488,22 @@ html, body {
   margin: 4px 0;
 }
 
-/* Edges. */
+/* Edges. Every one of these declarations strokes an edge's line and the
+   arrowhead at its target end alike, since the arrowhead carries its line's
+   classes: so the arrowhead is drawn in its own edge's colour and dash. */
 .edge {
   fill: none;
   stroke: var(--vscode-editor-foreground);
   stroke-opacity: 0.55;
   stroke-width: 1.5;
+}
+
+/* The arrowhead at the end an edge points to. It is an outline rather than a
+   solid shape, so a dashed edge's head reads dashed as its line does; its
+   corners are rounded so the outline does not spike past its tip, which sits on
+   the target's border, into the target's box. */
+.edge-mark {
+  stroke-linejoin: round;
 }
 
 /* Edge provenance uses two Okabe-Ito colours that stay distinct under the

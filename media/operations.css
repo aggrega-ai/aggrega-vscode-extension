@@ -166,8 +166,10 @@ body {
 /* The label names the level, and is drawn whole wherever the panel has room for
    it. Where the panel is narrower than the widest label it gives way, cut short
    with an ellipsis rather than reaching past the panel's edge: the panel never
-   scrolls sideways, and the whole name is still the control's own text, so it
-   is announced whole and the control's hover names the level too. */
+   scrolls sideways, and the whole label is still the control's own text, so it
+   is announced whole. The Aggrega workspace row draws its name shortened, which
+   keeps this column — as wide as the widest label — narrower; the control's
+   hover names every level in full. */
 .selector-label {
   grid-column: label-start / label-end;
   min-width: 0;
@@ -178,7 +180,8 @@ body {
 }
 
 /* The value is what the row exists to report, and it takes the room the label
-   leaves, cut short with an ellipsis where that is not enough — the hover is
+   column leaves — more of it for the middle label being drawn shortened. Where
+   that is not enough it is cut short at its end with an ellipsis — the hover is
    where the whole of it already is. */
 .selector-value {
   grid-column: value-start / value-end;
