@@ -107,8 +107,9 @@ export async function cacheMissChecks(ctx: SuiteContext): Promise<void> {
     fs.unlinkSync(file);
   }
   await closeAllEditors(ctx);
-  // Nothing reads whether the row left, so it is given a stated 15 s rather than
-  // a guard, which a run where it stays would wait out.
+  // The editor goes on holding the document for minutes after its tab closes, so
+  // the row may stay listed past this wait; no check after it judges that row, so
+  // it is given a stated 15 s rather than a guard a run would always wait out.
   await until('the Component\'s row leaving the Catalog panel', stated(15000), () => treeRows(ctx.d, 'Catalog'), (v) => v !== null && !v.some((r) => r.label === HELD_NAME || r.label === DISK_NAME)).catch(() => undefined);
   await catalogPanelAtItsHead(ctx, CATALOG_FIRST_ROW).catch(() => false);
 }
