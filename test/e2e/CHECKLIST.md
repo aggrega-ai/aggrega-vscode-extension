@@ -111,6 +111,22 @@ Tab to stop on the open control as a control of its own. Nearest: `workspace-abo
 `commands-panel.icons-drawn-from-the-font-the-extension-ships` and
 `commands-panel.tab-reaches-each-row-control-then-the-operations-once`.
 
+### A cache file another process holds open
+
+Windows refuses to remove a file another process holds open, and a cache clean-up then leaves it
+in place. The suite runs where an open file is removed like any other, so the language server never
+names one there and no check reads what the editor says about it. On Windows, hold a cache file
+open from another process and run **Cache…** prune, a trim with a
+cap below what the compiled-module cache holds, and clear. Expect the Aggrega output channel to name
+each entry a prune or a trim left in place, with its class, how far it is shared, its size and
+`open in another process`, and to give, under each cache an emptying reached, how many files it left
+there and their size; and expect each ending to say how many were left in place because another
+process has them open, to run the operation again once that process has finished, and where the
+channel says which. Nearest: `gateway-cache` /
+`cache.prune-with-nothing-held-open-says-nothing-of-it`,
+`cache.trim-that-removes-with-nothing-held-open-says-nothing-of-it`,
+`cache.clear-with-nothing-held-open-says-nothing-of-it`.
+
 ### What needs the network or an input the suite is not given
 
 - **Seeding the official hub on a machine with no configuration file.** The welcome page's
