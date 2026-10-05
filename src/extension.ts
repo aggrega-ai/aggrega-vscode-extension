@@ -152,6 +152,7 @@ import {
   FindImplementationsResponse,
   FindReferencesResponse,
   HoverResponse,
+  IrGraphParams,
   IrGraphResponse,
   PublishDiagnosticsParams,
   ReleaseCandidatesResponse,
@@ -178,6 +179,7 @@ import { openAuthoringReleaseConfig, createActiveReleaseMarker } from './release
 import { activateOperations, OperationsView } from './operations';
 import { activateLint, LintRunner } from './lint';
 import { LintAnswer, LintSubject, lintRequestParams } from './lint-run';
+import type { IrGraphRequest } from './graph-payload';
 import { activateGraphView, GraphView } from './graph-view';
 import { activateCatalogViews } from './catalog-views';
 import { activateGetStarted } from './get-started';
@@ -494,11 +496,17 @@ const documentValidations = createDocumentValidations<vscode.TextDocument>({
 //
 // Nobody pressed for this request, so a failure raises nothing: it is kept in the
 // output channel, and the warning it could not settle stays where it is.
+//
+// It asks for the graph withheld whatever the setting that shows sensitive values
+// says. That setting is the reader's choice about a graph they are looking at,
+// and nothing is drawn from this answer, so the values it would reveal would
+// cross from the language server to no reader at all.
 async function requestGraphWithoutDrawing(release: string): Promise<void> {
   const client = daemon;
   if (!client || client.getState() !== DaemonState.Running) { return; }
+  const params: IrGraphParams = { release };
   try {
-    await client.request<unknown>('aggrega/irGraph', { release });
+    await client.request<unknown>('aggrega/irGraph', params);
   } catch (err) {
     outputChannel?.appendLine(
       `the topology of ${release}, asked for to settle what its lockfile reports, was not built: ${describeError(err)}`,
@@ -812,13 +820,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // for. Whether an indicator is drawn is the view's decision, not this one —
     // it refreshes itself quietly on recompile, and an indicator there would be
     // a notification for something already on screen.
-    requestIrGraph: async (release: string, signal?: CancellationSignal) => {
+    //
+    // The request is composed where its answer is read and is sent exactly as
+    // composed: whether it asks for the values a Feature declares sensitive is
+    // decided by the same reading of the setting that decides what the view is
+    // posted, so nothing here reads the setting again.
+    requestIrGraph: async (request: IrGraphRequest, signal?: CancellationSignal) => {
       if (!daemon || daemon.getState() !== DaemonState.Running) {
         throw new Error('the Aggrega language server is not running');
       }
       const result = await daemon.request<IrGraphResponse>(
         'aggrega/irGraph',
-        { release },
+        request,
         signal,
       );
       return result.graph;

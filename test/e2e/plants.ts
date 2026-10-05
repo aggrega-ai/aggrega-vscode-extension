@@ -984,15 +984,22 @@ export const PLANTS: readonly Plant[] = [
     says: 'the graph is posted to the panel without saying whether the setting was on, so the panel withholds by the declarations a value the sending side sent because the setting is on',
   },
   {
+    name: 'graph-asked-for-without-the-reveal', scenario: 'storefront-graph-panel', checks: ['attachments-panel.setting-on-shows-the-value-as-authored'], moves: 'red', target: 'extension',
+    file: GRAPH_VIEW,
+    find: '        const request = (0, graph_payload_1.irGraphRequest)(release, showsSensitiveValues);',
+    replace: '        const request = (0, graph_payload_1.irGraphRequest)(release, false);',
+    says: 'the graph is asked for without the request for sensitive values whatever the setting says, so the language server withholds them and the panel, told the setting is on, has no value to draw',
+  },
+  {
     name: 'panel-drops-the-setting-it-was-posted', scenario: 'storefront-graph-panel', checks: ['attachments-panel.setting-on-shows-the-value-as-authored'], moves: 'red', target: 'extension',
     file: GRAPH_SCRIPT, find: '      renderGraph(msg.graph, !!msg.asked, msg.showsSensitiveValues)', replace: '      renderGraph(msg.graph, !!msg.asked)',
     says: 'the panel draws a graph without the statement it was posted with about the setting, so it projects every graph as though the setting were off',
   },
   {
-    name: 'declared-leaves-matched-nowhere', scenario: 'storefront-graph-panel',
+    name: 'drawing-built-as-though-the-setting-were-on', scenario: 'storefront-graph-panel',
     checks: ['attachments-panel.setting-off-again-withholds-the-value', 'attachments-panel.setting-that-is-not-a-boolean-withholds-the-value'], moves: 'red', target: 'extension',
-    file: ATTACHMENTS_MODEL, find: '    if (coveredByDeclaration(leaf.path, declared)) { return WITHHELD_DECLARED; }\n', replace: '',
-    says: 'no leaf is withheld for a declaration, on the side that sends the graph and on the side that draws it, so a declared-sensitive value is drawn whatever the setting says',
+    file: GRAPH_VIEW, find: '        const showsSensitiveValues = deps.showsSensitiveValues();', replace: '        const showsSensitiveValues = true;',
+    says: 'every drawing is built as though the setting were on whatever it says, so the request asks the language server for the values, the sending side sends them untouched and the panel is told the setting is on',
   },
   {
     name: 'any-truthy-setting-read-as-on', scenario: 'storefront-graph-panel', checks: ['attachments-panel.setting-that-is-not-a-boolean-withholds-the-value'], moves: 'red', target: 'extension',

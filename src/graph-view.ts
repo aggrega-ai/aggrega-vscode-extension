@@ -3,7 +3,7 @@
 
 import * as vscode from 'vscode';
 import { postAttachCandidates } from './attach-candidates';
-import { GraphRedactor, createGraphRedactor } from './graph-payload';
+import { GraphRedactor, IrGraphRequest, createGraphRedactor, irGraphRequest } from './graph-payload';
 import { PanelDelivery, holdUntilListening, makeGraphMessageHandler } from './graph-messages';
 import {
   AttachCandidatesRequest,
@@ -46,13 +46,17 @@ export interface GraphDeps extends RendersOnReady {
   // reader the way to select one. Supplied rather than spelled out here so
   // every surface that needs a selection says the same thing.
   requireSelectedRelease(): void;
-  // requestIrGraph returns the serialized IRGraph object (the daemon's
-  // irGraph result `graph` field) for the given workspace-relative Release.
+  // requestIrGraph sends the irGraph request and returns the serialized IRGraph
+  // object (the daemon's irGraph result `graph` field).
+  //
+  // The request is composed here, where its answer is read, and is sent exactly
+  // as composed: it names the workspace-relative Release, and asks for the values
+  // a Feature declares sensitive only while the reader has asked to see them.
   //
   // The signal is how a reader stops the compile the drawing needs. It is
   // supplied only for a render the reader asked for; a quiet refresh passes
   // none, because there is no indicator to press cancel on.
-  requestIrGraph(release: string, signal?: CancellationSignal): Promise<unknown>;
+  requestIrGraph(request: IrGraphRequest, signal?: CancellationSignal): Promise<unknown>;
   // requestAttachCandidates reports which Features declare an applicability
   // that one drawn node's labels satisfy.
   //
@@ -306,7 +310,9 @@ export function activateGraphView(context: vscode.ExtensionContext, deps: GraphD
 // site is added, and nothing fails when it is forgotten: the value is present,
 // so new code that renders it works perfectly and discloses a credential.
 // Withholding as the payload crosses is one guarantee that holds however the far
-// side is later written.
+// side is later written. It stays although the language server withholds the
+// same values unless the request asks for them: what crosses into the view is
+// decided on this side, whatever the server that answered did.
 async function renderGraph(
   toPanel: PanelDelivery,
   deps: GraphDeps,
@@ -319,24 +325,28 @@ async function renderGraph(
     toPanel.post({ type: 'loading', release });
   }
   try {
+    // Read once, before the request, and that one answer decides whether the
+    // request asks the language server for the values a Feature declares
+    // sensitive, the redaction, and what travels with the payload it decided.
+    // The server sends those values only when asked for them, and the panel
+    // withholds again by the markings unless it is told the setting was on, so
+    // each is told what this drawing was built with rather than left to find
+    // out: a second read could disagree with the first, and the panel would then
+    // withhold the very values the request asked for and this side sent for it
+    // to show.
+    const showsSensitiveValues = deps.showsSensitiveValues();
+    const request = irGraphRequest(release, showsSensitiveValues);
     // A render the reader asked for is watched and can be stopped, on the same
     // presentation every other operation that compiles a Release uses. A quiet
     // refresh is not: it happens on recompile rather than on a press, the panel
     // goes on showing the graph it has, and an indicator for it would put a
     // notification in front of a reader for something already on screen.
     const answer = opts.quiet
-      ? await deps.requestIrGraph(release)
+      ? await deps.requestIrGraph(request)
       : await withCancellableProgress(
         `Aggrega: building the topology of ${release}`,
-        (signal) => deps.requestIrGraph(release, signal),
+        (signal) => deps.requestIrGraph(request, signal),
       );
-    // Read once, and that one answer both decides the redaction and travels with
-    // the payload it decided. The panel withholds again by the markings unless it
-    // is told the setting was on, so it is told what this payload was built with
-    // rather than left to find out: a second read could disagree with the first,
-    // and the panel would then withhold the very values this side sent for it to
-    // show.
-    const showsSensitiveValues = deps.showsSensitiveValues();
     const graph = redact(answer, showsSensitiveValues);
     // Read from the answer rather than from the redacted payload, and only once
     // the redaction has succeeded: what this keeps is a path and a set of names

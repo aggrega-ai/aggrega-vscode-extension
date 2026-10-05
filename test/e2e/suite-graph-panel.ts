@@ -429,7 +429,7 @@ export async function graphPanelChecks(ctx: SuiteContext, reference: string, sna
   let turnedOn = false;
   await c.run('attachments-panel.setting-on-shows-the-value-as-authored', {
     expected: `with the setting ticked in the settings editor, showing the graph again and pressing ${ORDERS} draws ${ORIGIN_LEAF} exactly as the Aggregate authors it ("${authoredOrigin}")`,
-    plant: 'in the scratch copy, the graph posted to the panel without saying whether the setting was on; or media/graph.js made to draw a graph without that statement',
+    plant: 'in the scratch copy, the graph asked for without the request for the values whatever the setting says; or posted to the panel without saying whether the setting was on; or media/graph.js made to draw a graph without that statement',
   }, async () => {
     need(authoredOrigin !== '', `the Aggregate authors no ${ORIGIN_LEAF}`);
     await openSettingsOn(ctx, 'showSensitiveValues', label);
@@ -443,7 +443,7 @@ export async function graphPanelChecks(ctx: SuiteContext, reference: string, sna
   });
   await c.run('attachments-panel.setting-off-again-withholds-the-value', {
     expected: `with the setting ticked off again, showing the graph again and pressing ${ORDERS} draws ${ORIGIN_LEAF} as "${WITHHELD_DECLARED}"`,
-    plant: 'in the scratch copy, media/attachments-model.js made to match no declared leaf, on the side that sends the graph and on the side that draws it',
+    plant: 'in the scratch copy, every drawing built as though the setting were on, so the values are asked for, sent untouched and drawn',
   }, async () => {
     need(turnedOn, 'the setting was not turned on, so turning it off again is not what this reads');
     await openSettingsOn(ctx, 'showSensitiveValues', label);
@@ -484,7 +484,7 @@ export async function graphPanelChecks(ctx: SuiteContext, reference: string, sna
   };
   await c.run('attachments-panel.setting-that-is-not-a-boolean-withholds-the-value', {
     expected: `with the user settings file hand-edited to set ${SENSITIVE_KEY} to the string "yes", and then to the number 1, showing the graph again and pressing ${ORDERS} draws ${ORIGIN_LEAF} as "${WITHHELD_DECLARED}" each time`,
-    plant: 'in the scratch copy, the one reading of the setting made to take any truthy value as on; or media/attachments-model.js made to match no declared leaf, on the side that sends the graph and on the side that draws it',
+    plant: 'in the scratch copy, the one reading of the setting made to take any truthy value as on; or every drawing built as though the setting were on',
   }, async () => {
     await open(ctx, userSettings);
     const text = (await activeDocument(ctx))?.text ?? '';

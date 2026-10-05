@@ -249,10 +249,16 @@ export type FindImplementationsResponse = wire.FindImplementationsResult;
 // reached through one is absent.
 export type ReleaseCandidatesResponse = wire.ReleaseCandidatesResult;
 
+// IrGraphParams is the aggrega/irGraph request: the Release whose graph is asked
+// for, as a path relative to the workspace root, and unredacted, which asks for
+// the graph as compiled. Absent or false, the answer withholds every value the
+// graph's own markings name.
+export type IrGraphParams = wire.IrGraphParams;
+
 // IrGraphResponse is the aggrega/irGraph result: the resolved graph a Release
-// compiles to, under graph, as the compiler emitted it. The published shape types
-// it as unknown, because the graph's own shape is a published contract of its
-// own rather than part of this request's.
+// compiles to, under graph, each value its markings name withheld unless the
+// request asked for it. The published shape types it as unknown, because the
+// graph's own shape is a published contract of its own.
 export type IrGraphResponse = wire.IrGraphResult;
 
 // BuildNotice is one advisory a build raised that carries no position in a

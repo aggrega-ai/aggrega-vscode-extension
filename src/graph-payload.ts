@@ -5,9 +5,16 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as vm from 'vm';
 
+import type { IrGraphParams } from './types';
+
 // The payload the topology view is given is built here, on this side of the
 // boundary, so a value the sensitivity rule withholds is removed before the view
 // is handed anything — rather than being sent across and then not drawn.
+//
+// The request that payload is built from is composed here too. The language
+// server withholds the same values unless the request asks for them, so whether
+// it is asked is the same decision as whether this side removes them, and both
+// are taken from the one reading of the reader's setting a drawing makes.
 //
 // The rule itself is not restated here. It lives in media/attachments-model.js,
 // which the view also loads, and this module runs that same file: the question
@@ -50,6 +57,25 @@ export function loadAttachmentsModel(extensionRoot: string): AttachmentsModel {
     throw new Error(`${file} defines no attachment projection`);
   }
   return model;
+}
+
+// IrGraphRequest is the question one drawing asks the language server: the
+// Release whose graph is drawn, and whether the graph is to be answered with the
+// values a Feature declares sensitive in place.
+//
+// It is projected from the published request rather than spelled here, so a
+// field the compiler renames stops type-checking where the request is composed.
+export type IrGraphRequest = Required<Pick<IrGraphParams, 'release'>> & Pick<IrGraphParams, 'unredacted'>;
+
+// irGraphRequest composes that question from the drawing's one reading of the
+// setting, by the setting's own rule: only the boolean true reads as on.
+//
+// 🔴 OFF IS THE FIELD LEFT OUT, NEVER false. Absent, the language server
+// withholds, so the request with the setting off is the request a client asking
+// for nothing sends, and the field is present exactly when the reader has asked
+// to see the values — its presence alone says so to anyone reading the wire.
+export function irGraphRequest(release: string, showsSensitiveValues: boolean): IrGraphRequest {
+  return showsSensitiveValues === true ? { release, unredacted: true } : { release };
 }
 
 // GraphRedactor builds the payload the view is sent.
