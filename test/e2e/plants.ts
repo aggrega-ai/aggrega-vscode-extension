@@ -306,8 +306,27 @@ export const PLANTS: readonly Plant[] = [
   },
   {
     name: 'closed-document-keeps-its-findings', scenario: 'storefront', checks: ['problems.findings-leave-with-the-document-the-editor-closes'], moves: 'red', target: 'extension',
-    file: EXTENSION, find: '            (0, diagnostics_1.clearUriInEverySource)(diagnosticCollections, doc.uri);\n', replace: '',
+    file: EXTENSION, find: '            (0, document_close_1.clearClosedDocument)(diagnosticCollections, doc.uri);\n', replace: '',
     says: 'a YAML document the editor closes keeps its findings in the Problems panel',
+  },
+  {
+    name: 'closed-document-takes-the-builds-findings', scenario: 'storefront', checks: ['problems.findings-leave-with-the-document-the-editor-closes'], moves: 'red', target: 'extension',
+    file: 'out/src/document-close.js', find: '    return source === diagnostics_shape_1.DIAGNOSTIC_SOURCE_BUILD;', replace: '    return false;',
+    says: 'a YAML document the editor closes keeps no layer\'s findings, a build\'s among them, so a build\'s refusal on it leaves the Problems panel while the build still raises it',
+  },
+  {
+    name: 'operation-refusal-filed-with-the-documents-own', scenario: 'storefront', checks: ['problems.refused-build-stays-on-the-release-through-its-close-until-a-build-resolves'], moves: 'red', target: 'extension',
+    file: EXTENSION,
+    find: '        const refusals = vscode.languages.createDiagnosticCollection(operation_refusals_1.OPERATION_REFUSALS_COLLECTION);',
+    replace: '        const refusals = diagnosticCollections.for(diagnostics_shape_1.DIAGNOSTIC_SOURCE_FALLBACK);',
+    says: 'the refusal of a build, a preview or a graph is kept in the document-validation layer\'s collection, so the document\'s own validation and its close take it away while the build still refuses',
+  },
+  {
+    name: 'resolving-build-leaves-the-refusal', scenario: 'storefront', checks: ['problems.refused-build-stays-on-the-release-through-its-close-until-a-build-resolves'], moves: 'red', target: 'extension',
+    file: 'out/src/operation-refusals.js',
+    find: "    if ('answered' in settled) {\n        return [];\n    }",
+    replace: "    if ('answered' in settled) {\n        return undefined;\n    }",
+    says: 'a build, a preview or a graph that completes replaces nothing, so a refusal an earlier answer filed stays after a build resolves',
   },
   {
     name: 'facet-row-dropped', scenario: 'storefront', checks: ['catalog-search.palette-shows-its-facets'], moves: 'red', target: 'extension',

@@ -105,19 +105,23 @@ export interface DaemonErrorContext {
 //   1005 (daemon-shutting-down)   → output channel log; no UI
 //
 // It is the one place a refusal's code decides its surface, and it reports what it
-// did so the caller knows what is left to say — see DaemonErrorRouting.
+// did so the caller knows what is left to say — see DaemonErrorRouting. Which
+// refusals are an entry on a document is decided by refusalEntry, which the
+// filing of a build's, a preview's or a graph's refusal reads as well.
 //
 // The diagnostic carries the compiler's words and nothing ahead of them. The
 // name of the code is how the transport classifies the refusal, not something a
 // reader can act on, and the same code reaches here for causes it does not name —
 // a catalog directory that could not be read among them.
 export function handleDaemonError(err: JsonRpcError, ctx: DaemonErrorContext): DaemonErrorRouting {
+  const entry = refusalEntry(err);
+  if (entry) {
+    ctx.publishShape(ctx.uri, [entry]);
+    return 'surfaced';
+  }
   switch (err.code) {
     case ERR_LOCKFILE_ABSENT:
       return surfaceLockfileNotice(ctx, err.message, err.data?.release);
-    case ERR_ENTITY_NOT_RESOLVABLE:
-      surfaceDiagnostic(ctx, err, err.message);
-      return 'surfaced';
     case ERR_SHUTTING_DOWN:
       ctx.logLine(`[shutting down] ${err.message}`);
       return 'surfaced';
@@ -126,7 +130,18 @@ export function handleDaemonError(err: JsonRpcError, ctx: DaemonErrorContext): D
   }
 }
 
-function surfaceDiagnostic(ctx: DaemonErrorContext, err: JsonRpcError, message: string): void {
+// refusalEntry is the entry a refusal is filed as on the document it is about,
+// or undefined for a refusal whose surface is not an entry on a document. A
+// refusal of entity-not-resolvable is the one that is.
+//
+// It decides the entry and nothing about where it is kept: a refusal of a
+// document's own request is kept beside that document's validation findings,
+// and one of a build, a preview or a graph is kept apart from them, so a
+// document's close and its next validation do not take it away.
+export function refusalEntry(err: JsonRpcError): ConvertedShape | undefined {
+  if (err.code !== ERR_ENTITY_NOT_RESOLVABLE) {
+    return undefined;
+  }
   // Read err.data when present; the daemon's 1004 emission sites
   // populate {file, line, column} with 1-based positions, and
   // optionally {end_line, end_column} for a token-spanning range.
@@ -141,19 +156,36 @@ function surfaceDiagnostic(ctx: DaemonErrorContext, err: JsonRpcError, message: 
   const daemonEndLine = err.data?.end_line ?? 0;
   const daemonEndColumn = err.data?.end_column ?? 0;
   const hasEnd = daemonEndLine > 0 && daemonEndColumn > 0;
-  const shape: ConvertedShape = {
+  return {
     startLine: line,
     startChar: character,
     endLine: hasEnd ? daemonEndLine - 1 : line,
     endChar: hasEnd ? daemonEndColumn - 1 : character,
     severity: 'error',
-    message,
-    // These surfaces report on the authored documents, so they belong to the
-    // document-validation layer. Named through the shared constant rather than
-    // spelled out again, so the layer has one name across every producer.
+    message: err.message,
+    // The entry carries the document-validation layer's name whoever asked, so
+    // what a reader sees on it is the same for a refused build as for a refused
+    // validation. Named through the shared constant rather than spelled out
+    // again, so the layer has one name across every producer.
     source: DIAGNOSTIC_SOURCE_FALLBACK,
   };
-  ctx.publishShape(ctx.uri, [shape]);
+}
+
+// refusalDocument names the document a refusal is about: the first artifact
+// the envelope names, or fallbackPath — the subject of the request refused —
+// where it names none, and the empty string where neither names anything.
+//
+// It is read off the envelope's own artifact fields and never off its code. Each
+// of those fields names one artifact and only that artifact, so the first one
+// present IS the document the failure is about; branching on the code to decide
+// would re-derive, from a second source, something the payload already states.
+// The value is as the envelope wrote it, relative to the workspace root or
+// absolute.
+export function refusalDocument(err: JsonRpcError, fallbackPath: string): string {
+  // Truthiness rather than ?? on purpose: an empty path names no document, so
+  // it must fall through to the next candidate instead of resolving to the
+  // workspace root itself.
+  return err.data?.file || err.data?.lockfile || fallbackPath;
 }
 
 // lockfileNotice composes the one notice a missing lockfile is answered with:

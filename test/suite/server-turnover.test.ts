@@ -348,9 +348,9 @@ describe('a new language server starts the problem list from what it says', func
       ]);
     });
 
-    it('builds the turnover over every layer and the conventions collection, and validates on every rising edge', () => {
+    it('builds the turnover over every layer, the refusals of a build, a preview or a graph, and the conventions collection, and validates on every rising edge', () => {
       assert.deepStrictEqual(callArguments(EXTENSION, 'createServerTurnover'), [[
-        '{ holders: () => [...(diagnosticCollections ? everyLayer(diagnosticCollections) : []), runner], revalidate: revalidateOpenDocuments, }',
+        '{ holders: () => [ ...(diagnosticCollections ? everyLayer(diagnosticCollections) : []), ...(operationRefusals ? [operationRefusals] : []), runner, ], revalidate: revalidateOpenDocuments, }',
       ]]);
       assert.deepStrictEqual(callArguments(EXTENSION, 'ready.onReady'), [
         ['() => { void configurationWatch.reload(); }'],

@@ -143,6 +143,21 @@ export function shapeForDaemonDiagnostic(d: DaemonDiagnostic): ConvertedShape {
 // group instead.
 export const DIAGNOSTIC_SOURCE_FALLBACK = 'aggrega';
 
+// DIAGNOSTIC_SOURCE_BUILD is the layer the language server names on the
+// findings of a build, of a preview and of a graph — the advisories a render
+// raises, and a refusal raised while rendering — read off the wire as every
+// layer's name is, and never inferred here.
+//
+// It is the one layer the extension names, because it is the one a document's
+// close leaves standing. A build reports on the Release it rendered, not on
+// the file the editor happened to hold, and the language server publishes a
+// file's build findings only when they change: a close that took them away
+// would leave the Problems panel without a finding the build still raises, and
+// nothing would put it back until a build stopped raising it. The other layers
+// report on the document itself, and its validation computes them again when
+// it is next opened.
+export const DIAGNOSTIC_SOURCE_BUILD = 'aggrega-build';
+
 // sourceForDaemonDiagnostic reads the layer name off one daemon diagnostic,
 // substituting the fallback when the field is absent or empty. Every surface
 // that needs a diagnostic's source — the shape conversion and the per-source

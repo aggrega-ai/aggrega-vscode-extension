@@ -11,6 +11,7 @@ import {
   shapeForDaemonDiagnostic,
 } from './diagnostics-shape';
 import { LintPublication, applyLintPublication } from './lint-run';
+import { OperationRefusals, createOperationRefusals } from './operation-refusals';
 
 // convertDaemonDiagnostic maps the daemon's per-file diagnostic
 // wire shape to a vscode.Diagnostic. Delegates the position/severity
@@ -105,27 +106,30 @@ export function publishDiagnosticsBatch(
   }
 }
 
-// clearUriInEverySource removes uri from every layer's collection. Used when a
-// document closes, where the answer is the same for all layers: the file is
-// gone from the editor, so no layer's findings about it should stay on screen.
-export function clearUriInEverySource(
-  collections: SourcedCollections,
-  uri: vscode.Uri,
-): void {
-  for (const source of collections.known()) {
-    collections.for(source).delete(uri);
-  }
+// operationRefusalsIn keeps the refusals of a build, a preview or a graph in
+// collection, the one the extension creates for them apart from the per-layer
+// registry. Which entries stand is decided in operation-refusals.ts; this is the
+// editor-coupled half, which turns each document's address back into the URI it
+// was named by and each shape into a diagnostic.
+export function operationRefusalsIn(collection: vscode.DiagnosticCollection): OperationRefusals {
+  return createOperationRefusals({
+    set: (document, entries) => collection.set(vscode.Uri.parse(document), entries.map(diagnosticFromShape)),
+    delete: (document) => collection.delete(vscode.Uri.parse(document)),
+    clear: () => collection.clear(),
+  });
 }
 
 // everyLayer returns the collection of every layer seen so far, which is every
-// collection the language server's findings — pushed, answered, or carried on a
-// refusal — have been filed in.
+// collection the language server's findings — pushed, answered, or carried on
+// the refusal of a document's own request — have been filed in. The refusals of
+// a build, a preview or a graph are kept apart, in operationRefusalsIn's.
 export function everyLayer(collections: SourcedCollections): vscode.DiagnosticCollection[] {
   return [...collections.known()].map((source) => collections.for(source));
 }
 
-// holdsFindings reports whether any layer holds an entry for uri — whether the
-// Problems panel shows something the language server published on that file.
+// holdsFindings reports whether any layer holds an entry for uri. Whether the
+// Problems panel shows something the language server said about that file is
+// this, or an entry among the refusals of a build, a preview or a graph.
 export function holdsFindings(
   collections: SourcedCollections,
   uri: vscode.Uri,

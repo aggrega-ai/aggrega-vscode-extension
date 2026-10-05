@@ -6,8 +6,10 @@ import * as path from 'path';
 
 import { buildParams, buildPreviewParams } from '../../src/build-dials';
 import { RESTART_COMMAND, RESTART_SERVER_ACTION } from '../../src/daemon-status';
+import { OPERATION_REFUSALS_COLLECTION } from '../../src/operation-refusals';
+import { ERR_ENTITY_NOT_RESOLVABLE } from '../../src/types';
 import { buildValidateParams } from '../../src/validate-request';
-import { Judgement, need } from './checks';
+import { Judgement, need, Outcome } from './checks';
 import { runCompiler } from './cli';
 import { COMMANDS_PANEL_LABELS } from './commands-panel';
 import { WebviewDocument } from './drivers';
@@ -36,7 +38,10 @@ const BINARY_PATH = 'aggrega.server.binaryPath';
 
 // The checks run in the storefront folder: the capabilities walked end to end —
 // the configuration panel's resizable columns, the language server recovering
-// from a kill, diagnostics on a real mistake and across a cascade, an inspection
+// from a kill, diagnostics on a real mistake and across a cascade, what a
+// document's close takes out of the Problems panel and what it leaves — a
+// build's findings, and a build refused for a dependency that does not
+// resolve, which stays until a build resolves — an inspection
 // refused because of the document declaring the entity, completion and hover,
 // a hover answered after its document changed on disk, the published-catalog
 // search with no registry and the filter it keeps from one search to the next,
@@ -54,6 +59,7 @@ export const STOREFRONT_CHECKS = [
   'problems.authoring-mistake-lands-on-its-line-in-the-compilers-words',
   'problems.authoring-mistake-reads-as-actionable',
   'problems.findings-leave-with-the-document-the-editor-closes',
+  'problems.refused-build-stays-on-the-release-through-its-close-until-a-build-resolves',
   'problems.cascade-names-the-entity-that-broke',
   ...INSPECTION_CHECKS,
   'language-features.completion-offers-the-workspace-and-catalog-entities',
@@ -203,6 +209,20 @@ const CACHE_RECIPE_TAIL = [
 ];
 const CACHE_REFUSING = [...CACHE_RECIPE_HEAD, ...CACHE_SLOT_REFERENCE, ...CACHE_RECIPE_TAIL].join('\n');
 const CACHE_CORRECTED = [...CACHE_RECIPE_HEAD, ...CACHE_RECIPE_TAIL].join('\n');
+
+// A second refusing Recipe for the cache, under a name of its own, which the
+// close check writes, opens and closes. It is not the Recipe the refusal check
+// writes: the editor holds a document it has opened for minutes after the
+// document's tab closes, and that check reads its Recipe as one no editor holds.
+const KEPT_NAME = 'storefront-kept-cache';
+const KEPT_RECIPE = ['catalog', 'recipe', 'compose', KEPT_NAME, '1.0.0', 'recipe.yaml'];
+const KEPT_MAPPED = `core/datastore/memcached:1.0.0: compose/${KEPT_NAME}:1.0.0`;
+const KEPT_REFUSING = CACHE_REFUSING.replace('  name: storefront-cache\n', `  name: ${KEPT_NAME}\n`);
+
+// The Manifest's Feature mapping, and the same mapping naming an entity no
+// catalog holds, which fails the Release's dependencies.
+const SECRET_MAPPING = 'core/secret-value:1.0.0: dotenv-secret:1.0.0';
+const UNHELD_MAPPING = 'core/secret-value:1.0.0: no-such-recipe:1.0.0';
 
 // The lines a build and a preview end in on the output channel, and the
 // notifications they end in, refused or completed, held as written for the same
@@ -367,43 +387,28 @@ export async function storefrontChecks(ctx: SuiteContext, referenceFolder: strin
     return { screenshot: mistakeShot, drawnText: mistakeText };
   });
 
-  // ---- findings leave with a document the editor closes ----
+  // ---- what a document's close takes out of the Problems panel, and what it leaves ----
   // The editor reports a document closed when it disposes of it or gives it
   // another language. A closed tab disposes of a document only once nothing else
   // holds it, and the editor keeps a document an extension opened — the probe's
   // own openings among them — for minutes after its last tab closes; a change of
-  // language is reported at once. So the check closes the document by giving it
+  // language is reported at once. So the check closes each document by giving it
   // another language, with the editor's own picker.
   await c.run('problems.findings-leave-with-the-document-the-editor-closes', {
-    expected: `with the Feature's metadata.version deleted and left unsaved, and its complaint filed under "aggrega", giving the document the language ${PLAIN_TEXT.name} through the editor's Change Language Mode — which the editor reports as closing the YAML document — takes every finding on it out of the Problems panel, and none is filed on it again (watched for ${CLOSED_WATCH_MS} ms); giving it ${YAML_MODE.name} again files the complaint again, so the edit still stood and what took the complaint out was the close`,
-    plant: 'in the scratch copy, out/src/extension.js made to leave the findings of a YAML document the editor closes standing',
+    expected: `a document's own findings leave with it: with the Feature's metadata.version deleted and left unsaved, and its complaint filed under "aggrega", giving the document the language ${PLAIN_TEXT.name} through the editor's Change Language Mode — which the editor reports as closing the YAML document — takes every finding on it out of the Problems panel, and none is filed on it again (watched for ${CLOSED_WATCH_MS} ms); giving it ${YAML_MODE.name} again files the complaint again, so the edit still stood and what took the complaint out was the close. And a build's findings stay: with a second Recipe for the cache, ${KEPT_NAME}, written into the folder's own catalog — its Workload naming the slot "${UNDECLARED_SLOT}", which the cache's Component does not declare — the Manifest mapping the cache to it, and Pull and then Build pressed on the Commands panel, opening that Recipe and giving it ${PLAIN_TEXT.name} the same way leaves it carrying exactly one entry, the build's refusal, under the source, at the position, in the words and with the code of the language server's own publication for the same build over the reference copy, and none of the Recipe's own findings (watched for ${CLOSED_WATCH_MS} ms)`,
+    plant: 'in the scratch copy, out/src/extension.js made to leave the findings of a YAML document the editor closes standing; or out/src/document-close.js made to take a closed document out of every layer, the build\'s among them',
   }, async () => {
-    const removed = await deleteLine(ctx, feature, 'version: 1.0.0');
-    try {
-      const complaintOn = (v: { source: string | null }[]): boolean => v.some((d) => d.source === 'aggrega');
-      const filed = await until('the complaint being filed', 20000, () => diagnostics(ctx, feature), complaintOn).catch(() => null);
-      need(filed !== null, 'no complaint was filed on the Feature with its metadata.version deleted, so there is nothing for the close to take out');
-      const closedAs = await giveLanguage(ctx, feature, PLAIN_TEXT);
-      const left = await until('every finding leaving the closed document', 3000, () => diagnostics(ctx, feature), (v) => v.length === 0).then(() => null, (err: unknown) => (err instanceof Error ? err.message : String(err)));
-      const out = left === null ? await holds(CLOSED_WATCH_MS, () => diagnostics(ctx, feature), (v) => v.length === 0) : null;
-      const reopenedAs = await giveLanguage(ctx, feature, YAML_MODE);
-      const back = await until('the complaint filed again once the document reads as YAML', 20000, () => diagnostics(ctx, feature), complaintOn).catch(() => null);
-      return {
-        passed: closedAs === PLAIN_TEXT.id && left === null && out !== null && out.held && reopenedAs === YAML_MODE.id && back !== null,
-        seen: `filed: ${describeDiagnostics(feature, filed)}; given ${PLAIN_TEXT.name}, the editor reports ${closedAs}, and ${left === null ? `no finding was left on it, ${out?.held ? `none filed again over ${CLOSED_WATCH_MS} ms` : `then ${describeDiagnostics(feature, out?.broke ?? [])} at ${out?.atMs} ms`}` : left}; given ${YAML_MODE.name} again, the editor reports ${reopenedAs}, and ${back === null ? 'no complaint was filed again' : `${describeDiagnostics(feature, back)} was filed again`}`,
-      };
-    } finally {
-      // The Feature as it was: read as YAML, the line back, saved, its complaint
-      // gone — whatever the check above saw — so the checks after it read the
-      // folder the scenario opened.
-      if ((await quickInput(ctx.d).catch(() => null)) !== null) { await ctx.d.press('Escape'); }
-      const active = await ctx.probe.request<{ path: string; languageId: string } | null>('editor.active').catch(() => null);
-      if (active === null || active.path !== feature || active.languageId !== YAML_MODE.id) { await giveLanguage(ctx, feature, YAML_MODE).catch(() => undefined); }
-      await putBack(ctx, feature, removed);
-      await until('the complaint clearing once the line is back', 20000, () => diagnostics(ctx, feature), (v) => !v.some((d) => d.source === 'aggrega')).catch(() => undefined);
-      await save(ctx, feature);
-    }
+    const own = await ownFindingsLeave(ctx, feature);
+    const builds = await buildFindingsStay(ctx, referenceFolder);
+    return {
+      passed: own.passed && builds.passed,
+      seen: `a document's own findings — ${own.seen}; a build's — ${builds.seen}`,
+      evidence: builds.evidence,
+    };
   });
+
+  // ---- a build refused for a dependency that does not resolve, on the Release ----
+  await refusedBuildCheck(ctx, referenceFolder);
 
   // ---- diagnostics across a cascade ----
   const referenceModule = path.join(referenceFolder, path.relative(ctx.folder, moduleFile));
@@ -1175,8 +1180,8 @@ export async function storefrontChecks(ctx: SuiteContext, referenceFolder: strin
   const manifest = path.join(ctx.folder, 'manifest-compose.yaml');
   const workflow = path.join(ctx.folder, '.github', 'workflows', 'ci.yml');
   const workflowDir = path.join(ctx.folder, '.github');
-  const featureMapping = 'core/secret-value:1.0.0: dotenv-secret:1.0.0';
-  const unheldMapping = 'core/secret-value:1.0.0: no-such-recipe:1.0.0';
+  const featureMapping = SECRET_MAPPING;
+  const unheldMapping = UNHELD_MAPPING;
   const cleanEnding = `Aggrega: validated ${path.basename(workflow)}: no problems found.`;
   await c.run('settings-that-are-wrong.failing-dependencies-are-not-filed-on-a-ci-workflow', {
     expected: `with the Manifest's Feature mapping "${featureMapping}" rewritten on disk to "${unheldMapping}", an entity no catalog holds, Validate pressed with the Release in front files on it every finding of the language server's own answer for the same document over the reference copy configured and mapped the same way, among them one opening "Dependencies:"; and Validate pressed with a continuous-integration workflow in front — ${path.relative(ctx.folder, workflow)}, a YAML file that is not an Aggrega document — ends in "${cleanEnding}" and leaves no Aggrega entry on it, watched for 3 s after`,
@@ -1342,15 +1347,116 @@ function publishedEntries(answer: ReferenceAnswer, referenceFolder: string, fold
 // would pass unseen. The Recipe, the Manifest and the lockfile are put back in
 // both copies whatever the check reached, so the checks after it read the folder
 // as it was found.
-async function renderRefusalCheck(ctx: SuiteContext, referenceFolder: string): Promise<void> {
-  const bin = ctx.inputs.compiler.path;
-  const copies = [ctx.folder, referenceFolder].map((root) => ({
+// RecipeCopy is where a Recipe for the cache sits in one copy of the folder — the
+// one the editor opened, or the reference copy the language server is asked over
+// outside the editor — and the documents a build of it reads there.
+interface RecipeCopy { root: string; recipe: string; recipeTree: string; manifest: string; lock: string }
+
+// recipeCopies names those places for the Recipe at `at` under each copy's root,
+// the folder the editor opened first.
+function recipeCopies(ctx: SuiteContext, referenceFolder: string, at: readonly string[]): RecipeCopy[] {
+  return [ctx.folder, referenceFolder].map((root) => ({
     root,
-    recipe: path.join(root, ...CACHE_RECIPE),
-    recipeTree: path.join(root, CACHE_RECIPE[0], CACHE_RECIPE[1]),
+    recipe: path.join(root, ...at),
+    recipeTree: path.join(root, at[0], at[1]),
     manifest: path.join(root, 'manifest-compose.yaml'),
     lock: path.join(root, RELEASE.replace(/\.ya?ml$/, '.lock')),
   }));
+}
+
+// FoundCopy is a copy's Manifest and lockfile as a check found them.
+interface FoundCopy { manifest: string; lock: Buffer }
+
+// foundAs reads both copies as a check finds them, and stops the check where a
+// Recipe tree is already there or the Manifest does not map the cache once.
+function foundAs(copies: RecipeCopy[]): FoundCopy[] {
+  need(copies.every((x) => !fs.existsSync(x.recipeTree)), `${copies[0].recipeTree} or its reference copy's is already there, so the Recipe this check writes would not be the only one`);
+  const found = copies.map((x) => ({ manifest: fs.readFileSync(x.manifest, 'utf8'), lock: fs.readFileSync(x.lock) }));
+  need(found.every((f) => f.manifest.split(CACHE_MAPPING).length === 2), `the Manifest does not map "${CACHE_MAPPING}" once`);
+  return found;
+}
+
+// putBackCopies puts both copies back as they were found, whatever a check
+// reached; and where an entry is left on the Recipe — a check stopped with it
+// refusing — a build of the folder as found replaces the build's findings, which
+// takes it away.
+async function putBackCopies(ctx: SuiteContext, copies: RecipeCopy[], found: FoundCopy[]): Promise<void> {
+  for (const [i, x] of copies.entries()) {
+    fs.writeFileSync(x.manifest, found[i].manifest);
+    fs.writeFileSync(x.lock, found[i].lock);
+    fs.rmSync(x.recipeTree, { recursive: true, force: true });
+  }
+  await closeAllEditors(ctx).catch(() => undefined);
+  if ((await diagnostics(ctx, copies[0].recipe).catch(() => [])).length > 0) {
+    const mark = ctx.out.mark();
+    await pressOperation(ctx.d, await commandsPanel(ctx.d), 'aggrega.op.build').catch(() => undefined);
+    await ctx.out.waitFor('the build of the folder as found ending', mark, (t) => t.split('\n').some((l) => BUILD_ENDING.test(l)), 180000).catch(() => '');
+  }
+}
+
+// pullReference writes a Recipe's text into the reference copy, maps the cache to
+// it there, and has the compiler's own pull record it.
+async function pullReference(ctx: SuiteContext, reference: RecipeCopy, found: FoundCopy, text: string, mapped: string): Promise<void> {
+  fs.mkdirSync(path.dirname(reference.recipe), { recursive: true });
+  fs.writeFileSync(reference.recipe, text);
+  fs.writeFileSync(reference.manifest, found.manifest.replace(CACHE_MAPPING, mapped));
+  const pulled = await runCompiler(ctx.inputs.compiler.path, ['--offline', 'pull', '--release', RELEASE, '--quiet'], { cwd: reference.root, home: ctx.home, boundMs: 120000, log: ctx.cliLog });
+  need(pulled.status === 0, `the compiler's own pull of the reference copy exited ${pulled.status ?? pulled.signal}: ${(pulled.stderr || pulled.stdout).trim().slice(0, 300)}`);
+}
+
+// serverPublication is the language server's own publication for a request of
+// the reference copy that refuses: one finding, on the Recipe at `recipe` once
+// named in the folder the editor opened.
+async function serverPublication(ctx: SuiteContext, referenceFolder: string, recipe: string, method: string, params: unknown, what: string): Promise<{ answer: ReferenceAnswer; entry: PublishedEntry }> {
+  const answer = await referenceAnswer({ binary: ctx.inputs.compiler.path, root: referenceFolder, method, params, published: true, home: ctx.home, table: ctx.s.table, log: ctx.cliLog });
+  need(!answer.ok, `the language server answered ${what} of the reference copy without refusing it`);
+  const entries = publishedEntries(answer, referenceFolder, ctx.folder);
+  need(entries.length === 1 && entries[0].file === recipe, `the language server's own ${what} of the reference copy published ${JSON.stringify(entries).slice(0, 600)}, not one finding on the Recipe`);
+  return { answer, entry: entries[0] };
+}
+
+// pullWith writes a Recipe's text in the folder the editor opened and presses
+// Pull, which the build reads.
+async function pullWith(ctx: SuiteContext, recipe: string, text: string, what: string): Promise<void> {
+  fs.writeFileSync(recipe, text);
+  await closeAllEditors(ctx);
+  const mark = ctx.out.mark();
+  await pressOperation(ctx.d, await commandsPanel(ctx.d), 'aggrega.op.pull');
+  const ended = await ctx.out.waitFor(`the pull ending with the Recipe ${what}`, mark, (t) => /^The pull (resolved|did not complete)/m.test(t), 120000);
+  const line = ended.split('\n').find((l) => l.startsWith('The pull')) ?? '';
+  need(line.startsWith('The pull resolved'), `the pull with the Recipe ${what} did not resolve the Release's dependencies: "${line.slice(0, 300)}"`);
+  await toastWindowPassed(ctx.d);
+}
+
+// pressedEnding presses one operation and answers with the line it ended in on
+// the channel and the notification it raised, if any.
+async function pressedEnding(ctx: SuiteContext, command: string, what: string): Promise<{ ending: string; told: Toast | null }> {
+  const mark = ctx.out.mark();
+  const toastMark = (await toasts(ctx.d)).length;
+  await pressOperation(ctx.d, await commandsPanel(ctx.d), command);
+  const text = await ctx.out.waitFor(`${what} ending`, mark, (t) => t.split('\n').some((l) => BUILD_ENDING.test(l)), 180000);
+  const ending = text.split('\n').find((l) => BUILD_ENDING.test(l)) ?? '';
+  const told = await waitToast(ctx.d, `${what}'s notification`, toastMark, (t) => BUILD_ENDING_NOTICE.test(t.message), 10000).catch(() => null);
+  return { ending, told };
+}
+
+// publishedFaults holds one entry the editor files against the language server's
+// own publication of it — source, severity, position, words, code and where the
+// code leads — and names each way they differ.
+function publishedFaults(d: DiagnosticEntry, e: PublishedEntry['entry']): string[] {
+  const range = { start: { line: e.line - 1, character: e.column - 1 }, end: { line: (e.end_line ?? e.line) - 1, character: (e.end_column ?? e.column) - 1 } };
+  const faults: string[] = [];
+  if (d.source !== e.source) { faults.push(`its source is ${d.source}, the server's ${e.source}`); }
+  if (d.severity !== 'Error') { faults.push(`its severity is ${d.severity}, the server's ${e.severity}`); }
+  if (JSON.stringify(d.range) !== JSON.stringify(range)) { faults.push(`it spans ${JSON.stringify(d.range)}, the server's ${e.line}:${e.column}-${e.end_line}:${e.end_column} being ${JSON.stringify(range)}`); }
+  if (d.message !== e.message) { faults.push(`its words differ from the server's: ${JSON.stringify(d.message.slice(0, 200))}`); }
+  if (d.code !== (e.shortCode ?? null)) { faults.push(`its code is ${d.code}, the server's short code ${e.shortCode}`); }
+  if (d.codeTarget !== (e.codeDescription?.href ?? null)) { faults.push(`its code leads to ${d.codeTarget}, the server's address being ${e.codeDescription?.href}`); }
+  return faults;
+}
+
+async function renderRefusalCheck(ctx: SuiteContext, referenceFolder: string): Promise<void> {
+  const copies = recipeCopies(ctx, referenceFolder, CACHE_RECIPE);
   const [folder, reference] = copies;
   const workloadKey = CACHE_REFUSING.split('\n').indexOf(CACHE_WORKLOAD_KEY);
   await ctx.checks.run('problems.render-refusal-lands-on-its-recipe-in-the-compilers-words', {
@@ -1359,52 +1465,19 @@ async function renderRefusalCheck(ctx: SuiteContext, referenceFolder: string): P
   }, async () => {
     const buildButton = (await operationButtons(await commandsPanel(ctx.d))).find((b) => b.command === 'aggrega.op.build');
     need(buildButton?.disabled === false, 'Build cannot run here, so there is nothing to press');
-    need(copies.every((x) => !fs.existsSync(x.recipeTree)), `${folder.recipeTree} or its reference copy's is already there, so the Recipe this check writes would not be the only one`);
-    const found = copies.map((x) => ({ manifest: fs.readFileSync(x.manifest, 'utf8'), lock: fs.readFileSync(x.lock) }));
-    need(found.every((f) => f.manifest.split(CACHE_MAPPING).length === 2), `the Manifest does not map "${CACHE_MAPPING}" once`);
+    const found = foundAs(copies);
     try {
       // The language server's own publications, for a build and a preview of the
       // refusing Recipe over the reference copy.
-      fs.mkdirSync(path.dirname(reference.recipe), { recursive: true });
-      fs.writeFileSync(reference.recipe, CACHE_REFUSING);
-      fs.writeFileSync(reference.manifest, found[1].manifest.replace(CACHE_MAPPING, CACHE_MAPPED));
-      const pulled = await runCompiler(bin, ['--offline', 'pull', '--release', RELEASE, '--quiet'], { cwd: referenceFolder, home: ctx.home, boundMs: 120000, log: ctx.cliLog });
-      need(pulled.status === 0, `the compiler's own pull of the reference copy exited ${pulled.status ?? pulled.signal}: ${(pulled.stderr || pulled.stdout).trim().slice(0, 300)}`);
-      const published = async (method: string, params: unknown, what: string): Promise<{ answer: ReferenceAnswer; entry: PublishedEntry }> => {
-        const answer = await referenceAnswer({ binary: bin, root: referenceFolder, method, params, published: true, home: ctx.home, table: ctx.s.table, log: ctx.cliLog });
-        need(!answer.ok, `the language server answered ${what} of the reference copy without refusing it`);
-        const entries = publishedEntries(answer, referenceFolder, ctx.folder);
-        need(entries.length === 1 && entries[0].file === folder.recipe, `the language server's own ${what} of the reference copy published ${JSON.stringify(entries).slice(0, 600)}, not one finding on the Recipe`);
-        return { answer, entry: entries[0] };
-      };
-      const buildRef = await published('aggrega/build', buildParams(RELEASE, [], null), 'a build');
-      const previewRef = await published('aggrega/buildPreview', buildPreviewParams(RELEASE), 'a preview');
+      await pullReference(ctx, reference, found[1], CACHE_REFUSING, CACHE_MAPPED);
+      const buildRef = await serverPublication(ctx, referenceFolder, folder.recipe, 'aggrega/build', buildParams(RELEASE, [], null), 'a build');
+      const previewRef = await serverPublication(ctx, referenceFolder, folder.recipe, 'aggrega/buildPreview', buildPreviewParams(RELEASE), 'a preview');
 
       // The same state in the folder the editor opened, made from outside it.
       fs.mkdirSync(path.dirname(folder.recipe), { recursive: true });
       fs.writeFileSync(folder.manifest, found[0].manifest.replace(CACHE_MAPPING, CACHE_MAPPED));
-      // recipeAs writes the Recipe's text and presses Pull, which the build reads.
-      const recipeAs = async (text: string, what: string): Promise<void> => {
-        fs.writeFileSync(folder.recipe, text);
-        await closeAllEditors(ctx);
-        const mark = ctx.out.mark();
-        await pressOperation(ctx.d, await commandsPanel(ctx.d), 'aggrega.op.pull');
-        const ended = await ctx.out.waitFor(`the pull ending with the Recipe ${what}`, mark, (t) => /^The pull (resolved|did not complete)/m.test(t), 120000);
-        const line = ended.split('\n').find((l) => l.startsWith('The pull')) ?? '';
-        need(line.startsWith('The pull resolved'), `the pull with the Recipe ${what} did not resolve the Release's dependencies: "${line.slice(0, 300)}"`);
-        await toastWindowPassed(ctx.d);
-      };
-      // pressed presses one operation and answers with the line it ended in on the
-      // channel and the notification it raised, if any.
-      const pressed = async (command: string, what: string): Promise<{ ending: string; told: Toast | null }> => {
-        const mark = ctx.out.mark();
-        const toastMark = (await toasts(ctx.d)).length;
-        await pressOperation(ctx.d, await commandsPanel(ctx.d), command);
-        const text = await ctx.out.waitFor(`${what} ending`, mark, (t) => t.split('\n').some((l) => BUILD_ENDING.test(l)), 180000);
-        const ending = text.split('\n').find((l) => BUILD_ENDING.test(l)) ?? '';
-        const told = await waitToast(ctx.d, `${what}'s notification`, toastMark, (t) => BUILD_ENDING_NOTICE.test(t.message), 10000).catch(() => null);
-        return { ending, told };
-      };
+      const recipeAs = (text: string, what: string): Promise<void> => pullWith(ctx, folder.recipe, text, what);
+      const pressed = (command: string, what: string): Promise<{ ending: string; told: Toast | null }> => pressedEnding(ctx, command, what);
       // filed reads, once the server's publication has been filed, the entries the
       // Recipe carries and every entry anywhere carrying the published words.
       const filed = async (want: PublishedEntry, what: string): Promise<string[]> => {
@@ -1413,19 +1486,9 @@ async function renderRefusalCheck(ctx: SuiteContext, referenceFolder: string): P
         const elsewhere = listed.filter((e) => e.path !== folder.recipe && e.diagnostics.some((d) => d.message === want.entry.message)).map((e) => e.path);
         const held = (await ctx.probe.request<{ path: string }[]>('documents.list')).some((d) => d.path === folder.recipe);
         need(!held, `the editor holds the Recipe open, so what was filed on it is not about a document it does not hold`);
-        const e = want.entry;
-        const range = { start: { line: e.line - 1, character: e.column - 1 }, end: { line: (e.end_line ?? e.line) - 1, character: (e.end_column ?? e.column) - 1 } };
         const faults: string[] = [];
         if (on.length !== 1) { faults.push(`the Recipe carries ${on.length} entries: ${describeDiagnostics(folder.recipe, on)}`); }
-        const d = on[0];
-        if (d !== undefined) {
-          if (d.source !== e.source) { faults.push(`its source is ${d.source}, the server's ${e.source}`); }
-          if (d.severity !== 'Error') { faults.push(`its severity is ${d.severity}, the server's ${e.severity}`); }
-          if (JSON.stringify(d.range) !== JSON.stringify(range)) { faults.push(`it spans ${JSON.stringify(d.range)}, the server's ${e.line}:${e.column}-${e.end_line}:${e.end_column} being ${JSON.stringify(range)}`); }
-          if (d.message !== e.message) { faults.push(`its words differ from the server's: ${JSON.stringify(d.message.slice(0, 200))}`); }
-          if (d.code !== (e.shortCode ?? null)) { faults.push(`its code is ${d.code}, the server's short code ${e.shortCode}`); }
-          if (d.codeTarget !== (e.codeDescription?.href ?? null)) { faults.push(`its code leads to ${d.codeTarget}, the server's address being ${e.codeDescription?.href}`); }
-        }
+        if (on[0] !== undefined) { faults.push(...publishedFaults(on[0], want.entry)); }
         if (elsewhere.length > 0) { faults.push(`the same words are filed on ${JSON.stringify(elsewhere)} as well`); }
         return faults;
       };
@@ -1465,19 +1528,195 @@ async function renderRefusalCheck(ctx: SuiteContext, referenceFolder: string): P
         evidence: { buildReference: buildRef, previewReference: previewRef, build, rebuilt, preview, again, buildEntry, drawn: drawn.slice(0, 2000) },
       };
     } finally {
-      // Both copies as they were found, whatever the check reached; and where an
-      // entry is left on the Recipe — a check stopped with it refusing — a build of
-      // the folder as found replaces the build's findings, which takes it away.
-      for (const [i, x] of copies.entries()) {
-        fs.writeFileSync(x.manifest, found[i].manifest);
-        fs.writeFileSync(x.lock, found[i].lock);
-        fs.rmSync(x.recipeTree, { recursive: true, force: true });
+      await putBackCopies(ctx, copies, found);
+    }
+  });
+}
+
+// ownFindingsLeave holds the first half of what a close does: a document's own
+// findings leave with it, none is filed on it again while it stays closed, and
+// they come back when it is opened again.
+async function ownFindingsLeave(ctx: SuiteContext, feature: string): Promise<Outcome> {
+  const removed = await deleteLine(ctx, feature, 'version: 1.0.0');
+  try {
+    const complaintOn = (v: { source: string | null }[]): boolean => v.some((d) => d.source === 'aggrega');
+    const filed = await until('the complaint being filed', 20000, () => diagnostics(ctx, feature), complaintOn).catch(() => null);
+    need(filed !== null, 'no complaint was filed on the Feature with its metadata.version deleted, so there is nothing for the close to take out');
+    const closedAs = await giveLanguage(ctx, feature, PLAIN_TEXT);
+    const left = await until('every finding leaving the closed document', 3000, () => diagnostics(ctx, feature), (v) => v.length === 0).then(() => null, (err: unknown) => (err instanceof Error ? err.message : String(err)));
+    const out = left === null ? await holds(CLOSED_WATCH_MS, () => diagnostics(ctx, feature), (v) => v.length === 0) : null;
+    const reopenedAs = await giveLanguage(ctx, feature, YAML_MODE);
+    const back = await until('the complaint filed again once the document reads as YAML', 20000, () => diagnostics(ctx, feature), complaintOn).catch(() => null);
+    return {
+      passed: closedAs === PLAIN_TEXT.id && left === null && out !== null && out.held && reopenedAs === YAML_MODE.id && back !== null,
+      seen: `filed: ${describeDiagnostics(feature, filed)}; given ${PLAIN_TEXT.name}, the editor reports ${closedAs}, and ${left === null ? `no finding was left on it, ${out?.held ? `none filed again over ${CLOSED_WATCH_MS} ms` : `then ${describeDiagnostics(feature, out?.broke ?? [])} at ${out?.atMs} ms`}` : left}; given ${YAML_MODE.name} again, the editor reports ${reopenedAs}, and ${back === null ? 'no complaint was filed again' : `${describeDiagnostics(feature, back)} was filed again`}`,
+    };
+  } finally {
+    // The Feature as it was: read as YAML, the line back, saved, its complaint
+    // gone — whatever the check above saw — so the checks after it read the
+    // folder the scenario opened.
+    if ((await quickInput(ctx.d).catch(() => null)) !== null) { await ctx.d.press('Escape'); }
+    const active = await ctx.probe.request<{ path: string; languageId: string } | null>('editor.active').catch(() => null);
+    if (active === null || active.path !== feature || active.languageId !== YAML_MODE.id) { await giveLanguage(ctx, feature, YAML_MODE).catch(() => undefined); }
+    await putBack(ctx, feature, removed);
+    await until('the complaint clearing once the line is back', 20000, () => diagnostics(ctx, feature), (v) => !v.some((d) => d.source === 'aggrega')).catch(() => undefined);
+    await save(ctx, feature);
+  }
+}
+
+// buildFindingsStay holds the second half: a build's findings on a document stay
+// through that document's opening and closing. The finding is a refusal raised
+// while rendering, on a Recipe the build reads, and what stands on the Recipe
+// after the close is held against the language server's own publication for the
+// same build over the reference copy.
+//
+// What opening the Recipe files on it — the language server validates a document
+// as it opens — is recorded rather than judged: the verdict rests on what the
+// close leaves. It is watched for a stated 10 s, so a validation that files
+// nothing is read as such rather than waited out.
+//
+// The Recipe is left read as plain text: the copies are put back by deleting it,
+// and a document the editor reads as YAML is validated whenever the open
+// documents are, a deleted one among them.
+async function buildFindingsStay(ctx: SuiteContext, referenceFolder: string): Promise<Outcome> {
+  need(KEPT_REFUSING !== CACHE_REFUSING, `the second Recipe's text does not carry its own name, ${KEPT_NAME}`);
+  const copies = recipeCopies(ctx, referenceFolder, KEPT_RECIPE);
+  const [folder, reference] = copies;
+  const found = foundAs(copies);
+  try {
+    await pullReference(ctx, reference, found[1], KEPT_REFUSING, KEPT_MAPPED);
+    const buildRef = await serverPublication(ctx, referenceFolder, folder.recipe, 'aggrega/build', buildParams(RELEASE, [], null), 'a build');
+    const want = buildRef.entry.entry;
+    fs.mkdirSync(path.dirname(folder.recipe), { recursive: true });
+    fs.writeFileSync(folder.manifest, found[0].manifest.replace(CACHE_MAPPING, KEPT_MAPPED));
+    await pullWith(ctx, folder.recipe, KEPT_REFUSING, 'naming the undeclared slot');
+    const build = await pressedEnding(ctx, 'aggrega.op.build', 'the build');
+    const read = (): Promise<DiagnosticEntry[]> => diagnostics(ctx, folder.recipe);
+    const isBuilds = (d: DiagnosticEntry): boolean => d.source === want.source;
+    const filed = await until('the build\'s entry filed on the Recipe', 20000, read, (v) => v.some(isBuilds)).catch(() => null);
+    need(filed !== null, `Build ended "${build.ending.slice(0, 200)}" and filed nothing on the Recipe under ${want.source}, so there is nothing for the close to leave`);
+    await open(ctx, folder.recipe);
+    const opened = await until('the Recipe\'s own validation filing on it', stated(10000), read, (v) => v.some((d) => !isBuilds(d))).catch(read);
+    const closedAs = await giveLanguage(ctx, folder.recipe, PLAIN_TEXT);
+    const left = await until('the Recipe\'s own findings leaving it', 3000, read, (v) => v.every(isBuilds)).then(() => null, (err: unknown) => (err instanceof Error ? err.message : String(err)));
+    const kept = await holds(CLOSED_WATCH_MS, read, (v) => v.length === 1 && isBuilds(v[0]));
+    const after = await read();
+    const faults = after.length === 1 ? publishedFaults(after[0], want) : [`the Recipe carries ${after.length} entries: ${describeDiagnostics(folder.recipe, after)}`];
+    return {
+      passed: closedAs === PLAIN_TEXT.id && left === null && kept.held && faults.length === 0,
+      seen: `Build ended "${build.ending.slice(0, 120)}" and filed ${describeDiagnostics(folder.recipe, filed.filter(isBuilds))}; opened, the Recipe carried ${describeDiagnostics(folder.recipe, opened)}; given ${PLAIN_TEXT.name}, the editor reports ${closedAs}, and ${left === null ? 'its own findings left' : left}; ${kept.held ? `over ${CLOSED_WATCH_MS} ms it carried the build's entry alone` : `at ${kept.atMs} ms it carried ${describeDiagnostics(folder.recipe, kept.broke ?? [])}`}; ${faults.length === 0 ? 'that entry is the language server\'s own publication — source, position, words and code' : faults.join('; ')}`,
+      evidence: { buildReference: buildRef, build, filed, opened, after },
+    };
+  } finally {
+    if ((await quickInput(ctx.d).catch(() => null)) !== null) { await ctx.d.press('Escape'); }
+    await putBackCopies(ctx, copies, found);
+  }
+}
+
+// refusedBuildCheck holds the Problems panel against a Build refused because a
+// dependency does not resolve: the refusal is filed on the Release, it stays
+// through that document's opening and closing, and a Build that resolves takes
+// it away. The state is the Manifest's Feature mapping rewritten on disk to name
+// an entity no catalog holds; the refusal's words are the language server's own
+// for the same build over the reference copy, mapped the same way.
+//
+// It also reads the Problems panel as drawn while the refusal stands, for the
+// name of the collection the extension keeps such refusals in: that name is the
+// extension's own, and the panel draws each entry's layer and code rather than it.
+async function refusedBuildCheck(ctx: SuiteContext, referenceFolder: string): Promise<void> {
+  const release = path.join(ctx.folder, RELEASE);
+  const manifest = path.join(ctx.folder, 'manifest-compose.yaml');
+  const config = path.join(ctx.folder, '.aggrega-config.yaml');
+  const refManifest = path.join(referenceFolder, path.basename(manifest));
+  const refConfig = path.join(referenceFolder, path.basename(config));
+  await ctx.checks.run('problems.refused-build-stays-on-the-release-through-its-close-until-a-build-resolves', {
+    expected: `with the Manifest's Feature mapping "${SECRET_MAPPING}" rewritten on disk to "${UNHELD_MAPPING}", an entity no catalog holds, Build pressed on the Commands panel is refused, and the Problems panel then carries one entry in the words of the language server's own refusal of the same build over the reference copy mapped the same way — on ${RELEASE}, at its head, under "aggrega", with no code — and those words on no other entry; the Problems panel draws it, and nowhere draws "${OPERATION_REFUSALS_COLLECTION}"; ${RELEASE} opened, the entry stands beside whatever the Release's own validation files; given ${PLAIN_TEXT.name} — which the editor reports as closing the YAML document — the Release's own findings leave and that entry alone stays, watched for ${CLOSED_WATCH_MS} ms; and with the mapping put back, Build completes and the entry leaves`,
+    plant: 'in the scratch copy, out/src/extension.js made to keep the refusals of a build, a preview or a graph in the document-validation layer\'s collection; or out/src/operation-refusals.js made to file nothing for an answer that completed',
+  }, async () => {
+    need((await statusLog(ctx.d)).slice(-1)[0]?.reading === RUNNING, 'the language server is not running, so nothing can be built');
+    const found = fs.readFileSync(manifest, 'utf8');
+    need(found.split(SECRET_MAPPING).length === 2, `the Manifest does not map "${SECRET_MAPPING}" once`);
+    need(fs.readFileSync(refManifest, 'utf8') === found && fs.readFileSync(refConfig, 'utf8') === fs.readFileSync(config, 'utf8'), 'the reference copy\'s configuration or Manifest is not the folder\'s as it was found');
+    const unheld = found.replace(SECRET_MAPPING, UNHELD_MAPPING);
+    // The Release's entries under "aggrega", the layer the refusal is drawn under
+    // and the one its own validation files in; a build's advisories on it, under a
+    // layer of their own, are not what this check reads.
+    const read = async (): Promise<DiagnosticEntry[]> => (await diagnostics(ctx, release)).filter((d) => d.source === 'aggrega');
+    let words = '';
+    const refusalIn = (v: DiagnosticEntry[]): DiagnosticEntry[] => v.filter((d) => d.message === words);
+    try {
+      fs.writeFileSync(refManifest, unheld);
+      const ref = await (async () => {
+        try {
+          return await referenceAnswer({ binary: ctx.inputs.compiler.path, root: referenceFolder, method: 'aggrega/build', params: buildParams(RELEASE, [], null), home: ctx.home, table: ctx.s.table, log: ctx.cliLog });
+        } finally {
+          fs.writeFileSync(refManifest, found);
+        }
+      })();
+      need(!ref.ok && ref.error.code === ERR_ENTITY_NOT_RESOLVABLE, `the language server answered the build of the reference copy ${ref.ok ? 'without refusing it' : `refusing it with ${String(ref.error.code)}: ${ref.error.message.slice(0, 200)}`}, so its dependencies do not fail in this state`);
+      const named = ref.error.data as { file?: string; lockfile?: string } | null;
+      need(!named?.file && !named?.lockfile, `the language server's refusal names a document of its own, ${JSON.stringify(named)}, so it is not about the Release this check reads`);
+      words = ref.error.message.split(referenceFolder).join(ctx.folder);
+
+      // The same state in the folder the editor opened, made from outside it. Build
+      // is pressed again until the language server has read the rewritten Manifest,
+      // since a press it answers before then builds the folder as found.
+      await closeAllEditors(ctx);
+      fs.writeFileSync(manifest, unheld);
+      const refused = await until('Build refused once the Manifest is read as rewritten', 60000, () => pressedEnding(ctx, 'aggrega.op.build', 'the build'), (r) => r.ending.startsWith('The build did not complete'), 1000);
+      const every = (): Promise<DiagnosticEntry[]> => diagnostics(ctx, release);
+      const filed = await until('the refusal filed on the Release', 20000, every, (v) => refusalIn(v).length > 0).catch(every);
+      const listed = await ctx.probe.request<{ path: string; diagnostics: DiagnosticEntry[] }[]>('diagnostics.list');
+      const elsewhere = listed.filter((e) => e.path !== release && e.diagnostics.some((d) => d.message === words)).map((e) => e.path);
+      const head = { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } };
+      const faults: string[] = [];
+      const on = refusalIn(filed);
+      if (on.length !== 1) { faults.push(`the Release carries ${on.length} entries in the refusal's words: ${describeDiagnostics(release, filed)}`); }
+      if (on[0] !== undefined) {
+        if (on[0].source !== 'aggrega') { faults.push(`its source is ${on[0].source}`); }
+        if (on[0].severity !== 'Error') { faults.push(`its severity is ${on[0].severity}`); }
+        if (JSON.stringify(on[0].range) !== JSON.stringify(head)) { faults.push(`it spans ${JSON.stringify(on[0].range)}, not the head of the Release`); }
+        if (on[0].code !== null) { faults.push(`it carries the code ${on[0].code}`); }
       }
+      if (elsewhere.length > 0) { faults.push(`the same words are filed on ${JSON.stringify(elsewhere)} as well`); }
+
+      // The entry as a person meets it, with the Problems panel open.
+      await run(ctx, 'workbench.actions.view.problems');
+      const drawn = await until('the Problems panel drawing the refusal', 10000, () => ctx.d.workbench<string>(`((document.querySelector('.markers-panel') || {}).innerText || '')`), (t) => t.includes(words.slice(0, 40))).catch(() => '');
+      const shot = await capture(ctx, 'refused-build-on-its-release');
+      const panelDraws = drawn.includes(words.slice(0, 40));
+      const nameDrawn = drawn.includes(OPERATION_REFUSALS_COLLECTION);
+
+      // Opened, the Release is validated as it opens; what that files beside the
+      // refusal is recorded, watched for a stated 10 s.
+      await open(ctx, release);
+      const opened = await until('the Release\'s own validation filing on it', stated(10000), read, (v) => v.some((d) => d.message !== words)).catch(read);
+      const whileOpen = refusalIn(opened).length;
+      const closedAs = await giveLanguage(ctx, release, PLAIN_TEXT);
+      const left = await until('the Release\'s own findings leaving it', 3000, read, (v) => v.every((d) => d.message === words)).then(() => null, (err: unknown) => (err instanceof Error ? err.message : String(err)));
+      const kept = await holds(CLOSED_WATCH_MS, read, (v) => v.length === 1 && v[0].message === words);
+
+      // The mapping put back, Build resolves, and the refusal leaves.
+      fs.writeFileSync(manifest, found);
+      const resolved = await until('Build completing once the Manifest is read as put back', 60000, () => pressedEnding(ctx, 'aggrega.op.build', 'the build'), (r) => r.ending.startsWith('Build completed: '), 1000).catch(() => null);
+      const gone = resolved !== null && await until('the refusal leaving the Release', 20000, read, (v) => refusalIn(v).length === 0).then(() => true, () => false);
+      return {
+        passed: faults.length === 0 && panelDraws && !nameDrawn && whileOpen === 1 && closedAs === PLAIN_TEXT.id && left === null && kept.held && gone,
+        seen: `the server refused the build "${words.slice(0, 160)}" naming no document; Build ended "${refused.ending.slice(0, 120)}" and filed ${describeDiagnostics(release, on)}${faults.length === 0 ? '' : ` — ${faults.join('; ')}`}; the Problems panel ${panelDraws ? 'draws it' : 'did not draw it'} and ${nameDrawn ? `draws "${OPERATION_REFUSALS_COLLECTION}"` : `nowhere draws "${OPERATION_REFUSALS_COLLECTION}"`}; opened, the Release carried ${describeDiagnostics(release, opened)} (${whileOpen} in the refusal's words); given ${PLAIN_TEXT.name}, the editor reports ${closedAs}, and ${left === null ? 'its own findings left' : left}; ${kept.held ? `over ${CLOSED_WATCH_MS} ms it carried the refusal alone` : `at ${kept.atMs} ms it carried ${describeDiagnostics(release, kept.broke ?? [])}`}; with the mapping put back, Build ${resolved === null ? 'did not complete' : `ended "${resolved.ending.slice(0, 120)}"`} and the refusal ${gone ? 'left' : 'stayed'}; capture ${shot}`,
+        evidence: { reference: ref, refused, filed, drawn: drawn.slice(0, 2000), opened, resolved },
+      };
+    } finally {
+      fs.writeFileSync(manifest, found);
+      fs.writeFileSync(refManifest, found);
+      if ((await quickInput(ctx.d).catch(() => null)) !== null) { await ctx.d.press('Escape'); }
+      // The Release read as YAML again, as the checks after this one find it — and
+      // only now, with the Manifest put back, so what its validation files is about
+      // the folder as found.
+      const held = await ctx.probe.request<{ path: string; languageId: string }[]>('documents.list').catch(() => []);
+      if (held.some((x) => x.path === release && x.languageId !== YAML_MODE.id)) { await giveLanguage(ctx, release, YAML_MODE).catch(() => undefined); }
       await closeAllEditors(ctx).catch(() => undefined);
-      if ((await diagnostics(ctx, folder.recipe).catch(() => [])).length > 0) {
-        const mark = ctx.out.mark();
-        await pressOperation(ctx.d, await commandsPanel(ctx.d), 'aggrega.op.build').catch(() => undefined);
-        await ctx.out.waitFor('the build of the folder as found ending', mark, (t) => t.split('\n').some((l) => BUILD_ENDING.test(l)), 180000).catch(() => '');
+      if (words !== '' && refusalIn(await read().catch(() => [])).length > 0) {
+        await pressedEnding(ctx, 'aggrega.op.build', 'the build of the folder as found').catch(() => undefined);
       }
     }
   });

@@ -48,14 +48,15 @@ import { Daemon, DaemonState } from './daemon';
 import { debounce } from './debounce';
 import {
   SourcedCollections,
-  clearUriInEverySource,
   createSourcedCollections,
   everyLayer,
   holdsFindings,
+  operationRefusalsIn,
   publishDiagnostics,
   publishShapes,
 } from './diagnostics';
 import { DiskChangeHandler, ON_DISK_PATTERN, createDiskChangeHandler, subscribeToWatcher } from './disk-change';
+import { clearClosedDocument } from './document-close';
 import { createDocumentValidations } from './document-validations';
 import { DIAGNOSTIC_SOURCE_FALLBACK } from './diagnostics-shape';
 import {
@@ -65,8 +66,16 @@ import {
   describeError,
   handleDaemonError,
   isJsonRpcError,
+  refusalDocument,
+  refusalEntry,
   resetSessionDedup,
 } from './error-surfaces';
+import {
+  OPERATION_REFUSALS_COLLECTION,
+  OperationRefusals,
+  Settled,
+  filingsForAnswer,
+} from './operation-refusals';
 import { recoverFromCacheMiss } from './cache-miss';
 import {
   notifyDaemonStartupFailed,
@@ -236,6 +245,10 @@ let outputChannel: vscode.OutputChannel | null = null;
 // diagnosticCollections holds one collection per compiler layer, so each layer
 // publishes and clears its own findings independently. Created on first anchor.
 let diagnosticCollections: SourcedCollections | null = null;
+// operationRefusals holds the refusals of a build, a preview or a graph, apart
+// from the per-layer collections, so a document's close and its validation do
+// not take one away; each Release's next answer does. Created beside them.
+let operationRefusals: OperationRefusals | null = null;
 // workspaceRootForCommands is the Aggrega workspace root the language server
 // was started at, or null when none is in use.
 //
@@ -494,8 +507,11 @@ const documentValidations = createDocumentValidations<vscode.TextDocument>({
 // shows that Release to be redrawn — none is open, or the one open shows another
 // Release — and it is wired beside the redraw, in the on-disk watcher.
 //
-// Nobody pressed for this request, so a failure raises nothing: it is kept in the
-// output channel, and the warning it could not settle stays where it is.
+// Nobody pressed for this request, so a failure raises no notification: it is
+// kept in the output channel, and the warning it could not settle stays where it
+// is. Its answer still settles what the Release's refusals show, as every graph
+// request's does (answeredFor): a refusal for a dependency that does not resolve
+// stays filed, and an answer without it takes it away.
 //
 // It asks for the graph withheld whatever the setting that shows sensitive values
 // says. That setting is the reader's choice about a graph they are looking at,
@@ -506,7 +522,7 @@ async function requestGraphWithoutDrawing(release: string): Promise<void> {
   if (!client || client.getState() !== DaemonState.Running) { return; }
   const params: IrGraphParams = { release };
   try {
-    await client.request<unknown>('aggrega/irGraph', params);
+    await answeredFor(release, client.request<unknown>('aggrega/irGraph', params));
   } catch (err) {
     outputChannel?.appendLine(
       `the topology of ${release}, asked for to settle what its lockfile reports, was not built: ${describeError(err)}`,
@@ -722,14 +738,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   });
 
   // Every collection a language server's findings are filed in: each layer it
-  // pushes or answers, the refusals filed among them, and the conventions
+  // pushes or answers, the refusals of a document's own requests filed among
+  // them, the refusals of a build, a preview or a graph, and the conventions
   // check's. Nothing the extension files there is its own computation, so a new
   // server forgets all of it. The open documents are validated again on every
   // rising edge — the first start included, since no server is answering yet when
   // the editor's documents are first seen.
   const runner = lintRunner;
   const turnover = createServerTurnover({
-    holders: () => [...(diagnosticCollections ? everyLayer(diagnosticCollections) : []), runner],
+    holders: () => [
+      ...(diagnosticCollections ? everyLayer(diagnosticCollections) : []),
+      ...(operationRefusals ? [operationRefusals] : []),
+      runner,
+    ],
     revalidate: revalidateOpenDocuments,
   });
   serverTurnover = turnover;
@@ -829,11 +850,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (!daemon || daemon.getState() !== DaemonState.Running) {
         throw new Error('the Aggrega language server is not running');
       }
-      const result = await daemon.request<IrGraphResponse>(
+      const result = await answeredFor(request.release, daemon.request<IrGraphResponse>(
         'aggrega/irGraph',
         request,
         signal,
-      );
+      ));
       return result.graph;
     },
     // What may attach to a drawn node, asked by the node's id on the graph and
@@ -1399,6 +1420,11 @@ async function ensureDaemonAt(
   diagnosticCollections ??= createSourcedCollections(
     disposable => context.subscriptions.push(disposable),
   );
+  if (!operationRefusals) {
+    const refusals = vscode.languages.createDiagnosticCollection(OPERATION_REFUSALS_COLLECTION);
+    context.subscriptions.push(refusals);
+    operationRefusals = operationRefusalsIn(refusals);
+  }
 
   daemon = new Daemon(getSettings(), msg => outputChannel?.appendLine(msg));
   droppedStartFailure = null;
@@ -1948,8 +1974,11 @@ function registerDocumentLifecycle(context: vscode.ExtensionContext): void {
 }
 
 // registerCloseHandler wires the editor closing a YAML document. The document's
-// findings are cleared first, and synchronously, so they leave with it whatever
-// the language server does next. The document then goes to disk-change.ts, which
+// own findings are cleared first, and synchronously, so they leave with it
+// whatever the language server does next; a build's findings on it, and the
+// refusal of a build, a preview or a graph, stay until a build stops reporting
+// them, for the reason given where the build layer's name is declared
+// (DIAGNOSTIC_SOURCE_BUILD). The document then goes to disk-change.ts, which
 // has the language server drop what it holds for that one file and the Catalog
 // panel read its list again once that drop is answered — the same read the
 // on-disk watcher asks for, so a close and a change on disk that overlap are one
@@ -1963,7 +1992,7 @@ function registerCloseHandler(context: vscode.ExtensionContext, disk: DiskChange
     vscode.workspace.onDidCloseTextDocument(doc => {
       if (doc.languageId !== 'yaml') { return; }
       if (diagnosticCollections) {
-        clearUriInEverySource(diagnosticCollections, doc.uri);
+        clearClosedDocument(diagnosticCollections, doc.uri);
       }
       if (!daemon) { return; }
       disk.documentClosed(doc.uri.fsPath);
@@ -2100,7 +2129,8 @@ function registerFileWatcher(context: vscode.ExtensionContext): DiskChangeHandle
     revalidate: revalidateOpenDocuments,
     shownRelease: () => graphView?.shownRelease() ?? null,
     findingStands: (file) =>
-      diagnosticCollections !== null && holdsFindings(diagnosticCollections, vscode.Uri.file(file)),
+      (diagnosticCollections !== null && holdsFindings(diagnosticCollections, vscode.Uri.file(file)))
+      || (operationRefusals !== null && operationRefusals.holds(vscode.Uri.file(file).toString())),
     selectedRelease,
     selectedLockfile: () => releaseSelection?.lockfile() ?? null,
     requestGraph: (release) => { void requestGraphWithoutDrawing(release); },
@@ -2540,16 +2570,17 @@ async function tryRequest<T>(method: RequestMethod, params: unknown, doc: vscode
 // the topology graph, whose subject is a Release rather than the file in the
 // active editor.
 //
-// Which document a diagnostic lands on is read off the envelope's own
-// artifact fields and never off its code. Each of those fields names one
-// artifact and only that artifact, so the first one present IS the document
-// the failure is about; branching on the code to decide would re-derive, from
-// a second source, something the payload already states. fallbackPath covers
-// an envelope that names no artifact at all, and the caller supplies its own
-// subject for it.
+// Which document a refusal is about is refusalDocument's answer, read off the
+// envelope; fallbackPath is the caller's own subject, for an envelope that names
+// no artifact at all. A relative value resolves against the anchored root,
+// matching the form the daemon accepts and returns.
 //
-// A relative value resolves against the anchored root, matching the form the
-// daemon accepts and returns.
+// 🔴 A REFUSAL WHOSE SURFACE IS AN ENTRY ON A DOCUMENT IS NOT FILED HERE. Every
+// caller of this one reports the refusal of a build, a preview or a graph, and
+// such a refusal was filed as its answer arrived (answeredFor), kept apart from
+// the documents' own findings. Filing it here as well would put a second copy in
+// the document's own collection, which that document's close and its next
+// validation take away while the first stays.
 //
 // whoAsked is the caller's: every caller of this one is an operation the reader
 // pressed or a drawing that says for itself whether it was asked for.
@@ -2557,10 +2588,10 @@ function reportDaemonError(err: unknown, fallbackPath: string, whoAsked: WhoAske
   if (!isJsonRpcError(err) || !workspaceRootForCommands) {
     return 'unrecognised';
   }
-  // Truthiness rather than ?? on purpose: an empty path names no document, so
-  // it must fall through to the next candidate instead of resolving to the
-  // workspace root itself.
-  const named = err.data?.file || err.data?.lockfile || fallbackPath;
+  if (refusalEntry(err)) {
+    return 'surfaced';
+  }
+  const named = refusalDocument(err, fallbackPath);
   if (!named) {
     return 'unrecognised';
   }
@@ -2569,13 +2600,53 @@ function reportDaemonError(err: unknown, fallbackPath: string, whoAsked: WhoAske
   return ctx === null ? 'unrecognised' : handleDaemonError(err, ctx);
 }
 
+// answeredFor waits on one build, preview or graph request for release, and has
+// its ending replace what that Release's earlier answers filed among the
+// operations' refusals, before handing the answer — or the refusal — on to the
+// caller unchanged.
+//
+// 🔴 EVERY REQUEST OF THOSE THREE METHODS IS SENT THROUGH HERE, because this is
+// where an answer arrives whoever sent it: a press of Build or Preview, a graph
+// drawn or redrawn, and the graph asked for without drawing. A refusal for a
+// dependency that does not resolve then stays in the Problems panel until the
+// next answer for the same Release comes without it — whichever of the three
+// gives that answer — and a request that never answered changes nothing. What
+// each ending files is decided in operation-refusals.ts.
+function answeredFor<T>(release: string, sent: Promise<T>): Promise<T> {
+  return sent.then(
+    (answer) => {
+      fileOperationAnswer(release, { answered: answer });
+      return answer;
+    },
+    (err: unknown) => {
+      fileOperationAnswer(release, { thrown: err });
+      throw err;
+    },
+  );
+}
+
+// fileOperationAnswer files one ending's entries for release, each on the
+// document it names, resolved against the anchored root as every request's
+// paths are, and addressed by the URI the collection files it under.
+function fileOperationAnswer(release: string, settled: Settled): void {
+  const filings = filingsForAnswer(settled, release);
+  const root = workspaceRootForCommands;
+  if (filings === undefined || !operationRefusals || !root) { return; }
+  operationRefusals.replace(release, filings.map((f) => ({
+    document: vscode.Uri.file(fromWorkspaceRelative(root, f.document)).toString(),
+    entry: f.entry,
+  })));
+}
+
 function buildErrorContext(uri: vscode.Uri, whoAsked: WhoAsked): DaemonErrorContext | null {
   if (!diagnosticCollections || !outputChannel || !workspaceRootForCommands) {
     return null;
   }
-  // The error surfaces report on the authored documents, so their shapes belong
-  // to the document-validation layer's collection — the same one that layer's
-  // own diagnostics land in.
+  // A refusal of a document's own request — its validation, a hover, a
+  // completion — is filed in the document-validation layer's collection, beside
+  // that layer's own findings, so the document's next validation replaces it and
+  // its close takes it away. A build's, a preview's or a graph's never reaches
+  // this collection (reportDaemonError).
   const collection = diagnosticCollections.for(DIAGNOSTIC_SOURCE_FALLBACK);
   const channel = outputChannel;
   const settings = getSettings();
@@ -2662,11 +2733,11 @@ async function requestBuildPreview(
   if (!daemon || daemon.getState() !== DaemonState.Running) {
     throw new Error('the Aggrega language server is not running');
   }
-  return await daemon.request<BuildPreviewResponse>(
+  return await answeredFor(release, daemon.request<BuildPreviewResponse>(
     'aggrega/buildPreview',
     buildPreviewParams(release),
     signal,
-  );
+  ));
 }
 
 // requestBuild asks the language server to build the given Release and write
@@ -2716,11 +2787,11 @@ async function requestBuild(
   if (!daemon || daemon.getState() !== DaemonState.Running) {
     throw new Error('the Aggrega language server is not running');
   }
-  return await daemon.request<BuildResponse>(
+  return await answeredFor(release, daemon.request<BuildResponse>(
     'aggrega/build',
     buildParams(release, dials, outputParentFor(anchoredWorkspaceRoot(), chosenProjectFolder)),
     signal,
-  );
+  ));
 }
 
 // requestImport asks the language server to draft Aggrega authoring files from a

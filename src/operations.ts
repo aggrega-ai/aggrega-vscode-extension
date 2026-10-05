@@ -258,11 +258,12 @@ export interface OperationDeps extends RendersOnReady {
   //
   // A preview refusal is about an authored document, and the envelope carries
   // which one plus, where the fault is attributable to a single key, that key's
-  // span. Without this the payload would reach the reader as one line of log
-  // text and the position it carries would be discarded. fallbackPath is the
-  // document to attach a diagnostic to when the envelope names no artifact of
-  // its own. whoAsked is 'reader' from every operation here: each runs because
-  // the reader pressed it.
+  // span. The diagnostic is filed as the request's answer arrives, where the
+  // build's and the preview's requests are sent, so it stays until the Release
+  // is answered again without it; this reports it as surfaced. fallbackPath is
+  // the document the envelope is about when it names no artifact of its own.
+  // whoAsked is 'reader' from every operation here: each runs because the reader
+  // pressed it.
   reportDaemonError(err: unknown, fallbackPath: string, whoAsked: WhoAsked): DaemonErrorRouting;
   // requestCatalogIndex asks the language server for the workspace's entity
   // index. It is the source the entity pickers offer from: the server reports
@@ -896,11 +897,12 @@ async function runBuild(deps: OperationDeps, dials: readonly string[]): Promise<
   } catch (err) {
     const outcome = outcomeOf(err);
     // The envelope is routed BEFORE the log line rather than instead of it. A
-    // refusal is about an authored document and carries which one, so routing it
-    // puts the fault on that document where the reader can act on it. The log
-    // line still fires either way: a reader watching this channel has to be told
-    // the build did not complete, and a value that is not an envelope at all has
-    // nowhere else to surface.
+    // refusal is about an authored document and carries which one; where it is
+    // an entry on that document it was filed there as the answer arrived, and
+    // routing it raises what else its code calls for, such as the notice offering
+    // Pull. The log line still fires either way: a reader watching this channel
+    // has to be told the build did not complete, and a value that is not an
+    // envelope at all has nowhere else to surface.
     const routed = outcome.kind === 'failed'
       ? deps.reportDaemonError(err, release, 'reader')
       : 'unrecognised';
@@ -973,11 +975,12 @@ async function runPreview(deps: OperationDeps): Promise<void> {
   } catch (err) {
     const outcome = outcomeOf(err);
     // The envelope is routed BEFORE the log line rather than instead of it. A
-    // refusal is about an authored document and carries which one, so routing it
-    // puts the fault on that document where the reader can act on it. The log
-    // line still fires either way: a reader watching this channel has to be told
-    // the preview did not complete, and a value that is not an envelope at all
-    // has nowhere else to surface.
+    // refusal is about an authored document and carries which one; where it is
+    // an entry on that document it was filed there as the answer arrived, and
+    // routing it raises what else its code calls for, such as the notice offering
+    // Pull. The log line still fires either way: a reader watching this channel
+    // has to be told the preview did not complete, and a value that is not an
+    // envelope at all has nowhere else to surface.
     const routed = outcome.kind === 'failed'
       ? deps.reportDaemonError(err, release, 'reader')
       : 'unrecognised';

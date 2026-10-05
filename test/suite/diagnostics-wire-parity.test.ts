@@ -3,6 +3,7 @@
 
 import * as assert from 'node:assert';
 import {
+  DIAGNOSTIC_SOURCE_BUILD,
   editorCodeForShape,
   groupDiagnosticsBySource,
   shapeForDaemonDiagnostic,
@@ -74,6 +75,14 @@ describe('daemon diagnostic wire parity', () => {
     // The whole point of grouping by the wire's own value: this frame reaches
     // its own layer without the client knowing anything about render advisories.
     assert.strictEqual(sourceForDaemonDiagnostic(RENDER_LAYER_FRAME), 'aggrega-build');
+  });
+
+  it('names the build\'s layer as the captured render-layer frame names it', () => {
+    // The one layer name the extension holds — the layer a document's close
+    // leaves standing — is the name the producer put on a real render finding,
+    // so a renamed layer fails here rather than as findings that leave with
+    // their document.
+    assert.strictEqual(DIAGNOSTIC_SOURCE_BUILD, sourceForDaemonDiagnostic(RENDER_LAYER_FRAME));
   });
 
   it('files a captured validation-layer frame under the validation layer', () => {

@@ -104,11 +104,11 @@ export interface GraphDeps extends RendersOnReady {
   //
   // A refusal reaching this view is about an authored document, and the
   // envelope carries which one plus, where the fault is attributable to a
-  // single key, that key's span. Without this the payload would reach the
-  // reader as one line of log text and the position it carries would be
-  // discarded. fallbackPath is the document to attach a diagnostic to when the
-  // envelope names no artifact of its own; whoAsked is whether the reader asked
-  // for the drawing the refusal answers.
+  // single key, that key's span. The diagnostic is filed as the request's
+  // answer arrives, where requestIrGraph sends it, so it stays until the Release
+  // is answered again without it; this reports it as surfaced. fallbackPath is
+  // the document the envelope is about when it names no artifact of its own;
+  // whoAsked is whether the reader asked for the drawing the refusal answers.
   reportDaemonError(err: unknown, fallbackPath: string, whoAsked: WhoAsked): DaemonErrorRouting;
   output: vscode.OutputChannel;
 }

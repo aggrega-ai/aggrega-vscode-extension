@@ -11,9 +11,8 @@ export interface GraphFailureSinks {
   // reportDaemonError routes the error envelope to the per-code surfaces the
   // extension already has for it — a diagnostic on the document the envelope
   // names, or the notice that offers the act resolving it — and reports what it
-  // did. fallbackPath is the document to attach a diagnostic to when the
-  // envelope names no artifact of its own; whoAsked is whether the reader asked
-  // for this drawing.
+  // did. fallbackPath is the document the envelope is about when it names no
+  // artifact of its own; whoAsked is whether the reader asked for this drawing.
   reportDaemonError(err: unknown, fallbackPath: string, whoAsked: WhoAsked): DaemonErrorRouting;
   // logLine appends one line to the channel that keeps this view's failures
   // after the panel is closed.
@@ -40,9 +39,10 @@ export interface GraphFailure {
 //
 // The envelope is routed BEFORE the two lines below rather than instead of
 // them. A daemon refusal is about an authored document and carries which one,
-// so routing it puts the fault on that document where the reader can act on it
-// — and where the fault is attributable to a single key, on that key rather
-// than at the head of the file. The log line and the panel notice still fire
+// and the fault stands on that document where the reader can act on it — on
+// the key it is attributable to rather than at the head of the file — filed as
+// the answer arrived; routing it raises what else its code calls for, such as
+// the notice offering Pull. The log line and the panel notice still fire
 // either way: a reader looking at the panel has to be told the graph is not
 // there, and a value that is not a daemon envelope at all has nowhere else to
 // surface.
