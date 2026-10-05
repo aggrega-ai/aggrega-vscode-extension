@@ -16,7 +16,8 @@ import {
 // The checks run in a copy of a documentation example whose workspace
 // configuration gives each of its Releases catalog directories of its own: Lint
 // on the Commands panel checks the catalog once for each Release, over the
-// directories that Release reads, and says so pass by pass; each Release built
+// directories that Release reads, says so pass by pass, and writes each finding
+// as the command line prints it; each Release built
 // from the Build button writes what the command line writes for it, a Release
 // the configuration does not name builds against the directories listed for the
 // whole workspace, and the graph shown after the selection moves is drawn from
@@ -25,6 +26,7 @@ import {
 export const OWN_CATALOGS_CHECKS = [
   'lint.reports-each-release-pass-with-the-directories-it-read',
   'lint.reads-no-variant-beside-another',
+  'lint.writes-each-finding-as-the-command-line-prints-it',
   'build.each-release-matches-the-command-line-from-its-own-catalog',
   'build.managed-chart-release-matches-the-command-line-from-its-own-catalog',
   'build.unmapped-release-matches-the-command-line-from-the-workspace-list',
@@ -222,6 +224,26 @@ function headingFor(pass: AnsweredPass): string {
   return `${releasesNamed(pass.releases)} ${pass.releases.length === 1 ? 'reads' : 'read'} ${pass.catalogDirs.join(', ')}`;
 }
 
+// The one document the finding check places: the catalog's Component at this
+// path, written into the folder's root catalog directory — which ends every
+// Release's list of catalog directories, so every pass reads it — with its
+// category label set to one its directory does not carry, which the publishing
+// conventions report.
+const FINDING_ENTITY = path.join('component', 'core', 'ai-tool', 'search', '1.0.0', 'component.yaml');
+const FINDING_CATEGORY = { as: '    component.aggrega.ai/category: ai-tool\n', to: '    component.aggrega.ai/category: datastore\n' };
+
+// documentBlocks splits what the command line wrote to its error stream into
+// one block for each time it names `documentLine`: that line and the rows under
+// it. A line before the first naming of the document opens a block of its own,
+// so it is kept and read rather than dropped.
+function documentBlocks(stderr: string, documentLine: string): string[][] {
+  const blocks: string[][] = [];
+  for (const line of stderr.split('\n').filter((l) => l !== '')) {
+    if (line === documentLine || blocks.length === 0) { blocks.push([line]); } else { blocks[blocks.length - 1].push(line); }
+  }
+  return blocks;
+}
+
 async function lintChecks(ctx: SuiteContext, reference: string): Promise<void> {
   const c = ctx.checks;
   const bin = ctx.inputs.compiler.path;
@@ -275,6 +297,48 @@ async function lintChecks(ctx: SuiteContext, reference: string): Promise<void> {
       seen: `the passes the channel names ${JSON.stringify(opened)}; each variant read by ${readIn.map((x) => `${x.v}: ${x.passes} pass(es)`).join(', ')}; lines saying core/datastore/mariadb is shadowed ${shadowed.length === 0 ? 'none' : JSON.stringify(shadowed)}; the ending "${r.ending}"`,
     };
   });
+
+  await c.run('lint.writes-each-finding-as-the-command-line-prints-it', {
+    expected: `with one Component placed in the folder's root catalog directory, which every pass reads — the catalog's ${FINDING_ENTITY}, its category label set to one its directory does not carry — pressing Lint on the Commands panel writes under each pass's heading, in its order and byte for byte, the lines \`aggrega --offline lint\` writes to its error stream for that pass over the same folder, run with the binary the language server runs: the document, then each finding's row, giving its severity, the short code of the condition its rule names, the rule's identity and the rule's own words; and the folder is put back as it was placed, whatever happens`,
+    plant: 'in the scratch copy, out/src/lint-run.js made to write each finding line with the language server\'s tier word in brackets and no short code',
+  }, async () => {
+    const source = path.join(ctx.inputs.catalog.dir, FINDING_ENTITY);
+    need(fs.existsSync(source), `the catalog holds no ${FINDING_ENTITY}, so there is no document to place`);
+    const text = fs.readFileSync(source, 'utf8');
+    need(text.split(FINDING_CATEGORY.as).length === 2, `${source} does not carry the line "${FINDING_CATEGORY.as.trim()}" once`);
+    const placed = path.join(ctx.folder, 'catalog', FINDING_ENTITY);
+    // The one directory placing the document creates, which is all that putting
+    // the folder back removes.
+    const created = path.join(ctx.folder, 'catalog', 'component', 'core', 'ai-tool');
+    need(fs.existsSync(path.dirname(created)) && !fs.existsSync(created), `the folder's catalog directory ${fs.existsSync(created) ? `already holds ${created}` : `holds no ${path.dirname(created)}`}, so the document cannot be placed and removed without touching what the folder was placed with`);
+    try {
+      fs.mkdirSync(path.dirname(placed), { recursive: true });
+      fs.writeFileSync(placed, text.replace(FINDING_CATEGORY.as, FINDING_CATEGORY.to));
+      // Run over the folder itself: a conventions check writes nothing into the
+      // folder it reads, so the editor's press that follows reads the same bytes.
+      const cli = await runCompiler(bin, ['--offline', 'lint'], { cwd: ctx.folder, home: ctx.home, boundMs: 120000, log: ctx.cliLog });
+      need(cli.status === 0, `\`aggrega --offline lint\` over the folder exited ${cli.status ?? cli.signal}: ${(cli.stderr || cli.stdout).trim().split('\n').slice(-2).join(' | ')}`);
+      const headings = cli.stdout.split('\n').filter((l) => PASS_HEADING.test(l));
+      const documentLine = `${placed}:`;
+      const blocks = documentBlocks(cli.stderr, documentLine);
+      need(
+        headings.length > 0 && blocks.length === headings.length && blocks.every((b) => b[0] === documentLine && b.length > 1),
+        `\`aggrega --offline lint\` over the folder opens ${headings.length} pass(es) and names the placed document with findings under it in ${blocks.filter((b) => b[0] === documentLine && b.length > 1).length} of ${blocks.length} block(s) on its error stream, not once for each pass: ${JSON.stringify(cli.stderr.split('\n').slice(0, 6))}`,
+      );
+      const expected = headings.flatMap((h, i) => [...(i === 0 ? [] : ['']), h, ...blocks[i]]);
+
+      const r = await pressLint(ctx);
+      const at = r.lines.indexOf(expected[0]);
+      const block = at === -1 ? [] : r.lines.slice(at, at + expected.length);
+      const rows = (lines: readonly string[]): string[] => lines.filter((l) => l !== '' && l !== documentLine && !PASS_HEADING.test(l));
+      return {
+        passed: JSON.stringify(block) === JSON.stringify(expected),
+        seen: `the finding lines the channel wrote from the press, under the passes: ${JSON.stringify(rows(block))}; the rows \`aggrega --offline lint\` wrote over the folder: ${JSON.stringify(rows(expected))}; ${JSON.stringify(block) === JSON.stringify(expected) ? `the channel's ${block.length} lines from the first pass heading on are the command line's, headings and documents included` : `the channel from the press: ${JSON.stringify(r.lines.filter((l) => l.trim() !== ''))}`}; the ending "${r.ending}"`,
+      };
+    } finally {
+      fs.rmSync(created, { recursive: true, force: true });
+    }
+  });
 }
 
 // buildBothWays builds a Release at the command line over the reference copy and
@@ -299,7 +363,8 @@ export async function ownCatalogsChecks(ctx: SuiteContext, reference: string): P
   const bin = ctx.inputs.compiler.path;
   await ready(ctx);
   // First, because a plant run ends once its checks have reported, and these
-  // two build nothing the checks after them read.
+  // build nothing the checks after them read: the one that places a document
+  // removes it again before it reports.
   await lintChecks(ctx, reference);
   const built = new Map<string, Tree>();
 

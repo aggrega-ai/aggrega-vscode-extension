@@ -12,10 +12,16 @@ import {
   summaryLine,
   unlocatableNote,
 } from '../../src/lint-run';
-import { SeverityToken, shapeForDaemonDiagnostic } from '../../src/diagnostics-shape';
+import { SeverityToken, editorCodeForShape, shapeForDaemonDiagnostic } from '../../src/diagnostics-shape';
 
 // WORKSPACE_ROOT is the root the answer's relative paths are resolved against.
 const WORKSPACE_ROOT = '/ws';
+
+// The answer and the command line's report below were captured over one scratch
+// workspace, whose root differs from run to run. It is written as WORKSPACE_ROOT
+// where the document is named on a line of its own, and left out where the
+// rule's message quotes the document's path, on both sides alike, so each side
+// is compared as it was measured.
 
 // MEASURED_MESSAGE is a conventions rule's own text, captured from a real run.
 // It is carried through byte for byte on both surfaces, so it is the literal both
@@ -25,15 +31,21 @@ const MEASURED_MESSAGE =
 
 const MEASURED_RELATIVE_FILE = 'catalog/component/core/ai-tool/search/1.0.0/component.yaml';
 
+// MEASURED_HREF is where the answer says the condition the finding's rule names
+// is explained, captured with the finding.
+const MEASURED_HREF = 'https://aggrega.ai/docs/language-reference/errors/sentinels/#every-condition-by-short-code';
+
 // MEASURED_ANSWER is the aggrega/lint answer, captured verbatim from a live
-// language server over a fixture catalog with a planted category mismatch. It is
-// the contract this module is written against, and every field below was read off
-// the wire rather than off the Go struct: the file spelled RELATIVE to the
-// workspace root, the "warning" severity spelling, the rule identity arriving as
-// `code`, the compiler's own layer name in `source`, and line/column 1/1 standing
-// for a finding the rule located to a document and no further.
+// language server over a workspace whose one catalog entity carries a planted
+// category mismatch. It is the contract this module is written against, and
+// every field below was read off the wire rather than off the Go struct: the file
+// spelled RELATIVE to the workspace root, the "warning" severity spelling, the
+// rule identity arriving as `code`, the short code of the condition that rule
+// names arriving as `shortCode` with the address explaining it as
+// `codeDescription`, the compiler's own layer name in `source`, and line/column
+// 1/1 standing for a finding the rule located to a document and no further.
 const MEASURED_ANSWER: LintAnswer = {
-  checked: 127,
+  checked: 1,
   findings: 1,
   errors: 0,
   warnings: 1,
@@ -48,6 +60,8 @@ const MEASURED_ANSWER: LintAnswer = {
           severity: 'warning',
           message: MEASURED_MESSAGE,
           code: 'category-matches-directory',
+          shortCode: 'E0281',
+          codeDescription: { href: MEASURED_HREF },
           source: 'aggrega-lint',
         },
       ],
@@ -57,9 +71,9 @@ const MEASURED_ANSWER: LintAnswer = {
 };
 
 // COMMAND_LINE_REPORT is what `aggrega lint` writes to its error stream for this
-// same finding, captured verbatim from a real run: the absolute document path on
-// its own line, then the finding's severity, the short code of the condition its
-// rule names, the rule identity and the message.
+// same finding, captured verbatim from a run over the same workspace: the
+// absolute document path on its own line, then the finding's severity, the short
+// code of the condition its rule names, the rule identity and the message.
 //
 // 🔴 IT IS A LITERAL READ OFF THE COMPILER, NOT A VALUE THIS MODULE COMPUTES.
 // The parity claim below is only worth anything because the two sides were
@@ -70,38 +84,6 @@ const COMMAND_LINE_REPORT = [
   `/ws/${MEASURED_RELATIVE_FILE}:`,
   `warn: E0281 category-matches-directory: ${MEASURED_MESSAGE}`,
 ];
-
-// 🔴 THE CHANNEL'S FINDING LINE IS NOT THE COMMAND LINE'S, AND EVERY WAY THE TWO
-// DIFFER IS ONE OF THESE SUBSTITUTIONS. The parity spec applies exactly these to
-// the command line's line and nothing else, so a difference nobody named — in the
-// document, the rule identity or the message — still fails it.
-//
-// The answer carries no short code for a conventions finding, so the channel has
-// none to write. The command line and the request surface spell the middle
-// severity tier differently — the compiler's own vocabulary on each of its two
-// wires — and the channel writes the answer's. The command line opens an advisory
-// with its tier and a colon, and the channel writes the tier in brackets.
-const CHANNEL_SUBSTITUTIONS: ReadonlyArray<{ difference: string; from: string; to: string }> = [
-  { difference: 'the condition\'s short code, which the answer does not carry', from: 'warn: E0281 ', to: 'warn: ' },
-  { difference: 'the severity tier, as the answer spells it', from: 'warn: ', to: 'warning: ' },
-  { difference: 'the severity tier, as the channel frames it', from: 'warning: ', to: '[warning] ' },
-];
-
-// asTheChannelWritesIt applies each substitution, in order, to the head of the
-// command line's finding line. It fails where the line does not open with what a
-// substitution replaces, so a substitution that stopped applying turns the spec
-// red rather than quietly narrowing what the parity holds.
-function asTheChannelWritesIt(commandLineFinding: string): string {
-  let line = commandLineFinding;
-  for (const s of CHANNEL_SUBSTITUTIONS) {
-    assert.ok(
-      line.startsWith(s.from),
-      `${s.difference}: expected ${JSON.stringify(line)} to open with ${JSON.stringify(s.from)}`,
-    );
-    line = s.to + line.slice(s.from.length);
-  }
-  return line;
-}
 
 describe('the conventions findings on their way to the Problems panel', () => {
   // The request surface writes "warning"; the unknown-severity fallback is
@@ -128,6 +110,15 @@ describe('the conventions findings on their way to the Problems panel', () => {
   it('carries the rule\'s message through unchanged', () => {
     const shape = shapeForDaemonDiagnostic(MEASURED_ANSWER.files![0].diagnostics![0]);
     assert.strictEqual(shape.message, MEASURED_MESSAGE);
+  });
+
+  // The entry's tag is what the editor shows beside the message: the short code a
+  // reader quotes, opening where that code is explained. The rule identity stays
+  // on the entry for whatever matches on it.
+  it('tags the entry with the short code of the condition the rule names, opening where it is explained', () => {
+    const shape = shapeForDaemonDiagnostic(MEASURED_ANSWER.files![0].diagnostics![0]);
+    assert.deepStrictEqual(editorCodeForShape(shape), { value: 'E0281', target: MEASURED_HREF });
+    assert.strictEqual(shape.code, 'category-matches-directory');
   });
 
   // The measured common case: the rule located its finding to a document and no
@@ -267,23 +258,14 @@ describe('findingsByFile', () => {
   });
 });
 
-describe('reportLines — the compiler\'s values in the channel\'s line form, composed from the answer', () => {
+describe('reportLines — each finding as the command line prints it, composed from the answer', () => {
   // 🔴 THE PARITY ASSERTION. The two sides were measured independently: the
   // expectation is the command line's own stderr, captured verbatim, and the
   // actual is composed from the language server's answer. An equality, not a
   // containment — a containment passes while any one of several lines survives —
-  // against the command line's lines with the named substitutions applied and no
-  // other.
-  it('reproduces what the command line prints for the same finding, but for the differences named', () => {
-    assert.strictEqual(
-      MEASURED_ANSWER.files![0].diagnostics![0].shortCode,
-      undefined,
-      'the short-code substitution rests on the answer carrying no short code for this finding',
-    );
-    assert.deepStrictEqual(
-      reportLines(MEASURED_ANSWER, WORKSPACE_ROOT),
-      [COMMAND_LINE_REPORT[0], asTheChannelWritesIt(COMMAND_LINE_REPORT[1])],
-    );
+  // against the command line's lines exactly as captured.
+  it('reproduces what the command line prints for the same finding', () => {
+    assert.deepStrictEqual(reportLines(MEASURED_ANSWER, WORKSPACE_ROOT), COMMAND_LINE_REPORT);
   });
 
   // The message is the part a reader acts on, so it is compared on its own as
@@ -303,11 +285,52 @@ describe('reportLines — the compiler\'s values in the channel\'s line form, co
     assert.strictEqual(reportLines(MEASURED_ANSWER, WORKSPACE_ROOT)[0], `/ws/${MEASURED_RELATIVE_FILE}:`);
   });
 
-  it('renders a finding whose producer assigned no rule identity without an empty one', () => {
+  // The findings below are ones the measured answer does not carry. Each expected
+  // row is the one the command line writes for such a finding: its tier's word
+  // and a colon, each identifier it carries, then a colon and the message.
+  it('opens a finding at the information tier with the command line\'s word for it', () => {
+    const answer = partialAnswer({
+      files: [{ file: 'x.yaml', diagnostics: [{ line: 1, column: 1, severity: 'info', message: 'an observation', code: 'name-shape', shortCode: 'E0278', source: 'aggrega-lint' }] }],
+    });
+    assert.deepStrictEqual(reportLines(answer, WORKSPACE_ROOT), ['/ws/x.yaml:', 'info: E0278 name-shape: an observation']);
+  });
+
+  // A rule no condition names carries no short code — a rule from a linter the
+  // workspace attaches, reporting from a rule set of its own.
+  it('names a rule no condition names by its identity alone', () => {
+    const answer = partialAnswer({
+      files: [{ file: 'x.yaml', diagnostics: [{ line: 1, column: 1, severity: 'warning', message: 'its own sentence', code: 'rule-of-another-linter', source: 'aggrega-lint' }] }],
+    });
+    assert.deepStrictEqual(reportLines(answer, WORKSPACE_ROOT), ['/ws/x.yaml:', 'warn: rule-of-another-linter: its own sentence']);
+  });
+
+  // No identifier is stood in for an absent one, and the colon closing the
+  // identifiers stays, as the command line writes it.
+  it('writes a finding that names no rule with no identifier', () => {
     const answer = partialAnswer({
       files: [{ file: 'x.yaml', diagnostics: [{ line: 1, column: 1, severity: 'warning', message: 'no rule', source: 'aggrega-lint' }] }],
     });
-    assert.deepStrictEqual(reportLines(answer, WORKSPACE_ROOT), ['/ws/x.yaml:', '[warning] no rule']);
+    assert.deepStrictEqual(reportLines(answer, WORKSPACE_ROOT), ['/ws/x.yaml:', 'warn:: no rule']);
+  });
+
+  // The command line raises a halting finding rather than writing a row for it,
+  // so a tier it has no row for has no word of the command line's to carry: it is
+  // written as the answer spells it.
+  it('writes a tier the command line has no row for as the answer spells it', () => {
+    const answer = partialAnswer({
+      files: [{
+        file: 'x.yaml',
+        diagnostics: [
+          { line: 1, column: 1, severity: 'error', message: 'halting', code: 'category-matches-directory', shortCode: 'E0281', source: 'aggrega-lint' },
+          { line: 1, column: 1, severity: 'gibberish', message: 'unknown', code: 'r', source: 'aggrega-lint' },
+        ],
+      }],
+    });
+    assert.deepStrictEqual(reportLines(answer, WORKSPACE_ROOT), [
+      '/ws/x.yaml:',
+      'error: E0281 category-matches-directory: halting',
+      'gibberish: r: unknown',
+    ]);
   });
 
   it('writes nothing for an answer with no findings', () => {
@@ -399,7 +422,7 @@ describe('the line each pass of a whole-catalog check is opened with', () => {
 describe('summaryLine', () => {
   it('reports the finding count and the corpus the run covered', () => {
     assert.strictEqual(
-      summaryLine(MEASURED_ANSWER, WORKSPACE_ROOT),
+      summaryLine(partialAnswer({ checked: 127, findings: 1, files: MEASURED_ANSWER.files }), WORKSPACE_ROOT),
       'Aggrega lint: 1 finding(s) across 127 entities checked — see the Problems panel.',
     );
   });

@@ -344,22 +344,19 @@ export function applyLintPublication(
 }
 
 // reportLines renders the run's findings for the output channel: the document,
-// then one line per finding carrying its severity, the rule that produced it,
-// and the rule's own text.
+// then one line per finding, which is the row the command line prints for the
+// same finding (findingLine).
 //
 // It is composed from the answer's values rather than from a rendering the
 // compiler wrote, because the request surface answers with the facts and leaves
-// the human formatting to whichever surface a reader is looking at. The line is
-// therefore this surface's rather than the command line's, and it carries what
-// the answer carries: every value in it is the compiler's own and none is
-// re-worded — in particular the message is carried through byte for byte, so the
-// remediation the rule named is never replaced by a friendlier sentence.
+// the human formatting to whichever surface a reader is looking at. Every value
+// in it is the compiler's own and none is re-worded — in particular the message
+// is carried through byte for byte, so the remediation the rule named is never
+// replaced by a friendlier sentence.
 //
 // The document is named by its absolute path, which is the path a reader can
-// open and the one the rules' own message text already quotes.
-//
-// A finding whose producer assigned no rule identity is rendered without one
-// rather than with an empty identifier, since an empty name states nothing.
+// open, the one the rules' own message text already quotes, and the one the
+// command line names it by.
 //
 // Where the answer reports a pass per Release, each pass is opened by the line
 // the command line opens it with, naming its Releases and the directories they
@@ -388,10 +385,52 @@ function documentLines(groups: readonly LintFileFindings[], workspaceRoot: strin
     if (diagnostics.length === 0) { continue; }
     lines.push(`${group.file ? absolutePathFor(workspaceRoot, group.file) : '(no entity file)'}:`);
     for (const d of diagnostics) {
-      lines.push(d.code ? `[${d.severity}] ${d.code}: ${d.message}` : `[${d.severity}] ${d.message}`);
+      lines.push(findingLine(d));
     }
   }
   return lines;
+}
+
+// findingLine is the row the command line prints for one finding: the command
+// line's word for the finding's severity and a colon, then the short code of the
+// condition the rule names and the rule's identity, each where the answer
+// carries one, then a colon and the rule's own text.
+//
+// 🔴 IT IS THE COMMAND LINE'S OWN ROW, AND THE COPY IS DELIBERATE. The command
+// line composes the row in one place, which this surface cannot call across the
+// language boundary, so the shape is stated again here and a parity spec holds
+// it to a row captured from the command line for the same finding. An identifier
+// the answer does not carry is left out rather than stood in for, and the colon
+// closing the identifiers is written either way, as the command line writes it.
+//
+// One case the answer cannot carry through: a finding with no rule identity but
+// with a code of its own. The answer sends that code where it sends a rule's
+// identity, with nothing telling the two apart, so this row names the code
+// where the command line's names no identifier at all.
+function findingLine(d: wire.Diagnostic): string {
+  const identifiers = [d.shortCode, d.code].filter((id): id is string => typeof id === 'string' && id !== '');
+  return `${commandLineSeverity(d.severity)}:${identifiers.map((id) => ` ${id}`).join('')}: ${d.message}`;
+}
+
+// commandLineSeverity is the word the command line opens a finding's row with,
+// for the tier the answer gives the finding. The two name the advisory tier
+// differently — each in the vocabulary of its own wire — and the row is the
+// command line's, so it carries the command line's word.
+//
+// A tier the command line has no row for is written as the answer spells it.
+// The command line raises a halting finding rather than writing a row for it,
+// and every run this surface asks for is advisory, so no answer it receives
+// carries one; were one to arrive, it is written in the answer's own word rather
+// than in a word the command line never prints for it.
+function commandLineSeverity(tier: string): string {
+  switch (tier) {
+    case 'warning':
+      return 'warn';
+    case 'info':
+      return 'info';
+    default:
+      return tier;
+  }
 }
 
 // summaryLine renders the run's outcome for the reader, from the compiler's own

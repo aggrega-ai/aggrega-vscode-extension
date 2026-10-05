@@ -106,9 +106,17 @@ const CATEGORY_MESSAGE =
 const CATEGORY_RELATIVE = 'catalog/component/core/ai-tool/search/1.0.0/component.yaml';
 const CATEGORY_ABSOLUTE = `/ws/${CATEGORY_RELATIVE}`;
 
-// An answer captured from a live language server: one advisory finding located to
-// a document and no further, grouped under the document's workspace-relative path,
-// with the compiler's own counts beside it.
+// The short code of the condition the category rule names, and where the answer
+// says it is explained, as a live language server sends them beside the rule's
+// identity.
+const CATEGORY_SHORT_CODE = 'E0281';
+const CATEGORY_HREF = 'https://aggrega.ai/docs/language-reference/errors/sentinels/#every-condition-by-short-code';
+
+// An answer of the shape a live language server gives: one advisory finding
+// located to a document and no further, grouped under the document's
+// workspace-relative path, carrying the rule's identity, the short code of the
+// condition it names and the address explaining it, with the compiler's own
+// counts beside it.
 const ONE_FINDING: LintAnswer = {
   checked: 127,
   findings: 1,
@@ -125,6 +133,8 @@ const ONE_FINDING: LintAnswer = {
           severity: 'warning',
           message: CATEGORY_MESSAGE,
           code: 'category-matches-directory',
+          shortCode: CATEGORY_SHORT_CODE,
+          codeDescription: { href: CATEGORY_HREF },
           source: 'aggrega-lint',
         },
       ],
@@ -158,7 +168,8 @@ const TWO_ENTITIES: LintAnswer = {
       file: CATEGORY_RELATIVE,
       diagnostics: [{
         line: 1, column: 1, severity: 'warning', message: CATEGORY_MESSAGE,
-        code: 'category-matches-directory', source: 'aggrega-lint',
+        code: 'category-matches-directory', shortCode: CATEGORY_SHORT_CODE, codeDescription: { href: CATEGORY_HREF },
+        source: 'aggrega-lint',
       }],
     },
     {
@@ -200,7 +211,8 @@ const ENTITY_STILL_FAILING: LintAnswer = {
     file: CATEGORY_RELATIVE,
     diagnostics: [{
       line: 4, column: 3, severity: 'warning', message: 'a second reading of the same entity',
-      code: 'category-matches-directory', source: 'aggrega-lint',
+      code: 'category-matches-directory', shortCode: CATEGORY_SHORT_CODE, codeDescription: { href: CATEGORY_HREF },
+      source: 'aggrega-lint',
     }],
   }],
   halted: false,
@@ -237,9 +249,9 @@ describe('runLint', () => {
     );
   });
 
-  // The reader-visible log carries the compiler's findings in its own words,
-  // composed from the answer. An equality on the whole log, not a containment: a
-  // containment passes while any one of several lines survives.
+  // The reader-visible log carries each finding as the row the command line
+  // prints for it, composed from the answer. An equality on the whole log, not a
+  // containment: a containment passes while any one of several lines survives.
   it('writes the compiler\'s report into the log', async () => {
     const h = harness('/ws', () => Promise.resolve(ONE_FINDING));
 
@@ -247,7 +259,7 @@ describe('runLint', () => {
 
     assert.deepStrictEqual(h.log.lines, [
       `${CATEGORY_ABSOLUTE}:`,
-      `[warning] category-matches-directory: ${CATEGORY_MESSAGE}`,
+      `warn: E0281 category-matches-directory: ${CATEGORY_MESSAGE}`,
     ]);
     assert.strictEqual(h.log.shown, 0, 'a successful run does not steal focus from the Problems panel');
   });
@@ -589,8 +601,12 @@ const SHARED_MESSAGE =
   'Component at "/ws/catalog/component/core/devtool/adminer/1.0.0/component.yaml" declares component.aggrega.ai/category="datastore" but its path derives category="devtool"; standard-catalog convention requires the label to match the first directory segment under core/';
 const SHARED_FINDING = {
   line: 1, column: 1, severity: 'warning', message: SHARED_MESSAGE,
-  code: 'category-matches-directory', source: 'aggrega-lint',
+  code: 'category-matches-directory', shortCode: CATEGORY_SHORT_CODE, codeDescription: { href: CATEGORY_HREF },
+  source: 'aggrega-lint',
 };
+
+// The row the command line prints for the shared finding.
+const SHARED_ROW = `warn: E0281 category-matches-directory: ${SHARED_MESSAGE}`;
 
 // PER_RELEASE is an answer of the shape a live language server gives a
 // whole-catalog check in a workspace whose Releases read catalog directories of
@@ -641,6 +657,7 @@ function sharedEntry(message: string): ConvertedShape {
   return {
     startLine: 0, startChar: 0, endLine: 0, endChar: 0,
     severity: 'warning', message, source: 'aggrega-lint', code: 'category-matches-directory',
+    shortCode: CATEGORY_SHORT_CODE, codeHref: CATEGORY_HREF,
   };
 }
 
@@ -657,13 +674,13 @@ describe('a whole-catalog check reported once for each Release', () => {
     assert.deepStrictEqual(h.log.lines, [
       'Releases release-compose.yaml, release-unmapped.yaml read catalog-compose, catalog',
       `${SHARED_ABSOLUTE}:`,
-      `[warning] category-matches-directory: ${SHARED_MESSAGE}`,
+      SHARED_ROW,
       '',
       'Releases release-helm-bitnami.yaml, release-helm-chart.yaml read no catalog directory, so there is nothing to check for them',
       '',
       'Release release-helm-synth.yaml reads catalog-helm-synth, catalog',
       `${SHARED_ABSOLUTE}:`,
-      `[warning] category-matches-directory: ${SHARED_MESSAGE}`,
+      SHARED_ROW,
     ]);
     assert.strictEqual(h.log.shown, 0, 'a successful run does not steal focus from the Problems panel');
   });
@@ -713,11 +730,11 @@ describe('a whole-catalog check reported once for each Release', () => {
     assert.deepStrictEqual(h.log.lines, [
       'Releases release-compose.yaml, release-unmapped.yaml read catalog-compose, catalog',
       '(no entity file):',
-      '[warning] a: nowhere',
+      'warn: a: nowhere',
       '',
       'Release release-helm-synth.yaml reads catalog-helm-synth, catalog',
       '(no entity file):',
-      '[warning] a: nowhere',
+      'warn: a: nowhere',
       note,
     ]);
     assert.deepStrictEqual(h.notices, [{
@@ -739,7 +756,7 @@ describe('a whole-catalog check reported once for each Release', () => {
     assert.deepStrictEqual(h.log.lines, [
       'Release release-helm-synth.yaml reads catalog-helm-synth, catalog',
       `${SHARED_ABSOLUTE}:`,
-      `[warning] category-matches-directory: ${SHARED_MESSAGE}`,
+      SHARED_ROW,
     ]);
     assert.deepStrictEqual(h.notices, [{
       message: 'Aggrega lint: 1 finding(s) across 9 entities checked for Release release-helm-synth.yaml — see the Problems panel.',
@@ -751,9 +768,10 @@ describe('a whole-catalog check reported once for each Release', () => {
   });
 });
 
-// 🔴 AN ANSWER CARRYING NO PASSES READS EXACTLY AS IT ALWAYS HAS: the same lines,
-// the same sentence and the same entries, byte for byte. Each arm below is one
-// spelling of "no passes" the published answer may carry.
+// 🔴 AN ANSWER CARRYING NO PASSES READS AS ONE CATALOG: its findings under their
+// documents with no pass heading, one sentence over the whole run, and entries
+// naming no Release — the same, byte for byte, whichever spelling of "no passes"
+// the published answer carries. Each arm below is one of those spellings.
 describe('a whole-catalog check over the workspace\'s own catalog', () => {
   const ONE_PASS: LintAnswer = {
     checked: 7, findings: 1, errors: 0, warnings: 1, infos: 0, halted: false,
@@ -772,7 +790,7 @@ describe('a whole-catalog check over the workspace\'s own catalog', () => {
 
       assert.deepStrictEqual(h.log.lines, [
         `${SHARED_ABSOLUTE}:`,
-        `[warning] category-matches-directory: ${SHARED_MESSAGE}`,
+        SHARED_ROW,
       ]);
       assert.deepStrictEqual(h.notices, [{
         message: 'Aggrega lint: 1 finding(s) across 7 entities checked — see the Problems panel.',

@@ -70,15 +70,16 @@ export type EditorCode =
 //     code stays on the wire for whatever matches on it; what goes on screen is
 //     the one a person can use.
 //   - A code with no quotable form: the slot carries that code and no address.
-//     A render advisory's class and a conventions rule's identity are real
-//     identifiers a reader can copy, and neither is explained on the page the
-//     address resolves to — so offering to open it would be offering a link that
-//     lands somewhere not describing their problem.
+//     A render advisory's class, and the identity of a rule no condition names
+//     (one a linter the workspace attaches reports from a rule set of its own),
+//     are real identifiers a reader can copy, and neither is explained on the
+//     page the address resolves to — so offering to open it would be offering a
+//     link that lands somewhere not describing their problem. A
+//     publishing-conventions rule Aggrega declares names a condition, so its
+//     finding carries a quotable code and an address, and is the case above.
 // The parameter is the whole shape rather than the three identifier fields on
-// their own. A parameter type carrying only optional fields is one TypeScript
-// refuses an argument for unless the two have some property in common, so a
-// narrower signature would reject the lint finding shape — which has none of the
-// three, and legitimately so, since its code is the rule that fired.
+// their own, because the shape is what every publish path holds by the time it
+// builds an editor diagnostic.
 export function editorCodeForShape(shape: ConvertedShape): EditorCode {
   if (shape.shortCode && shape.codeHref) {
     return { value: shape.shortCode, target: shape.codeHref };

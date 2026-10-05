@@ -849,6 +849,13 @@ export const PLANTS: readonly Plant[] = [
     says: 'the folder\'s configuration gives release-helm-synth.yaml catalog-compose beside its own directory, so its pass reads two variants\' core/datastore/mariadb at once',
   },
   {
+    name: 'lint-finding-line-in-brackets', scenario: 'releases-with-own-catalogs', checks: ['lint.writes-each-finding-as-the-command-line-prints-it'], moves: 'red', target: 'extension',
+    file: 'out/src/lint-run.js',
+    find: "    return `${commandLineSeverity(d.severity)}:${identifiers.map((id) => ` ${id}`).join('')}: ${d.message}`;",
+    replace: '    return d.code ? `[${d.severity}] ${d.code}: ${d.message}` : `[${d.severity}] ${d.message}`;',
+    says: 'each finding line on the channel opens with the language server\'s tier word in brackets and carries no short code, so it is not the row the command line prints for the finding',
+  },
+  {
     name: 'build-sent-for-the-compose-release', scenario: 'releases-with-own-catalogs', checks: ['build.each-release-matches-the-command-line-from-its-own-catalog'], moves: 'red', target: 'extension',
     file: BUILD_DIALS, find: BUILD_RELEASE_PARAM, replace: BUILD_RELEASE_PARAM.replace('release,', "release: 'release-compose.yaml',"),
     says: 'every build is sent for release-compose.yaml whichever Release is selected, so each writes what that Release reads from its own catalog directory',

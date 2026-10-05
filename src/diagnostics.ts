@@ -189,7 +189,7 @@ export function replaceLintFindings(
 // with the address that condition is explained at, which is what makes the code in
 // the Problems panel a link the reader can follow; where it names a class of
 // finding the slot carries that identifier alone, with nothing to follow — which
-// is the case a conventions rule's identity falls into; and where it names
+// is the case a render advisory's class falls into; and where it names
 // nothing the slot is left unset, so the diagnostic is exactly the one this
 // extension published before any of these fields existed.
 function diagnosticFromShape(shape: ConvertedShape): vscode.Diagnostic {
