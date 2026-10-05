@@ -261,13 +261,13 @@ describe('no container path is composed on this side', () => {
   // This side composes no path out of them, because the compiler is asked where
   // an attachment belongs, and this is what fails if such a composition
   // appears. It is deliberately a reading of the source: the composition
-  // could return anywhere in either file, and no signature would change.
+  // could return anywhere in any of these files, and no signature would change.
   //
   // Only the quoted spellings are looked for, so prose about an Aggregate's
   // shape is unaffected — which also means a comment that quotes a key trips
   // this, and should be reworded rather than the check loosened.
   const CONTAINER_KEYS = ['spec', 'subsystems', 'components', 'features'];
-  const FILES = ['src/attachment-edit.ts', 'src/graph-view.ts'];
+  const FILES = ['src/attachment-edit.ts', 'src/attach-candidates.ts', 'src/graph-view.ts'];
 
   for (const rel of FILES) {
     it(`spells no Aggregate container key in ${rel}`, () => {

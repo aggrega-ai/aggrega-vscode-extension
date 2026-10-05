@@ -145,6 +145,7 @@ import {
   CacheEvictResponse,
   CachePruneResponse,
   CacheStatusResponse,
+  CatalogIndexParams,
   CompletionResponse,
   DaemonLocation,
   ERR_FILE_NOT_VALIDATED,
@@ -834,6 +835,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       return await daemon.request<unknown>('aggrega/attachCandidates', request);
     },
+    // The entity index, asked beside what may attach in the terms of the same
+    // Release, for the links leading out of the workspace it names.
+    requestCatalogIndex: (params: CatalogIndexParams) => requestCatalogIndexWith(params),
     // Which document an attachment for a drawn node belongs in, and the path to
     // the container inside it. The request is composed where its answer is read
     // and is sent exactly as composed, so the coordinate on the wire is the one
@@ -2744,10 +2748,19 @@ async function requestImport(
 // Throws when the server is not running, so a caller surfaces that state rather
 // than showing an empty workspace.
 async function requestCatalogIndex(signal?: CancellationSignal): Promise<CatalogIndexDoc> {
+  return await requestCatalogIndexWith(catalogIndexParams(selectedRelease()), signal);
+}
+
+// requestCatalogIndexWith asks for the entity index in the terms the parameters
+// name. The surfaces offering the workspace's entities ask it through the
+// selected Release, above; the graph panel's list of what may attach asks it
+// through the Release its graph was drawn from, which can be another once the
+// selection has moved.
+async function requestCatalogIndexWith(params: CatalogIndexParams, signal?: CancellationSignal): Promise<CatalogIndexDoc> {
   if (!daemon || daemon.getState() !== DaemonState.Running) {
     throw new Error('the Aggrega language server is not running');
   }
-  return await daemon.request<CatalogIndexDoc>('aggrega/catalogIndex', catalogIndexParams(selectedRelease()), signal);
+  return await daemon.request<CatalogIndexDoc>('aggrega/catalogIndex', params, signal);
 }
 
 // requestScaffoldEntity asks the language server to draft a starter document for

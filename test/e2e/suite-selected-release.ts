@@ -5,7 +5,9 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 
-import { need } from './checks';
+import { featuresNotOfferedLine } from '../../src/attach-candidates';
+import { CatalogIndexDoc, linksLeadingOutRow } from '../../src/workspace-catalog-run';
+import { need, NotRun } from './checks';
 import { runCompiler } from './cli';
 import { CHART_ONLY, SIZED_VOLUME, SIZING_LIBRARY } from './fixtures';
 import { pressNode, settledPanel, showGraph } from './graph-panel';
@@ -14,6 +16,7 @@ import { closeAllEditors, commandTitle, lineOf, Line, open, ready, run, SuiteCon
 import { drawnAsAnswered, PENDING } from './suite-graph-panel';
 import { shownOptions } from './suite-inspection';
 import { selectRelease } from './suite-own-catalogs';
+import { pressViewAction } from './suite-storefront';
 import {
   commandsPanel, describeRowMenu, pressMenuItem, pressOperation, pressTreeRowAction, revealTreeRow, rowMenu, selectorRows, sleep, treeRows, until,
 } from './workbench';
@@ -24,7 +27,12 @@ import {
 // and why). Each surface drawn from such a request is read with no Release
 // selected, then with each of two Releases selected in turn, and each reading is
 // held against the language server's own answer to the same request naming the
-// same Release — or none — asked outside the editor over a second copy.
+// same Release — or none — asked outside the editor over a second copy. The
+// Catalog panel and the list of what may attach read no word about links leading
+// out of the workspace while the folder holds none; the last two checks place one
+// at the top of the folder, leading to a Feature document outside it, and read
+// what each says about it against the language server's own answer over the
+// folder itself.
 
 export const SELECTED_RELEASE_CHECKS = [
   'no-release.each-surface-answers-in-the-workspaces-own-terms',
@@ -35,6 +43,8 @@ export const SELECTED_RELEASE_CHECKS = [
   'inspect.resolves-in-the-selected-releases-terms',
   'catalog-row.check-runs-in-the-selected-releases-terms',
   'may-attach.lists-the-selected-releases-features',
+  'catalog-panel.names-the-link-leading-out-of-the-workspace',
+  'may-attach.names-the-link-leading-out-of-the-workspace',
 ] as const;
 
 const COMPOSE = 'release-compose.yaml';
@@ -62,6 +72,64 @@ const TYPE_LINE = `type: ${MARIADB}`;
 const COMPONENTS = 'Component';
 const DB_NODE = 'db';
 const CHECK = 'The check';
+
+// LINK is the link the last two checks place at the top of the folder, under no
+// catalog directory, so every Release's terms hold its place; it leads to
+// BEHIND_THE_LINK, a Feature document written beside the folder, outside the
+// workspace.
+const LINK = 'linked-feature.yaml';
+const BEHIND_THE_LINK = { name: 'local/reached-through-a-link', file: 'feature-outside-the-workspace.yaml' };
+const BEHIND_THE_LINK_DOCUMENT = `apiVersion: aggrega.ai/v1alpha1
+kind: Feature
+metadata:
+  name: ${BEHIND_THE_LINK.name}
+  version: 1.0.0
+  description: A Feature kept outside the workspace, which the workspace reaches only through a link.
+`;
+
+// placeLinkLeadingOut writes BEHIND_THE_LINK beside the folder and places LINK in
+// the folder leading to it, refusing as not run where either cannot be placed or
+// the link does not read the file through. It answers with the link's name
+// relative to the folder, in the form the language server names a path.
+function placeLinkLeadingOut(folder: string): { link: string; rel: string } {
+  const outside = path.join(path.dirname(folder), 'outside-the-workspace', BEHIND_THE_LINK.file);
+  const link = path.join(folder, LINK);
+  try {
+    fs.mkdirSync(path.dirname(outside), { recursive: true });
+    fs.writeFileSync(outside, BEHIND_THE_LINK_DOCUMENT);
+    fs.symlinkSync(outside, link, 'file');
+  } catch (err) {
+    throw new NotRun(`the link to a Feature outside the workspace could not be placed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  if (!path.relative(folder, outside).startsWith('..') || fs.readFileSync(link, 'utf8') !== BEHIND_THE_LINK_DOCUMENT) {
+    throw new NotRun(`${outside} is not outside ${folder}, or ${link} does not read it through the link`);
+  }
+  return { link, rel: path.relative(folder, link).split(path.sep).join('/') };
+}
+
+// LINKS_ROW_HEADS are the words the Catalog panel's row naming links leading out
+// of the workspace opens with, for one link and for several, read off the
+// extension's own composition of the row rather than typed here: a row opening
+// with either is that row, whatever links it names.
+const LINKS_ROW_HEADS = [['\u0000'], ['\u0000', '\u0000']].map((names) => {
+  const label = linksLeadingOutRow({ entities: [], unreadLinkedDirs: names, unreadLinkedFiles: [] })?.label ?? '';
+  return label.slice(0, label.indexOf('\u0000')).trimEnd();
+});
+
+function isLinksRow(label: string): boolean {
+  return LINKS_ROW_HEADS.some((head) => head !== '' && label.startsWith(head));
+}
+
+// namesNoLink reads whether an index answer carries both lists of links leading
+// out of the workspace, and names none in either.
+function namesNoLink(index: Partial<CatalogIndexDoc>): boolean {
+  return Array.isArray(index.unreadLinkedDirs) && index.unreadLinkedDirs.length === 0
+    && Array.isArray(index.unreadLinkedFiles) && index.unreadLinkedFiles.length === 0;
+}
+
+function describeLinks(index: Partial<CatalogIndexDoc>): string {
+  return `links to directories ${JSON.stringify(index.unreadLinkedDirs ?? null)} and to files ${JSON.stringify(index.unreadLinkedFiles ?? null)}`;
+}
 
 type Terms = string | null;
 const termsName = (release: Terms): string => release ?? 'no Release';
@@ -131,8 +199,12 @@ export async function selectedReleaseChecks(ctx: SuiteContext, reference: string
   // move itself had it read — and a panel that does not follow the selection would
   // pass. Such a reading is taken with closeFirst false, after the editors were
   // closed and their reads had settled before the selection moved.
+  //
+  // The folder holds no link leading out of the workspace while these readings
+  // are taken, so each also requires the answer to name none and the panel to
+  // draw no row naming one.
   const catalogReading = async (release: Terms, closeFirst: boolean): Promise<Reading> => {
-    const index = await answer('aggrega/catalogIndex', named({}, release)) as { entities?: { kind: string; name: string; file: string }[] };
+    const index = await answer('aggrega/catalogIndex', named({}, release)) as Partial<CatalogIndexDoc>;
     const components = (index.entities ?? []).filter((e) => e.kind === COMPONENTS);
     const heading = `${COMPONENTS} (${components.length})`;
     const firstDb = components.find((e) => e.name === MARIADB)?.file ?? '';
@@ -147,8 +219,9 @@ export async function selectedReleaseChecks(ctx: SuiteContext, reference: string
     const active = await until(`the first ${MARIADB} row's document, ${firstDb}, opening`, 10000, () => ctx.probe.request<Active | null>('editor.active'), (v) => v !== null && path.relative(ctx.folder, v.path) === firstDb)
       .catch(() => ctx.probe.request<Active | null>('editor.active'));
     const opened = active ? path.relative(ctx.folder, active.path) : 'nothing';
-    const same = drawn === heading && opened === firstDb;
-    return { release, same, seen: `the panel heads its Components "${drawn}" and its first ${MARIADB} row opens ${opened}; the answer lists ${components.length} (${components.map((e) => e.file).join(', ')}), its first ${MARIADB} in ${firstDb}` };
+    const linkRows = (rows ?? []).map((r) => r.label).filter(isLinksRow);
+    const same = drawn === heading && opened === firstDb && namesNoLink(index) && linkRows.length === 0;
+    return { release, same, seen: `the panel heads its Components "${drawn}" and its first ${MARIADB} row opens ${opened}; the answer lists ${components.length} (${components.map((e) => e.file).join(', ')}), its first ${MARIADB} in ${firstDb}; the answer names ${describeLinks(index)}, and the panel draws ${linkRows.length === 0 ? 'no row naming a link leading out' : `rows naming links leading out: ${JSON.stringify(linkRows)}`}` };
   };
 
   const definitionReading = async (release: Terms): Promise<Reading> => {
@@ -237,8 +310,8 @@ export async function selectedReleaseChecks(ctx: SuiteContext, reference: string
 
   // ---- with no Release selected ----
   await c.run('no-release.each-surface-answers-in-the-workspaces-own-terms', {
-    expected: `with the Release row reading "none selected", each surface reads the language server's own answer to the request naming no Release, over a copy of the folder: the Catalog panel's Component heading and the document its first ${MARIADB} row opens, go-to-definition and hover at "${TYPE_LINE}" in aggregate.yaml, completion at that type, the Commands panel's Inspect of ${MARIADB}, and the Catalog row's check of ${SIZED_VOLUME.name}, run as \`aggrega validate ${SIZED_VOLUME.file}\` with no --release`,
-    plant: 'in the scratch copy, out/src/release-terms.js with the composition naming release-compose.yaml where no Release is selected',
+    expected: `with the Release row reading "none selected", each surface reads the language server's own answer to the request naming no Release, over a copy of the folder: the Catalog panel's Component heading and the document its first ${MARIADB} row opens — that answer naming no link leading out of the workspace, and the panel drawing no row naming one — go-to-definition and hover at "${TYPE_LINE}" in aggregate.yaml, completion at that type, the Commands panel's Inspect of ${MARIADB}, and the Catalog row's check of ${SIZED_VOLUME.name}, run as \`aggrega validate ${SIZED_VOLUME.file}\` with no --release`,
+    plant: 'in the scratch copy, out/src/release-terms.js with the composition naming release-compose.yaml where no Release is selected; or out/src/workspace-catalog-run.js with the index answer read as naming a link to a file it does not name',
   }, async () => {
     const rows = await selectorRows(await commandsPanel(ctx.d));
     const row = rows.find((r) => r.label === 'Release');
@@ -264,8 +337,8 @@ export async function selectedReleaseChecks(ctx: SuiteContext, reference: string
   };
 
   await c.run('catalog-panel.lists-what-the-selected-release-reads-and-follows-the-selection', {
-    expected: `with ${READ_IN.join(' and then ')} selected in turn on the Release row, the Catalog panel reads its list again with nothing pressed in it, and heads its Components with the count the language server's own catalog index names for that Release, its first ${MARIADB} row opening the document that answer names — that Release's own variant`,
-    plant: 'in the scratch copy, out/src/extension.js with the catalog index asked with no Release, whichever is selected; or with the Catalog panel not read again when the selection moves',
+    expected: `with ${READ_IN.join(' and then ')} selected in turn on the Release row, the Catalog panel reads its list again with nothing pressed in it, and heads its Components with the count the language server's own catalog index names for that Release, its first ${MARIADB} row opening the document that answer names — that Release's own variant — and, that answer naming no link leading out of the workspace, draws no row naming one`,
+    plant: 'in the scratch copy, out/src/extension.js with the catalog index asked with no Release, whichever is selected; or with the Catalog panel not read again when the selection moves; or out/src/workspace-catalog-run.js with the index answer read as naming a link to a file it does not name',
   }, async () => {
     // The editors are closed, and the reads their closing asks for given time to
     // land, before the selection first moves; nothing is closed after that.
@@ -307,16 +380,85 @@ export async function selectedReleaseChecks(ctx: SuiteContext, reference: string
   });
 
   await c.run('may-attach.lists-the-selected-releases-features', {
-    expected: `with ${GRAPH_RELEASE} selected and its graph shown, the list of what may attach to its ${DB_NODE} node draws, row for row, the language server's own aggrega/attachCandidates answer for that node of that Release's graph — each Feature declared in ${GRAPH_RELEASE}'s own catalog directory`,
-    plant: 'in the scratch copy, out/src/attachment-edit.js with what may attach asked with no Release; or media/graph.js with the panel saying it listens before its listener is in place',
+    expected: `with ${GRAPH_RELEASE} selected and its graph shown, the list of what may attach to its ${DB_NODE} node draws, row for row, the language server's own aggrega/attachCandidates answer for that node of that Release's graph — each Feature declared in ${GRAPH_RELEASE}'s own catalog directory — and, the language server's own aggrega/catalogIndex answer in that Release's terms naming no link leading out of the workspace, no line naming one`,
+    plant: 'in the scratch copy, out/src/attachment-edit.js with what may attach asked with no Release; or media/graph.js with the panel saying it listens before its listener is in place; or out/src/workspace-catalog-run.js with the index answer read as naming a link to a file it does not name',
   }, async () => {
     const ref = await answer('aggrega/attachCandidates', { graphNode: DB_NODE, release: GRAPH_RELEASE }) as Parameters<typeof drawnAsAnswered>[1];
+    const index = await answer('aggrega/catalogIndex', named({}, GRAPH_RELEASE)) as Partial<CatalogIndexDoc>;
     await selectRelease(ctx, GRAPH_RELEASE);
     await closeAllEditors(ctx);
     const doc = await showGraph(ctx, DRAWN_MS);
     await pressNode(ctx, doc, DB_NODE);
     const p = await settledPanel(doc, DB_NODE, PENDING);
     const drawn = drawnAsAnswered(p, ref);
-    return { passed: drawn.same, seen: `${drawn.seen}${p.candidates?.failed ? `; the list reads "${p.candidates.failed}"` : ''}` };
+    const lines = p.candidates?.links ?? [];
+    return {
+      passed: drawn.same && namesNoLink(index) && lines.length === 0,
+      seen: `${drawn.seen}${p.candidates?.failed ? `; the list reads "${p.candidates.failed}"` : ''}; the index answer names ${describeLinks(index)}, and the list draws ${lines.length === 0 ? 'no line naming a link leading out' : `lines naming links leading out: ${JSON.stringify(lines)}`}`,
+    };
+  });
+
+  // ---- a link leading out of the workspace, placed at the top of the folder ----
+
+  // The link is placed once, by whichever of the two checks below runs first, and
+  // the language server's own answer about it is asked over the folder the editor
+  // reads, in the terms of the Release whose graph the second check draws.
+  let placed: { link: string; rel: string } | null = null;
+  const linkPlaced = (): { link: string; rel: string } => (placed ??= placeLinkLeadingOut(ctx.folder));
+  const indexOverTheFolder = async (): Promise<Partial<CatalogIndexDoc>> => {
+    const a = await referenceAnswer({ binary: bin, root: ctx.folder, method: 'aggrega/catalogIndex', params: { release: GRAPH_RELEASE }, home: ctx.home, table: ctx.s.table, log: ctx.cliLog });
+    need(a.ok, `the language server gave no answer to aggrega/catalogIndex in ${GRAPH_RELEASE}'s terms over the folder: ${a.ok ? '' : a.error.message}`);
+    return a.result as Partial<CatalogIndexDoc>;
+  };
+  const namesTheLinkAlone = (index: Partial<CatalogIndexDoc>, rel: string): boolean =>
+    JSON.stringify(index.unreadLinkedDirs ?? null) === '[]' && JSON.stringify(index.unreadLinkedFiles ?? null) === JSON.stringify([rel]);
+
+  await c.run('catalog-panel.names-the-link-leading-out-of-the-workspace', {
+    expected: `with ${GRAPH_RELEASE} selected and ${LINK} placed at the top of the folder as a link to a Feature document outside the workspace, the language server's own aggrega/catalogIndex answer over the folder in that Release's terms names that link alone, among the links to files and by its path relative to the folder, and lists nothing the document behind it declares; once the Catalog panel's refresh is pressed, the panel's last row — after its kind headings — is the extension's own row for exactly the links that answer names, drawn once, and no row names ${BEHIND_THE_LINK.name}`,
+    plant: 'in the scratch copy, out/src/workspace-catalog-run.js with the row naming the links never drawn',
+  }, async () => {
+    // Selected before the link is placed: the Release chooser names a link like
+    // this one too, and this check reads the Catalog panel, not the chooser.
+    await selectRelease(ctx, GRAPH_RELEASE);
+    const link = linkPlaced();
+    const index = await indexOverTheFolder();
+    const row = linksLeadingOutRow(index as CatalogIndexDoc);
+    const listsNothingBehind = !(index.entities ?? []).some((e) => e.name === BEHIND_THE_LINK.name);
+    await run(ctx, 'aggrega.workspaceCatalog.focus');
+    await pressViewAction(ctx, 'Catalog', 'Refresh workspace catalog');
+    const rows = (await until('the Catalog panel drawing the row naming the link', 20000, () => treeRows(ctx.d, 'Catalog'), (v) => row !== null && (v ?? []).some((r) => r.label === row.label))
+      .catch(() => treeRows(ctx.d, 'Catalog'))) ?? [];
+    const labels = rows.map((r) => r.label);
+    const at = row === null ? -1 : labels.indexOf(row.label);
+    const once = row !== null && labels.filter((l) => l === row.label).length === 1;
+    const last = at >= 0 && at === labels.length - 1;
+    const headings = labels.filter((l) => /^\S+ \(\d+\)$/.test(l));
+    const rowForBehind = labels.includes(BEHIND_THE_LINK.name);
+    return {
+      passed: namesTheLinkAlone(index, link.rel) && listsNothingBehind && row !== null && once && last && headings.length > 0 && !rowForBehind,
+      seen: `${link.link} reads the Feature outside through the link; the language server names ${describeLinks(index)} (the link placed is ${link.rel}) and lists ${listsNothingBehind ? 'nothing' : 'an entity'} behind it; the panel's rows ${JSON.stringify(labels)}${row === null ? '; the answer yields no row to look for' : `; the row ${JSON.stringify(row.label)} ${at < 0 ? 'not drawn' : `drawn at ${at} of ${labels.length}, level ${rows[at].level}`}`}${rowForBehind ? `; a row names ${BEHIND_THE_LINK.name}` : ''}`,
+    };
+  });
+
+  await c.run('may-attach.names-the-link-leading-out-of-the-workspace', {
+    expected: `with ${LINK} in place and ${GRAPH_RELEASE}'s graph shown, pressing its ${DB_NODE} node draws, under the list of what may attach, once, the extension's own line for exactly the links the language server's own aggrega/catalogIndex answer over the folder in that Release's terms names — that link alone; the list's rows are still the language server's own aggrega/attachCandidates answer for that node over the folder, row for row, and none names ${BEHIND_THE_LINK.name}`,
+    plant: 'in the scratch copy, out/src/attach-candidates.js with the line naming the links never posted',
+  }, async () => {
+    const link = linkPlaced();
+    const index = await indexOverTheFolder();
+    const line = featuresNotOfferedLine(index as CatalogIndexDoc);
+    const a = await referenceAnswer({ binary: bin, root: ctx.folder, method: 'aggrega/attachCandidates', params: { graphNode: DB_NODE, release: GRAPH_RELEASE }, home: ctx.home, table: ctx.s.table, log: ctx.cliLog });
+    need(a.ok, `the language server gave no answer about what may attach to ${DB_NODE} over the folder: ${a.ok ? '' : a.error.message}`);
+    await closeAllEditors(ctx);
+    const doc = await showGraph(ctx, DRAWN_MS);
+    await pressNode(ctx, doc, DB_NODE);
+    const p = await settledPanel(doc, DB_NODE, PENDING);
+    const drawn = drawnAsAnswered(p, a.result as Parameters<typeof drawnAsAnswered>[1]);
+    const lines = p.candidates?.links ?? [];
+    const offeredBehind = (p.candidates?.rows ?? []).some((r) => r.name === BEHIND_THE_LINK.name);
+    return {
+      passed: namesTheLinkAlone(index, link.rel) && line !== null && lines.length === 1 && lines[0] === line && drawn.same && !offeredBehind,
+      seen: `the language server names ${describeLinks(index)} (the link placed is ${link.rel}); the line ${line === null ? 'the answer yields none' : JSON.stringify(line)}; the list draws ${lines.length === 0 ? 'no line naming a link' : `the lines ${JSON.stringify(lines)}`}; ${drawn.seen}${offeredBehind ? `; a row names ${BEHIND_THE_LINK.name}` : ''}`,
+    };
   });
 }

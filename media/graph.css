@@ -490,6 +490,20 @@ html, body {
   margin: 4px 0;
 }
 
+/* Why the list holds less than the editor's file tree shows: the links leading
+   out of the workspace it was not read through. It says something about the
+   list rather than adding to it, so it is set apart from the last row by a rule
+   and drawn as a caption is; a path in it breaks anywhere rather than running
+   past the panel's edge. */
+.candidates-links {
+  border-top: 1px solid var(--vscode-editorWidget-border);
+  color: var(--vscode-descriptionForeground);
+  font-size: 12px;
+  margin: 8px 0 0;
+  overflow-wrap: anywhere;
+  padding-top: 6px;
+}
+
 /* Edges. Every one of these declarations strokes an edge's line and the
    arrowhead at its target end alike, since the arrowhead carries its line's
    classes: so the arrowhead is drawn in its own edge's colour and dash. */

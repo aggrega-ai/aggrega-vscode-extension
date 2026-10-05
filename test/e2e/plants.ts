@@ -162,6 +162,7 @@ const FIT_OVER_THE_LEGEND = {
 const ATTACHMENTS_MODEL = 'media/attachments-model.js';
 const CANDIDATES_MODEL = 'media/candidates-model.js';
 const GRAPH_VIEW = 'out/src/graph-view.js';
+const ATTACH_CANDIDATES = 'out/src/attach-candidates.js';
 const ATTACHMENT_EDIT = 'out/src/attachment-edit.js';
 
 // The configuration panel: the side that asks the compiler and hosts the
@@ -923,6 +924,29 @@ export const PLANTS: readonly Plant[] = [
     file: GRAPH_SCRIPT, find: "  window.addEventListener('message', (event) => {", replace: "  const listenLater = (h) => setTimeout(() => window.addEventListener('message', h), 8000);\n  listenLater((event) => {",
     says: 'the graph panel says it listens before its listener is in place, so the drawing sent when it says so reaches nobody',
   },
+  // What the Catalog panel and the list of what may attach say about a link
+  // leading out of the workspace: nothing while the folder holds none, read by the
+  // checks that read both surfaces before one is placed, and the link named once
+  // one is. The first plant is made for the checks among those that pass on the
+  // product as it stands; the Catalog panel's reading in each selected Release's
+  // terms is the same reading the first of them takes.
+  {
+    name: 'index-names-a-link-it-does-not', scenario: SELECTED_RELEASE,
+    checks: ['no-release.each-surface-answers-in-the-workspaces-own-terms', 'may-attach.lists-the-selected-releases-features'],
+    moves: 'red', target: 'extension',
+    file: CATALOG_RUN, find: '        unreadLinkedFiles: doc.unreadLinkedFiles ?? [],', replace: "        unreadLinkedFiles: [...(doc.unreadLinkedFiles ?? []), 'planted-link.yaml'],",
+    says: 'every entity index answer is read as naming a link to a file it does not name, so the Catalog panel draws its row and the list of what may attach its line where no link leads out',
+  },
+  {
+    name: 'catalog-links-row-never-drawn', scenario: SELECTED_RELEASE, checks: ['catalog-panel.names-the-link-leading-out-of-the-workspace'], moves: 'red', target: 'extension',
+    file: CATALOG_RUN, find: '    return links === null ? entities : [...entities, links];', replace: '    return entities;',
+    says: 'the Catalog panel never draws its row naming the links leading out of the workspace that the language server did not read',
+  },
+  {
+    name: 'may-attach-links-line-never-posted', scenario: SELECTED_RELEASE, checks: ['may-attach.names-the-link-leading-out-of-the-workspace'], moves: 'red', target: 'extension',
+    file: ATTACH_CANDIDATES, find: "        const linksNote = 'line' in read ? read.line : null;", replace: '        const linksNote = null;',
+    says: 'the list of what may attach is never posted the line naming the links leading out of the workspace that the language server did not read',
+  },
   // ---- the storefront folder with the topology graph open ----
   { name: 'context-row-renamed-graph-panel', scenario: 'storefront-graph-panel', checks: ['commands-panel.context-rows-name-the-opened-folder'], moves: 'red', target: 'extension', ...CONTEXT_ROW_LABEL },
   {
@@ -990,7 +1014,7 @@ export const PLANTS: readonly Plant[] = [
   },
   {
     name: 'list-asked-about-the-gateway', scenario: 'storefront-graph-panel', checks: ['may-attach.list-follows-the-node-selected-last'], moves: 'red', target: 'extension',
-    file: GRAPH_VIEW, find: '                    void postAttachCandidates(toPanel, deps, nodeId, shownRelease, requestId);', replace: "                    void postAttachCandidates(toPanel, deps, 'gateway', shownRelease, requestId);",
+    file: GRAPH_VIEW, find: '                    void (0, attach_candidates_1.postAttachCandidates)(toPanel, deps, nodeId, shownRelease, requestId);', replace: "                    void (0, attach_candidates_1.postAttachCandidates)(toPanel, deps, 'gateway', shownRelease, requestId);",
     says: 'the list of what may attach is asked about the gateway whatever node was pressed',
   },
   {
@@ -1041,7 +1065,7 @@ export const PLANTS: readonly Plant[] = [
   },
   {
     name: 'refused-list-sends-nothing', scenario: 'storefront-graph-panel', checks: ['may-attach.refusal-says-the-list-is-not-coming-and-why'], moves: 'red', target: 'extension',
-    file: GRAPH_VIEW, find: "        toPanel.post({ type: 'attachCandidatesError', nodeId, requestId, message });\n", replace: '',
+    file: ATTACH_CANDIDATES, find: "        toPanel.post({ type: 'attachCandidatesError', nodeId, requestId, message });\n", replace: '',
     says: 'a refused list of what may attach sends the panel nothing, so it goes on reading as waiting',
   },
   {

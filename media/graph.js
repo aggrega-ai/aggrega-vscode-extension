@@ -145,7 +145,7 @@
       renderGraph(msg.graph, !!msg.asked, msg.showsSensitiveValues)
         .catch((err) => reportFailure(msg.release, String(err)));
     } else if (msg.type === 'attachCandidates') {
-      showCandidates(msg.requestId, candidates.projectCandidates(msg.result));
+      showCandidates(msg.requestId, candidates.projectCandidates(msg.result, msg.linksNote));
     } else if (msg.type === 'attachCandidatesError') {
       showCandidatesFailure(msg.requestId, msg.message);
     } else if (msg.type === 'attachOutcome') {
@@ -571,11 +571,15 @@
   }
 
   // showCandidates draws the answer, or the sentence that stands in for an
-  // answer naming nothing.
+  // answer naming nothing, and under either the line naming the links leading
+  // out of the workspace where the host sent one.
   //
   // An answer to a question the panel has stopped waiting on is dropped —
   // a different node was selected, the panel was closed, or the graph
   // re-rendered and the same node was asked about again.
+  //
+  // The line is drawn inside the list's body, so the next answer replaces it with
+  // the rest of the list, and a refusal, which replaces the body, carries none.
   function showCandidates(requestId, projected) {
     if (!answering(requestId)) { return; }
     const body = candidatesBodyEl;
@@ -583,10 +587,13 @@
 
     if (projected.rows.length === 0) {
       body.appendChild(el('p', 'panel-empty', projected.emptyNote));
-      return;
+    } else {
+      for (const row of projected.rows) {
+        body.appendChild(drawCandidate(row));
+      }
     }
-    for (const row of projected.rows) {
-      body.appendChild(drawCandidate(row));
+    if (projected.linksNote) {
+      body.appendChild(el('p', 'candidates-links', projected.linksNote));
     }
   }
 

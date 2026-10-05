@@ -125,7 +125,16 @@ async function everyMessageNode(): Promise<WorkspaceCatalogNode[]> {
     entityKinds,
     log,
   });
-  return [...noWorkspace, ...serverStopped, ...failed, ...empty]
+  // An index naming a link leading out of the workspace draws a row saying so
+  // after the entities it lists.
+  const linked = await workspaceCatalogNodes({
+    getWorkspaceRoot: () => WORKSPACE_ROOT,
+    isLanguageServerRunning: () => true,
+    requestCatalogIndex: () => Promise.resolve({ entities: [entity()], unreadLinkedDirs: [], unreadLinkedFiles: ['linked-feature.yaml'] }),
+    entityKinds,
+    log,
+  });
+  return [...noWorkspace, ...serverStopped, ...failed, ...empty, ...linked]
     .filter((node) => node.kind === 'message');
 }
 
@@ -213,7 +222,7 @@ describe('which operations a row of the workspace catalog offers', () => {
     // The count is asserted so a message state added later without a verdict
     // here fails rather than passing unexamined.
     assert.strictEqual(
-      messages.length, 4,
+      messages.length, 5,
       'the run renders a number of message rows this check has not been extended to cover',
     );
     for (const node of messages) {

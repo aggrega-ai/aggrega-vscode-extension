@@ -83,10 +83,12 @@ describe('every request answered in a Release\'s terms', () => {
 
 // The composers above are reached from the editor's own call sites with the
 // selection itself, which a headless run cannot drive — the modules holding those
-// sites import the editor — so the source is read: each call of a composer hands
-// it the selection, never a value of its own. An equality, not a presence: a
-// reading that stopped finding the calls returns nothing, which is not the shape
-// recorded here.
+// sites import the editor — so the source is read: each call of a composer in the
+// files read here hands it the selection, never a value of its own. An equality,
+// not a presence: a reading that stopped finding the calls returns nothing, which
+// is not the shape recorded here. The list of what may attach asks the index in
+// the terms of the Release its graph was drawn from instead, and its own spec
+// holds it to that (attach-candidates.test.ts).
 describe('the editor hands each composition the selected Release', () => {
   const EXTENSION = 'src/extension.ts';
   const lastArguments = (file: string, callee: string): string[] => callArguments(file, callee).map((args) => args[args.length - 1]);

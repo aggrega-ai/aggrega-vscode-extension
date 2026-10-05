@@ -8,7 +8,9 @@ import { CatalogIndexParams, EntityDefinitionParams } from './types';
 // reference in a document points at all depend on which Release is asked about.
 // The language server answers such a request in a Release's terms when the
 // request names one, and in the workspace's own terms when it names none. This
-// module is where every such request is given the editor's selected Release.
+// module is where every such request is given its Release: the editor's selected
+// one, or for the index asked beside what may attach, the one the graph was drawn
+// from.
 
 // ReleaseTerms is the one field such a request names the Release under: a path
 // relative to the workspace root, the form the selection holds it in.
@@ -47,9 +49,10 @@ export function releaseFlag(selectedRelease: string | null): string[] {
 }
 
 // catalogIndexParams composes the Catalog panel's listing, which every surface
-// offering the workspace's entities by name reads.
-export function catalogIndexParams(selectedRelease: string | null): CatalogIndexParams {
-  return inReleaseTerms({}, selectedRelease);
+// offering the workspace's entities by name reads, and the index the list of what
+// may attach asks beside it, in the terms of the Release its graph was drawn from.
+export function catalogIndexParams(release: string | null): CatalogIndexParams {
+  return inReleaseTerms({}, release);
 }
 
 // entityDefinitionParams composes an inspection of the entity name resolves to.

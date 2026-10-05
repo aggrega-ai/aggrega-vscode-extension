@@ -2,13 +2,13 @@
 // Copyright 2026 Cognitio S.r.l.
 
 import * as vscode from 'vscode';
+import { postAttachCandidates } from './attach-candidates';
 import { GraphRedactor, createGraphRedactor } from './graph-payload';
 import { PanelDelivery, holdUntilListening, makeGraphMessageHandler } from './graph-messages';
 import {
   AttachCandidatesRequest,
   AttachmentContainerRequest,
   AttachmentSite,
-  attachCandidatesRequest,
   attachFailureLine,
   attachRefusal,
   attachmentContainerRequest,
@@ -26,7 +26,9 @@ import { reportGraphFailure } from './graph-failure';
 import { RendersOnReady } from './readiness';
 import { CancellationSignal } from './cancellation';
 import { withCancellableProgress } from './progress';
+import { CatalogIndexParams } from './types';
 import { NO_ANCHORED_WORKSPACE_MESSAGE, fromWorkspaceRelative } from './workspace';
+import { CatalogIndexDoc } from './workspace-catalog-run';
 
 // GraphDeps supplies the live state the graph view needs without importing
 // extension.ts (which would form an import cycle): the anchored workspace root
@@ -63,6 +65,12 @@ export interface GraphDeps extends RendersOnReady {
   // own directories instead, which a Release given directories of its own does
   // not build against.
   requestAttachCandidates(request: AttachCandidatesRequest): Promise<unknown>;
+  // requestCatalogIndex asks for the entity index in the terms the parameters
+  // name. The list of what may attach asks it in the terms of the Release its
+  // graph was drawn from, for the links leading out of the workspace the index
+  // names beside its entities: a Feature declared behind one is not offered, and
+  // the answer about what may attach does not say which links those are.
+  requestCatalogIndex(params: CatalogIndexParams): Promise<CatalogIndexDoc>;
   // requestAttachmentContainer reports which document an attachment for one
   // drawn node belongs in, and the structural path to the container inside it.
   //
@@ -361,51 +369,6 @@ async function renderGraph(
         toPanel.post({ type: 'error', release, message: failure.message, line: failure.line });
       },
     });
-  }
-}
-
-// postAttachCandidates asks what may attach to one node and posts the answer
-// back to the panel, tagged with the node it was asked about so the panel can
-// tell an answer about the selected node from one that arrived late.
-//
-// # A refusal is reported into the panel, and NOT onto a document
-//
-// The extension routes a daemon refusal to a diagnostic on the document the
-// refusal names, which is right for a failure that is ABOUT an authored
-// document — a graph that would not compile is about the Release. This request
-// builds that same Release's graph again to read the node's labels, so a
-// document it could be refused over is one the drawing already reported through
-// the render's own path; publishing the refusal a second time from here would
-// report one fault twice, and a refusal naming no document — an id the rebuilt
-// graph no longer carries, a lockfile gone since the drawing — has no document
-// to be put on at all.
-//
-// So the answer and the refusal go to the same place the question was asked —
-// the panel the reader is looking at — with the detail on the output channel
-// where the rest of this view's failures are recorded. Both surfaces, because a
-// reader watching the panel has to be told the list is not coming, and a
-// message worth acting on is worth keeping after the panel closes.
-// The request id is echoed back untouched, on the answer and on the refusal
-// alike. Two requests may be in flight at once and may complete in either
-// order, so a refusal that is not echoed would be as capable of overwriting a
-// fresh answer as a stale answer is.
-async function postAttachCandidates(
-  toPanel: PanelDelivery,
-  deps: GraphDeps,
-  nodeId: string,
-  release: string,
-  requestId: number,
-): Promise<void> {
-  try {
-    const result = await deps.requestAttachCandidates(attachCandidatesRequest(nodeId, release));
-    toPanel.post({ type: 'attachCandidates', nodeId, requestId, result });
-  } catch (err) {
-    // describeError is the extension's one home for rendering a thrown value as
-    // a line for a reader, so a transport refusal and a language server that is
-    // not running are worded here by the same rule they are worded everywhere.
-    const message = describeError(err);
-    deps.output.appendLine(`attachCandidates failed for ${nodeId}: ${message}`);
-    toPanel.post({ type: 'attachCandidatesError', nodeId, requestId, message });
   }
 }
 

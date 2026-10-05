@@ -32,10 +32,11 @@ interface Projected {
   caption: string;
   rows: CandidateRow[];
   emptyNote: string;
+  linksNote: string;
 }
 
 interface CandidatesModel {
-  projectCandidates(result: unknown): Projected;
+  projectCandidates(result: unknown, linksNote?: unknown): Projected;
   emptyNote(labelSource: string): string;
   failureNote(message: unknown): string;
   CANDIDATES_TITLE: string;
@@ -55,7 +56,7 @@ function loadModel(): CandidatesModel {
   // identical their contents. Cloning the structured result across the boundary
   // lets the assertions below compare values rather than realms.
   return {
-    projectCandidates: (result) => structuredClone(model.projectCandidates(result)),
+    projectCandidates: (result, linksNote) => structuredClone(model.projectCandidates(result, linksNote)),
     emptyNote: (labelSource) => model.emptyNote(labelSource),
     failureNote: (message) => model.failureNote(message),
     CANDIDATES_TITLE: model.CANDIDATES_TITLE,
@@ -237,5 +238,23 @@ describe('the candidate projection', () => {
     assert.ok(model.PENDING_NOTE.length > 0);
     assert.doesNotMatch(model.PENDING_NOTE, /No Feature/);
     assert.doesNotMatch(model.PENDING_NOTE, /Cannot/);
+  });
+
+  it('carries the line naming the links leading out of the workspace as it was sent, beside rows or none', () => {
+    // The line is composed on the host side from the language server's own
+    // answer, so it is carried word for word rather than worded again here.
+    const line = 'Features reached through this link are not offered, because it leads outside the Aggrega workspace: linked-feature.yaml';
+    const withRows = model.projectCandidates(answer([{ kind: 'Feature', name: 'tls', file: 'f.yaml', origin: 'workspace' }]), line);
+    assert.strictEqual(withRows.linksNote, line);
+    assert.strictEqual(withRows.rows.length, 1);
+    const withNone = model.projectCandidates(answer([]), line);
+    assert.strictEqual(withNone.linksNote, line);
+    assert.strictEqual(withNone.emptyNote, model.emptyNote('resolved'), 'the line took the place of the sentence for an empty answer');
+  });
+
+  it('carries no line where none was sent, or where what was sent is not a line', () => {
+    for (const sent of [undefined, null, 42, { line: 'x' }]) {
+      assert.strictEqual(model.projectCandidates(answer([]), sent).linksNote, '', `a line for ${JSON.stringify(sent) ?? 'undefined'}`);
+    }
   });
 });

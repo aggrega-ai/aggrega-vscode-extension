@@ -7,6 +7,7 @@ import {
   CATALOG_ORIGIN_LABEL,
   CatalogIndexDoc,
   EMPTY_LABEL,
+  ENTITIES_NOT_LISTED,
   ENTITY_ORIGIN_CATALOG,
   ENTITY_ORIGIN_WORKSPACE,
   FAILURE_LABEL,
@@ -17,6 +18,7 @@ import {
   rowForEntity,
   workspaceCatalogNodes,
 } from '../../src/workspace-catalog-run';
+import { describeLinksLeadingOut } from '../../src/links-leading-out';
 import { NO_ANCHORED_WORKSPACE_TREE_LABEL } from '../../src/workspace';
 
 const WORKSPACE_ROOT = '/ws';
@@ -624,6 +626,103 @@ describe('what each row\'s kind is accepted for, read beside the index', () => {
     const listed = harness(WORKSPACE_ROOT, ok(MEASURED_DOCUMENT));
     await listed.nodes();
     assert.strictEqual(listed.kindReads(), 1);
+  });
+});
+
+describe('the row naming the links leading out of the workspace', () => {
+  // withLinks is the measured response with the two lists set as given; a list
+  // given as undefined is left out of the answer altogether.
+  function withLinks(dirs: string[] | undefined, files: string[] | undefined, entities = MEASURED_DOCUMENT.entities): CatalogIndexDoc {
+    const doc: Record<string, unknown> = { entities };
+    if (dirs !== undefined) { doc.unreadLinkedDirs = dirs; }
+    if (files !== undefined) { doc.unreadLinkedFiles = files; }
+    return doc as unknown as CatalogIndexDoc;
+  }
+
+  // drawn reads what the panel draws for an answer: the labels of its top-level
+  // rows in order, and every message row whole.
+  async function drawn(doc: CatalogIndexDoc): Promise<{ order: string[]; messages: { label: string; detail?: string }[] }> {
+    const nodes = await harness(WORKSPACE_ROOT, ok(doc)).nodes();
+    return {
+      order: nodes.map((n) => (n.kind === 'group' ? `heading ${n.label}` : n.kind === 'message' ? n.label : 'entry')),
+      messages: messagesOf(nodes),
+    };
+  }
+
+  const HEADINGS = ['heading Aggregate', 'heading Component', 'heading Feature', 'heading Recipe'];
+
+  it('names one link to a file, in a row of its own after the kind headings', async () => {
+    const seen = await drawn(withLinks([], ['linked-feature.yaml']));
+    const line = 'Entities reached through this link are not listed, because it leads outside the Aggrega workspace: linked-feature.yaml';
+    assert.deepStrictEqual(seen.order, [...HEADINGS, line]);
+    assert.deepStrictEqual(seen.messages, [{ label: line, detail: line }]);
+  });
+
+  it('names one link to a directory the same way', async () => {
+    const seen = await drawn(withLinks(['shared'], []));
+    assert.deepStrictEqual(seen.order, [
+      ...HEADINGS,
+      'Entities reached through this link are not listed, because it leads outside the Aggrega workspace: shared',
+    ]);
+  });
+
+  it('names the links to directories, then the links to files, each in the order the answer gives', async () => {
+    const seen = await drawn(withLinks(['zeta-dir', 'alpha-dir'], ['zeta.yaml', 'nested/alpha.yaml']));
+    assert.deepStrictEqual(seen.messages.map((m) => m.label), [
+      'Entities reached through these links are not listed, because each leads outside the Aggrega workspace: zeta-dir, alpha-dir, zeta.yaml, nested/alpha.yaml',
+    ]);
+  });
+
+  it('is the one sentence every surface says about such links, naming what this panel withholds', async () => {
+    const links = { unreadLinkedDirs: ['shared'], unreadLinkedFiles: ['linked-feature.yaml'] };
+    const seen = await drawn(withLinks(links.unreadLinkedDirs, links.unreadLinkedFiles));
+    assert.deepStrictEqual(ENTITIES_NOT_LISTED, { things: 'Entities', as: 'listed' });
+    assert.deepStrictEqual(seen.messages.map((m) => m.label), [describeLinksLeadingOut(links, ENTITIES_NOT_LISTED)]);
+  });
+
+  it('carries the whole sentence in the row\'s hover, since a tree row is cut short', async () => {
+    const long = Array.from({ length: 6 }, (_, i) => `a/directory/nested/deeply/enough/to/outrun/the/panel/link-${i}.yaml`);
+    const seen = await drawn(withLinks([], long));
+    assert.strictEqual(seen.messages.length, 1);
+    const [row] = seen.messages;
+    assert.strictEqual(row.detail, row.label, 'the hover is not the sentence the row draws');
+    for (const name of long) {
+      assert.ok(row.detail?.includes(name), `the hover leaves out ${name}`);
+    }
+  });
+
+  it('draws nothing new where the answer names no link', async () => {
+    const seen = await drawn(withLinks([], []));
+    assert.deepStrictEqual(seen.order, HEADINGS);
+    assert.deepStrictEqual(seen.messages, []);
+  });
+
+  it('reads an answer carrying neither list as naming none, and one carrying only one list by that list', async () => {
+    assert.deepStrictEqual((await drawn(withLinks(undefined, undefined))).order, HEADINGS);
+    assert.deepStrictEqual((await drawn(withLinks(['shared'], undefined))).messages.map((m) => m.label), [
+      'Entities reached through this link are not listed, because it leads outside the Aggrega workspace: shared',
+    ]);
+    assert.deepStrictEqual((await drawn(withLinks(undefined, ['linked.yaml']))).messages.map((m) => m.label), [
+      'Entities reached through this link are not listed, because it leads outside the Aggrega workspace: linked.yaml',
+    ]);
+  });
+
+  it('draws both rows where the index holds no entity and names a link, the empty row first', async () => {
+    const seen = await drawn(withLinks([], ['linked-feature.yaml'], []));
+    assert.deepStrictEqual(seen.order, [
+      EMPTY_LABEL,
+      'Entities reached through this link are not listed, because it leads outside the Aggrega workspace: linked-feature.yaml',
+    ]);
+  });
+
+  it('draws no such row where no answer was read', async () => {
+    const naming = ok(withLinks(['shared'], ['linked-feature.yaml']));
+    const unanchored = await harness(null, naming).nodes();
+    const stopped = await harness(WORKSPACE_ROOT, naming, /*serverRunning=*/ false).nodes();
+    const failed = await harness(WORKSPACE_ROOT, () => Promise.reject(new Error('declined'))).nodes();
+    assert.deepStrictEqual(messagesOf(unanchored).map((m) => m.label), [NO_ANCHORED_WORKSPACE_TREE_LABEL]);
+    assert.deepStrictEqual(messagesOf(stopped).map((m) => m.label), [SERVER_STOPPED_LABEL]);
+    assert.deepStrictEqual(messagesOf(failed).map((m) => m.label), [FAILURE_LABEL]);
   });
 });
 

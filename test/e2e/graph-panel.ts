@@ -316,12 +316,13 @@ export interface Candidate { name: string; button: string; facts: Pair[] }
 // Panel is the attachments panel as drawn: the node it names, each attachment
 // with its facts and its configuration, the sentence standing for none, and the
 // list of what may attach with its heading, its captions and either its rows or
-// the sentence standing in for them, and the line a press on Attach ended in.
+// the sentence standing in for them, each line under those naming the links
+// leading out of the workspace, and the line a press on Attach ended in.
 export interface Panel {
   title: string;
   attachments: { name: string; sensitive: boolean; facts: Pair[]; config: Pair[] }[];
   nothingAttached: string | null;
-  candidates: { title: string; captions: string[]; rows: Candidate[]; note: string | null; failed: string | null; body: string } | null;
+  candidates: { title: string; captions: string[]; rows: Candidate[]; note: string | null; failed: string | null; links: string[]; body: string } | null;
   outcome: { text: string; failed: boolean } | null;
 }
 
@@ -362,6 +363,7 @@ const PANEL = `(() => {
       })),
       note: candBody.querySelector(':scope > p.panel-empty') ? text(candBody.querySelector(':scope > p.panel-empty')) : null,
       failed: candBody.querySelector(':scope > p.candidates-failed') ? text(candBody.querySelector(':scope > p.candidates-failed')) : null,
+      links: [...candBody.querySelectorAll(':scope > p.candidates-links')].map(text),
       body: text(candBody),
     } : null,
     outcome: outcome && !outcome.classList.contains('hidden') ? { text: outcome.textContent || '', failed: outcome.classList.contains('attach-failed') } : null,

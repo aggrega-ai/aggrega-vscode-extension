@@ -151,7 +151,12 @@
   // empty sentence for an unstated label set. That direction is the safe one:
   // it reports that nothing matched rather than drawing rows out of a payload
   // it could not read.
-  function projectCandidates(result) {
+  //
+  // linksNote is the line naming the links leading out of the workspace that the
+  // host sent beside the answer, where it sent one. It is carried as it arrived:
+  // the host composes it from the language server's own answer, and a second
+  // wording here would be free to disagree with the one every other surface says.
+  function projectCandidates(result, linksNote) {
     const safe = isPlainObject(result) ? result : {};
     const labelSource = text(safe.labelSource);
     const list = Array.isArray(safe.candidates) ? safe.candidates : [];
@@ -164,6 +169,9 @@
       // computed here rather than at the drawing site so the choice of sentence
       // is exercised by the same tests that exercise the rows.
       emptyNote: rows.length === 0 ? emptyNote(labelSource) : '',
+      // The line drawn under the rows, or under the sentence standing in for
+      // them, or empty where the host sent none.
+      linksNote: text(linksNote),
     };
   }
 

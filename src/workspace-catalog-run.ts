@@ -11,6 +11,7 @@ import {
   readEntityKinds,
 } from './entity-kinds';
 import { daemonStandingTooltip, startServerPress } from './daemon-status';
+import { LinksLeadingOut, Withheld, describeLinksLeadingOut } from './links-leading-out';
 import { outcomeOf, terminalLine } from './operation-outcome';
 import type { PanelActionPress } from './panel-actions';
 import { NO_ANCHORED_WORKSPACE_TREE_LABEL } from './workspace';
@@ -63,6 +64,23 @@ export const ENTITY_ORIGIN_CATALOG = 'catalog';
 // stronger of the two statements.
 export type CatalogIndexDoc = wire.CatalogIndexResult;
 
+// linksLeadingOutOf reads the links an index answer names as leading out of the
+// workspace and not read: each link to a directory outside it, and each link
+// named like a YAML file that leads to a file outside it. No document behind such
+// a link is read, so no entity it declares is listed, and no Feature it declares
+// is offered as a candidate to attach.
+//
+// It is the one reader of those two lists, for every surface drawn from the index
+// answer. Each list is read as naming none where the answer does not carry it, so
+// an answer from a language server that does not name such links reads as naming
+// none rather than failing.
+export function linksLeadingOutOf(doc: CatalogIndexDoc): LinksLeadingOut {
+  return {
+    unreadLinkedDirs: doc.unreadLinkedDirs ?? [],
+    unreadLinkedFiles: doc.unreadLinkedFiles ?? [],
+  };
+}
+
 // --- reader-facing wording -----------------------------------------------
 
 // EMPTY_LABEL is the row for a workspace the server read successfully and found
@@ -83,6 +101,11 @@ export const FAILURE_LABEL =
 // that has not started yet is an ordinary transient state, and wording it as a
 // failure would send a reader looking for a fault that is not there.
 export const SERVER_STOPPED_LABEL = 'The Aggrega language server is not running.';
+
+// ENTITIES_NOT_LISTED is what this panel withholds where the index answer names
+// links leading out of the workspace: the entities a document behind such a link
+// declares, which the editor's file tree shows and this list does not.
+export const ENTITIES_NOT_LISTED: Withheld = { things: 'Entities', as: 'listed' };
 
 // serverStoppedNode is that row as every list panel draws it whose list is the
 // language server's answer: the line above, the hover the status bar's indicator
@@ -205,7 +228,8 @@ export interface WorkspaceEntityRow {
 }
 
 // WorkspaceCatalogNode is what the tree renders: a kind heading, an entity
-// under one, or a single line explaining why there is neither.
+// under one, or a single line explaining why there is neither — or, after the
+// list, why the list holds less than the editor's file tree shows.
 //
 // The three no-entity states — nothing anchored, no language server, and a
 // server that could not answer — are distinct messages on purpose, and an empty
@@ -295,7 +319,37 @@ export function rowForEntity(
   };
 }
 
-// nodesForDocument groups a whole index response under kind headings.
+// nodesForDocument is what a whole index response draws: its entities under
+// kind headings, or the row saying it holds none, and then — where the answer
+// names any link leading out of the workspace — the row saying so.
+//
+// That row comes after the list rather than before it because it explains the
+// list: an entity the editor's file tree shows behind such a link is missing
+// from what is above it. Both rows are drawn where the index holds no entity and
+// names a link, since both are then true.
+export function nodesForDocument(
+  workspaceRoot: string,
+  doc: CatalogIndexDoc,
+  kinds: readonly EntityKind[],
+): WorkspaceCatalogNode[] {
+  const entities = entityNodes(workspaceRoot, doc, kinds);
+  const links = linksLeadingOutRow(doc);
+  return links === null ? entities : [...entities, links];
+}
+
+// linksLeadingOutRow is the row naming the links an index answer names as leading
+// out of the workspace, or null where it names none.
+//
+// Its words are the one sentence every surface says about such links, naming
+// what this panel withholds, so the reason is worded in one place. The sentence
+// names each link by its path, which is commonly longer than the panel is wide
+// and a tree row cuts short; so the row's hover carries the sentence too, whole.
+export function linksLeadingOutRow(doc: CatalogIndexDoc): { kind: 'message'; label: string; detail: string } | null {
+  const sentence = describeLinksLeadingOut(linksLeadingOutOf(doc), ENTITIES_NOT_LISTED);
+  return sentence === null ? null : { kind: 'message', label: sentence, detail: sentence };
+}
+
+// entityNodes groups a whole index response under kind headings.
 //
 // The grouping is a single forward walk that opens a new heading whenever the
 // kind changes, so the result carries the server's order exactly and cannot
@@ -305,7 +359,7 @@ export function rowForEntity(
 // is not — it would silently re-gather a kind the server had split, presenting
 // an order the server never sent, so a walk that shows two headings of one kind
 // is the honest outcome rather than a defect to paper over.
-export function nodesForDocument(
+function entityNodes(
   workspaceRoot: string,
   doc: CatalogIndexDoc,
   kinds: readonly EntityKind[],
