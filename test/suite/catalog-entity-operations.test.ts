@@ -100,14 +100,14 @@ async function everyMessageNode(): Promise<WorkspaceCatalogNode[]> {
   const noWorkspace = await workspaceCatalogNodes({
     getWorkspaceRoot: () => null,
     isLanguageServerRunning: () => true,
-    requestCatalogIndex: () => Promise.resolve({ entities: [] }),
+    requestCatalogIndex: () => Promise.resolve({ entities: [], unreadLinkedDirs: [], unreadLinkedFiles: [] }),
     entityKinds,
     log,
   });
   const serverStopped = await workspaceCatalogNodes({
     getWorkspaceRoot: () => WORKSPACE_ROOT,
     isLanguageServerRunning: () => false,
-    requestCatalogIndex: () => Promise.resolve({ entities: [] }),
+    requestCatalogIndex: () => Promise.resolve({ entities: [], unreadLinkedDirs: [], unreadLinkedFiles: [] }),
     entityKinds,
     log,
   });
@@ -121,7 +121,7 @@ async function everyMessageNode(): Promise<WorkspaceCatalogNode[]> {
   const empty = await workspaceCatalogNodes({
     getWorkspaceRoot: () => WORKSPACE_ROOT,
     isLanguageServerRunning: () => true,
-    requestCatalogIndex: () => Promise.resolve({ entities: [] }),
+    requestCatalogIndex: () => Promise.resolve({ entities: [], unreadLinkedDirs: [], unreadLinkedFiles: [] }),
     entityKinds,
     log,
   });
@@ -195,7 +195,11 @@ describe('which operations a row of the workspace catalog offers', () => {
     // A heading names a kind, not an entity, so every extractor must decline
     // it: an operation bound to a heading could only be invoked with no
     // subject.
-    const groups = nodesForDocument(WORKSPACE_ROOT, { entities: [entity()] }, kindsAccepting(EVERYTHING));
+    const groups = nodesForDocument(
+      WORKSPACE_ROOT,
+      { entities: [entity()], unreadLinkedDirs: [], unreadLinkedFiles: [] },
+      kindsAccepting(EVERYTHING),
+    );
     const heading = groups.find((node) => node.kind === 'group');
     assert.ok(heading, 'the grouping produced no kind heading to check');
     assert.strictEqual(catalogRowOperations(heading), null);

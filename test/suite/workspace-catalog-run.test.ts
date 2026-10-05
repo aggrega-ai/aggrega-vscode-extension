@@ -166,6 +166,8 @@ const MEASURED_DOCUMENT: CatalogIndexDoc = {
       origin: 'workspace',
     },
   ],
+  unreadLinkedDirs: [],
+  unreadLinkedFiles: [],
 };
 
 // MEASURED_TWO_ORIGIN_DOCUMENT is the response the language server emitted for a
@@ -221,6 +223,8 @@ const MEASURED_TWO_ORIGIN_DOCUMENT: CatalogIndexDoc = {
       origin: 'catalog',
     },
   ],
+  unreadLinkedDirs: [],
+  unreadLinkedFiles: [],
 };
 
 describe('workspaceCatalogNodes', () => {
@@ -328,6 +332,8 @@ describe('workspaceCatalogNodes', () => {
           labels: {}, file: 'm.yaml', origin: 'workspace',
         },
       ],
+      unreadLinkedDirs: [],
+      unreadLinkedFiles: [],
     };
     const h = harness(WORKSPACE_ROOT, ok(unsorted));
     const nodes = await h.nodes();
@@ -346,6 +352,8 @@ describe('workspaceCatalogNodes', () => {
         { kind: 'Feature', name: 'f', apiVersion: 'v', description: '', labels: {}, file: 'f.yaml', origin: 'workspace' },
         { kind: 'Component', name: 'b', apiVersion: 'v', description: '', labels: {}, file: 'b.yaml', origin: 'workspace' },
       ],
+      unreadLinkedDirs: [],
+      unreadLinkedFiles: [],
     };
     const groups = groupsOf(await harness(WORKSPACE_ROOT, ok(split)).nodes());
 
@@ -354,8 +362,8 @@ describe('workspaceCatalogNodes', () => {
   });
 
   it('a workspace declaring no entity is a successful empty answer, not a failure', async () => {
-    // The measured response for an empty workspace is exactly {"entities": []}.
-    const nodes = await harness(WORKSPACE_ROOT, ok({ entities: [] })).nodes();
+    // An empty workspace's response carries an empty entity list and names no link.
+    const nodes = await harness(WORKSPACE_ROOT, ok({ entities: [], unreadLinkedDirs: [], unreadLinkedFiles: [] })).nodes();
 
     assert.deepStrictEqual(nodes, [{ kind: 'message', label: EMPTY_LABEL }]);
     assert.strictEqual(EMPTY_LABEL, 'No entities in this workspace.');
@@ -413,6 +421,8 @@ describe('workspaceCatalogNodes', () => {
       entities: [
         { kind: 'Component', name: 'a', apiVersion: 'v', description: '', labels: {}, file: 'a.yaml', origin: 'workspace' },
       ],
+      unreadLinkedDirs: [],
+      unreadLinkedFiles: [],
     };
     const h = harness(WORKSPACE_ROOT, () => Promise.resolve(doc));
 
@@ -422,6 +432,8 @@ describe('workspaceCatalogNodes', () => {
         { kind: 'Component', name: 'a', apiVersion: 'v', description: '', labels: {}, file: 'a.yaml', origin: 'workspace' },
         { kind: 'Component', name: 'b', apiVersion: 'v', description: '', labels: {}, file: 'b.yaml', origin: 'workspace' },
       ],
+      unreadLinkedDirs: [],
+      unreadLinkedFiles: [],
     };
     assert.deepStrictEqual(flatRows(await h.nodes()).map((r) => r.label), ['a', 'b']);
     assert.strictEqual(h.invocations(), 2);
@@ -596,7 +608,7 @@ describe('what each row\'s kind is accepted for, read beside the index', () => {
   });
 
   it('asks for the kinds only when the index answered with an entity to classify', async () => {
-    const empty = harness(WORKSPACE_ROOT, ok({ entities: [] }));
+    const empty = harness(WORKSPACE_ROOT, ok({ entities: [], unreadLinkedDirs: [], unreadLinkedFiles: [] }));
     assert.deepStrictEqual(await empty.nodes(), [{ kind: 'message', label: EMPTY_LABEL }]);
     const failed = harness(WORKSPACE_ROOT, () => Promise.reject(new Error('declined')));
     await failed.nodes();

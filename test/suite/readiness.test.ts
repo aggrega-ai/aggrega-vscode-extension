@@ -190,7 +190,7 @@ describe('a view rendering from readiness', () => {
   it('supersedes the not-running row when the compiler becomes answerable', async () => {
     const facts = new Facts();
     const readiness = facts.readiness();
-    const empty: CatalogIndexDoc = { entities: [] };
+    const empty: CatalogIndexDoc = { entities: [], unreadLinkedDirs: [], unreadLinkedFiles: [] };
 
     const rendered: string[] = [];
     const render = async (): Promise<void> => {

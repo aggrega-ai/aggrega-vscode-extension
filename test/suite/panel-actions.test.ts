@@ -191,6 +191,8 @@ const ONE_ENTITY: CatalogIndexDoc = {
     file: 'catalog/components/api-server.yaml',
     origin: 'workspace',
   }],
+  unreadLinkedDirs: [],
+  unreadLinkedFiles: [],
 };
 
 const CATALOG_STATES: Array<{
@@ -225,7 +227,7 @@ const CATALOG_STATES: Array<{
     state: 'no entities',
     root: '/ws',
     running: true,
-    answer: () => Promise.resolve({ entities: [] }),
+    answer: () => Promise.resolve({ entities: [], unreadLinkedDirs: [], unreadLinkedFiles: [] }),
     first: (node) => node.kind === 'message' && node.label === 'No entities in this workspace.',
   },
   {
