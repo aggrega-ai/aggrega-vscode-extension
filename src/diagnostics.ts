@@ -190,8 +190,8 @@ export function replaceLintFindings(
 // the Problems panel a link the reader can follow; where it names a class of
 // finding the slot carries that identifier alone, with nothing to follow — which
 // is the case a render advisory's class falls into; and where it names
-// nothing the slot is left unset, so the diagnostic is exactly the one this
-// extension published before any of these fields existed.
+// nothing the slot is left unset, so the diagnostic carries its position, its
+// message, its severity and its source alone.
 function diagnosticFromShape(shape: ConvertedShape): vscode.Diagnostic {
   const range = new vscode.Range(
     new vscode.Position(shape.startLine, shape.startChar),

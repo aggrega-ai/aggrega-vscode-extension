@@ -62,8 +62,7 @@ export type EditorCode =
 // The rules, in the order they are checked:
 //
 //   - No code at all: the entry names nothing registered, so the slot is empty.
-//     An editor then shows the message and the source and nothing else, which is
-//     exactly what it showed before any of these fields existed.
+//     An editor then shows the message and the source, and nothing else.
 //   - A quotable code with somewhere to read about it: the slot carries the
 //     QUOTABLE code and the address, so the panel shows the identifier a reader
 //     would search for and offers to open the explanation. The machine-matchable

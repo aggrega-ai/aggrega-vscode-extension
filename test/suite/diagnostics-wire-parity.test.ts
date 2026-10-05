@@ -38,8 +38,8 @@ import {
 // Every other field of both frames, and the render frame's message in full, are
 // byte-for-byte as they arrived.
 //
-// Both frames carry a `code` and neither carries the two identifier keys that
-// travel beside it now — the quotable code and the reference to where the
+// Both frames carry a `code` and neither carries the two identifier keys the
+// wire offers beside it — the quotable code and the reference to where the
 // condition is explained. That is a property of the capture rather than of the
 // wire: these bytes came off a daemon whose diagnostics carried the one key, and
 // they are kept as captured. What they therefore pin is the case the client will
