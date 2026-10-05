@@ -293,6 +293,13 @@ export const PLANTS: readonly Plant[] = [
     says: 'every finding\'s range is moved one line down',
   },
   {
+    name: 'published-finding-filed-only-on-a-held-document', scenario: 'storefront', checks: ['problems.render-refusal-lands-on-its-recipe-in-the-compilers-words'], moves: 'red', target: 'extension',
+    file: EXTENSION,
+    find: '        const uri = vscode.Uri.file(params.file);\n        // An empty finding list reaches the wire as null',
+    replace: '        const uri = vscode.Uri.file(params.file);\n        if (!vscode.workspace.textDocuments.some((d) => d.uri.fsPath === uri.fsPath)) {\n            return;\n        }\n        // An empty finding list reaches the wire as null',
+    says: 'a finding the language server publishes is filed only on a document the editor holds, so one about a document it has not opened never reaches the Problems panel',
+  },
+  {
     name: 'message-cut-at-its-note', scenario: 'storefront', checks: ['problems.cascade-names-the-entity-that-broke'], moves: 'red', target: 'extension',
     file: 'out/src/diagnostics-shape.js', find: '        message: d.message,', replace: "        message: d.message.split('; note:')[0],",
     says: 'a finding\'s message is cut at its note, which drops the part naming the file that broke',

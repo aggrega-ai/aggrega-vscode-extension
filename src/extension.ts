@@ -2625,9 +2625,12 @@ async function requestActiveRelease(): Promise<ActiveReleaseResponse> {
 // a build would reach, and the answer names the artifacts a build would write.
 //
 // The findings that carry a document position do not come back through this
-// call: the server publishes them on its diagnostic channel, so they land in the
-// Problems panel through the same path every other server finding takes. What
-// returns is the artifact list and the advisories that name no position.
+// call's answer: the server publishes them on its diagnostic channel, so they
+// land in the Problems panel through the same path every other server finding
+// takes. What returns is the artifact list and the advisories that name no
+// position. A refusal raised while rendering is published the same way, on the
+// document it names, and the refusal this call throws carries the same words and
+// position.
 //
 // Throws when the server is not running, so a caller reports that state rather
 // than presenting an empty preview as a Release that renders nothing.
@@ -2660,10 +2663,12 @@ async function requestBuildPreview(
 // and a success puts the same files on disk that one would.
 //
 // The findings that carry a document position do not come back through this
-// call: the server publishes them on its diagnostic channel, so they land in the
-// Problems panel through the same path every other server finding takes. What
-// returns is where the build wrote, what it wrote there, and the advisories that
-// name no position.
+// call's answer: the server publishes them on its diagnostic channel, so they
+// land in the Problems panel through the same path every other server finding
+// takes. What returns is where the build wrote, what it wrote there, and the
+// advisories that name no position. A refusal raised while rendering is
+// published the same way, on the document it names, and the refusal this call
+// throws carries the same words and position.
 //
 // Throws when the server is not running, so a caller reports that state rather
 // than presenting a build that never ran as one that produced nothing.

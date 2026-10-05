@@ -859,9 +859,13 @@ async function runReleaseScoped(
 // arrive on the server's own channel and are published by the extension's
 // diagnostic path, so nothing here handles them; the advisories that carry no
 // position ride back on the answer and are written to this channel, which is the
-// only surface that can show them. A build that resolved its dependencies first
-// also carries that resolution's report, and the channel lists what it pinned and
-// the lockfile it wrote ahead of everything else the build reports.
+// only surface that can show them. A refusal raised while rendering is one of the
+// positioned findings, published on the document it names, and the refusal the
+// request throws ends the operation here in the same words; its code is not one
+// routed onto a document, so the entry is filed once. A build that resolved its
+// dependencies first also carries that resolution's report, and the channel lists
+// what it pinned and the lockfile it wrote ahead of everything else the build
+// reports.
 //
 // dials names the adjustments the reader turned beside the button. They are
 // passed through as data rather than composed here: what a given set carries on
@@ -942,7 +946,8 @@ async function runBuild(deps: OperationDeps, dials: readonly string[]): Promise<
 // What lands where: the positioned findings arrive on the server's own channel
 // and are published by the extension's diagnostic path, so nothing here handles
 // them. The advisories that carry no position ride back on the answer and are
-// written to this channel, which is the only surface that can show them.
+// written to this channel, which is the only surface that can show them. A
+// refusal raised while rendering lands as the build's does.
 async function runPreview(deps: OperationDeps): Promise<void> {
   const root = deps.getWorkspaceRoot();
   if (!root) {

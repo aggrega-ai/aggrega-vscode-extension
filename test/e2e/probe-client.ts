@@ -20,6 +20,9 @@ export interface DiagnosticEntry {
   message: string;
   source: string | null;
   code: string | null;
+  // codeTarget is where the code leads when pressed, or null where it leads
+  // nowhere.
+  codeTarget: string | null;
   severity: string;
   range: { start: { line: number; character: number }; end: { line: number; character: number } };
 }

@@ -28,6 +28,9 @@ const REQUESTS: Record<string, (params: Record<string, unknown>) => Promise<unkn
   'hello': async () => ({ pid: process.pid, instance, activatedAt, editorVersion: vscode.version }),
   'command.run': async (p) => toJson(await vscode.commands.executeCommand(str(p, 'command'), ...(Array.isArray(p.args) ? p.args.map(revive) : []))),
   'diagnostics.list': async (p) => listDiagnostics(typeof p.path === 'string' ? p.path : undefined),
+  // The documents the editor holds, tab or none: a document an extension opened
+  // is held without a tab, so the tabs drawn do not say which documents are open.
+  'documents.list': async () => vscode.workspace.textDocuments.map(describeDocument),
   'document.open': async (p) => {
     const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(str(p, 'path')));
     await vscode.window.showTextDocument(doc, { preview: false });
@@ -192,6 +195,9 @@ function listDiagnostics(file: string | undefined): unknown {
       message: d.message,
       source: d.source ?? null,
       code: typeof d.code === 'object' && d.code !== null ? String(d.code.value) : d.code === undefined ? null : String(d.code),
+      // Where the Problems panel's code leads when pressed; null for a code drawn
+      // with nowhere to follow, and for no code.
+      codeTarget: typeof d.code === 'object' && d.code !== null ? d.code.target.toString(true) : null,
       severity: vscode.DiagnosticSeverity[d.severity],
       range: { start: pos(d.range.start), end: pos(d.range.end) },
     })),

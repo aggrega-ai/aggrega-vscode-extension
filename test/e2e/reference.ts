@@ -5,6 +5,7 @@ import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 
+import type { PublishDiagnosticsParams } from '../../src/types';
 import { cliEnvironment, ScratchHome } from './cli';
 import { ProcessTable } from './processes';
 import { guard } from './workbench';
@@ -17,8 +18,13 @@ import { guard } from './workbench';
 // change, and what the suite verifies is that the extension carried it untouched.
 
 export type ReferenceAnswer =
-  | { ok: true; result: unknown }
-  | { ok: false; error: { code: unknown; message: string; data: unknown } };
+  | { ok: true; result: unknown; published?: Publication[] }
+  | { ok: false; error: { code: unknown; message: string; data: unknown }; published?: Publication[] };
+
+// Publication is one finding list the server published while the request was
+// answered, in the published shape it is sent in: present on the answer only
+// where it was asked for.
+export type Publication = PublishDiagnosticsParams;
 
 // ReferenceRequest is one request the reference child sends, by its method and
 // its parameters.
@@ -32,6 +38,9 @@ export interface ReferenceRequest { method: string; params: unknown }
 // order, whose answers are not returned: a request about a position in a
 // document is answered only once the server has validated that document, so the
 // validation the editor sends as the document opens is sent first here too.
+//
+// published asks for the finding lists the server published while it answered
+// the request asked, beside the answer.
 export function referenceAnswer(opts: {
   binary: string;
   root: string;
@@ -39,6 +48,7 @@ export function referenceAnswer(opts: {
   params: unknown;
   first?: ReferenceRequest[];
   buildOnInspect?: boolean;
+  published?: boolean;
   home: ScratchHome;
   table: ProcessTable;
   log: string;
@@ -49,6 +59,7 @@ export function referenceAnswer(opts: {
     const args = [script, opts.binary, opts.root, opts.method, JSON.stringify(opts.params)];
     if (opts.buildOnInspect) { args.push('--build-on-inspect'); }
     if (opts.first !== undefined && opts.first.length > 0) { args.push('--first', JSON.stringify(opts.first)); }
+    if (opts.published) { args.push('--published'); }
     const child = spawn(process.execPath, args, { cwd: opts.root, env: cliEnvironment(opts.home), stdio: ['ignore', 'pipe', 'pipe'] });
     if (child.pid !== undefined) {
       try { opts.table.addRoot('reference', child.pid); } catch { /* already gone */ }

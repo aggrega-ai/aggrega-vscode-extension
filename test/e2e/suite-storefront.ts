@@ -4,6 +4,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
+import { buildParams, buildPreviewParams } from '../../src/build-dials';
 import { RESTART_COMMAND, RESTART_SERVER_ACTION } from '../../src/daemon-status';
 import { buildValidateParams } from '../../src/validate-request';
 import { Judgement, need } from './checks';
@@ -13,7 +14,8 @@ import { WebviewDocument } from './drivers';
 import { UNREACHABLE_HOST } from './fixtures';
 import { NoticeReading, noticeReadings, watchNotice } from './graph-drawing';
 import { findGraphPanel, GRAPH_PANEL_OPENING, graphCouldNotBeDrawn } from './graph-panel';
-import { referenceAnswer } from './reference';
+import { DiagnosticEntry } from './probe-client';
+import { Publication, referenceAnswer, ReferenceAnswer } from './reference';
 import { CACHE_MISS_CHECKS, cacheMissChecks } from './suite-cache-miss';
 import { CONFIG_PANEL_CHECKS, configPanelChecks } from './suite-config-panel';
 import {
@@ -40,9 +42,10 @@ const BINARY_PATH = 'aggrega.server.binaryPath';
 // search with no registry and the filter it keeps from one search to the next,
 // the workspace catalog panel, the operations heading the Catalog, Registries and
 // Plugins panels and the Commands panel that holds none of them, the operations
-// that end in words, what the extension says about settings that are wrong, and a
-// failure of the Release's dependencies filed on the Release and not on a YAML file
-// that is not an Aggrega document.
+// that end in words, a refusal raised while rendering filed on the Recipe it names,
+// what the extension says about settings that are wrong, and a failure of the
+// Release's dependencies filed on the Release and not on a YAML file that is not an
+// Aggrega document.
 
 export const STOREFRONT_CHECKS = [
   'commands-panel.context-rows-name-the-opened-folder',
@@ -77,6 +80,7 @@ export const STOREFRONT_CHECKS = [
   'operations.validate-ends-in-a-sentence',
   'operations.lint-ends-in-a-sentence',
   'operations.build-ends-in-words-and-writes-its-files',
+  'problems.render-refusal-lands-on-its-recipe-in-the-compilers-words',
   'settings-that-are-wrong.missing-catalog-and-unreachable-registry-are-named',
   'settings-that-are-wrong.failing-dependencies-are-not-filed-on-a-ci-workflow',
   'settings-that-are-wrong.missing-compiler-is-named',
@@ -148,6 +152,63 @@ const CI_WORKFLOW = [
   '      - run: npm test',
   '',
 ].join('\n');
+
+// A Recipe for the cache, written into the folder's own catalog by the check that
+// needs it and taken out again, so no fixture carries a Recipe that refuses. The
+// refusing text's Workload names the slot UNDECLARED_SLOT, which the cache's
+// Component does not declare, so the render refuses it; the corrected text is the
+// same Recipe with that reference taken out, which renders. The Manifest maps the
+// cache to it for as long as the check runs.
+const CACHE_RECIPE = ['catalog', 'recipe', 'compose', 'storefront-cache', '1.0.0', 'recipe.yaml'];
+const CACHE_MAPPING = 'core/datastore/memcached:1.0.0: compose/memcached:1.0.0';
+const CACHE_MAPPED = 'core/datastore/memcached:1.0.0: compose/storefront-cache:1.0.0';
+const UNDECLARED_SLOT = 'passwordd';
+const CACHE_WORKLOAD_KEY = '  workload: |';
+const CACHE_RECIPE_HEAD = [
+  'apiVersion: aggrega.ai/v1alpha1',
+  'kind: Recipe',
+  'metadata:',
+  '  name: storefront-cache',
+  '  version: 1.0.0',
+  '  description: The cache for local development.',
+  'spec:',
+  '  capability: compose',
+  '  implements: core/datastore/memcached:1.0.0',
+  '  provides:',
+  '    host: "{{ .context.instance_id }}"',
+  '    port: "{{ .infra.port }}"',
+  '    protocol: "memcached"',
+  CACHE_WORKLOAD_KEY,
+  '    apiVersion: aggrega.ai/v1alpha1',
+  '    kind: Workload',
+  '    containers:',
+  '      main:',
+  '        image: "memcached:{{ .infra.engine_version }}"',
+  '        ports:',
+  '          memcached: {{ .infra.port }}',
+];
+const CACHE_SLOT_REFERENCE = [
+  '        attachments:',
+  '          MEMCACHED_PASSWORD:',
+  `            from: ${UNDECLARED_SLOT}`,
+  '            as: env',
+];
+const CACHE_RECIPE_TAIL = [
+  '    services:',
+  '      default:',
+  '        type: ClusterIP',
+  '        ports:',
+  '          memcached: {{ .infra.port }}',
+  '',
+];
+const CACHE_REFUSING = [...CACHE_RECIPE_HEAD, ...CACHE_SLOT_REFERENCE, ...CACHE_RECIPE_TAIL].join('\n');
+const CACHE_CORRECTED = [...CACHE_RECIPE_HEAD, ...CACHE_RECIPE_TAIL].join('\n');
+
+// The lines a build and a preview end in on the output channel, and the
+// notifications they end in, refused or completed, held as written for the same
+// reason as the words above.
+const BUILD_ENDING = /^(The build did not complete|Build completed: |The preview did not complete|A build of this Release writes )/;
+const BUILD_ENDING_NOTICE = /^(The build did not complete|The preview did not complete|Aggrega: built |Aggrega: a build of )/;
 
 // entityNames reads the metadata.name of every document of `kind` under a
 // catalog directory, as the compiler's catalog would list them.
@@ -972,6 +1033,9 @@ export async function storefrontChecks(ctx: SuiteContext, referenceFolder: strin
     return { passed, seen: `channel: "${lines[start] ?? ''}" … ${JSON.stringify(files)} … "${lines[end]}"; on disk ${onDisk.length} of ${files.length}; the command line's own: "${cliSummary}"; notification "${t.message}"` };
   });
 
+  // ---- a refusal raised while rendering, filed on the Recipe it names ----
+  await renderRefusalCheck(ctx, referenceFolder);
+
   // ---- settings that are wrong ----
   const said: string[] = [];
   const original = fs.readFileSync(config, 'utf8');
@@ -1238,4 +1302,183 @@ export async function storefrontChecks(ctx: SuiteContext, referenceFolder: strin
     };
   });
   await c.forPerson(SAYS_ENOUGH, async () => ({ screenshot: await capture(ctx, 'settings-that-are-wrong'), drawnText: said.join('\n') }));
+}
+
+// PublishedEntry is one finding as the language server published it, on the
+// document the publication names, with that document named in the folder the
+// editor opened rather than in the reference copy it was asked over.
+interface PublishedEntry {
+  file: string;
+  entry: NonNullable<Publication['diagnostics']>[number];
+}
+
+// publishedEntries reads every finding the server published while it answered,
+// each named in the folder the editor opened.
+function publishedEntries(answer: ReferenceAnswer, referenceFolder: string, folder: string): PublishedEntry[] {
+  return (answer.published ?? []).flatMap((p) => (p.diagnostics ?? []).map((entry) => ({
+    file: p.file.split(referenceFolder).join(folder),
+    entry: { ...entry, message: entry.message.split(referenceFolder).join(folder) },
+  })));
+}
+
+// renderRefusalCheck holds the Problems panel against a refusal raised while a
+// Release renders: what the language server publishes for a build and a preview
+// that refuse, on the Recipe the refusal names, is what the panel shows, and a
+// build that no longer refuses takes it away.
+//
+// The Recipe is the cache's, written into the folder's own catalog with the
+// Manifest mapping the cache to it, and the lockfile is written again after each
+// change of it — a build reads the lockfile, which records the Recipe it renders
+// with, and refuses a lockfile that no longer matches before it renders. In the
+// folder the editor opened that is the Commands panel's Pull; in the reference
+// copy, the compiler's own pull. The expectations — the document, the position,
+// the words, the codes and the address — are the language server's own
+// publication for the same request over the reference copy, never written here.
+//
+// 🔴 THE RECIPE IS NEVER OPENED. A document the editor holds is validated as it
+// opens, and the server's validation of a Recipe that refuses reports a finding of
+// its own about the same condition, so the panel would then hold two entries, one
+// from each source, and an entry the editor files only for a document it holds
+// would pass unseen. The Recipe, the Manifest and the lockfile are put back in
+// both copies whatever the check reached, so the checks after it read the folder
+// as it was found.
+async function renderRefusalCheck(ctx: SuiteContext, referenceFolder: string): Promise<void> {
+  const bin = ctx.inputs.compiler.path;
+  const copies = [ctx.folder, referenceFolder].map((root) => ({
+    root,
+    recipe: path.join(root, ...CACHE_RECIPE),
+    recipeTree: path.join(root, CACHE_RECIPE[0], CACHE_RECIPE[1]),
+    manifest: path.join(root, 'manifest-compose.yaml'),
+    lock: path.join(root, RELEASE.replace(/\.ya?ml$/, '.lock')),
+  }));
+  const [folder, reference] = copies;
+  const workloadKey = CACHE_REFUSING.split('\n').indexOf(CACHE_WORKLOAD_KEY);
+  await ctx.checks.run('problems.render-refusal-lands-on-its-recipe-in-the-compilers-words', {
+    expected: `with a Recipe for the cache written into the folder's own catalog — its Workload naming the slot "${UNDECLARED_SLOT}", which the cache's Component does not declare — the Manifest mapping the cache to it, and Pull pressed on the Commands panel, pressing Build there puts exactly one entry in the Problems panel, on the Recipe, which the editor does not hold open: under the source, at the position, in the words and with the short code the language server's own publication for the same build over the reference copy carries, the code leading to the address that publication names, and those words on no other entry; with the reference taken out of the Recipe and Pull pressed, Build completes and the entry leaves the panel; with the reference back and Pull pressed, Preview build puts the same one entry there, held against the server's own publication for the same preview; and with it taken out again, Build completes and the entry leaves`,
+    plant: 'in the scratch copy, out/src/extension.js made to file a published finding only on a document the editor holds',
+  }, async () => {
+    const buildButton = (await operationButtons(await commandsPanel(ctx.d))).find((b) => b.command === 'aggrega.op.build');
+    need(buildButton?.disabled === false, 'Build cannot run here, so there is nothing to press');
+    need(copies.every((x) => !fs.existsSync(x.recipeTree)), `${folder.recipeTree} or its reference copy's is already there, so the Recipe this check writes would not be the only one`);
+    const found = copies.map((x) => ({ manifest: fs.readFileSync(x.manifest, 'utf8'), lock: fs.readFileSync(x.lock) }));
+    need(found.every((f) => f.manifest.split(CACHE_MAPPING).length === 2), `the Manifest does not map "${CACHE_MAPPING}" once`);
+    try {
+      // The language server's own publications, for a build and a preview of the
+      // refusing Recipe over the reference copy.
+      fs.mkdirSync(path.dirname(reference.recipe), { recursive: true });
+      fs.writeFileSync(reference.recipe, CACHE_REFUSING);
+      fs.writeFileSync(reference.manifest, found[1].manifest.replace(CACHE_MAPPING, CACHE_MAPPED));
+      const pulled = await runCompiler(bin, ['--offline', 'pull', '--release', RELEASE, '--quiet'], { cwd: referenceFolder, home: ctx.home, boundMs: 120000, log: ctx.cliLog });
+      need(pulled.status === 0, `the compiler's own pull of the reference copy exited ${pulled.status ?? pulled.signal}: ${(pulled.stderr || pulled.stdout).trim().slice(0, 300)}`);
+      const published = async (method: string, params: unknown, what: string): Promise<{ answer: ReferenceAnswer; entry: PublishedEntry }> => {
+        const answer = await referenceAnswer({ binary: bin, root: referenceFolder, method, params, published: true, home: ctx.home, table: ctx.s.table, log: ctx.cliLog });
+        need(!answer.ok, `the language server answered ${what} of the reference copy without refusing it`);
+        const entries = publishedEntries(answer, referenceFolder, ctx.folder);
+        need(entries.length === 1 && entries[0].file === folder.recipe, `the language server's own ${what} of the reference copy published ${JSON.stringify(entries).slice(0, 600)}, not one finding on the Recipe`);
+        return { answer, entry: entries[0] };
+      };
+      const buildRef = await published('aggrega/build', buildParams(RELEASE, [], null), 'a build');
+      const previewRef = await published('aggrega/buildPreview', buildPreviewParams(RELEASE), 'a preview');
+
+      // The same state in the folder the editor opened, made from outside it.
+      fs.mkdirSync(path.dirname(folder.recipe), { recursive: true });
+      fs.writeFileSync(folder.manifest, found[0].manifest.replace(CACHE_MAPPING, CACHE_MAPPED));
+      // recipeAs writes the Recipe's text and presses Pull, which the build reads.
+      const recipeAs = async (text: string, what: string): Promise<void> => {
+        fs.writeFileSync(folder.recipe, text);
+        await closeAllEditors(ctx);
+        const mark = ctx.out.mark();
+        await pressOperation(ctx.d, await commandsPanel(ctx.d), 'aggrega.op.pull');
+        const ended = await ctx.out.waitFor(`the pull ending with the Recipe ${what}`, mark, (t) => /^The pull (resolved|did not complete)/m.test(t), 120000);
+        const line = ended.split('\n').find((l) => l.startsWith('The pull')) ?? '';
+        need(line.startsWith('The pull resolved'), `the pull with the Recipe ${what} did not resolve the Release's dependencies: "${line.slice(0, 300)}"`);
+        await toastWindowPassed(ctx.d);
+      };
+      // pressed presses one operation and answers with the line it ended in on the
+      // channel and the notification it raised, if any.
+      const pressed = async (command: string, what: string): Promise<{ ending: string; told: Toast | null }> => {
+        const mark = ctx.out.mark();
+        const toastMark = (await toasts(ctx.d)).length;
+        await pressOperation(ctx.d, await commandsPanel(ctx.d), command);
+        const text = await ctx.out.waitFor(`${what} ending`, mark, (t) => t.split('\n').some((l) => BUILD_ENDING.test(l)), 180000);
+        const ending = text.split('\n').find((l) => BUILD_ENDING.test(l)) ?? '';
+        const told = await waitToast(ctx.d, `${what}'s notification`, toastMark, (t) => BUILD_ENDING_NOTICE.test(t.message), 10000).catch(() => null);
+        return { ending, told };
+      };
+      // filed reads, once the server's publication has been filed, the entries the
+      // Recipe carries and every entry anywhere carrying the published words.
+      const filed = async (want: PublishedEntry, what: string): Promise<string[]> => {
+        const on = await until(`the refusal filed on the Recipe after ${what}`, 20000, () => diagnostics(ctx, folder.recipe), (v) => v.length > 0).catch(() => diagnostics(ctx, folder.recipe));
+        const listed = await ctx.probe.request<{ path: string; diagnostics: DiagnosticEntry[] }[]>('diagnostics.list');
+        const elsewhere = listed.filter((e) => e.path !== folder.recipe && e.diagnostics.some((d) => d.message === want.entry.message)).map((e) => e.path);
+        const held = (await ctx.probe.request<{ path: string }[]>('documents.list')).some((d) => d.path === folder.recipe);
+        need(!held, `the editor holds the Recipe open, so what was filed on it is not about a document it does not hold`);
+        const e = want.entry;
+        const range = { start: { line: e.line - 1, character: e.column - 1 }, end: { line: (e.end_line ?? e.line) - 1, character: (e.end_column ?? e.column) - 1 } };
+        const faults: string[] = [];
+        if (on.length !== 1) { faults.push(`the Recipe carries ${on.length} entries: ${describeDiagnostics(folder.recipe, on)}`); }
+        const d = on[0];
+        if (d !== undefined) {
+          if (d.source !== e.source) { faults.push(`its source is ${d.source}, the server's ${e.source}`); }
+          if (d.severity !== 'Error') { faults.push(`its severity is ${d.severity}, the server's ${e.severity}`); }
+          if (JSON.stringify(d.range) !== JSON.stringify(range)) { faults.push(`it spans ${JSON.stringify(d.range)}, the server's ${e.line}:${e.column}-${e.end_line}:${e.end_column} being ${JSON.stringify(range)}`); }
+          if (d.message !== e.message) { faults.push(`its words differ from the server's: ${JSON.stringify(d.message.slice(0, 200))}`); }
+          if (d.code !== (e.shortCode ?? null)) { faults.push(`its code is ${d.code}, the server's short code ${e.shortCode}`); }
+          if (d.codeTarget !== (e.codeDescription?.href ?? null)) { faults.push(`its code leads to ${d.codeTarget}, the server's address being ${e.codeDescription?.href}`); }
+        }
+        if (elsewhere.length > 0) { faults.push(`the same words are filed on ${JSON.stringify(elsewhere)} as well`); }
+        return faults;
+      };
+      // cleared reads whether a build that completed took the entry away.
+      const cleared = async (ending: string): Promise<boolean> => ending.startsWith('Build completed: ') &&
+        await until('the entry leaving the Recipe', 20000, () => diagnostics(ctx, folder.recipe), (v) => v.length === 0).then(() => true, () => false);
+
+      await recipeAs(CACHE_REFUSING, 'naming the undeclared slot');
+      const build = await pressed('aggrega.op.build', 'the build');
+      const buildFaults = await filed(buildRef.entry, 'Build');
+      const buildEntry = (await diagnostics(ctx, folder.recipe))[0];
+      // The entry as a person meets it, captured while it stands, with the
+      // Problems panel open.
+      await run(ctx, 'workbench.actions.view.problems');
+      const drawn = await until('the Problems panel drawing the refusal', 10000, () => ctx.d.workbench<string>(`((document.querySelector('.markers-panel') || {}).innerText || '')`), (t) => t.includes(UNDECLARED_SLOT)).catch(() => '');
+      const shot = await capture(ctx, 'render-refusal-on-its-recipe');
+      await recipeAs(CACHE_CORRECTED, 'corrected');
+      const rebuilt = await pressed('aggrega.op.build', 'the build of the corrected Recipe');
+      const buildCleared = await cleared(rebuilt.ending);
+
+      await recipeAs(CACHE_REFUSING, 'naming the undeclared slot again');
+      const preview = await pressed('aggrega.op.preview', 'the preview');
+      const previewFaults = await filed(previewRef.entry, 'Preview build');
+      await recipeAs(CACHE_CORRECTED, 'corrected again');
+      const again = await pressed('aggrega.op.build', 'the build of the Recipe corrected again');
+      const previewCleared = await cleared(again.ending);
+
+      const e = buildRef.entry.entry;
+      const atKey = e.line - 1 === workloadKey && e.keyPath === '.spec.workload';
+      return {
+        passed: buildFaults.length === 0 && buildCleared && previewFaults.length === 0 && previewCleared,
+        seen: `the server published, for a build and for a preview of the reference copy, ${path.relative(ctx.folder, buildRef.entry.file)}:${e.line}:${e.column} [${e.source} ${e.shortCode} → ${e.codeDescription?.href}] (${atKey ? `the Recipe's workload key, ${e.keyPath}` : `key ${e.keyPath}, the workload key being line ${workloadKey + 1}`}), the preview's entry ${JSON.stringify(previewRef.entry.entry) === JSON.stringify(buildRef.entry.entry) ? 'the same' : `differing: ${JSON.stringify(previewRef.entry.entry).slice(0, 300)}`}; `
+          + `Build ended "${build.ending.slice(0, 120)}" and filed ${buildEntry ? describeDiagnostics(folder.recipe, [buildEntry]) : 'nothing'}${buildFaults.length === 0 ? ', as the server published it' : ` — ${buildFaults.join('; ')}`}; its notification ${build.told === null ? 'none' : `"${build.told.message.slice(0, 120)}" (${build.told.severity}, buttons ${JSON.stringify(build.told.buttons)})`}; `
+          + `corrected, Build ended "${rebuilt.ending.slice(0, 120)}" and the entry ${buildCleared ? 'left' : 'stayed or the build did not complete'}; `
+          + `Preview build ended "${preview.ending.slice(0, 120)}"${previewFaults.length === 0 ? ' and filed the same entry, as the server published it' : ` — ${previewFaults.join('; ')}`}; its notification ${preview.told === null ? 'none' : `"${preview.told.message.slice(0, 120)}" (${preview.told.severity}, buttons ${JSON.stringify(preview.told.buttons)})`}; `
+          + `corrected again, Build ended "${again.ending.slice(0, 120)}" and the entry ${previewCleared ? 'left' : 'stayed or the build did not complete'}; capture ${shot}`,
+        evidence: { buildReference: buildRef, previewReference: previewRef, build, rebuilt, preview, again, buildEntry, drawn: drawn.slice(0, 2000) },
+      };
+    } finally {
+      // Both copies as they were found, whatever the check reached; and where an
+      // entry is left on the Recipe — a check stopped with it refusing — a build of
+      // the folder as found replaces the build's findings, which takes it away.
+      for (const [i, x] of copies.entries()) {
+        fs.writeFileSync(x.manifest, found[i].manifest);
+        fs.writeFileSync(x.lock, found[i].lock);
+        fs.rmSync(x.recipeTree, { recursive: true, force: true });
+      }
+      await closeAllEditors(ctx).catch(() => undefined);
+      if ((await diagnostics(ctx, folder.recipe).catch(() => [])).length > 0) {
+        const mark = ctx.out.mark();
+        await pressOperation(ctx.d, await commandsPanel(ctx.d), 'aggrega.op.build').catch(() => undefined);
+        await ctx.out.waitFor('the build of the folder as found ending', mark, (t) => t.split('\n').some((l) => BUILD_ENDING.test(l)), 180000).catch(() => '');
+      }
+    }
+  });
 }
