@@ -865,7 +865,7 @@ export function drawnTreeRows(driver: UiDriver, title: string): Promise<TreeRow[
   })(${JSON.stringify(title)})`);
 }
 
-// treeRowBox finds a drawn tree row by its label in the view titled `title`.
+// treeRowCentre finds a drawn tree row by its label in the view titled `title`.
 export function treeRowCentre(driver: UiDriver, title: string, label: string): Promise<{ x: number; y: number } | null> {
   return driver.workbench<{ x: number; y: number } | null>(`((title, label) => {
     for (const pane of document.querySelectorAll('.pane')) {
@@ -883,14 +883,27 @@ export function treeRowCentre(driver: UiDriver, title: string, label: string): P
 }
 
 // revealTreeRow scrolls the side-bar view titled `title` with the pointer's wheel
-// until its row labelled `label` is drawn whole inside the view, as a person
-// scrolls a list longer than its view, and returns where the row's middle is. A
-// tree draws only the rows in sight, so a row further down is not in the
-// document at all until then; and a row the view's edge cuts through has the
-// edge's sash drawn over its middle, where a press or a hover lands on the sash
-// instead.
+// until its row labelled `label` is drawn whole in the part of the view a press
+// reaches, as a person scrolls a list longer than its view, and returns where the
+// row's middle is. A tree draws only the rows in sight, so a row further down is
+// not in the document at all until then; a row the view's edge cuts through has
+// the edge's sash drawn over its middle, where a press or a hover lands on the
+// sash instead; and the tree pins a copy of the parent of the rows scrolled
+// beneath its top over those rows, with a shadow under it, so the row standing
+// just under the top — the first under a heading that has scrolled past — is
+// covered, and a press or a hover aimed at it lands on the pinned copy or its
+// shadow instead. So the part a press reaches begins below whatever the view pins
+// at its top, and the row is the list's own, never a pinned copy.
+//
+// 🔴 THE LIST IS TURNED UP UNTIL IT READS AT ITS START, NOT ONCE. A single turn of
+// the wheel, however far, may move the list by one step only, which would bring a
+// row from above in at the top — under the pinned parent — instead of from below.
+// From the start the list is turned down in short steps, so a row is met at the
+// bottom edge and stops inside; a row found under the pinned parent, or cut by the
+// top edge, is turned back down from under it a step at a time.
 export async function revealTreeRow(driver: UiDriver, title: string, label: string, boundMs = 15000): Promise<{ x: number; y: number }> {
-  const place = (): Promise<{ body: { x: number; y: number }; row: { x: number; y: number } | null; inside: boolean } | null> => driver.workbench(`((title, label) => {
+  type Place = { body: { x: number; y: number }; atStart: boolean; row: { x: number; y: number } | null; place: 'inside' | 'above' | 'below' | 'not drawn'; reached?: { top: number; bottom: number }; rowSpan?: { top: number; bottom: number } };
+  const place = (): Promise<Place | null> => driver.workbench(`((title, label) => {
     for (const pane of document.querySelectorAll('.pane')) {
       const h = pane.querySelector('.pane-header');
       const t = h ? ((h.querySelector('h3.title, .title') || {}).innerText || '').trim() : '';
@@ -899,33 +912,50 @@ export async function revealTreeRow(driver: UiDriver, title: string, label: stri
       const r = b ? b.getBoundingClientRect() : null;
       if (!r || r.height === 0) { return null; }
       const body = { x: r.x + r.width / 2, y: r.y + r.height / 2 };
-      for (const row of pane.querySelectorAll('.pane-body .monaco-list-row')) {
+      // The list's own rows and the element that scrolls them; the pinned copies
+      // stand in a container of their own beside them.
+      const list = pane.querySelector('.pane-body .monaco-list > .monaco-scrollable-element > .monaco-list-rows');
+      const view = list ? list.parentElement : null;
+      const atStart = !list || !view || list.getBoundingClientRect().top >= view.getBoundingClientRect().top - 0.5;
+      let top = r.top;
+      for (const pinned of pane.querySelectorAll('.monaco-tree-sticky-container, .monaco-tree-sticky-container-shadow')) {
+        const s = pinned.getBoundingClientRect();
+        if (s.width > 0 && s.height > 0) { top = Math.max(top, s.bottom); }
+      }
+      const reached = { top: Math.round(top), bottom: Math.round(r.bottom) };
+      const rows = list ? [...list.children].filter((x) => x.classList.contains('monaco-list-row')) : [...pane.querySelectorAll('.pane-body .monaco-list-row')];
+      for (const row of rows) {
         if (((row.querySelector('.label-name') || {}).innerText || '').trim() !== label) { continue; }
         const x = row.getBoundingClientRect();
         if (x.height === 0) { continue; }
-        return { body, row: { x: x.x + x.width / 2, y: x.y + x.height / 2 }, inside: x.top >= r.top - 0.5 && x.bottom <= r.bottom + 0.5 };
+        const where = x.top < top - 0.5 ? 'above' : x.bottom > r.bottom + 0.5 ? 'below' : 'inside';
+        return { body, atStart, row: { x: x.x + x.width / 2, y: x.y + x.height / 2 }, place: where, reached, rowSpan: { top: Math.round(x.top), bottom: Math.round(x.bottom) } };
       }
-      return { body, row: null, inside: false };
+      return { body, atStart, row: null, place: 'not drawn', reached };
     }
     return null;
   })(${JSON.stringify(title)}, ${JSON.stringify(label)})`);
+  const pressable = (p: Place | null): boolean => p !== null && p.row !== null && p.place === 'inside';
   const first = await until(`the ${title} view's body`, 10000, place, (v) => v !== null);
   if (first === null) { throw new Error(`unreachable: the ${title} view's body`); }
-  if (first.inside && first.row !== null) { return first.row; }
-  // From the top of the list downwards, in steps shorter than the view, so a
-  // row above the part in sight is passed over on the way rather than
-  // scrolled away from, and a row reached at the view's edge is brought inside.
-  await driver.moveTo(first.body);
-  await driver.wheel(0, -100000);
-  const at = await until(`the "${label}" row being drawn whole in the ${title} view`, boundMs, async () => {
+  if (pressable(first) && first.row !== null) { return first.row; }
+  let fromStart = false;
+  const at = await until(`the "${label}" row being drawn whole in the ${title} view, below what it pins at its top`, boundMs, async () => {
     const p = await place();
-    if (p !== null && p.inside && p.row !== null) { return p.row; }
+    if (p === null || pressable(p)) { return p; }
     await driver.moveTo(first.body);
-    await driver.wheel(0, 44);
-    return null;
-  }, (v) => v !== null);
-  if (at === null) { throw new Error(`unreachable: the "${label}" row`); }
-  return at;
+    if (p.row !== null) {
+      await driver.wheel(0, p.place === 'above' ? -44 : 44);
+    } else if (!fromStart && !p.atStart) {
+      await driver.wheel(0, -100000);
+    } else {
+      fromStart = true;
+      await driver.wheel(0, 44);
+    }
+    return p;
+  }, pressable);
+  if (at === null || at.row === null) { throw new Error(`unreachable: the "${label}" row`); }
+  return at.row;
 }
 
 // RowMenu is what a right-click on one tree row read.
