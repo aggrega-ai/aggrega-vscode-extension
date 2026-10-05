@@ -31,9 +31,12 @@ export const CACHE_CHECKS = [
   'cache.unreadable-cap-comes-back-in-the-compilers-words',
   'cache.a-size-the-report-shows-is-accepted-as-the-cap',
   'cache.trim-to-a-cap-trims-or-says-it-was-within',
+  'cache.trim-that-removes-with-nothing-held-open-says-nothing-of-it',
   'cache.prune-ends-in-what-it-removed-and-kept',
+  'cache.prune-with-nothing-held-open-says-nothing-of-it',
   'cache.declined-clear-sends-nothing-and-says-so',
   'cache.clear-completes-and-says-what-it-emptied',
+  'cache.clear-with-nothing-held-open-says-nothing-of-it',
   'cache.each-removal-confirms-first-naming-the-caches-it-reaches',
   'cache.operations-write-no-dollar-line-and-draw-no-progress-or-cancel',
   'cache.operations-reach-only-this-scenarios-caches',
@@ -77,6 +80,68 @@ const ASKED = {
 
 // A size as the compiler writes one: a figure and a binary unit.
 const BINARY_SIZE = /^\d+(?:\.\d+)? (?:B|KiB|MiB|GiB|TiB)$/;
+
+// What a prune, a trim and a wipe write when nothing was left in place because
+// another process has it open — which is every clean-up on a platform that
+// removes an open file, this one included. Each ending is matched whole, its
+// sizes held to the compiler's form, so a sentence added after it cannot hide in
+// a pattern's tail; and each line between an operation's opening and its ending
+// must be one of the lines that operation writes, so a line added among them is
+// read as what it is.
+const SIZE = String.raw`\d+(?:\.\d+)? (?:B|KiB|MiB|GiB|TiB)`;
+const PRUNE_ENDING_EXACT = new RegExp(String.raw`^The prune removed \d+ entr(?:y|ies) and reclaimed ${SIZE}\.$`);
+const TRIM_REMOVED_EXACT = new RegExp(String.raw`^The trim removed (\d+) entr(?:y|ies) and reclaimed ${SIZE}\.$`);
+const CLEAR_ENDING_EXACT = new RegExp(String.raw`^The cache wipe emptied \d+ caches? and reclaimed ${SIZE}\. They repopulate on the next build\.$`);
+const PRUNE_OPENING = 'Removing cache entries no lockfile references.';
+const TRIM_OPENING = 'Trimming the compiled-module cache to the size cap.';
+const CLEAR_OPENING = 'Emptying every cache this session addresses.';
+const REACH_LINES = [
+  /^ {2}Nothing shared with other projects on this machine was reached\.$/,
+  /^ {2}Reached beyond this workspace, shared by every project on this machine: .+\.$/,
+  /^ {2}Workspace: \S.*$/,
+];
+const REMOVAL_LINES = [
+  /^ {2}nothing was removed\.$/,
+  new RegExp(String.raw`^ {2}removed [^:]+: .+ \([^)]+\) {2}${SIZE}$`),
+];
+const PRUNE_LINES = [
+  ...REMOVAL_LINES,
+  /^ {2}kept, still referenced: \d+ entr(?:y|ies)$/,
+  new RegExp(String.raw`^ {2}attributed to no lockfile either way: \d+ entr(?:y|ies), ${SIZE}$`),
+  new RegExp(String.raw`^ {2}left in [^:(]+ \([^)]+\): \d+ entr(?:y|ies), ${SIZE} — reclaimed by .+$`),
+  ...REACH_LINES,
+];
+const TRIM_LINES = [
+  ...REMOVAL_LINES,
+  new RegExp(String.raw`^ {2}held before: ${SIZE}$`),
+  new RegExp(String.raw`^ {2}holds now: ${SIZE}, under a cap of ${SIZE}$`),
+  ...REACH_LINES,
+];
+const CLEAR_LINES = [
+  new RegExp(String.raw`^ {2}emptied .+ \([^)]+\) {2}${SIZE}$`),
+  ...REACH_LINES,
+];
+
+// PlainReading is what one clean-up showed: the notification it ended in and the
+// channel's lines from the moment it was asked for.
+interface PlainReading { told: string | null; lines: string[] }
+
+// plainEnding judges one clean-up against what it writes with nothing left in
+// place: the notification matches `ending` whole, and every channel line between
+// the operation's opening and that same sentence on the channel is one of `forms`.
+function plainEnding(what: string, reading: PlainReading | null, opening: string, ending: RegExp, forms: RegExp[]): { passed: boolean; seen: string } {
+  need(reading !== null, `the ${what} this reads was not taken, so there is no ending to read`);
+  const told = reading.told;
+  const from = reading.lines.indexOf(opening);
+  const to = told === null || from === -1 ? -1 : reading.lines.indexOf(told, from);
+  const between = to === -1 ? [] : reading.lines.slice(from + 1, to);
+  const strays = between.filter((l) => !forms.some((f) => f.test(l)));
+  const whole = told !== null && ending.test(told);
+  return {
+    passed: whole && to !== -1 && strays.length === 0,
+    seen: `${told === null ? 'no notification' : `"${told}" ${whole ? 'is the ending whole, with nothing after it' : 'is not the ending alone'}`}; the channel ${from === -1 ? `does not open "${opening}"` : to === -1 ? 'does not carry the ending after its opening' : `carries ${between.length} line(s) between "${opening}" and the ending, ${strays.length === 0 ? `each one the ${what} writes` : `not all of them one the ${what} writes: ${JSON.stringify(strays)}`}`}`,
+  };
+}
 
 // storeFiles lists every file under a cache directory with its size, lock files
 // aside — a lock file is touched by a reading as well as by a removal, so it says
@@ -328,7 +393,46 @@ export async function cacheChecks(ctx: SuiteContext, referenceFolder: string): P
     return { passed: (within !== null || removed !== null) && withinConsistent && said, seen: `${told === null ? 'no notification' : `"${told.message}"`}; the channel ${said ? 'carries it' : 'does not carry it'}` };
   });
 
+  // A trim within its cap returns before it removes anything, so it never reaches
+  // what it would say about entries left in place; this one is given a cap one
+  // byte under what the store holds, so it removes, and what it then writes is
+  // read whole. The figure is the trim's own: a trim asked outside the editor at
+  // a cap far above the store removes nothing and answers what it holds to the
+  // byte. Two compiled modules are needed, so the wipe after it still has one to
+  // empty.
+  await c.run('cache.trim-that-removes-with-nothing-held-open-says-nothing-of-it', {
+    expected: `evict answered with a cap one byte under what the compiled-module cache holds — that figure taken from the language server's own answer to a trim asked outside the editor at a cap far above it, which removes nothing — and confirmed, removes at least one entry and ends in exactly "The trim removed <n> entries and reclaimed <size>." with nothing after it; and every channel line between "${TRIM_OPENING}" and that ending is one the trim writes for what it removed, what the cache held and holds, how far it reached and the workspace — none of them about an entry left in place, which on this host no trim leaves`,
+    plant: 'in the scratch copy, out/src/operations.js with the trim\'s ending counting one entry more left in place because another process has it open than its answer names',
+  }, async () => {
+    const before = modulesIn(storeFiles(scenarioStore));
+    need(before >= 2, `the scenario's store holds ${before} compiled module(s); a trim that removes one and leaves one for the wipe after it needs two`);
+    const probe = await referenceAnswer({ binary: bin, root: referenceFolder, method: 'aggrega/cacheEvict', params: { maxSize: String(2 ** 40) }, home: ctx.home, table: ctx.s.table, log: ctx.cliLog });
+    need(probe.ok, `the language server's own answer to a trim far above the store could not be read: ${probe.ok ? '' : probe.error.message}`);
+    const held = probe.result as { withinCapBefore: boolean; totalBefore: number };
+    need(held.withinCapBefore === true && held.totalBefore > 1, `the trim asked outside the editor at a cap far above the store did not answer that the store fits it: ${JSON.stringify(probe.result).slice(0, 200)}`);
+    const cap = String(held.totalBefore - 1);
+    const mark = ctx.out.mark();
+    const toastMark = (await toasts(ctx.d)).length;
+    await openCache('evict');
+    await trimInput(cap);
+    await confirmation('evict', ASKED.evict.button);
+    const told = await ending('the trim\'s notification', toastMark, (t) => t.message.startsWith('The trim '));
+    const text = await ctx.out.waitFor('the trim on the channel', mark, (t) => told !== null && t.split('\n').includes(told.message), 10000).catch(() => ctx.out.since(mark));
+    const judged = plainEnding('trim', { told: told === null ? null : told.message, lines: text.split('\n') }, TRIM_OPENING, TRIM_REMOVED_EXACT, TRIM_LINES);
+    // How many it removed is read from the sentence's opening alone, so the count
+    // is reported whatever followed it; whether anything followed is the
+    // judgement above.
+    const m = told === null ? null : /^The trim removed (\d+) entr(?:y|ies) /.exec(told.message);
+    const removed = m === null ? 0 : Number(m[1]);
+    const after = modulesIn(storeFiles(scenarioStore));
+    return {
+      passed: judged.passed && removed >= 1,
+      seen: `typed the cap ${cap} (the store held ${held.totalBefore} bytes by the trim's own count); ${judged.seen}; it removed ${removed === 0 ? 'nothing' : `${removed} entr${removed === 1 ? 'y' : 'ies'}`}; compiled modules in the scenario's store: ${before} before, ${after} after`,
+    };
+  });
+
   // ---- prune ----
+  let pruneReading: PlainReading | null = null;
   await c.run('cache.prune-ends-in-what-it-removed-and-kept', {
     expected: 'prune confirmed ends in a notification "The prune removed <n> entries and reclaimed <size>."; the channel opens "Removing cache entries no lockfile references.", says how many entries it kept as still referenced, and says how far it reached',
     plant: 'in the scratch copy, out/src/operations.js with the prune\'s line for what it kept left out',
@@ -340,11 +444,16 @@ export async function cacheChecks(ctx: SuiteContext, referenceFolder: string): P
     const told = await ending('the prune\'s notification', toastMark, (t) => t.message.startsWith('The prune '));
     const text = await ctx.out.waitFor('the prune on the channel', mark, (t) => told !== null && t.split('\n').includes(told.message), 10000).catch(() => ctx.out.since(mark));
     const lines = text.split('\n');
+    pruneReading = { told: told === null ? null : told.message, lines };
     const opens = lines.includes('Removing cache entries no lockfile references.');
     const kept = lines.some((l) => /^ {2}kept, still referenced: \d+ entr(y|ies)$/.test(l));
     const reach = lines.some((l) => l.startsWith(`  ${REACHED_BEYOND}`) || l === '  Nothing shared with other projects on this machine was reached.');
     return { passed: told !== null && PRUNE_ENDING.test(told.message) && opens && kept && reach, seen: `${told === null ? 'no notification' : `"${told.message}"`}; the channel ${JSON.stringify(lines.filter((l) => l.trim() !== '').slice(0, 8))}` };
   });
+  await c.run('cache.prune-with-nothing-held-open-says-nothing-of-it', {
+    expected: `the prune above ends in exactly "The prune removed <n> entries and reclaimed <size>." with nothing after it, and every channel line between "${PRUNE_OPENING}" and that ending is one the prune writes for what it removed, kept, could not attribute or cannot reclaim, how far it reached and the workspace — none of them about an entry left in place, which on this host no prune leaves`,
+    plant: 'in the scratch copy, out/src/operations.js with the prune\'s ending counting one entry more left in place because another process has it open than its answer names',
+  }, async () => plainEnding('prune', pruneReading, PRUNE_OPENING, PRUNE_ENDING_EXACT, PRUNE_LINES));
 
   // ---- clear, declined and then taken ----
   await c.run('cache.declined-clear-sends-nothing-and-says-so', {
@@ -367,6 +476,7 @@ export async function cacheChecks(ctx: SuiteContext, referenceFolder: string): P
   });
 
   let emptied = false;
+  let clearReading: PlainReading | null = null;
   await c.run('cache.clear-completes-and-says-what-it-emptied', {
     expected: 'clear confirmed completes: the channel opens "Emptying every cache this session addresses.", lists each cache emptied, and says how far it reached with "Reached beyond this workspace, shared by every project on this machine: <the caches>."; a notification reads "The cache wipe emptied <n> caches and reclaimed <size>. They repopulate on the next build.", <n> being the caches the channel lists; and the store under the scenario\'s home holds no compiled module afterwards, where it held some before',
     plant: 'in the scratch copy, out/src/operations.js with the wipe\'s count in its notification one more than the caches it emptied',
@@ -380,6 +490,7 @@ export async function cacheChecks(ctx: SuiteContext, referenceFolder: string): P
     const told = await ending('the wipe\'s notification', toastMark, (t) => t.message.startsWith('The cache wipe'));
     const text = await ctx.out.waitFor('the wipe on the channel', mark, (t) => told !== null && t.split('\n').includes(told.message), 10000).catch(() => ctx.out.since(mark));
     const lines = text.split('\n');
+    clearReading = { told: told === null ? null : told.message, lines };
     const listed = lines.filter((l) => /^ {2}emptied \S/.test(l));
     const reach = lines.find((l) => l.startsWith(`  ${REACHED_BEYOND}`)) ?? '';
     const m = told !== null ? CLEAR_ENDING.exec(told.message) : null;
@@ -390,6 +501,10 @@ export async function cacheChecks(ctx: SuiteContext, referenceFolder: string): P
       seen: `${told === null ? 'no notification' : `"${told.message}"`}; the channel lists ${JSON.stringify(listed.map((l) => l.trim()))} and ${reach ? JSON.stringify(reach.trim()) : 'no line of how far it reached'}; compiled modules in the scenario's store: ${before} before, ${after} after`,
     };
   });
+  await c.run('cache.clear-with-nothing-held-open-says-nothing-of-it', {
+    expected: `the wipe above ends in exactly "The cache wipe emptied <n> caches and reclaimed <size>. They repopulate on the next build." with nothing after it, and every channel line between "${CLEAR_OPENING}" and that ending is one the wipe writes for a cache it emptied, how far it reached and the workspace — none of them about files left in place, which on this host no wipe leaves`,
+    plant: 'in the scratch copy, out/src/operations.js with the wipe\'s ending counting one file more left in place because another process has it open than its answer names',
+  }, async () => plainEnding('wipe', clearReading, CLEAR_OPENING, CLEAR_ENDING_EXACT, CLEAR_LINES));
 
   await c.run('cache.each-removal-confirms-first-naming-the-caches-it-reaches', {
     expected: `each of prune, evict and clear draws its confirmation before anything reaches the channel or the store, and each names what it reaches: prune "${ASKED.prune.message}" naming this workspace's caches and those every project on this machine shares, with "${ASKED.prune.button}"; evict "${ASKED.evict.message}" with the detail "${ASKED.evict.detail}" and "${ASKED.evict.button}"; clear "${ASKED.clear.message}" with the detail "${ASKED.clear.detail}" and "${ASKED.clear.button}"; status draws none`,

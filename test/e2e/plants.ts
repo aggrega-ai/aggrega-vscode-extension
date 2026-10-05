@@ -1368,9 +1368,19 @@ export const PLANTS: readonly Plant[] = [
     says: 'a trim already within its cap ends without saying what the cache held or what the cap was',
   },
   {
+    name: 'trim-counts-one-entry-more-left-in-place', scenario: 'gateway-cache', checks: ['cache.trim-that-removes-with-nothing-held-open-says-nothing-of-it'], moves: 'red', target: 'extension',
+    file: OPERATIONS, find: "${heldOpenSentence(operation, evictedHeld.length, 'entry')}", replace: "${heldOpenSentence(operation, evictedHeld.length + 1, 'entry')}",
+    says: 'a trim that removed entries ends saying one entry more was left in place, because another process has it open, than its answer names — one, where it names none',
+  },
+  {
     name: 'kept-line-left-out', scenario: 'gateway-cache', checks: ['cache.prune-ends-in-what-it-removed-and-kept'], moves: 'red', target: 'extension',
     file: OPERATIONS, find: "            out.appendLine(`  kept, still referenced: ${countOf(result.retainedCount, 'entry', 'entries')}`);", replace: '',
     says: 'the prune writes nothing about the entries it kept as still referenced',
+  },
+  {
+    name: 'prune-counts-one-entry-more-left-in-place', scenario: 'gateway-cache', checks: ['cache.prune-with-nothing-held-open-says-nothing-of-it'], moves: 'red', target: 'extension',
+    file: OPERATIONS, find: "${heldOpenSentence(operation, prunedHeld.length, 'entry')}", replace: "${heldOpenSentence(operation, prunedHeld.length + 1, 'entry')}",
+    says: 'the prune ends saying one entry more was left in place, because another process has it open, than its answer names — one, where it names none',
   },
   {
     name: 'declined-taken-as-consent', scenario: 'gateway-cache', checks: ['cache.declined-clear-sends-nothing-and-says-so'], moves: 'red', target: 'extension',
@@ -1381,6 +1391,11 @@ export const PLANTS: readonly Plant[] = [
     name: 'wipe-counts-one-cache-more', scenario: 'gateway-cache', checks: ['cache.clear-completes-and-says-what-it-emptied'], moves: 'red', target: 'extension',
     file: OPERATIONS, find: "return `emptied ${countOf(cleared.length, 'cache', 'caches')}", replace: "return `emptied ${countOf(cleared.length + 1, 'cache', 'caches')}",
     says: 'the wipe\'s notification counts one cache more than it emptied',
+  },
+  {
+    name: 'wipe-counts-one-file-more-left-in-place', scenario: 'gateway-cache', checks: ['cache.clear-with-nothing-held-open-says-nothing-of-it'], moves: 'red', target: 'extension',
+    file: OPERATIONS, find: "${heldOpenSentence(operation, heldFiles, 'file')}", replace: "${heldOpenSentence(operation, heldFiles + 1, 'file')}",
+    says: 'the wipe ends saying one file more was left in place, because another process has it open, than its answer names — one, where it names none',
   },
   {
     name: 'trim-confirmation-names-both-scopes', scenario: 'gateway-cache', checks: ['cache.each-removal-confirms-first-naming-the-caches-it-reaches'], moves: 'red', target: 'extension',

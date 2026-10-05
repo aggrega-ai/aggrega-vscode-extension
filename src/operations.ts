@@ -1168,9 +1168,9 @@ export async function performCacheOperation(
     case 'status': {
       const result = await deps.cacheStatus();
       out.appendLine('\nCache report. Nothing is removed.');
-      // Every collection in a cache answer reaches the wire as null when it is
-      // empty, which says the same thing an empty list does. Each is coalesced
-      // where it is read rather than defended against at every use.
+      // Every collection in a cache answer is declared nullable, so an empty one
+      // may arrive as null, which says the same thing an empty list does. Each is
+      // coalesced where it is read rather than defended against at every use.
       for (const cacheClass of result.classes ?? []) {
         const reclaimable = cacheClass.prunable ? ', reclaimable by prune' : '';
         const elements = cacheClass.elements ?? [];
@@ -1194,6 +1194,8 @@ export async function performCacheOperation(
       out.appendLine('\nRemoving cache entries no lockfile references.');
       const pruned = result.removed ?? [];
       appendCacheRemovals(out, pruned);
+      const prunedHeld = result.heldOpen ?? [];
+      appendHeldOpen(out, prunedHeld);
       out.appendLine(`  kept, still referenced: ${countOf(result.retainedCount, 'entry', 'entries')}`);
       if (result.unattributedCount > 0) {
         out.appendLine(
@@ -1209,7 +1211,7 @@ export async function performCacheOperation(
         );
       }
       appendCacheScope(out, result.scope);
-      return `removed ${countOf(pruned.length, 'entry', 'entries')} and reclaimed ${result.reclaimedBytesText}.`;
+      return `removed ${countOf(pruned.length, 'entry', 'entries')} and reclaimed ${result.reclaimedBytesText}.${heldOpenSentence(operation, prunedHeld.length, 'entry')}`;
     }
     case 'evict': {
       const result = await deps.cacheEvict(maxSize);
@@ -1222,20 +1224,30 @@ export async function performCacheOperation(
       }
       const evicted = result.removed ?? [];
       appendCacheRemovals(out, evicted);
+      const evictedHeld = result.heldOpen ?? [];
+      appendHeldOpen(out, evictedHeld);
       out.appendLine(`  held before: ${result.totalBeforeText}`);
       out.appendLine(`  holds now: ${result.remainingBytesText}, under a cap of ${result.capBytesText}`);
       appendCacheScope(out, result.scope);
-      return `removed ${countOf(evicted.length, 'entry', 'entries')} and reclaimed ${result.reclaimedBytesText}.`;
+      return `removed ${countOf(evicted.length, 'entry', 'entries')} and reclaimed ${result.reclaimedBytesText}.${heldOpenSentence(operation, evictedHeld.length, 'entry')}`;
     }
     case 'clear': {
       const result = await deps.cacheClear();
       out.appendLine('\nEmptying every cache this session addresses.');
       const cleared = result.cleared ?? [];
+      // A wipe leaves whole files rather than entries, and counts them per cache
+      // instead of naming them, so what it left is said under the cache it is in.
+      let heldFiles = 0;
       for (const subtree of cleared) {
         out.appendLine(`  emptied ${subtree.class} (${subtree.reach})  ${subtree.sizeText}`);
+        const held = subtree.heldOpenFiles ?? 0;
+        if (held > 0) {
+          heldFiles += held;
+          out.appendLine(`    left in place: ${countOf(held, 'file', 'files')}, ${subtree.heldOpenBytesText} — open in another process`);
+        }
       }
       appendCacheScope(out, result.scope);
-      return `emptied ${countOf(cleared.length, 'cache', 'caches')} and reclaimed ${result.reclaimedBytesText}. They repopulate on the next build.`;
+      return `emptied ${countOf(cleared.length, 'cache', 'caches')} and reclaimed ${result.reclaimedBytesText}. They repopulate on the next build.${heldOpenSentence(operation, heldFiles, 'file')}`;
     }
   }
 }
@@ -1254,6 +1266,39 @@ function appendCacheRemovals(out: vscode.OutputChannel, removed: CacheRemoval[])
   for (const removal of removed) {
     out.appendLine(`  removed ${removal.class}: ${removal.label} (${removal.reach})  ${removal.sizeText}`);
   }
+}
+
+// appendHeldOpen writes each entry an operation left in place because another
+// process has it open, in the shape of a removal, so a reader sees which entries
+// the platform refused to remove and how much each still holds.
+//
+// Where there are none it writes nothing, unlike the removals: an entry left in
+// place is the exception, and only a platform that refuses to remove an open
+// file produces one at all.
+function appendHeldOpen(out: vscode.OutputChannel, held: CacheRemoval[]): void {
+  for (const entry of held) {
+    out.appendLine(`  left in place ${entry.class}: ${entry.label} (${entry.reach})  ${entry.sizeText} — open in another process`);
+  }
+}
+
+// heldOpenSentence is what an operation's ending sentence gains when it left
+// entries or files in place because another process has them open: how many,
+// that running the same operation again once that process has finished removes
+// them, and where the channel says which. It is empty when nothing was left, so
+// an ending naming none reads exactly as it would without it.
+//
+// The operation is named the way its ending is, so the sentence asks the reader
+// to run again the thing the notification just said finished.
+function heldOpenSentence(operation: CacheOperation, count: number, unit: 'entry' | 'file'): string {
+  if (count <= 0) { return ''; }
+  const single = count === 1;
+  const them = single ? 'it' : 'them';
+  const left = unit === 'entry' ? countOf(count, 'entry', 'entries') : countOf(count, 'file', 'files');
+  const again = cacheWhat(operation).replace(/^The /, 'the ');
+  // Entries are named one by one on the channel; files a wipe left are counted
+  // per cache, so the pointer says which of the two the reader will find there.
+  const where = unit === 'entry' ? `The Aggrega output channel names ${them}.` : 'The Aggrega output channel gives the count for each cache.';
+  return ` ${left} ${single ? 'was' : 'were'} left in place because another process has ${them} open; run ${again} again once that process has finished. ${where}`;
 }
 
 // appendCacheScope writes how far the answer reached.

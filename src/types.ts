@@ -360,9 +360,9 @@ export type ScaffoldEntityResponse = wire.ScaffoldEntityResult;
 //
 // machineWideClasses is always present, so "no machine-wide class was touched"
 // is a key to read rather than an absent one to guess at. That holds for every
-// collection in this group, which is why none of them is optional — but an
-// empty one reaches the wire as null rather than as an empty list, so a reader
-// that iterates coalesces first.
+// collection in this group, which is why none of them is optional — but each is
+// declared nullable, so an empty one may reach the wire as null rather than as
+// an empty list, and a reader that iterates coalesces first.
 export type CacheScope = wire.CacheScope;
 
 // CacheElement is one enumerated entry in a cache class.
@@ -401,6 +401,11 @@ export type CacheShortfall = wire.CacheShortfall;
 
 // CachePruneResponse is the aggrega/cachePrune result: what was removed, what
 // was kept, and what could not be attributed either way.
+//
+// heldOpen is what the prune would have removed but left in place because
+// another process has it open, which only a platform refusing to remove an open
+// file produces; everywhere else it is empty. It is coalesced where it is read,
+// so an answer carrying null for it, or none at all, reads as naming none.
 export type CachePruneResponse = wire.CachePruneResult;
 
 // CacheEvictResponse is the aggrega/cacheEvict result.
@@ -408,9 +413,16 @@ export type CachePruneResponse = wire.CachePruneResult;
 // withinCapBefore is the case a reader most needs told apart from a failure: the
 // store was already under the cap, so nothing was removed and nothing went
 // wrong.
+//
+// heldOpen is, as on a prune, what the trim left in place because another
+// process has it open.
 export type CacheEvictResponse = wire.CacheEvictResult;
 
 // CacheCleared is one whole cache subtree a wipe removed.
+//
+// heldOpenFiles counts the files the wipe left in the subtree because another
+// process has them open, and heldOpenBytesText is their size as the compiler
+// writes it; the count is zero wherever an open file can be removed.
 export type CacheCleared = wire.CacheCleared;
 
 // CacheClearResponse is the aggrega/cacheClear result: the subtrees the wipe
