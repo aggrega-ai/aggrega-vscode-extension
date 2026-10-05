@@ -244,9 +244,9 @@ export type FindImplementationsResponse = wire.FindImplementationsResult;
 // daemon by content (`kind: Release`). The extension delegates Release
 // detection to the daemon rather than scanning by filename, so the IDE's
 // candidate set matches what the daemon resolves. Beside them it names the
-// links its search met inside the workspace leading to directories outside it,
-// which it did not search, so the chooser can say why a Release behind one is
-// absent.
+// links its search met inside the workspace leading out of it, to directories
+// and to files, which it did not read, so the chooser can say why a Release
+// reached through one is absent.
 export type ReleaseCandidatesResponse = wire.ReleaseCandidatesResult;
 
 // IrGraphResponse is the aggrega/irGraph result: the resolved graph a Release

@@ -194,10 +194,15 @@ opened from anywhere else, the chooser leaves the panel without the focus.
 The Releases on offer are the ones inside the folder the language server anchored to, named
 relative to it, because that is the form it accepts. Where a Release cannot be offered, the
 editor says how many and where they sit rather than leaving them out silently. The language
-server searches no directory outside that folder, so a Release your editor's file tree shows
-through a link leading out of it is not offered. Opening the chooser then says so in a
-notification of its own, naming by its path relative to that folder each such link standing
-where the language server would read a directory.
+server does not follow a link out of that folder, so a Release your editor's file tree shows
+through a link leading out of it — a link to a directory outside, or to a Release file outside —
+is not offered. The one exception is a link to a Release file that the workspace configuration
+names, as `build.authoring_release` or as a key of `workspace.releases`: that Release is read
+through its link and offered. Opening the chooser says so in a notification of its own, naming
+by its path relative to that folder each such link standing where the language server would
+otherwise read: the links to directories first, then the links to files. A link whose name
+ends in `.yaml` or `.yml` is named whatever the file it leads to holds, because that file is not
+read to find out.
 
 When you want a choice recorded in the workspace itself — so a fresh checkout starts on it —
 two commands do that, and neither changes what you are working on right now:
@@ -634,8 +639,10 @@ say so:
   every Release the chooser offers drawn as a topology graph with no refusal and
   one of them built, the chooser offering every Release file the workspace
   holds, and what the chooser says about a link leading out of the workspace —
-  nothing while there is none, and, once the folder holds a link to a directory
-  outside the root, a line naming that link as the language server names it.
+  nothing while there is none; once the folder holds a link to a directory
+  outside the root, a line naming that link as the language server names it;
+  and, once it also holds a link to a Release file outside the root, one line
+  naming both, the directory first, with nothing offered through either.
 - `workspace-above-interruption` opens a folder beneath a workspace root it has
   no marker of its own for: the dialog that says so and the mark it leaves on the
   row, the dialog raised again in each new window until the reader asks not to be

@@ -4,7 +4,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-import { describeUnreadLinkedDirs } from '../../src/release-selection';
+import { LinksLeadingOut } from '../../src/links-leading-out';
+import { describeUnreadLinks } from '../../src/release-selection';
 import { NotRun, Unreachable } from './checks';
 import { findGraphPanel, graphState, showGraph } from './graph-panel';
 import { ABOVE_MESSAGE, aboveDetail, closeChooser, describeRows, rowChooser, statusHover, takeChooserRow, waitRows } from './levels';
@@ -19,7 +20,8 @@ import { commandsPanel, holds, pressOperation, stated, statusItems, toasts, toas
 // every Release the chooser offers accepted by the graph and the build, the
 // chooser offering every Release file the workspace holds, and what the chooser
 // says about a link leading out of the workspace — nothing while there is none,
-// and the link named once one is placed in the folder.
+// the link named once one leading to a directory is placed in the folder, and
+// both named once one leading to a Release file is placed beside it.
 
 export const BENEATH_CHECKS = [
   'beneath-a-workspace.rows-name-the-folder-and-the-root-above-it',
@@ -28,6 +30,7 @@ export const BENEATH_CHECKS = [
   'beneath-a-workspace.release-chooser-offers-every-release-file',
   'beneath-a-workspace.release-chooser-names-no-link-where-none-leads-out',
   'beneath-a-workspace.release-chooser-names-the-link-leading-out-of-the-root',
+  'beneath-a-workspace.release-chooser-names-the-file-link-leading-out-of-the-root',
   'beneath-a-workspace.releases-that-cannot-be-offered-are-named',
 ] as const;
 
@@ -36,6 +39,12 @@ export const BENEATH_CHECKS = [
 // Release's file name.
 const LINK = 'shared-releases';
 const BEHIND_THE_LINK = 'release-behind-the-link.yaml';
+
+// FILE_LINK is the name of the link the scenario places in the folder leading to
+// a Release file outside the root, named as a Release file is so the editor's
+// file tree shows it as one; BEHIND_THE_FILE_LINK is the file it leads to.
+const FILE_LINK = 'release-through-a-link.yaml';
+const BEHIND_THE_FILE_LINK = 'release-behind-the-file-link.yaml';
 
 // LINE_WINDOW_MS is how long an open chooser is watched for a line naming a link
 // where none should be drawn.
@@ -47,7 +56,7 @@ const LINE_WINDOW_MS = 3000;
 // names. A notification is read with its surrounding space trimmed, so a head is
 // too — a line drawn naming nothing ends where its names would start.
 const LINK_LINE_HEADS = [['\u0000'], ['\u0000', '\u0000']].map((names) => {
-  const line = describeUnreadLinkedDirs(names) ?? '';
+  const line = describeUnreadLinks({ unreadLinkedDirs: names, unreadLinkedFiles: [] }) ?? '';
   return line.slice(0, line.indexOf('\u0000')).trimEnd();
 });
 
@@ -55,12 +64,23 @@ function isLinkLine(message: string): boolean {
   return LINK_LINE_HEADS.some((head) => head !== '' && message.startsWith(head));
 }
 
-// linkedDirsIn reads the linked directories the language server's answer names,
-// or null where the answer is a refusal or carries no such list.
-function linkedDirsIn(a: ReferenceAnswer): string[] | null {
+// linksIn reads the links leading out that the language server's answer names,
+// to directories and to files, or null where the answer is a refusal or carries
+// either list not at all.
+function linksIn(a: ReferenceAnswer): LinksLeadingOut | null {
   if (!a.ok) { return null; }
-  const dirs = (a.result as { unreadLinkedDirs?: unknown } | null)?.unreadLinkedDirs;
-  return Array.isArray(dirs) && dirs.every((d) => typeof d === 'string') ? dirs as string[] : null;
+  const result = a.result as { unreadLinkedDirs?: unknown; unreadLinkedFiles?: unknown } | null;
+  const list = (v: unknown): string[] | null => (Array.isArray(v) && v.every((d) => typeof d === 'string') ? v as string[] : null);
+  const dirs = list(result?.unreadLinkedDirs);
+  const files = list(result?.unreadLinkedFiles);
+  return dirs === null || files === null ? null : { unreadLinkedDirs: dirs, unreadLinkedFiles: files };
+}
+
+// describeLinks writes what an answer names, for a check's report.
+function describeLinks(links: LinksLeadingOut | null): string {
+  return links === null
+    ? 'no lists of links leading out'
+    : `links to directories ${JSON.stringify(links.unreadLinkedDirs)} and to files ${JSON.stringify(links.unreadLinkedFiles)}`;
 }
 
 // candidatesOver is the language server's own answer to the request the chooser
@@ -88,6 +108,26 @@ function placeLinkLeadingOut(root: string, folder: string): { link: string; rel:
     throw new NotRun(`${outside} is not outside ${root}, or ${behind} does not read through the link`);
   }
   return { link, rel: path.relative(root, link).split(path.sep).join('/'), behind };
+}
+
+// placeFileLinkLeadingOut writes a Release file beside the root, outside it, and
+// places a link to that file in the folder, where the editor's file tree shows it
+// as a Release file. It answers with the link's path and its name relative to the
+// root, in the form the language server names a path.
+function placeFileLinkLeadingOut(root: string, folder: string): { link: string; rel: string } {
+  const outside = path.join(path.dirname(root), 'outside-the-workspace', BEHIND_THE_FILE_LINK);
+  const link = path.join(folder, FILE_LINK);
+  try {
+    fs.mkdirSync(path.dirname(outside), { recursive: true });
+    fs.copyFileSync(path.join(folder, COMPOSE), outside);
+    fs.symlinkSync(outside, link, 'file');
+  } catch (err) {
+    throw new NotRun(`the link to a file outside the root could not be placed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  if (!path.relative(root, outside).startsWith('..') || fs.readFileSync(link, 'utf8') !== fs.readFileSync(outside, 'utf8')) {
+    throw new NotRun(`${outside} is not outside ${root}, or ${link} does not read it through the link`);
+  }
+  return { link, rel: path.relative(root, link).split(path.sep).join('/') };
 }
 
 const COMPOSE = 'release-compose.yaml';
@@ -120,7 +160,7 @@ function releaseFilesUnder(dir: string): string[] {
 const CANNOT_BE_OFFERED = Unreachable.declare('beneath-a-workspace.releases-that-cannot-be-offered-are-named', {
   expected: 'where the chooser offers fewer Releases than the workspace holds, it says how many and where they sit, with their paths on the output channel',
   plant: 'in the scratch copy, out/src/release-selection.js with the sentence naming Releases that cannot be offered left out',
-}, 'the sentence is for a language server reading a different root from the one the editor sent it, and no layout built from the runner\'s inputs makes the two disagree: with both reading the same root, every Release is offered; and a Release inside a directory linked from outside the root is not listed by the language server at all — the link is named on a line of its own instead, which the check before this one reads — so it does not reach the sentence either');
+}, 'the sentence is for a language server reading a different root from the one the editor sent it, and no layout built from the runner\'s inputs makes the two disagree: with both reading the same root, every Release is offered; and a Release reached through a link leading out of the root, to a directory or to a file, is not listed by the language server at all — the link is named on a line of its own instead, which the checks before this one read — so it does not reach the sentence either');
 
 export async function beneathChecks(ctx: SuiteContext, root: string): Promise<void> {
   const c = ctx.checks;
@@ -217,28 +257,28 @@ export async function beneathChecks(ctx: SuiteContext, root: string): Promise<vo
   });
 
   await c.run('beneath-a-workspace.release-chooser-names-no-link-where-none-leads-out', {
-    expected: `with no link in ${root} leading out of it, the language server's own answer to aggrega/releaseCandidates over ${root} names no linked directory, and the Release chooser, opened and watched ${LINE_WINDOW_MS} ms, draws no line naming one`,
-    plant: 'in the scratch copy, out/src/release-selection.js with the line naming links drawn where the answer names none',
+    expected: `with no link in ${root} leading out of it, the language server's own answer to aggrega/releaseCandidates over ${root} names no link leading out, to a directory or to a file, and the Release chooser, opened and watched ${LINE_WINDOW_MS} ms, draws no line naming one`,
+    plant: 'in the scratch copy, out/src/links-leading-out.js with the sentence about links composed where the answer names none',
   }, async () => {
-    const named = linkedDirsIn(await candidatesOver(ctx, root));
+    const named = linksIn(await candidatesOver(ctx, root));
     const toastMark = (await toasts(ctx.d)).length;
     const q = await rowChooser(ctx, 'release', { boundMs: 15000 });
     const watched = await holds(LINE_WINDOW_MS, () => toastsSince(ctx.d, toastMark), (ts) => !ts.some((t) => isLinkLine(t.message)));
     await closeChooser(ctx.d);
     const told = (await toastsSince(ctx.d, toastMark)).map((t) => t.message).filter((m) => m.startsWith('Aggrega'));
     return {
-      passed: named !== null && named.length === 0 && q.rows.length > 0 && watched.held,
-      seen: `the language server names ${named === null ? 'no list of linked directories' : JSON.stringify(named)}; the chooser offers ${JSON.stringify(q.rows.map((r) => r.description))}; ${watched.held ? `no line naming a link drawn over ${watched.readings} readings` : `a line naming a link drawn after ${watched.atMs} ms`}; Aggrega notifications drawn since the press ${JSON.stringify(told)}`,
+      passed: named !== null && named.unreadLinkedDirs.length === 0 && named.unreadLinkedFiles.length === 0 && q.rows.length > 0 && watched.held,
+      seen: `the language server names ${describeLinks(named)}; the chooser offers ${JSON.stringify(q.rows.map((r) => r.description))}; ${watched.held ? `no line naming a link drawn over ${watched.readings} readings` : `a line naming a link drawn after ${watched.atMs} ms`}; Aggrega notifications drawn since the press ${JSON.stringify(told)}`,
     };
   });
 
   await c.run('beneath-a-workspace.release-chooser-names-the-link-leading-out-of-the-root', {
-    expected: `with ${LINK} placed in the folder as a link to a directory outside ${root} holding ${BEHIND_THE_LINK}, the language server's own answer to aggrega/releaseCandidates over ${root} names that link alone, by its path relative to the root; opening the Release chooser draws the extension's line for exactly the links that answer names, once, in a notification of its own; and the chooser offers every Release document beneath the root, each by its path relative to the root, and nothing behind the link`,
+    expected: `with ${LINK} placed in the folder as a link to a directory outside ${root} holding ${BEHIND_THE_LINK}, the language server's own answer to aggrega/releaseCandidates over ${root} names that link alone among the links to directories, by its path relative to the root, and no link to a file; opening the Release chooser draws the extension's line for exactly the links that answer names, once, in a notification of its own; and the chooser offers every Release document beneath the root, each by its path relative to the root, and nothing behind the link`,
     plant: 'in the scratch copy, out/src/release-selection.js with the line naming links never drawn',
   }, async () => {
     const placed = placeLinkLeadingOut(root, folder);
-    const named = linkedDirsIn(await candidatesOver(ctx, root));
-    const line = named === null ? null : describeUnreadLinkedDirs(named);
+    const named = linksIn(await candidatesOver(ctx, root));
+    const line = named === null ? null : describeUnreadLinks(named);
     const files = releaseFilesUnder(root);
     const toastMark = (await toasts(ctx.d)).length;
     const q = await rowChooser(ctx, 'release', { boundMs: 15000 });
@@ -246,12 +286,37 @@ export async function beneathChecks(ctx: SuiteContext, root: string): Promise<vo
     await closeChooser(ctx.d);
     const told = (await toastsSince(ctx.d, toastMark)).map((t) => t.message).filter((m) => m.startsWith('Aggrega'));
     const offered = q.rows.map((r) => path.join(root, r.description)).sort();
-    const namedTheLink = named !== null && JSON.stringify(named) === JSON.stringify([placed.rel]);
+    const namedTheLink = named !== null && JSON.stringify(named.unreadLinkedDirs) === JSON.stringify([placed.rel]) && named.unreadLinkedFiles.length === 0;
     const once = told.filter(isLinkLine).length === 1;
     const offersWhatTheRootHolds = JSON.stringify(offered) === JSON.stringify(files) && !q.rows.some((r) => r.description.startsWith(`${placed.rel}/`));
     return {
       passed: namedTheLink && drawn !== null && once && offersWhatTheRootHolds,
-      seen: `${placed.behind} reads through the link; the language server names ${named === null ? 'no list of linked directories' : JSON.stringify(named)} (the link placed is ${placed.rel}); the line ${drawn === null ? `${JSON.stringify(line)} not drawn` : `drawn: ${JSON.stringify(drawn.message)}`}; Aggrega notifications drawn since the press ${JSON.stringify(told)}; Release documents beneath the root ${JSON.stringify(files.map((f) => path.relative(root, f)))}; offered ${JSON.stringify(q.rows.map((r) => r.description))}`,
+      seen: `${placed.behind} reads through the link; the language server names ${describeLinks(named)} (the link placed is ${placed.rel}); the line ${drawn === null ? `${JSON.stringify(line)} not drawn` : `drawn: ${JSON.stringify(drawn.message)}`}; Aggrega notifications drawn since the press ${JSON.stringify(told)}; Release documents beneath the root ${JSON.stringify(files.map((f) => path.relative(root, f)))}; offered ${JSON.stringify(q.rows.map((r) => r.description))}`,
+    };
+  });
+
+  await c.run('beneath-a-workspace.release-chooser-names-the-file-link-leading-out-of-the-root', {
+    expected: `with ${FILE_LINK} placed in the folder as a link to ${BEHIND_THE_FILE_LINK}, a Release file outside ${root}, the language server's own answer to aggrega/releaseCandidates over ${root} names that link alone among the links to files, by its path relative to the root; opening the Release chooser draws the extension's line for exactly the links that answer names, to directories and to files, once, in a notification of its own; and the chooser offers every Release document beneath the root, each by its path relative to the root, and not the link`,
+    plant: 'in the scratch copy, out/src/release-selection.js with the links to files the answer names left unread',
+  }, async () => {
+    const placed = placeFileLinkLeadingOut(root, folder);
+    const named = linksIn(await candidatesOver(ctx, root));
+    const line = named === null ? null : describeUnreadLinks(named);
+    // The link is named like a Release file, so it is set aside here by its path:
+    // the language server reads nothing through it, which is what is checked.
+    const files = releaseFilesUnder(root).filter((f) => f !== placed.link);
+    const toastMark = (await toasts(ctx.d)).length;
+    const q = await rowChooser(ctx, 'release', { boundMs: 15000 });
+    const drawn = line === null ? null : await waitToast(ctx.d, 'the chooser\'s line naming the link to a file', toastMark, (t) => t.message === line.trim(), 10000).catch(() => null);
+    await closeChooser(ctx.d);
+    const told = (await toastsSince(ctx.d, toastMark)).map((t) => t.message).filter((m) => m.startsWith('Aggrega'));
+    const offered = q.rows.map((r) => path.join(root, r.description)).sort();
+    const namedTheLink = named !== null && JSON.stringify(named.unreadLinkedFiles) === JSON.stringify([placed.rel]);
+    const once = told.filter(isLinkLine).length === 1;
+    const offersWhatTheRootHolds = JSON.stringify(offered) === JSON.stringify(files) && !q.rows.some((r) => r.description === placed.rel);
+    return {
+      passed: namedTheLink && drawn !== null && once && offersWhatTheRootHolds,
+      seen: `${placed.link} reads the file outside through the link; the language server names ${describeLinks(named)} (the link placed is ${placed.rel}); the line ${drawn === null ? `${JSON.stringify(line)} not drawn` : `drawn: ${JSON.stringify(drawn.message)}`}; Aggrega notifications drawn since the press ${JSON.stringify(told)}; Release documents beneath the root, the link set aside, ${JSON.stringify(files.map((f) => path.relative(root, f)))}; offered ${JSON.stringify(q.rows.map((r) => r.description))}`,
     };
   });
 

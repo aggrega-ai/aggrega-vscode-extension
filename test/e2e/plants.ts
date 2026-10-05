@@ -1797,13 +1797,18 @@ export const PLANTS: readonly Plant[] = [
   },
   {
     name: 'link-line-drawn-for-no-link', scenario: 'release-beneath-a-workspace-root', checks: ['beneath-a-workspace.release-chooser-names-no-link-where-none-leads-out'], moves: 'red', target: 'extension',
-    file: 'out/src/release-selection.js', find: '    if (dirs.length === 0) {', replace: '    if (dirs.length < 0) {',
-    says: 'the chooser draws its line naming links even where the language server names none',
+    file: 'out/src/links-leading-out.js', find: '    if (names.length === 0) {', replace: '    if (names.length < 0) {',
+    says: 'the sentence about links leading out is composed even where the language server names none, so the chooser draws its line',
   },
   {
     name: 'link-line-never-drawn', scenario: 'release-beneath-a-workspace-root', checks: ['beneath-a-workspace.release-chooser-names-the-link-leading-out-of-the-root'], moves: 'red', target: 'extension',
-    file: 'out/src/release-selection.js', find: '            reportUnreadLinkedDirs(gathered.unreadLinkedDirs);', replace: '',
-    says: 'the chooser never draws its line naming the links the language server did not search',
+    file: 'out/src/release-selection.js', find: '            reportUnreadLinks(gathered.links);', replace: '',
+    says: 'the chooser never draws its line naming the links the language server did not read',
+  },
+  {
+    name: 'file-link-left-unnamed', scenario: 'release-beneath-a-workspace-root', checks: ['beneath-a-workspace.release-chooser-names-the-file-link-leading-out-of-the-root'], moves: 'red', target: 'extension',
+    file: 'out/src/release-selection.js', find: '            unreadLinkedFiles: answer.unreadLinkedFiles ?? [],', replace: '            unreadLinkedFiles: [],',
+    says: 'the chooser reads no link to a file from the language server\'s answer, so its line names the links to directories alone',
   },
   // ---- the interruption for a workspace above the folder opened ----
   {
