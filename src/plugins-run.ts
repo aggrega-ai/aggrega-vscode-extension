@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cognitio S.r.l.
 
+import { describeError } from './error-text';
 import { withSubject } from './operation-groups';
 import type { PanelActionPress } from './panel-actions';
 import { binaryPathSettingPress } from './settings';
@@ -528,8 +529,9 @@ export async function pluginNodes(deps: PluginsRunDeps): Promise<PluginNode[]> {
       return [listingNotStartedNode(failure)];
     }
     // The message is the command's own text, carried through unchanged: a
-    // re-worded wrapper would hide the remediation the product already named.
-    const message = err instanceof Error ? err.message : String(err);
+    // re-worded wrapper would hide the remediation the product already named. It
+    // is rendered by the extension's one home for that conversion.
+    const message = describeError(err);
     deps.log.appendLine(message);
     return [{ kind: 'message', label: FAILURE_LABEL, detail: message }];
   }

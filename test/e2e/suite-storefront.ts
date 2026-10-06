@@ -1443,7 +1443,7 @@ async function pressedEnding(ctx: SuiteContext, command: string, what: string): 
 // publishedFaults holds one entry the editor files against the language server's
 // own publication of it — source, severity, position, words, code and where the
 // code leads — and names each way they differ.
-function publishedFaults(d: DiagnosticEntry, e: PublishedEntry['entry']): string[] {
+export function publishedFaults(d: DiagnosticEntry, e: PublishedEntry['entry']): string[] {
   const range = { start: { line: e.line - 1, character: e.column - 1 }, end: { line: (e.end_line ?? e.line) - 1, character: (e.end_column ?? e.column) - 1 } };
   const faults: string[] = [];
   if (d.source !== e.source) { faults.push(`its source is ${d.source}, the server's ${e.source}`); }

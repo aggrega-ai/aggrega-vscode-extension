@@ -318,12 +318,12 @@ export function fromWorkspaceRelative(workspaceRoot: string, reported: string): 
   return path.isAbsolute(reported) ? reported : path.join(workspaceRoot, reported);
 }
 
-// relativeIfInside is this module's one containment judgement: it answers with
-// the relative form of target when target names somewhere inside the root, and
-// null when it does not. The workspace-relative request parameters on this
-// surface share it, and so do the question whether a remembered workspace's
-// root sits inside a folder and the comparison of the workspace in force with
-// the folder it was reached from.
+// relativeIfInside is this module's one judgement of whether a path is spelled
+// inside the root: it answers with the relative form of target when target names
+// somewhere inside the root, and null when it does not. The workspace-relative
+// request parameters on this surface share it, and so do the question whether a
+// remembered workspace's root sits inside a folder and the comparison of the
+// workspace in force with the folder it was reached from.
 //
 // The contract belongs to the surface rather than to any one parameter, which is
 // why it is judged here once and each parameter below adds only the one reading
@@ -332,9 +332,9 @@ export function fromWorkspaceRelative(workspaceRoot: string, reported: string): 
 // two copies agree on every case either is driven with right up until a boundary
 // case is added to one and not the other.
 //
-// Escape is judged on where the value lands, not on how it is spelled: the
-// judgement runs on the normalised relative path, so an interior `a/../b`
-// resolves and passes while a path that climbs out of the root does not. A
+// Escape is judged on the normalised value, not on its raw text: the judgement
+// runs on the normalised relative path, so an interior `a/../b` resolves and
+// passes while a path that climbs out of the root does not. A
 // sibling directory whose name merely extends the root's is outside it and is
 // refused, which a string prefix comparison against the root would wrongly
 // accept. An absent or empty root is nothing to judge containment against, so
@@ -353,17 +353,22 @@ export function fromWorkspaceRelative(workspaceRoot: string, reported: string): 
 // surface reaching for the rule reaches it through one of them, which is what
 // stops another reading of it growing somewhere this file cannot see.
 //
-// This is a DELIBERATE second implementation of the containment rule the daemon
-// applies to these same parameters — it refuses an absolute value and one that
-// climbs out of the root, on the Release path and on the build destination alike
-// — and it is recorded as one so nobody later unifies it away as an accident. The
-// two run in different languages and the judgement is needed before a request is
-// sent, so there is nothing to call. The duplication is held the way the
-// anchor-discovery rule above holds its own: by a table of cases covering each
-// boundary the rule turns on — an interior climb that resolves back inside, a
-// sibling whose name merely extends the root, the root itself — driven through
-// the two parameters below, which are its only way in from a request. A case
-// added on one side belongs on the other.
+// It is the SPELLING HALF of containment and no more: an absolute value, or one
+// that climbs out of the root, judged before a request is sent, on the Release
+// path and on the build destination alike. Where a value spelled inside the root
+// then leads — through a link included — is the language server's judgement, not
+// this one's, and its refusal reaches the reader in its own words. Following
+// links here would make a second judge of where a path leads.
+//
+// That spelling half is a DELIBERATE second implementation of the rule the
+// language server applies to these same parameters, recorded as one so nobody
+// later unifies it away as an accident. The two run in different languages and
+// the judgement is needed before a request is sent, so there is nothing to call.
+// The duplication is held the way the anchor-discovery rule above holds its own:
+// by a table of cases covering each boundary the rule turns on — an interior
+// climb that resolves back inside, a sibling whose name merely extends the root,
+// the root itself — driven through the two parameters below, which are its only
+// way in from a request. A case added on one side belongs on the other.
 function relativeIfInside(workspaceRoot: string | null, target: string): string | null {
   if (workspaceRoot === null || workspaceRoot === '') {
     return null;

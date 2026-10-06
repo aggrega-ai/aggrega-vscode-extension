@@ -383,6 +383,23 @@ describe('workspaceCatalogNodes', () => {
     assert.deepStrictEqual(h.log.lines, [message]);
   });
 
+  it('a request the language server refuses shows the refusal\'s own words in the row and on the channel', async () => {
+    // The language server refuses with a JSON-RPC error object rather than an
+    // Error, and the client rejects with that object as it arrived. The words are
+    // the server's answer to an index read in the terms of a Release reached
+    // through a link leading out of the workspace.
+    const refusal = {
+      code: -32602,
+      message: 'invalid params: release must be a path relative to the workspace root, naming a Release inside it; "release-linked.yaml" leads outside the workspace root through a link',
+      data: null,
+    };
+    const h = harness(WORKSPACE_ROOT, () => Promise.reject(refusal));
+    const nodes = await h.nodes();
+
+    assert.deepStrictEqual(nodes, [{ kind: 'message', label: FAILURE_LABEL, detail: refusal.message }]);
+    assert.deepStrictEqual(h.log.lines, [refusal.message]);
+  });
+
   it('reports a stopped language server as its own state, offers to start it, and does not ask it', async () => {
     const h = harness(WORKSPACE_ROOT, ok(MEASURED_DOCUMENT), /*serverRunning=*/ false);
     const nodes = await h.nodes();

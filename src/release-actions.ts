@@ -6,6 +6,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 
 import type { ConfigurationWriter } from './config-change-watch';
+import { describeError } from './error-text';
 import {
   ACTIVE_RELEASE_MARKER_BASENAME,
   AGGREGA_DIR,
@@ -74,7 +75,7 @@ export async function openAuthoringReleaseConfig(
       );
       created = true;
     } catch (err) {
-      const reason = err instanceof Error ? err.message : String(err);
+      const reason = describeError(err);
       void vscode.window.showErrorMessage(
         `Aggrega: could not create ${CONFIG_FILENAME}: ${reason}`,
       );
@@ -86,7 +87,7 @@ export async function openAuthoringReleaseConfig(
   try {
     doc = await vscode.workspace.openTextDocument(configPath);
   } catch (err) {
-    const reason = err instanceof Error ? err.message : String(err);
+    const reason = describeError(err);
     void vscode.window.showErrorMessage(
       `Aggrega: could not open ${CONFIG_FILENAME}: ${reason}`,
     );
@@ -147,7 +148,7 @@ export async function createActiveReleaseMarker(
   try {
     await fs.mkdir(markerDir, { recursive: true });
   } catch (err) {
-    const reason = err instanceof Error ? err.message : String(err);
+    const reason = describeError(err);
     void vscode.window.showErrorMessage(
       `Aggrega: could not create ${AGGREGA_DIR}/: ${reason}`,
     );
@@ -156,7 +157,7 @@ export async function createActiveReleaseMarker(
   try {
     await fs.writeFile(markerPath, selectedRelease + '\n');
   } catch (err) {
-    const reason = err instanceof Error ? err.message : String(err);
+    const reason = describeError(err);
     void vscode.window.showErrorMessage(
       `Aggrega: could not write ${AGGREGA_DIR}/${ACTIVE_RELEASE_MARKER_BASENAME}: ${reason}`,
     );

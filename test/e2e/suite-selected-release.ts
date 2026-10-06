@@ -6,19 +6,27 @@ import * as path from 'path';
 import { fileURLToPath } from 'url';
 
 import { featuresNotOfferedLine } from '../../src/attach-candidates';
-import { CatalogIndexDoc, linksLeadingOutRow } from '../../src/workspace-catalog-run';
+import { buildParams } from '../../src/build-dials';
+import type { ValidateResponse } from '../../src/types';
+import { buildValidateParams } from '../../src/validate-request';
+import { CatalogIndexDoc, FAILURE_LABEL, linksLeadingOutRow } from '../../src/workspace-catalog-run';
 import { need, NotRun } from './checks';
 import { runCompiler } from './cli';
-import { CHART_ONLY, SIZED_VOLUME, SIZING_LIBRARY } from './fixtures';
-import { pressNode, settledPanel, showGraph } from './graph-panel';
+import { WebviewDocument } from './drivers';
+import { CHART_ONLY, readTree, SIZED_VOLUME, SIZING_LIBRARY, UNMAPPED_RELEASE } from './fixtures';
+import { NoticeReading, noticeReadings, watchNotice } from './graph-drawing';
+import { findGraphPanel, GRAPH_PANEL_OPENING, graphCouldNotBeDrawn, pressNode, settledPanel, showGraph } from './graph-panel';
+import { LinkedAway, linkAway, outsideTheWorkspace, putBackLinked, untouched } from './linked-away';
+import { DiagnosticEntry } from './probe-client';
 import { referenceAnswer, ReferenceRequest } from './reference';
-import { closeAllEditors, commandTitle, lineOf, Line, open, ready, run, SuiteContext } from './suite-context';
+import { closeAllEditors, commandTitle, describeDiagnostics, diagnostics, lineOf, Line, open, ready, run, SuiteContext } from './suite-context';
 import { drawnAsAnswered, PENDING } from './suite-graph-panel';
 import { shownOptions } from './suite-inspection';
 import { selectRelease } from './suite-own-catalogs';
-import { pressViewAction } from './suite-storefront';
+import { pressViewAction, publishedFaults } from './suite-storefront';
 import {
-  commandsPanel, describeRowMenu, pressMenuItem, pressOperation, pressTreeRowAction, revealTreeRow, rowMenu, selectorRows, sleep, treeRows, until,
+  asTheEditorDraws, commandsPanel, describeRowMenu, holds, hoverAt, NOTIFICATION_MESSAGE_CAP, pressMenuItem, pressOperation, pressTreeRowAction, revealTreeRow, rowMenu,
+  selectorRows, sleep, toasts, treeRows, until, waitToast,
 } from './workbench';
 
 // The checks run in a copy of the documentation example whose Releases each read
@@ -29,10 +37,20 @@ import {
 // held against the language server's own answer to the same request naming the
 // same Release — or none — asked outside the editor over a second copy. The
 // Catalog panel and the list of what may attach read no word about links leading
-// out of the workspace while the folder holds none; the last two checks place one
-// at the top of the folder, leading to a Feature document outside it, and read
+// out of the workspace while the folder holds none; the next two checks place one
+// in components/, leading to a Feature document outside the workspace, and read
 // what each says about it against the language server's own answer over the
 // folder itself.
+//
+// The checks after those each replace a path of the folder by a link leading out
+// of the workspace — the build's output directory, a lockfile, a Release, a file
+// beneath a catalog directory — and read the refusal it earns where the editor
+// shows it, held against the language server's own answer to the same request,
+// or the compiler's own run of the same command, over the folder in the same
+// state. Each lists the directory its link leads to before and after and requires
+// it unchanged, and each takes its link away again and selects again the Release
+// it found selected, so no check after it inherits either — bar the last two,
+// which share one link on purpose.
 
 export const SELECTED_RELEASE_CHECKS = [
   'no-release.each-surface-answers-in-the-workspaces-own-terms',
@@ -45,6 +63,11 @@ export const SELECTED_RELEASE_CHECKS = [
   'may-attach.lists-the-selected-releases-features',
   'catalog-panel.names-the-link-leading-out-of-the-workspace',
   'may-attach.names-the-link-leading-out-of-the-workspace',
+  'build.refused-for-an-output-directory-leading-out-in-the-compilers-words',
+  'pull.refused-for-a-lockfile-leading-out-in-the-compilers-words',
+  'catalog-panel.refused-list-shows-the-language-servers-words',
+  'validation.finding-for-a-catalog-file-leading-out-is-the-language-servers-own',
+  'graph.refused-for-a-catalog-file-leading-out-in-the-compilers-words',
 ] as const;
 
 const COMPOSE = 'release-compose.yaml';
@@ -73,11 +96,14 @@ const COMPONENTS = 'Component';
 const DB_NODE = 'db';
 const CHECK = 'The check';
 
-// LINK is the link the last two checks place at the top of the folder, under no
-// catalog directory, so every Release's terms hold its place; it leads to
-// BEHIND_THE_LINK, a Feature document written beside the folder, outside the
-// workspace.
-const LINK = 'linked-feature.yaml';
+// LINK is the link the two link checks place in components/, a directory of
+// workspace documents under no catalog directory and apart from every Release's
+// own, so every Release's terms hold its place and no Release's compile meets it:
+// a link leading out beside a Release, or beneath a catalog directory a Release
+// reads, halts every compile of that Release, and the requests these two checks
+// read would then answer nothing. It leads to BEHIND_THE_LINK, a Feature document
+// written beside the folder, outside the workspace.
+const LINK = path.join('components', 'linked-feature.yaml');
 const BEHIND_THE_LINK = { name: 'local/reached-through-a-link', file: 'feature-outside-the-workspace.yaml' };
 const BEHIND_THE_LINK_DOCUMENT = `apiVersion: aggrega.ai/v1alpha1
 kind: Feature
@@ -130,6 +156,78 @@ function namesNoLink(index: Partial<CatalogIndexDoc>): boolean {
 function describeLinks(index: Partial<CatalogIndexDoc>): string {
   return `links to directories ${JSON.stringify(index.unreadLinkedDirs ?? null)} and to files ${JSON.stringify(index.unreadLinkedFiles ?? null)}`;
 }
+
+// The words a refused operation's ending opens with, held as written so a change
+// of wording in the extension is a change these checks report rather than follow;
+// the words after them are the compiler's, read off its own answer.
+const BUILD_REFUSED = 'The build did not complete: ';
+const PULL_REFUSED = 'The pull did not complete: ';
+const isBuildEnding = (l: string): boolean => l.startsWith('Build completed: ') || l.startsWith(BUILD_REFUSED);
+
+// NONE_SELECTED is what the Release row reads with no Release selected.
+const NONE_SELECTED = 'none selected';
+
+// KEPT_OUTSIDE is the text of the file a check keeps behind its link, outside the
+// workspace, which nothing the editor does may change.
+const KEPT_OUTSIDE = 'Kept outside the workspace, behind a link no operation may write or delete through.\n';
+
+// CATALOG_LINK is the link the last two checks share, beneath catalog-compose/, the
+// catalog directory release-compose.yaml reads, so every compile of that Release
+// meets it; it leads to BEHIND_THE_CATALOG_LINK, a Feature document written beside
+// the folder, outside the workspace.
+const CATALOG_LINK = path.join('catalog-compose', 'linked-catalog-feature.yaml');
+const BEHIND_THE_CATALOG_LINK = { name: 'local/reached-through-a-catalog-link', file: 'feature-outside-the-catalog.yaml' };
+const BEHIND_THE_CATALOG_LINK_DOCUMENT = `apiVersion: aggrega.ai/v1alpha1
+kind: Feature
+metadata:
+  name: ${BEHIND_THE_CATALOG_LINK.name}
+  version: 1.0.0
+  description: A Feature kept outside the workspace, which a catalog directory reaches only through a link.
+`;
+
+// THE_HEAD is the range of an entry filed at a document's head, as the probe lists
+// it.
+const THE_HEAD = { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } };
+
+// namesADocument reads whether a refusal's envelope names a document of its own,
+// which the editor files the refusal on in place of the Release.
+function namesADocument(data: unknown): boolean {
+  const named = data as { file?: string; lockfile?: string } | null;
+  return !!named?.file || !!named?.lockfile;
+}
+
+// refusalFaults holds the entries carrying a refusal's words against the one
+// entry the editor files for a refusal that names no document of its own: an
+// Error at the head of the Release the request named, under "aggrega", with no
+// code — and those words on no other document.
+function refusalFaults(on: DiagnosticEntry[], elsewhere: string[]): string[] {
+  const faults: string[] = [];
+  if (on.length !== 1) { faults.push(`${on.length} entries carry the refusal's words`); }
+  const e = on[0];
+  if (e !== undefined) {
+    if (e.source !== 'aggrega') { faults.push(`its source is ${e.source}`); }
+    if (e.severity !== 'Error') { faults.push(`its severity is ${e.severity}`); }
+    if (JSON.stringify(e.range) !== JSON.stringify(THE_HEAD)) { faults.push(`it spans ${JSON.stringify(e.range)}, not the head of the Release`); }
+    if (e.code !== null) { faults.push(`it carries the code ${e.code}`); }
+  }
+  if (elsewhere.length > 0) { faults.push(`the same words are filed on ${JSON.stringify(elsewhere)} as well`); }
+  return faults;
+}
+
+// flat reads a text with each run of blank space as one, as the editor draws a
+// notification.
+const flat = (s: string): string => s.replace(/\s+/g, ' ').trim();
+
+// drawnAsNotified reads whether a notification draws `message` as the editor draws
+// a message it is given: its words, each run of blank space read as one, cut where
+// the editor cuts a long one.
+const drawnAsNotified = (drawn: string, message: string): boolean => flat(drawn) === flat(asTheEditorDraws(message));
+
+// stderrWords is a command's standard error with the blank lines around it
+// dropped and nothing else, which is what a refused run's ending is promised to
+// carry: the compiler's words unchanged, the indentation of its first line
+// included.
+const stderrWords = (stderr: string): string => stderr.replace(/^(?:[ \t]*\r?\n)+/, '').replace(/(?:\r?\n[ \t]*)+$/, '');
 
 type Terms = string | null;
 const termsName = (release: Terms): string => release ?? 'no Release';
@@ -315,7 +413,7 @@ export async function selectedReleaseChecks(ctx: SuiteContext, reference: string
   }, async () => {
     const rows = await selectorRows(await commandsPanel(ctx.d));
     const row = rows.find((r) => r.label === 'Release');
-    need(row !== undefined && row.value === 'none selected', `the Release row reads ${JSON.stringify(row?.value ?? 'nothing')}, so the scenario does not start with no Release selected`);
+    need(row !== undefined && row.value === NONE_SELECTED, `the Release row reads ${JSON.stringify(row?.value ?? 'nothing')}, so the scenario does not start with no Release selected`);
     return verdict([
       await catalogReading(null, true),
       await definitionReading(null),
@@ -398,11 +496,13 @@ export async function selectedReleaseChecks(ctx: SuiteContext, reference: string
     };
   });
 
-  // ---- a link leading out of the workspace, placed at the top of the folder ----
+  // ---- a link leading out of the workspace, placed in components/ ----
 
   // The link is placed once, by whichever of the two checks below runs first, and
   // the language server's own answer about it is asked over the folder the editor
-  // reads, in the terms of the Release whose graph the second check draws.
+  // reads, in the terms of the Release whose graph the second check draws. The
+  // second takes it away again once it has read it, so the checks after it find
+  // the folder without it.
   let placed: { link: string; rel: string } | null = null;
   const linkPlaced = (): { link: string; rel: string } => (placed ??= placeLinkLeadingOut(ctx.folder));
   const indexOverTheFolder = async (): Promise<Partial<CatalogIndexDoc>> => {
@@ -414,7 +514,7 @@ export async function selectedReleaseChecks(ctx: SuiteContext, reference: string
     JSON.stringify(index.unreadLinkedDirs ?? null) === '[]' && JSON.stringify(index.unreadLinkedFiles ?? null) === JSON.stringify([rel]);
 
   await c.run('catalog-panel.names-the-link-leading-out-of-the-workspace', {
-    expected: `with ${GRAPH_RELEASE} selected and ${LINK} placed at the top of the folder as a link to a Feature document outside the workspace, the language server's own aggrega/catalogIndex answer over the folder in that Release's terms names that link alone, among the links to files and by its path relative to the folder, and lists nothing the document behind it declares; once the Catalog panel's refresh is pressed, the panel's last row — after its kind headings — is the extension's own row for exactly the links that answer names, drawn once, and no row names ${BEHIND_THE_LINK.name}`,
+    expected: `with ${GRAPH_RELEASE} selected and ${LINK} placed as a link to a Feature document outside the workspace, the language server's own aggrega/catalogIndex answer over the folder in that Release's terms names that link alone, among the links to files and by its path relative to the folder, and lists nothing the document behind it declares; once the Catalog panel's refresh is pressed, the panel's last row — after its kind headings — is the extension's own row for exactly the links that answer names, drawn once, and no row names ${BEHIND_THE_LINK.name}`,
     plant: 'in the scratch copy, out/src/workspace-catalog-run.js with the row naming the links never drawn',
   }, async () => {
     // Selected before the link is placed: the Release chooser names a link like
@@ -444,21 +544,297 @@ export async function selectedReleaseChecks(ctx: SuiteContext, reference: string
     expected: `with ${LINK} in place and ${GRAPH_RELEASE}'s graph shown, pressing its ${DB_NODE} node draws, under the list of what may attach, once, the extension's own line for exactly the links the language server's own aggrega/catalogIndex answer over the folder in that Release's terms names — that link alone; the list's rows are still the language server's own aggrega/attachCandidates answer for that node over the folder, row for row, and none names ${BEHIND_THE_LINK.name}`,
     plant: 'in the scratch copy, out/src/attach-candidates.js with the line naming the links never posted',
   }, async () => {
-    const link = linkPlaced();
-    const index = await indexOverTheFolder();
-    const line = featuresNotOfferedLine(index as CatalogIndexDoc);
-    const a = await referenceAnswer({ binary: bin, root: ctx.folder, method: 'aggrega/attachCandidates', params: { graphNode: DB_NODE, release: GRAPH_RELEASE }, home: ctx.home, table: ctx.s.table, log: ctx.cliLog });
-    need(a.ok, `the language server gave no answer about what may attach to ${DB_NODE} over the folder: ${a.ok ? '' : a.error.message}`);
-    await closeAllEditors(ctx);
-    const doc = await showGraph(ctx, DRAWN_MS);
-    await pressNode(ctx, doc, DB_NODE);
-    const p = await settledPanel(doc, DB_NODE, PENDING);
-    const drawn = drawnAsAnswered(p, a.result as Parameters<typeof drawnAsAnswered>[1]);
-    const lines = p.candidates?.links ?? [];
-    const offeredBehind = (p.candidates?.rows ?? []).some((r) => r.name === BEHIND_THE_LINK.name);
-    return {
-      passed: namesTheLinkAlone(index, link.rel) && line !== null && lines.length === 1 && lines[0] === line && drawn.same && !offeredBehind,
-      seen: `the language server names ${describeLinks(index)} (the link placed is ${link.rel}); the line ${line === null ? 'the answer yields none' : JSON.stringify(line)}; the list draws ${lines.length === 0 ? 'no line naming a link' : `the lines ${JSON.stringify(lines)}`}; ${drawn.seen}${offeredBehind ? `; a row names ${BEHIND_THE_LINK.name}` : ''}`,
-    };
+    try {
+      const link = linkPlaced();
+      const index = await indexOverTheFolder();
+      const line = featuresNotOfferedLine(index as CatalogIndexDoc);
+      const a = await referenceAnswer({ binary: bin, root: ctx.folder, method: 'aggrega/attachCandidates', params: { graphNode: DB_NODE, release: GRAPH_RELEASE }, home: ctx.home, table: ctx.s.table, log: ctx.cliLog });
+      need(a.ok, `the language server gave no answer about what may attach to ${DB_NODE} over the folder: ${a.ok ? '' : a.error.message}`);
+      await closeAllEditors(ctx);
+      const doc = await showGraph(ctx, DRAWN_MS);
+      await pressNode(ctx, doc, DB_NODE);
+      const p = await settledPanel(doc, DB_NODE, PENDING);
+      const drawn = drawnAsAnswered(p, a.result as Parameters<typeof drawnAsAnswered>[1]);
+      const lines = p.candidates?.links ?? [];
+      const offeredBehind = (p.candidates?.rows ?? []).some((r) => r.name === BEHIND_THE_LINK.name);
+      return {
+        passed: namesTheLinkAlone(index, link.rel) && line !== null && lines.length === 1 && lines[0] === line && drawn.same && !offeredBehind,
+        seen: `the language server names ${describeLinks(index)} (the link placed is ${link.rel}); the line ${line === null ? 'the answer yields none' : JSON.stringify(line)}; the list draws ${lines.length === 0 ? 'no line naming a link' : `the lines ${JSON.stringify(lines)}`}; ${drawn.seen}${offeredBehind ? `; a row names ${BEHIND_THE_LINK.name}` : ''}`,
+      };
+    } finally {
+      if (placed !== null) {
+        try { fs.unlinkSync(placed.link); } catch { /* already gone */ }
+        placed = null;
+      }
+    }
   });
+
+  // ---- a path of the folder replaced by a link leading out of the workspace ----
+
+  // releaseRow is the value the Commands panel's Release row reads.
+  const releaseRow = async (): Promise<string> => (await selectorRows(await commandsPanel(ctx.d))).find((r) => r.label === 'Release')?.value ?? '';
+
+  // inRelease runs `body` with `release` selected, and selects again the Release it
+  // found selected once the body is done — after the body has put the folder back,
+  // so a Release the body replaced by a link is on offer again by then.
+  const inRelease = async <T>(release: string, body: () => Promise<T>): Promise<T> => {
+    const found = await releaseRow();
+    if (found !== release) { await selectRelease(ctx, release); }
+    try {
+      return await body();
+    } finally {
+      if (found !== release && found !== '' && found !== NONE_SELECTED) { await selectRelease(ctx, found).catch(() => undefined); }
+    }
+  };
+
+  // filedFor reads the entries a document carries once one carries `words`, or as
+  // they stand when the wait runs out, and every other document carrying those
+  // words.
+  const filedFor = async (doc: string, words: string): Promise<{ all: DiagnosticEntry[]; on: DiagnosticEntry[]; elsewhere: string[] }> => {
+    const all = await until(`the refusal filed on ${path.basename(doc)}`, 20000, () => diagnostics(ctx, doc), (v) => v.some((d) => d.message === words)).catch(() => diagnostics(ctx, doc));
+    const listed = await ctx.probe.request<{ path: string; diagnostics: DiagnosticEntry[] }[]>('diagnostics.list');
+    return {
+      all,
+      on: all.filter((d) => d.message === words),
+      elsewhere: listed.filter((e) => e.path !== doc && e.diagnostics.some((d) => d.message === words)).map((e) => e.path),
+    };
+  };
+
+  // stillFiled reads whether `doc` still carries an entry in `words`: a refusal
+  // stays filed on its Release until a build, a preview or a graph of it is
+  // answered without it, so a check that leaves one standing answers it once more
+  // after taking its link away.
+  const stillFiled = async (doc: string, words: string): Promise<boolean> =>
+    words !== '' && (await diagnostics(ctx, doc).catch(() => [] as DiagnosticEntry[])).some((d) => d.message === words);
+
+  const composeRelease = path.join(ctx.folder, COMPOSE);
+
+  await c.run('build.refused-for-an-output-directory-leading-out-in-the-compilers-words', {
+    expected: `with ${COMPOSE} selected and dist/ replaced by a link to a directory outside the workspace holding one file, Build pressed on the Commands panel is refused: the Problems panel carries one entry in the words of the language server's own refusal of the same build request over the folder — on ${COMPOSE}, at its head, an Error under "aggrega", with no code — and those words on no other document; the output channel's closing line reads "${BUILD_REFUSED}" followed by those words, and an error notification draws that line as the editor draws a message — its first ${NOTIFICATION_MESSAGE_CAP} characters followed by "..." where it is longer; and the directory the link leads to holds the same files with the same bytes before and after`,
+    plant: 'in the scratch copy, out/src/operation-refusals.js with a refused build, preview or graph filing nothing in the Problems panel',
+  }, () => inRelease(COMPOSE, async () => {
+    const outside = outsideTheWorkspace(ctx.folder, 'build-output');
+    fs.mkdirSync(path.join(outside, 'app'), { recursive: true });
+    fs.writeFileSync(path.join(outside, 'app', 'kept.txt'), KEPT_OUTSIDE);
+    const away = linkAway(ctx.folder, 'dist', outside);
+    let words = '';
+    try {
+      const before = readTree(outside);
+      // The request as the editor sends it from a window whose one folder is the
+      // workspace root: no option turned on, and the root as where it writes.
+      const ref = await referenceAnswer({ binary: bin, root: ctx.folder, method: 'aggrega/build', params: buildParams(COMPOSE, [], ''), home: ctx.home, table: ctx.s.table, log: ctx.cliLog });
+      need(!ref.ok, `the language server built ${COMPOSE} over the folder with dist/ leading out of the workspace, so there is no refusal to carry`);
+      need(ref.error.message.includes(away.link), `the language server's refusal of the build does not name ${away.link}: ${ref.error.message.slice(0, 300)}`);
+      need(!namesADocument(ref.error.data), `the language server's refusal names a document of its own, ${JSON.stringify(ref.error.data)}, so it is not about the Release this check reads`);
+      words = ref.error.message;
+      const want = `${BUILD_REFUSED}${words}`;
+      await closeAllEditors(ctx);
+      const mark = ctx.out.mark();
+      const toastMark = (await toasts(ctx.d)).length;
+      await pressOperation(ctx.d, await commandsPanel(ctx.d), 'aggrega.op.build');
+      const text = await ctx.out.waitFor('the build ending', mark, (t) => t.split('\n').some(isBuildEnding), 180000).catch(() => ctx.out.since(mark));
+      const closing = text.split('\n').find(isBuildEnding) ?? '';
+      const told = await waitToast(ctx.d, 'the refused build\'s notification', toastMark, (t) => t.message.startsWith(BUILD_REFUSED), 10000).catch(() => null);
+      const filed = await filedFor(composeRelease, words);
+      const faults = refusalFaults(filed.on, filed.elsewhere);
+      const kept = untouched(before, outside);
+      return {
+        passed: faults.length === 0 && closing === want && told !== null && told.severity === 'error' && drawnAsNotified(told.message, want) && kept.same,
+        seen: `the language server refused the build "${words.slice(0, 240)}"; the channel closed ${closing === want ? 'on that refusal in its words' : JSON.stringify(closing.slice(0, 300))}; the notification ${told === null ? 'none opening that way' : `${drawnAsNotified(told.message, want) ? 'draws it as the editor draws the line' : JSON.stringify(told.message.slice(-200))} (${told.severity})`}; ${describeDiagnostics(composeRelease, filed.all)}${faults.length === 0 ? '' : ` — ${faults.join('; ')}`}; ${kept.seen}`,
+        evidence: { want, closing, told },
+      };
+    } finally {
+      putBackLinked(away);
+      if (await stillFiled(composeRelease, words)) {
+        try {
+          await closeAllEditors(ctx);
+          const mark = ctx.out.mark();
+          await pressOperation(ctx.d, await commandsPanel(ctx.d), 'aggrega.op.build');
+          await ctx.out.waitFor('the build of the folder as found', mark, (t) => t.split('\n').some(isBuildEnding), 180000);
+        } catch { /* the entry stays; the checks after this one read no entry on the Release but their own */ }
+        // What that build wrote is taken away again where the folder held no dist/.
+        if (away.setAside === null) { fs.rmSync(path.join(ctx.folder, 'dist'), { recursive: true, force: true }); }
+      }
+    }
+  }));
+
+  await c.run('pull.refused-for-a-lockfile-leading-out-in-the-compilers-words', {
+    expected: `with ${COMPOSE} selected and its lockfile replaced by a link to a copy outside the workspace, Pull pressed on the Commands panel runs \`aggrega pull --release ${COMPOSE}\` in the folder, and its closing lines on the output channel read "${PULL_REFUSED}the compiler exited with status <n>: " followed by <words>, <n> and <words> being the exit status and the standard error — with the blank lines around it dropped and nothing else — of the compiler's own run of that command over the folder in the same state, which name the lockfile; an error notification draws those lines as the editor draws a message — each run of blank space read as one, its first ${NOTIFICATION_MESSAGE_CAP} characters followed by "..." where it is longer; and the copy the link leads to keeps its bytes`,
+    plant: 'in the scratch copy, out/src/cli-run.js with a refused run reported by its exit status alone',
+  }, () => inRelease(COMPOSE, async () => {
+    const lockName = COMPOSE.replace(/\.ya?ml$/, '.lock');
+    const lock = path.join(ctx.folder, lockName);
+    need(fs.existsSync(lock), `the folder holds no ${lockName} to replace by a link`);
+    const outside = outsideTheWorkspace(ctx.folder, 'lockfile');
+    fs.mkdirSync(outside, { recursive: true });
+    fs.copyFileSync(lock, path.join(outside, lockName));
+    const away = linkAway(ctx.folder, lockName, path.join(outside, lockName));
+    try {
+      const before = readTree(outside);
+      const args = ['pull', '--release', COMPOSE];
+      const cli = await runCompiler(bin, args, { cwd: ctx.folder, home: ctx.home, boundMs: 120000, log: ctx.cliLog });
+      const words = stderrWords(cli.stderr);
+      need(cli.status !== 0 && words.includes(lock), `the compiler's own pull over the folder was not refused for ${lockName}: exit ${cli.status ?? cli.signal}, standard error ${JSON.stringify(cli.stderr.slice(0, 300))}`);
+      const want = `${PULL_REFUSED}the compiler exited with status ${cli.status}: ${words}`;
+      await closeAllEditors(ctx);
+      const mark = ctx.out.mark();
+      const toastMark = (await toasts(ctx.d)).length;
+      await pressOperation(ctx.d, await commandsPanel(ctx.d), 'aggrega.op.pull');
+      const text = await ctx.out.waitFor('the pull ending', mark, (t) => /^The pull (resolved|did not complete)/m.test(t), 120000).catch(() => ctx.out.since(mark));
+      const lines = text.split('\n');
+      const command = (lines.find((l) => l.startsWith('$ ')) ?? '').replace(/\s+\(cwd: .*\)$/, '');
+      const invoked = `$ ${bin} ${args.join(' ')}`;
+      const at = lines.findIndex((l) => l.startsWith('The pull '));
+      const closing = at === -1 ? '' : lines.slice(at, at + want.split('\n').length).join('\n');
+      const told = await waitToast(ctx.d, 'the refused pull\'s notification', toastMark, (t) => t.message.startsWith(PULL_REFUSED), 30000).catch(() => null);
+      const kept = untouched(before, outside);
+      return {
+        passed: command === invoked && closing === want && told !== null && told.severity === 'error' && drawnAsNotified(told.message, want) && kept.same,
+        seen: `the channel ran ${JSON.stringify(command)} and closed ${closing === want ? 'on the compiler\'s words, line for line' : JSON.stringify(closing.slice(0, 400))}; the notification ${told === null ? 'none opening that way' : `${drawnAsNotified(told.message, want) ? 'draws them as the editor draws the lines' : JSON.stringify(told.message.slice(-200))} (${told.severity})`}; the compiler outside the editor exited ${cli.status}: ${JSON.stringify(words.slice(0, 300))}; ${kept.seen}`,
+        evidence: { want, closing, told },
+      };
+    } finally {
+      putBackLinked(away);
+    }
+  }));
+
+  await c.run('catalog-panel.refused-list-shows-the-language-servers-words', {
+    expected: `with ${UNMAPPED_RELEASE} selected and then replaced by a link to a copy of itself outside the workspace — the Release row still naming it, read over 3 s — the Catalog panel's refresh draws in place of its list the row "${FAILURE_LABEL}", whose hover reads the language server's own refusal of the entity index asked in that Release's terms over the folder, and the output channel carries the same words as a line of their own; the copy the link leads to keeps its bytes`,
+    plant: 'in the scratch copy, out/src/workspace-catalog-run.js with a refused list read rendered as the thrown value made a string, which reads "[object Object]" for a refusal the language server answered',
+  }, () => inRelease(UNMAPPED_RELEASE, async () => {
+    const outside = outsideTheWorkspace(ctx.folder, 'release-copy');
+    fs.mkdirSync(outside, { recursive: true });
+    fs.copyFileSync(path.join(ctx.folder, UNMAPPED_RELEASE), path.join(outside, UNMAPPED_RELEASE));
+    const away = linkAway(ctx.folder, UNMAPPED_RELEASE, path.join(outside, UNMAPPED_RELEASE));
+    try {
+      const before = readTree(outside);
+      // A remembered selection is checked against what is on offer once per
+      // connection, so one replaced by a link while the session runs is expected
+      // to stand; that it does is read first, because a list read in another
+      // Release's terms would show nothing of this refusal.
+      const stood = await holds(3000, releaseRow, (v) => v === UNMAPPED_RELEASE);
+      need(stood.held, `the Release row stopped naming ${UNMAPPED_RELEASE} once it was replaced by a link, reading ${JSON.stringify(stood.broke ?? '')}, so the panel's list is not read in that Release's terms`);
+      const ref = await referenceAnswer({ binary: bin, root: ctx.folder, method: 'aggrega/catalogIndex', params: { release: UNMAPPED_RELEASE }, home: ctx.home, table: ctx.s.table, log: ctx.cliLog });
+      need(!ref.ok, `the language server listed the entities in the terms of ${UNMAPPED_RELEASE} through its link, so there is no refusal to carry`);
+      const words = ref.error.message;
+      need(words.includes(UNMAPPED_RELEASE), `the language server's refusal of the list does not name ${UNMAPPED_RELEASE}: ${words.slice(0, 300)}`);
+      const mark = ctx.out.mark();
+      await run(ctx, 'aggrega.workspaceCatalog.focus');
+      await pressViewAction(ctx, 'Catalog', 'Refresh workspace catalog');
+      const rows = (await until('the Catalog panel drawing its failure row', 20000, () => treeRows(ctx.d, 'Catalog'), (v) => (v ?? []).some((r) => r.label === FAILURE_LABEL))
+        .catch(() => treeRows(ctx.d, 'Catalog'))) ?? [];
+      const drawn = rows.some((r) => r.label === FAILURE_LABEL);
+      const hover = drawn ? await hoverAt(ctx.d, await revealTreeRow(ctx.d, 'Catalog', FAILURE_LABEL)) : '';
+      const channel = await ctx.out.waitFor('the refusal on the channel', mark, (t) => t.split('\n').includes(words), 10000).then(() => true, () => false);
+      const kept = untouched(before, outside);
+      return {
+        passed: drawn && flat(hover) === flat(words) && channel && kept.same,
+        seen: `the language server refused the list "${words.slice(0, 240)}"; the panel's rows ${JSON.stringify(rows.map((r) => r.label))}; the failure row's hover ${JSON.stringify(hover.slice(0, 300))}; the channel ${channel ? 'carries the refusal as a line of its own' : 'does not carry the refusal as a line of its own'}; ${kept.seen}`,
+      };
+    } finally {
+      putBackLinked(away);
+    }
+  }));
+
+  // ---- a link leading out beneath the catalog directory a Release reads ----
+
+  // 🔴 THE LAST TWO CHECKS SHARE ONE LINK, AND RUN IN THIS ORDER ON PURPOSE. The
+  // validation's finding and the graph's refusal are two surfaces of the same
+  // halt — a compile of the Release meeting the link — so the second reads the
+  // link the first placed, and takes it away. A run that reaches the second alone
+  // places it there.
+  let catalogLink: LinkedAway | null = null;
+  const catalogLinkPlaced = (): LinkedAway => {
+    if (catalogLink === null) {
+      const outside = outsideTheWorkspace(ctx.folder, 'catalog-link');
+      fs.mkdirSync(outside, { recursive: true });
+      fs.writeFileSync(path.join(outside, BEHIND_THE_CATALOG_LINK.file), BEHIND_THE_CATALOG_LINK_DOCUMENT);
+      need(fs.existsSync(path.join(ctx.folder, path.dirname(CATALOG_LINK))), `the folder holds no ${path.dirname(CATALOG_LINK)} directory to place the link in`);
+      catalogLink = linkAway(ctx.folder, CATALOG_LINK, path.join(outside, BEHIND_THE_CATALOG_LINK.file));
+    }
+    return catalogLink;
+  };
+
+  await c.run('validation.finding-for-a-catalog-file-leading-out-is-the-language-servers-own', {
+    expected: `with ${COMPOSE} selected and ${CATALOG_LINK} placed as a link to a Feature document outside the workspace, Validate pressed on the Commands panel with aggregate.yaml in front ends, and aggregate.yaml then carries, under each layer the language server's own aggrega/validate answer for it in that Release's terms over the folder names, exactly the findings that answer gives — one of them naming the link — each at its position, an Error, in its words, with its short code leading to the address the answer names; and the directory the link leads to keeps its files and bytes`,
+    plant: 'in the scratch copy, out/src/diagnostics-shape.js with a finding\'s message cut at its first sentence',
+  }, () => inRelease(COMPOSE, async () => {
+    await closeAllEditors(ctx);
+    const placed = catalogLinkPlaced();
+    const outside = path.dirname(placed.target);
+    const before = readTree(outside);
+    const ref = await referenceAnswer({ binary: bin, root: ctx.folder, method: 'aggrega/validate', params: buildValidateParams(aggregate, fs.readFileSync(aggregate, 'utf8'), COMPOSE), home: ctx.home, table: ctx.s.table, log: ctx.cliLog });
+    need(ref.ok, `the language server gave no answer to the validation of aggregate.yaml over the folder: ${ref.ok ? '' : ref.error.message}`);
+    const want = (ref.result as ValidateResponse).diagnostics ?? [];
+    need(want.some((d) => d.message.includes(placed.link)), `the language server's own validation of aggregate.yaml names no finding about ${CATALOG_LINK}: ${JSON.stringify(want).slice(0, 400)}`);
+    const layers = new Set(want.map((d) => d.source));
+    const read = async (): Promise<DiagnosticEntry[]> => (await diagnostics(ctx, aggregate)).filter((d) => d.source !== null && layers.has(d.source));
+    // Validated as a reader asks for it. The editor validates a document of its own
+    // accord as it opens, and a document an earlier check opened can still be held
+    // by the editor with its tab closed, so opening it again need not be an opening.
+    await open(ctx, aggregate);
+    const mark = ctx.out.mark();
+    await pressOperation(ctx.d, await commandsPanel(ctx.d), 'aggrega.op.validate');
+    const ending = await ctx.out.waitFor('the validation ending', mark, (t) => /^(Aggrega: validated aggregate\.yaml|The validation )/m.test(t), 60000)
+      .then((t) => t.split('\n').find((l) => l.startsWith('Aggrega: validated') || l.startsWith('The validation ')) ?? '', () => '');
+    need(ending.startsWith('Aggrega: validated'), `Validate pressed with aggregate.yaml in front did not end in a validation: ${ending === '' ? 'no ending on the channel' : JSON.stringify(ending)}`);
+    const filed = await until('the findings filed on aggregate.yaml', 20000, read, (v) => want.every((w) => v.some((d) => d.message === w.message))).catch(read);
+    const faults = filed.length === want.length ? [] : [`aggregate.yaml carries ${filed.length} entries under ${JSON.stringify([...layers])}, the answer ${want.length}`];
+    for (const w of want) {
+      const d = filed.find((x) => x.message === w.message);
+      faults.push(...(d === undefined ? [`no entry reads ${JSON.stringify(w.message.slice(0, 200))}`] : publishedFaults(d, w)));
+    }
+    const kept = untouched(before, outside);
+    return {
+      passed: faults.length === 0 && kept.same,
+      seen: `the language server answers ${JSON.stringify(want.map((w) => `${w.line}:${w.column} [${w.source} ${w.shortCode ?? ''}] ${w.message.slice(0, 200)}`))}; Validate ended ${JSON.stringify(ending)}; ${describeDiagnostics(aggregate, filed)}${faults.length === 0 ? '' : ` — ${faults.join('; ')}`}; ${kept.seen}`,
+    };
+  }));
+
+  await c.run('graph.refused-for-a-catalog-file-leading-out-in-the-compilers-words', {
+    expected: `with ${CATALOG_LINK} still in place from the check before and ${COMPOSE} selected, Graph pressed on the Commands panel with no graph panel open opens a panel that draws no card and names "${graphCouldNotBeDrawn(COMPOSE, '<message>')}", the output channel carries the same line, and the Problems panel carries one entry in <message> — on ${COMPOSE}, at its head, an Error under "aggrega", with no code — and <message> on no other document, <message> being the language server's own refusal of the same graph request over the folder; and the directory the link leads to keeps its files and bytes`,
+    plant: 'in the scratch copy, out/src/graph-failure.js with the line for a drawing that could not be made leaving out the compiler\'s words',
+  }, () => inRelease(COMPOSE, async () => {
+    const placed = catalogLinkPlaced();
+    const outside = path.dirname(placed.target);
+    let words = '';
+    try {
+      const before = readTree(outside);
+      const ref = await referenceAnswer({ binary: bin, root: ctx.folder, method: 'aggrega/irGraph', params: { release: COMPOSE }, home: ctx.home, table: ctx.s.table, log: ctx.cliLog });
+      need(!ref.ok, `the language server drew ${COMPOSE} over the folder with ${CATALOG_LINK} leading out of the workspace, so there is no refusal to carry`);
+      need(ref.error.message.includes(placed.link), `the language server's refusal of the graph does not name ${placed.link}: ${ref.error.message.slice(0, 300)}`);
+      need(!namesADocument(ref.error.data), `the language server's refusal names a document of its own, ${JSON.stringify(ref.error.data)}, so it is not about the Release this check reads`);
+      words = ref.error.message;
+      const line = graphCouldNotBeDrawn(COMPOSE, words);
+      // A panel holding a drawing words a failure as that drawing gone out of date,
+      // so the press is made with none open and the panel it opens is read.
+      await closeAllEditors(ctx);
+      need(await findGraphPanel(ctx) === null, 'a graph panel is open with every editor closed, so the panel read would not be the one the press opens');
+      const mark = ctx.out.mark();
+      await pressOperation(ctx.d, await commandsPanel(ctx.d), 'aggrega.graph.show');
+      const panel = await until('the graph panel opening', 30000, () => findGraphPanel(ctx), (x) => x !== null) as WebviewDocument;
+      await watchNotice(panel);
+      const ended = (x: NoticeReading): boolean => x.nodes > 0 || (x.text !== '' && x.text !== GRAPH_PANEL_OPENING && !x.text.startsWith('Laying out '));
+      await until('the graph panel ending the press', 60000, () => noticeReadings(panel), (v) => v.some(ended)).catch(() => undefined);
+      const notices = await noticeReadings(panel);
+      const panelNamed = notices.some((x) => x.text === line);
+      const drewNothing = notices.every((x) => x.nodes === 0);
+      const channel = await ctx.out.waitFor('the refusal on the channel', mark, (t) => t.split('\n').includes(line), 10000).then(() => true, () => false);
+      const filed = await filedFor(composeRelease, words);
+      const faults = refusalFaults(filed.on, filed.elsewhere);
+      const kept = untouched(before, outside);
+      return {
+        passed: panelNamed && drewNothing && channel && faults.length === 0 && kept.same,
+        seen: `the language server refused the graph "${words.slice(0, 240)}"; the panel ${panelNamed ? 'names the refusal in the line the extension composes' : `read ${JSON.stringify(notices.filter((x) => x.text !== '').map((x) => x.text.slice(0, 300)))}`}, ${drewNothing ? 'drawing no card' : 'drawing cards'}; the channel ${channel ? 'carries the same line' : 'does not carry the line'}; ${describeDiagnostics(composeRelease, filed.all)}${faults.length === 0 ? '' : ` — ${faults.join('; ')}`}; ${kept.seen}`,
+      };
+    } finally {
+      putBackLinked(placed);
+      catalogLink = null;
+      await closeAllEditors(ctx).catch(() => undefined);
+      if (await stillFiled(composeRelease, words)) {
+        await showGraph(ctx, DRAWN_MS).catch(() => undefined);
+        await closeAllEditors(ctx).catch(() => undefined);
+      }
+    }
+  }));
 }

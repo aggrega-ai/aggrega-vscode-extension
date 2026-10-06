@@ -77,6 +77,16 @@ const CONTEXT_ROW_LABEL = {
   says: 'the first context row is labelled "Project directory"',
 } as const;
 
+// The compiled line ending a run of the compiler as a command that it refused,
+// made to name the exit status alone — the edit two scenarios' refusals are each
+// read against.
+const EXIT_STATUS_ALONE = {
+  file: 'out/src/cli-run.js',
+  find: "    return said.trim() === '' ? `${status}.` : `${status}: ${said}`;",
+  replace: '    return `${status}.`;',
+  says: 'an operation run as a command that the compiler refuses ends by naming the exit status alone, dropping the words the compiler wrote to its error stream',
+} as const;
+
 const REFRESH_GRAPH = '        refreshGraphView();\n';
 
 // The panel script's line keeping a menu inside the panel's width, and its
@@ -372,11 +382,7 @@ export const PLANTS: readonly Plant[] = [
     file: 'out/src/disk-change.js', find: '    watcher.onDidDelete(reported);\n', replace: '',
     says: 'the on-disk watcher\'s report of a deleted file reaches nothing, so a document no editor holds keeps its row once its file is deleted from outside the editor',
   },
-  {
-    name: 'refusal-names-only-the-status', scenario: 'storefront', checks: ['catalog-view.refused-validation-ends-in-the-compilers-words'], moves: 'red', target: 'extension',
-    file: 'out/src/cli-run.js', find: "    return said.trim() === '' ? `${status}.` : `${status}: ${said}`;", replace: '    return `${status}.`;',
-    says: 'an operation run as a command that the compiler refuses ends by naming the exit status alone, dropping the words the compiler wrote to its error stream',
-  },
+  { name: 'refusal-names-only-the-status', scenario: 'storefront', checks: ['catalog-view.refused-validation-ends-in-the-compilers-words'], moves: 'red', target: 'extension', ...EXIT_STATUS_ALONE },
   {
     name: 'validation-offered-whatever-the-kind', scenario: 'storefront', checks: ['catalog-view.each-row-offers-what-the-compiler-accepts-for-its-kind'], moves: 'red', target: 'extension',
     file: 'out/src/catalog-entity-operations.js',
@@ -973,6 +979,29 @@ export const PLANTS: readonly Plant[] = [
     file: ATTACH_CANDIDATES, find: "        const linksNote = 'line' in read ? read.line : null;", replace: '        const linksNote = null;',
     says: 'the list of what may attach is never posted the line naming the links leading out of the workspace that the language server did not read',
   },
+  // A path of the folder replaced by a link leading out of the workspace, and the
+  // refusal it earns, where the editor shows it.
+  {
+    name: 'refused-build-filed-nowhere', scenario: SELECTED_RELEASE, checks: ['build.refused-for-an-output-directory-leading-out-in-the-compilers-words'], moves: 'red', target: 'extension',
+    file: 'out/src/operation-refusals.js', find: '    return document ? [{ document, entry }] : [];', replace: '    return [];',
+    says: 'a refused build, preview or graph files nothing in the Problems panel, whatever its refusal names',
+  },
+  { name: 'refused-pull-names-only-the-status', scenario: SELECTED_RELEASE, checks: ['pull.refused-for-a-lockfile-leading-out-in-the-compilers-words'], moves: 'red', target: 'extension', ...EXIT_STATUS_ALONE },
+  {
+    name: 'refused-list-read-rendered-as-a-string', scenario: SELECTED_RELEASE, checks: ['catalog-panel.refused-list-shows-the-language-servers-words'], moves: 'red', target: 'extension',
+    file: CATALOG_RUN, find: '        const message = (0, error_text_1.describeError)(err);', replace: '        const message = err instanceof Error ? err.message : String(err);',
+    says: 'the Catalog panel renders a refused read of its list as the thrown value made a string, which reads "[object Object]" for a refusal the language server answered',
+  },
+  {
+    name: 'finding-cut-at-its-first-sentence', scenario: SELECTED_RELEASE, checks: ['validation.finding-for-a-catalog-file-leading-out-is-the-language-servers-own'], moves: 'red', target: 'extension',
+    file: 'out/src/diagnostics-shape.js', find: '        message: d.message,', replace: "        message: d.message.split('. ')[0],",
+    says: 'a finding\'s message is cut at its first sentence, dropping what was not read and how to reach what is kept outside',
+  },
+  {
+    name: 'graph-failure-line-without-the-reason', scenario: SELECTED_RELEASE, checks: ['graph.refused-for-a-catalog-file-leading-out-in-the-compilers-words'], moves: 'red', target: 'extension',
+    file: GRAPH_FAILURE, find: '    return `The topology of ${release} could not be drawn: ${message}`;', replace: '    return `The topology of ${release} could not be drawn.`;',
+    says: 'the line for a drawing that could not be made, on the channel and in a panel with nothing drawn, leaves out the compiler\'s words for why',
+  },
   // ---- the storefront folder with the topology graph open ----
   { name: 'context-row-renamed-graph-panel', scenario: 'storefront-graph-panel', checks: ['commands-panel.context-rows-name-the-opened-folder'], moves: 'red', target: 'extension', ...CONTEXT_ROW_LABEL },
   {
@@ -1433,6 +1462,13 @@ export const PLANTS: readonly Plant[] = [
     name: 'workspace-line-names-the-parent', scenario: 'gateway-cache', checks: ['cache.operations-reach-only-this-scenarios-caches'], moves: 'red', target: 'extension',
     file: OPERATIONS, find: '        out.appendLine(`  Workspace: ${scope.workspaceRoot}`);', replace: "        out.appendLine(`  Workspace: ${require('path').dirname(scope.workspaceRoot)}`);",
     says: 'each cache answer\'s "Workspace:" line names the folder above the workspace root',
+  },
+  {
+    name: 'refused-wipe-in-words-of-its-own', scenario: 'gateway-cache', checks: ['cache.clear-refused-for-a-cache-directory-leading-out-in-the-compilers-words'], moves: 'red', target: 'extension',
+    file: OPERATIONS,
+    find: '        await (0, cli_operation_1.reportOutcome)(deps, cacheWhat(operation), (0, operation_outcome_1.outcomeOf)(err), true);',
+    replace: "        await (0, cli_operation_1.reportOutcome)(deps, cacheWhat(operation), operation === 'clear' ? { kind: 'failed', message: 'the caches could not be emptied.' } : (0, operation_outcome_1.outcomeOf)(err), true);",
+    says: 'a wipe the language server refuses ends in a sentence of the extension\'s own in place of the language server\'s words',
   },
   // ---- the folder that is a workspace root and holds nothing else ----
   {

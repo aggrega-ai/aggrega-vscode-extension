@@ -187,6 +187,22 @@ export function waitStatus(driver: UiDriver, reading: string, bound: Bound): Pro
 // Toast is one notification as it was drawn.
 export interface Toast { at: number; message: string; severity: 'error' | 'warning' | 'info'; buttons: string[] }
 
+// NOTIFICATION_MESSAGE_CAP is how many characters of a message the editor draws in
+// a notification: a longer one is cut there and followed by "...", and every line
+// break in it is drawn as a space. It is the editor's own rule — the editor build
+// the suite runs declares the cap beside the line that applies it — and no
+// extension can change it, which is why a refusal's notification carries a button
+// to the output channel, where the whole message stands.
+export const NOTIFICATION_MESSAGE_CAP = 1000;
+
+// asTheEditorDraws is a message as the editor draws it in a notification, for a
+// check that holds a notification against the message an extension raised it
+// with.
+export function asTheEditorDraws(message: string): string {
+  const cut = message.length > NOTIFICATION_MESSAGE_CAP ? `${message.slice(0, NOTIFICATION_MESSAGE_CAP)}...` : message;
+  return cut.replace(/(\r\n|\n|\r)/g, ' ').trim();
+}
+
 // TOAST_OBSERVER records every notification the workbench draws, as a toast or
 // in the notification list, the moment it appears.
 const TOAST_OBSERVER = `(() => {

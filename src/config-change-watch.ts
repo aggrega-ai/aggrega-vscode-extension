@@ -3,6 +3,7 @@
 
 import * as path from 'path';
 import type { TimerLike } from './binary-restart';
+import { describeError } from './error-text';
 
 // What a change to a configuration file means while a language server is
 // running, decided without an editor.
@@ -232,7 +233,7 @@ export function createConfigurationWatch(deps: ConfigurationWatchDeps): Configur
   let loading: Promise<void> = Promise.resolve();
   const enqueue = (task: () => Promise<void>): Promise<void> => {
     chain = chain.then(task).catch((err: unknown) => {
-      deps.log(`the configuration files could not be watched: ${err instanceof Error ? err.message : String(err)}`);
+      deps.log(`the configuration files could not be watched: ${describeError(err)}`);
     });
     return chain;
   };

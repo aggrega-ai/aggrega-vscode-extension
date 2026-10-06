@@ -6,13 +6,15 @@ import * as os from 'os';
 import * as path from 'path';
 
 import { need } from './checks';
+import { readTree } from './fixtures';
+import { LinkedAway, linkAway, outsideTheWorkspace, putBackLinked, untouched } from './linked-away';
 import { readEnviron } from './processes';
 import { referenceAnswer } from './reference';
 import { closeAllEditors, ready, run, send, SuiteContext, theServer } from './suite-context';
 import { contextRowsCheck } from './suite-gateway';
 import {
-  commandsPanel, Dialog, dialog, holds, paletteRows, pickQuickInputRow, pressDialogButton, pressIn, pressOperation, quickInput, Toast, toasts, toastsSince,
-  until, waitQuickInput, waitToast,
+  asTheEditorDraws, commandsPanel, Dialog, dialog, holds, NOTIFICATION_MESSAGE_CAP, paletteRows, pickQuickInputRow, pressDialogButton, pressIn, pressOperation, quickInput,
+  Toast, toasts, toastsSince, until, waitQuickInput, waitToast,
 } from './workbench';
 
 // The checks run in the gateway folder on the four cache operations: what each
@@ -40,6 +42,7 @@ export const CACHE_CHECKS = [
   'cache.each-removal-confirms-first-naming-the-caches-it-reaches',
   'cache.operations-write-no-dollar-line-and-draw-no-progress-or-cancel',
   'cache.operations-reach-only-this-scenarios-caches',
+  'cache.clear-refused-for-a-cache-directory-leading-out-in-the-compilers-words',
 ] as const;
 
 // The words a reader is to meet, held as the playbook quotes them, so a change of
@@ -59,6 +62,7 @@ const TRIM_REFUSED = 'The trim did not complete: ';
 const PRUNE_ENDING = /^The prune removed (\d+) entr(?:y|ies) and reclaimed (.+)\.$/;
 const CLEAR_ENDING = /^The cache wipe emptied (\d+) caches? and reclaimed (.+)\. They repopulate on the next build\.$/;
 const CLEAR_DECLINED = 'Aggrega: clear cancelled. Nothing was removed.';
+const CLEAR_REFUSED = 'The cache wipe did not complete: ';
 const PRUNE_DECLINED = 'Aggrega: prune cancelled. Nothing was removed.';
 const REACHED_BEYOND = 'Reached beyond this workspace, shared by every project on this machine: ';
 
@@ -558,5 +562,47 @@ export async function cacheChecks(ctx: SuiteContext, referenceFolder: string): P
       passed: inside(env.HOME) && inside(env.XDG_CACHE_HOME) && right && missing.length === 0 && modulesIn(scenarioAtStart) > 0,
       seen: `the server's HOME ${env.HOME}, XDG_CACHE_HOME ${env.XDG_CACHE_HOME}; "Workspace:" lines ${JSON.stringify([...new Set(workspaceLines)])}; the scenario's store held ${modulesIn(scenarioAtStart)} compiled module(s) at the start and none after the wipe; ${machineStore} held ${machineBefore.size} file(s) before and ${machineAfter.size} after, ${missing.length === 0 ? 'none of them gone' : `missing ${JSON.stringify(missing.slice(0, 10))}`}${added.length > 0 ? `, ${added.length} added, which the runner does not attribute` : ''}`,
     };
+  });
+
+  // ---- a wipe refused because the workspace's cache directory leads out ----
+
+  // The last check, so the cache directory it replaces by a link is one no check
+  // after it reads; it puts the directory back all the same. The folder's link and
+  // the reference copy's lead to one directory, so the language server's own
+  // refusal over the reference copy names the same place the editor's does.
+  await c.run('cache.clear-refused-for-a-cache-directory-leading-out-in-the-compilers-words', {
+    expected: `with .aggrega/cache in the folder and in the reference copy each replaced by a link to one directory outside both, holding one file, clear taken from the menu beside Cache… and confirmed ends on the channel in the line "${CLEAR_REFUSED}<message>", <message> being the language server's own refusal of the same request over the reference copy, read with its root as the folder's, which names the folder's cache directory, and an error notification draws that line as the editor draws a message — its first ${NOTIFICATION_MESSAGE_CAP} characters followed by "..." where it is longer; and the directory the links lead to keeps its files and bytes`,
+    plant: 'in the scratch copy, out/src/operations.js with a refused wipe ending in a sentence of the extension\'s own in place of the language server\'s words',
+  }, async () => {
+    const rel = path.join('.aggrega', 'cache');
+    const outside = outsideTheWorkspace(ctx.folder, 'cache');
+    fs.mkdirSync(path.join(outside, 'oci'), { recursive: true });
+    fs.writeFileSync(path.join(outside, 'oci', 'kept.txt'), 'Kept outside the workspace, behind a link no cache operation may delete through.\n');
+    const here = linkAway(ctx.folder, rel, outside);
+    let there: LinkedAway | null = null;
+    try {
+      there = linkAway(referenceFolder, rel, outside);
+      const before = readTree(outside);
+      const ref = await referenceAnswer({ binary: bin, root: referenceFolder, method: 'aggrega/cacheClear', params: {}, home: ctx.home, table: ctx.s.table, log: ctx.cliLog });
+      need(!ref.ok, `the language server emptied the reference copy's caches through the link, so there is no refusal to carry; ${untouched(before, outside).seen}`);
+      const words = ref.error.message.split(referenceFolder).join(ctx.folder);
+      need(words.includes(here.link), `the language server's refusal of the wipe does not name ${here.link}: ${words.slice(0, 300)}`);
+      const want = `${CLEAR_REFUSED}${words}`;
+      const mark = ctx.out.mark();
+      const toastMark = (await toasts(ctx.d)).length;
+      await openCache('clear');
+      await confirmation('clear', ASKED.clear.button);
+      const told = await ending('the refused wipe\'s notification', toastMark, (t) => t.message.startsWith('The cache wipe'));
+      const channel = await ctx.out.waitFor('the refused wipe on the channel', mark, (t) => t.split('\n').includes(want), 10000).then(() => true, () => false);
+      const kept = untouched(before, outside);
+      return {
+        passed: told !== null && told.message === asTheEditorDraws(want) && told.severity === 'error' && channel && kept.same,
+        seen: `${told === null ? 'no notification' : `${told.message === asTheEditorDraws(want) ? 'the notification draws the line as the editor draws it' : `the notification "${told.message.slice(-300)}"`} (${told.severity}, buttons ${JSON.stringify(told.buttons)})`}; the channel ${channel ? 'ends on that line' : 'does not carry the line'}; the server's own: ${JSON.stringify(want.slice(0, 400))}; ${kept.seen}`,
+        evidence: { want, told },
+      };
+    } finally {
+      if (there !== null) { putBackLinked(there); }
+      putBackLinked(here);
+    }
   });
 }

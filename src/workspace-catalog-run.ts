@@ -11,6 +11,7 @@ import {
   readEntityKinds,
 } from './entity-kinds';
 import { daemonStandingTooltip, startServerPress } from './daemon-status';
+import { describeError } from './error-text';
 import { LinksLeadingOut, Withheld, describeLinksLeadingOut } from './links-leading-out';
 import { outcomeOf, terminalLine } from './operation-outcome';
 import type { PanelActionPress } from './panel-actions';
@@ -428,8 +429,11 @@ export async function workspaceCatalogNodes(
     doc = await deps.requestCatalogIndex();
   } catch (err) {
     // The message is the server's own text, carried through unchanged: a
-    // re-worded wrapper would hide the remediation it already named.
-    const message = err instanceof Error ? err.message : String(err);
+    // re-worded wrapper would hide the remediation it already named. It is
+    // rendered by the extension's one home for that conversion, because the
+    // server refuses a request with an envelope object rather than an error, and
+    // a reading of its own here would show that object instead of its words.
+    const message = describeError(err);
     deps.log.appendLine(message);
     return [{ kind: 'message', label: FAILURE_LABEL, detail: message }];
   }
