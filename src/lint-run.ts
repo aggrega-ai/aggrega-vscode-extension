@@ -393,23 +393,25 @@ function documentLines(groups: readonly LintFileFindings[], workspaceRoot: strin
 
 // findingLine is the row the command line prints for one finding: the command
 // line's word for the finding's severity and a colon, then the short code of the
-// condition the rule names and the rule's identity, each where the answer
-// carries one, then a colon and the rule's own text.
+// condition the finding's rule names and the finding's identity, each where the
+// answer carries one, then a colon closing them and the finding's own text. An
+// identifier the answer does not carry is left out rather than stood in for, and
+// so is the colon that would close it: a finding carrying neither reads as its
+// tier's word, a colon and its text.
+//
+// The identity is the answer's `code`: the finding's rule, or, for a finding
+// naming no rule, the code of its own it was reported under. The command line
+// names a finding by that same identity in the same place, so the row and the
+// answer name one finding alike whichever of the two it carries.
 //
 // 🔴 IT IS THE COMMAND LINE'S OWN ROW, AND THE COPY IS DELIBERATE. The command
 // line composes the row in one place, which this surface cannot call across the
 // language boundary, so the shape is stated again here and a parity spec holds
-// it to a row captured from the command line for the same finding. An identifier
-// the answer does not carry is left out rather than stood in for, and the colon
-// closing the identifiers is written either way, as the command line writes it.
-//
-// One case the answer cannot carry through: a finding with no rule identity but
-// with a code of its own. The answer sends that code where it sends a rule's
-// identity, with nothing telling the two apart, so this row names the code
-// where the command line's names no identifier at all.
+// it to rows captured from the command line for the same findings.
 function findingLine(d: wire.Diagnostic): string {
   const identifiers = [d.shortCode, d.code].filter((id): id is string => typeof id === 'string' && id !== '');
-  return `${commandLineSeverity(d.severity)}:${identifiers.map((id) => ` ${id}`).join('')}: ${d.message}`;
+  const named = identifiers.length > 0 ? `${identifiers.map((id) => ` ${id}`).join('')}:` : '';
+  return `${commandLineSeverity(d.severity)}:${named} ${d.message}`;
 }
 
 // commandLineSeverity is the word the command line opens a finding's row with,

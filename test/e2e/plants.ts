@@ -878,7 +878,7 @@ export const PLANTS: readonly Plant[] = [
   {
     name: 'lint-finding-line-in-brackets', scenario: 'releases-with-own-catalogs', checks: ['lint.writes-each-finding-as-the-command-line-prints-it'], moves: 'red', target: 'extension',
     file: 'out/src/lint-run.js',
-    find: "    return `${commandLineSeverity(d.severity)}:${identifiers.map((id) => ` ${id}`).join('')}: ${d.message}`;",
+    find: '    return `${commandLineSeverity(d.severity)}:${named} ${d.message}`;',
     replace: '    return d.code ? `[${d.severity}] ${d.code}: ${d.message}` : `[${d.severity}] ${d.message}`;',
     says: 'each finding line on the channel opens with the language server\'s tier word in brackets and carries no short code, so it is not the row the command line prints for the finding',
   },

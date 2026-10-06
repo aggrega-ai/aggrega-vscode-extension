@@ -287,7 +287,8 @@ describe('reportLines — each finding as the command line prints it, composed f
 
   // The findings below are ones the measured answer does not carry. Each expected
   // row is the one the command line writes for such a finding: its tier's word
-  // and a colon, each identifier it carries, then a colon and the message.
+  // and a colon, each identifier it carries and a colon closing them, then the
+  // message.
   it('opens a finding at the information tier with the command line\'s word for it', () => {
     const answer = partialAnswer({
       files: [{ file: 'x.yaml', diagnostics: [{ line: 1, column: 1, severity: 'info', message: 'an observation', code: 'name-shape', shortCode: 'E0278', source: 'aggrega-lint' }] }],
@@ -304,13 +305,27 @@ describe('reportLines — each finding as the command line prints it, composed f
     assert.deepStrictEqual(reportLines(answer, WORKSPACE_ROOT), ['/ws/x.yaml:', 'warn: rule-of-another-linter: its own sentence']);
   });
 
-  // No identifier is stood in for an absent one, and the colon closing the
-  // identifiers stays, as the command line writes it.
+  // The two findings below were reported by a linter the workspace attaches, and
+  // each side was captured from a live run over one entity: the answer's entry
+  // from the language server, the row from the command line's error stream.
+  //
+  // No identifier is stood in for an absent one, and with none there is nothing
+  // for a colon to close: the row is the tier's word, a colon and the message.
   it('writes a finding that names no rule with no identifier', () => {
     const answer = partialAnswer({
-      files: [{ file: 'x.yaml', diagnostics: [{ line: 1, column: 1, severity: 'warning', message: 'no rule', source: 'aggrega-lint' }] }],
+      files: [{ file: 'x.yaml', diagnostics: [{ line: 1, column: 1, severity: 'warning', message: 'probe: no identifier at all', source: 'aggrega-lint' }] }],
     });
-    assert.deepStrictEqual(reportLines(answer, WORKSPACE_ROOT), ['/ws/x.yaml:', 'warn:: no rule']);
+    assert.deepStrictEqual(reportLines(answer, WORKSPACE_ROOT), ['/ws/x.yaml:', 'warn: probe: no identifier at all']);
+  });
+
+  // A finding naming no rule but reported under a code of its own is named by
+  // that code, in the answer's `code` and on the command line's row alike. No
+  // condition is named, so no short code precedes it.
+  it('names a finding that names no rule by the code of its own it carries', () => {
+    const answer = partialAnswer({
+      files: [{ file: 'x.yaml', diagnostics: [{ line: 1, column: 1, severity: 'warning', message: 'probe: a code of its own and no rule', code: 'code-of-another-linter', source: 'aggrega-lint' }] }],
+    });
+    assert.deepStrictEqual(reportLines(answer, WORKSPACE_ROOT), ['/ws/x.yaml:', 'warn: code-of-another-linter: probe: a code of its own and no rule']);
   });
 
   // The command line raises a halting finding rather than writing a row for it,
