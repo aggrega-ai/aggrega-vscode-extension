@@ -26,6 +26,13 @@ export type ReferenceAnswer =
 // where it was asked for.
 export type Publication = PublishDiagnosticsParams;
 
+// shortCodeOf is the short code a refusal's data names for the condition the
+// refusal reports, or null where it names none.
+export function shortCodeOf(data: unknown): string | null {
+  const named = (data as { shortCode?: unknown } | null)?.shortCode;
+  return typeof named === 'string' && named !== '' ? named : null;
+}
+
 // ReferenceRequest is one request the reference child sends, by its method and
 // its parameters.
 export interface ReferenceRequest { method: string; params: unknown }

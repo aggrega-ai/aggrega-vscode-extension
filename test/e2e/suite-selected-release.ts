@@ -18,7 +18,7 @@ import { NoticeReading, noticeReadings, watchNotice } from './graph-drawing';
 import { findGraphPanel, GRAPH_PANEL_OPENING, graphCouldNotBeDrawn, pressNode, settledPanel, showGraph } from './graph-panel';
 import { LinkedAway, linkAway, outsideTheWorkspace, putBackLinked, untouched } from './linked-away';
 import { DiagnosticEntry } from './probe-client';
-import { referenceAnswer, ReferenceRequest } from './reference';
+import { referenceAnswer, ReferenceRequest, shortCodeOf } from './reference';
 import { closeAllEditors, commandTitle, describeDiagnostics, diagnostics, lineOf, Line, open, ready, run, SuiteContext } from './suite-context';
 import { drawnAsAnswered, PENDING } from './suite-graph-panel';
 import { shownOptions } from './suite-inspection';
@@ -198,9 +198,10 @@ function namesADocument(data: unknown): boolean {
 
 // refusalFaults holds the entries carrying a refusal's words against the one
 // entry the editor files for a refusal that names no document of its own: an
-// Error at the head of the Release the request named, under "aggrega", with no
-// code — and those words on no other document.
-function refusalFaults(on: DiagnosticEntry[], elsewhere: string[]): string[] {
+// Error at the head of the Release the request named, under "aggrega", whose code
+// is the short code the refusal's data names — none where it names none — and
+// those words on no other document.
+function refusalFaults(on: DiagnosticEntry[], elsewhere: string[], shortCode: string | null): string[] {
   const faults: string[] = [];
   if (on.length !== 1) { faults.push(`${on.length} entries carry the refusal's words`); }
   const e = on[0];
@@ -208,7 +209,7 @@ function refusalFaults(on: DiagnosticEntry[], elsewhere: string[]): string[] {
     if (e.source !== 'aggrega') { faults.push(`its source is ${e.source}`); }
     if (e.severity !== 'Error') { faults.push(`its severity is ${e.severity}`); }
     if (JSON.stringify(e.range) !== JSON.stringify(THE_HEAD)) { faults.push(`it spans ${JSON.stringify(e.range)}, not the head of the Release`); }
-    if (e.code !== null) { faults.push(`it carries the code ${e.code}`); }
+    if (e.code !== shortCode) { faults.push(`its code is ${e.code ?? 'none'}, the refusal's data naming ${shortCode ?? 'none'}`); }
   }
   if (elsewhere.length > 0) { faults.push(`the same words are filed on ${JSON.stringify(elsewhere)} as well`); }
   return faults;
@@ -221,7 +222,7 @@ const flat = (s: string): string => s.replace(/\s+/g, ' ').trim();
 // drawnAsNotified reads whether a notification draws `message` as the editor draws
 // a message it is given: its words, each run of blank space read as one, cut where
 // the editor cuts a long one.
-const drawnAsNotified = (drawn: string, message: string): boolean => flat(drawn) === flat(asTheEditorDraws(message));
+export const drawnAsNotified = (drawn: string, message: string): boolean => flat(drawn) === flat(asTheEditorDraws(message));
 
 // stderrWords is a command's standard error with the blank lines around it
 // dropped and nothing else, which is what a refused run's ending is promised to
@@ -610,8 +611,8 @@ export async function selectedReleaseChecks(ctx: SuiteContext, reference: string
   const composeRelease = path.join(ctx.folder, COMPOSE);
 
   await c.run('build.refused-for-an-output-directory-leading-out-in-the-compilers-words', {
-    expected: `with ${COMPOSE} selected and dist/ replaced by a link to a directory outside the workspace holding one file, Build pressed on the Commands panel is refused: the Problems panel carries one entry in the words of the language server's own refusal of the same build request over the folder — on ${COMPOSE}, at its head, an Error under "aggrega", with no code — and those words on no other document; the output channel's closing line reads "${BUILD_REFUSED}" followed by those words, and an error notification draws that line as the editor draws a message — its first ${NOTIFICATION_MESSAGE_CAP} characters followed by "..." where it is longer; and the directory the link leads to holds the same files with the same bytes before and after`,
-    plant: 'in the scratch copy, out/src/operation-refusals.js with a refused build, preview or graph filing nothing in the Problems panel',
+    expected: `with ${COMPOSE} selected and dist/ replaced by a link to a directory outside the workspace holding one file, Build pressed on the Commands panel is refused: the Problems panel carries one entry in the words of the language server's own refusal of the same build request over the folder — on ${COMPOSE}, at its head, an Error under "aggrega", its code the short code that refusal's data names for its condition — and those words on no other document; the output channel's closing line reads "${BUILD_REFUSED}" followed by those words, and an error notification draws that line as the editor draws a message — its first ${NOTIFICATION_MESSAGE_CAP} characters followed by "..." where it is longer; and the directory the link leads to holds the same files with the same bytes before and after`,
+    plant: 'in the scratch copy, out/src/operation-refusals.js with a refused build, preview or graph filing nothing in the Problems panel; or out/src/error-surfaces.js with a refusal filed as an entry carrying none of the identifiers its data names',
   }, () => inRelease(COMPOSE, async () => {
     const outside = outsideTheWorkspace(ctx.folder, 'build-output');
     fs.mkdirSync(path.join(outside, 'app'), { recursive: true });
@@ -626,6 +627,8 @@ export async function selectedReleaseChecks(ctx: SuiteContext, reference: string
       need(!ref.ok, `the language server built ${COMPOSE} over the folder with dist/ leading out of the workspace, so there is no refusal to carry`);
       need(ref.error.message.includes(away.link), `the language server's refusal of the build does not name ${away.link}: ${ref.error.message.slice(0, 300)}`);
       need(!namesADocument(ref.error.data), `the language server's refusal names a document of its own, ${JSON.stringify(ref.error.data)}, so it is not about the Release this check reads`);
+      const shortCode = shortCodeOf(ref.error.data);
+      need(shortCode !== null, `the language server's refusal of the build names no condition in its data, ${JSON.stringify(ref.error.data)}, so there is no short code for the entry to carry`);
       words = ref.error.message;
       const want = `${BUILD_REFUSED}${words}`;
       await closeAllEditors(ctx);
@@ -636,11 +639,11 @@ export async function selectedReleaseChecks(ctx: SuiteContext, reference: string
       const closing = text.split('\n').find(isBuildEnding) ?? '';
       const told = await waitToast(ctx.d, 'the refused build\'s notification', toastMark, (t) => t.message.startsWith(BUILD_REFUSED), 10000).catch(() => null);
       const filed = await filedFor(composeRelease, words);
-      const faults = refusalFaults(filed.on, filed.elsewhere);
+      const faults = refusalFaults(filed.on, filed.elsewhere, shortCode);
       const kept = untouched(before, outside);
       return {
         passed: faults.length === 0 && closing === want && told !== null && told.severity === 'error' && drawnAsNotified(told.message, want) && kept.same,
-        seen: `the language server refused the build "${words.slice(0, 240)}"; the channel closed ${closing === want ? 'on that refusal in its words' : JSON.stringify(closing.slice(0, 300))}; the notification ${told === null ? 'none opening that way' : `${drawnAsNotified(told.message, want) ? 'draws it as the editor draws the line' : JSON.stringify(told.message.slice(-200))} (${told.severity})`}; ${describeDiagnostics(composeRelease, filed.all)}${faults.length === 0 ? '' : ` — ${faults.join('; ')}`}; ${kept.seen}`,
+        seen: `the language server refused the build, its data naming ${shortCode}, "${words.slice(0, 240)}"; the channel closed ${closing === want ? 'on that refusal in its words' : JSON.stringify(closing.slice(0, 300))}; the notification ${told === null ? 'none opening that way' : `${drawnAsNotified(told.message, want) ? 'draws it as the editor draws the line' : JSON.stringify(told.message.slice(-200))} (${told.severity})`}; ${describeDiagnostics(composeRelease, filed.all)}${faults.length === 0 ? '' : ` — ${faults.join('; ')}`}; ${kept.seen}`,
         evidence: { want, closing, told },
       };
     } finally {
@@ -792,7 +795,7 @@ export async function selectedReleaseChecks(ctx: SuiteContext, reference: string
   }));
 
   await c.run('graph.refused-for-a-catalog-file-leading-out-in-the-compilers-words', {
-    expected: `with ${CATALOG_LINK} still in place from the check before and ${COMPOSE} selected, Graph pressed on the Commands panel with no graph panel open opens a panel that draws no card and names "${graphCouldNotBeDrawn(COMPOSE, '<message>')}", the output channel carries the same line, and the Problems panel carries one entry in <message> — on ${COMPOSE}, at its head, an Error under "aggrega", with no code — and <message> on no other document, <message> being the language server's own refusal of the same graph request over the folder; and the directory the link leads to keeps its files and bytes`,
+    expected: `with ${CATALOG_LINK} still in place from the check before and ${COMPOSE} selected, Graph pressed on the Commands panel with no graph panel open opens a panel that draws no card and names "${graphCouldNotBeDrawn(COMPOSE, '<message>')}", the output channel carries the same line, and the Problems panel carries one entry in <message> — on ${COMPOSE}, at its head, an Error under "aggrega", its code the short code that refusal's data names, none where it names none — and <message> on no other document, <message> being the language server's own refusal of the same graph request over the folder; and the directory the link leads to keeps its files and bytes`,
     plant: 'in the scratch copy, out/src/graph-failure.js with the line for a drawing that could not be made leaving out the compiler\'s words',
   }, () => inRelease(COMPOSE, async () => {
     const placed = catalogLinkPlaced();
@@ -821,11 +824,12 @@ export async function selectedReleaseChecks(ctx: SuiteContext, reference: string
       const drewNothing = notices.every((x) => x.nodes === 0);
       const channel = await ctx.out.waitFor('the refusal on the channel', mark, (t) => t.split('\n').includes(line), 10000).then(() => true, () => false);
       const filed = await filedFor(composeRelease, words);
-      const faults = refusalFaults(filed.on, filed.elsewhere);
+      const shortCode = shortCodeOf(ref.error.data);
+      const faults = refusalFaults(filed.on, filed.elsewhere, shortCode);
       const kept = untouched(before, outside);
       return {
         passed: panelNamed && drewNothing && channel && faults.length === 0 && kept.same,
-        seen: `the language server refused the graph "${words.slice(0, 240)}"; the panel ${panelNamed ? 'names the refusal in the line the extension composes' : `read ${JSON.stringify(notices.filter((x) => x.text !== '').map((x) => x.text.slice(0, 300)))}`}, ${drewNothing ? 'drawing no card' : 'drawing cards'}; the channel ${channel ? 'carries the same line' : 'does not carry the line'}; ${describeDiagnostics(composeRelease, filed.all)}${faults.length === 0 ? '' : ` — ${faults.join('; ')}`}; ${kept.seen}`,
+        seen: `the language server refused the graph, its data naming ${shortCode ?? 'no condition'}, "${words.slice(0, 240)}"; the panel ${panelNamed ? 'names the refusal in the line the extension composes' : `read ${JSON.stringify(notices.filter((x) => x.text !== '').map((x) => x.text.slice(0, 300)))}`}, ${drewNothing ? 'drawing no card' : 'drawing cards'}; the channel ${channel ? 'carries the same line' : 'does not carry the line'}; ${describeDiagnostics(composeRelease, filed.all)}${faults.length === 0 ? '' : ` — ${faults.join('; ')}`}; ${kept.seen}`,
       };
     } finally {
       putBackLinked(placed);

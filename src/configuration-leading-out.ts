@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cognitio S.r.l.
 
+import * as path from 'path';
+
 import { SELECTOR_ROW_LABELS } from './selector-levels';
 import type { ReleaseCandidatesResponse } from './types';
 import { toWorkspaceRelative } from './workspace';
@@ -52,6 +54,16 @@ export function configurationNotOpened(name: string): string {
   return `Aggrega: ${name} is not opened, because it leads outside the ${SELECTOR_ROW_LABELS.workspace}, so Aggrega does not use it.`;
 }
 
+// asTheServerSpellsIt writes a path relative to the workspace root the way the
+// language server names one in an answer: with a forward slash between its parts,
+// on every platform. The extension spells a relative path with the platform's own
+// separator, so where that separator is another character a file in a
+// subdirectory would be spelled apart from the server's name for it and matched by
+// none. separator is the platform's; a test hands in another one.
+export function asTheServerSpellsIt(relative: string, separator: string = path.sep): string {
+  return separator === '/' ? relative : relative.split(separator).join('/');
+}
+
 // configurationOpening decides whether an action opens file, the absolute path of
 // the configuration file it would open.
 //
@@ -59,9 +71,10 @@ export function configurationNotOpened(name: string): string {
 // action wrote it inside the workspace a moment ago, so there is no link to judge.
 // A file found already there is opened unless the running language server's
 // Release listing names it among the files it did not read. The comparison is of
-// spellings, the file spelled relative to the root the server answers for against
-// each name the answer gives in the same form — so the judgement of where the file
-// leads stays the server's, and this compares names it has already given.
+// spellings, the file spelled relative to the root the server answers for, as the
+// server spells such a path, against each name the answer gives — so the
+// judgement of where the file leads stays the server's, and this compares names it
+// has already given.
 export async function configurationOpening(
   listing: ServerListing,
   file: string,
@@ -80,7 +93,7 @@ export async function configurationOpening(
   if (!root) {
     return OPENS;
   }
-  const spelled = toWorkspaceRelative(root, file);
+  const spelled = asTheServerSpellsIt(toWorkspaceRelative(root, file));
   const named = (answer.unreadLinkedFiles ?? []).find((name) => name === spelled);
   return named === undefined ? OPENS : { open: false, message: configurationNotOpened(named) };
 }

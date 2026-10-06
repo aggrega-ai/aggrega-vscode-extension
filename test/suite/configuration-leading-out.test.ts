@@ -6,9 +6,10 @@ import * as path from 'node:path';
 
 import {
   ServerListing,
+  asTheServerSpellsIt,
   configurationOpening,
 } from '../../src/configuration-leading-out';
-import { callArguments } from '../helpers/anchoring-census';
+import { callArguments, functionBody } from '../helpers/anchoring-census';
 
 // Whether an action opens the workspace's configuration file is the language
 // server's judgement of where that file leads, read off its Release listing. These
@@ -61,7 +62,9 @@ describe('a configuration file is opened unless the language server names it as 
 
   it('names the file as the answer spells it, relative to the root the server answers for', async () => {
     const nested = path.join(ROOT, 'team', '.aggrega-config.yaml');
-    const spelled = path.join('team', '.aggrega-config.yaml');
+    // The server separates the parts of a name with a forward slash on every
+    // platform, so its name is written as it sends it rather than joined here.
+    const spelled = 'team/.aggrega-config.yaml';
     const opening = await configurationOpening(listing({ names: [spelled] }), nested, 'found');
     assert.deepStrictEqual(opening, {
       open: false,
@@ -72,7 +75,7 @@ describe('a configuration file is opened unless the language server names it as 
   it('opens the file where the listing answers without naming it', async () => {
     // The listing names other links, and none of them is this file: the server
     // read the configuration, so it does not lead out.
-    for (const names of [[], ['linked-release.yaml'], [path.join('team', '.aggrega-config.yaml')]]) {
+    for (const names of [[], ['linked-release.yaml'], ['team/.aggrega-config.yaml']]) {
       const opening = await configurationOpening(listing({ names }), CONFIG, 'found');
       assert.deepStrictEqual(opening, { open: true }, `refused where the listing named ${JSON.stringify(names)}`);
     }
@@ -106,6 +109,28 @@ describe('a configuration file is opened unless the language server names it as 
     const opening = await configurationOpening(server, CONFIG, 'created');
     assert.deepStrictEqual(opening, { open: true });
     assert.strictEqual(server.asked, 0, 'the listing was asked about a file the action created');
+  });
+});
+
+describe('the file is spelled as the language server spells a name', () => {
+  it('separates the parts of a relative path with a forward slash whatever the platform separates them with', () => {
+    // A platform separating with a backslash spells a file in a subdirectory
+    // "team\.aggrega-config.yaml", and the server's answer names it
+    // "team/.aggrega-config.yaml".
+    assert.strictEqual(asTheServerSpellsIt('team\\.aggrega-config.yaml', '\\'), 'team/.aggrega-config.yaml');
+    assert.strictEqual(asTheServerSpellsIt('a\\b\\.aggrega-config.yaml', '\\'), 'a/b/.aggrega-config.yaml');
+    assert.strictEqual(asTheServerSpellsIt('.aggrega-config.yaml', '\\'), '.aggrega-config.yaml');
+    assert.strictEqual(asTheServerSpellsIt('team/.aggrega-config.yaml', '/'), 'team/.aggrega-config.yaml');
+  });
+
+  it('compares the names in the answer with the file spelled that way', () => {
+    // Read from the source, because on a platform separating with a forward slash
+    // the comparison reads the same with the spelling left out.
+    const body = functionBody('src/configuration-leading-out.ts', 'export async function configurationOpening(');
+    assert.ok(
+      body.includes('const spelled = asTheServerSpellsIt(toWorkspaceRelative(root, file));'),
+      'configurationOpening compares the names with a spelling other than the one the server gives a name',
+    );
   });
 });
 

@@ -9,8 +9,9 @@ import { changeSince, Tree, TreeChange } from './fixtures';
 
 // A path of a scenario's folder replaced, for the length of one check, by a link
 // leading out of the workspace — a build's output directory, a lockfile, a
-// Release, a cache directory — and put back afterwards, so the check after it
-// finds the folder as it was.
+// Release, a cache directory, the marker recording the workspace's default
+// Release or the directory holding it — and put back afterwards, so the check
+// after it finds the folder as it was.
 //
 // What stood at the path is moved aside, beside the folder and outside it, rather
 // than copied: a copy left in place would still be read, and a path the language
@@ -39,11 +40,11 @@ function firstMissing(dir: string): string | null {
   return missing;
 }
 
-// linkAway replaces `rel` in `folder` with a link to `target`, which lies outside
-// the folder and is placed by the caller, first moving aside whatever stood at
-// `rel`. It refuses as not run, with the folder put back, where the link cannot
-// be placed or does not lead out of the folder.
-export function linkAway(folder: string, rel: string, target: string): LinkedAway {
+// placeLink replaces `rel` in `folder` with a link to `target`, first moving aside
+// whatever stood at `rel`, and refuses as not run, with the folder put back, where
+// the link cannot be placed. `kind` says whether the link names a directory or a
+// file, and is asked only once what stood at `rel` is moved aside.
+function placeLink(folder: string, rel: string, target: string, kind: () => 'dir' | 'file'): LinkedAway {
   const link = path.join(folder, rel);
   const setAside = present(link) ? path.join(path.dirname(folder), 'set-aside', path.basename(folder), rel.split(path.sep).join('--')) : null;
   const placed: LinkedAway = { link, target, setAside, madeParent: firstMissing(path.dirname(link)) };
@@ -53,14 +54,39 @@ export function linkAway(folder: string, rel: string, target: string): LinkedAwa
       fs.renameSync(link, setAside);
     }
     fs.mkdirSync(path.dirname(link), { recursive: true });
-    fs.symlinkSync(target, link, fs.statSync(target).isDirectory() ? 'dir' : 'file');
+    fs.symlinkSync(target, link, kind());
   } catch (err) {
     putBackLinked(placed);
     throw new NotRun(`${rel} in ${folder} could not be replaced by a link to ${target}: ${err instanceof Error ? err.message : String(err)}`);
   }
-  if (!path.relative(folder, fs.realpathSync(link)).startsWith('..')) {
+  return placed;
+}
+
+// linkAway replaces `rel` in `folder` with a link to `target`, which lies outside
+// the folder and is placed by the caller, first moving aside whatever stood at
+// `rel`. It refuses as not run, with the folder put back, where the link cannot
+// be placed or does not lead out of the folder.
+export function linkAway(folder: string, rel: string, target: string): LinkedAway {
+  const placed = placeLink(folder, rel, target, () => (fs.statSync(target).isDirectory() ? 'dir' : 'file'));
+  if (!path.relative(folder, fs.realpathSync(placed.link)).startsWith('..')) {
     putBackLinked(placed);
-    throw new NotRun(`${link} does not lead outside ${folder}`);
+    throw new NotRun(`${placed.link} does not lead outside ${folder}`);
+  }
+  return placed;
+}
+
+// linkAwayLeadingNowhere replaces `rel` in `folder` with a link to `target`, a
+// file that does not exist in a directory outside the folder that does: a link
+// leading nowhere, whose far end a write through it would create outside. It
+// refuses as not run, with the folder put back, where the link cannot be placed,
+// where its far end exists or the directory it would be created in does not, or
+// where that far end is not outside the folder.
+export function linkAwayLeadingNowhere(folder: string, rel: string, target: string): LinkedAway {
+  const placed = placeLink(folder, rel, target, () => 'file');
+  const farEnd = path.resolve(path.dirname(placed.link), fs.readlinkSync(placed.link));
+  if (present(farEnd) || !fs.existsSync(path.dirname(farEnd)) || !path.relative(folder, farEnd).startsWith('..')) {
+    putBackLinked(placed);
+    throw new NotRun(`${placed.link} is not a link leading nowhere to a file a write would create outside ${folder}: it leads to ${farEnd}`);
   }
   return placed;
 }

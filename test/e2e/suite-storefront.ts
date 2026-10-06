@@ -17,7 +17,7 @@ import { UNREACHABLE_HOST } from './fixtures';
 import { NoticeReading, noticeReadings, watchNotice } from './graph-drawing';
 import { findGraphPanel, GRAPH_PANEL_OPENING, graphCouldNotBeDrawn } from './graph-panel';
 import { DiagnosticEntry } from './probe-client';
-import { Publication, referenceAnswer, ReferenceAnswer } from './reference';
+import { Publication, referenceAnswer, ReferenceAnswer, shortCodeOf } from './reference';
 import { CACHE_MISS_CHECKS, cacheMissChecks } from './suite-cache-miss';
 import { CONFIG_PANEL_CHECKS, configPanelChecks } from './suite-config-panel';
 import {
@@ -1630,8 +1630,8 @@ async function refusedBuildCheck(ctx: SuiteContext, referenceFolder: string): Pr
   const refManifest = path.join(referenceFolder, path.basename(manifest));
   const refConfig = path.join(referenceFolder, path.basename(config));
   await ctx.checks.run('problems.refused-build-stays-on-the-release-through-its-close-until-a-build-resolves', {
-    expected: `with the Manifest's Feature mapping "${SECRET_MAPPING}" rewritten on disk to "${UNHELD_MAPPING}", an entity no catalog holds, Build pressed on the Commands panel is refused, and the Problems panel then carries one entry in the words of the language server's own refusal of the same build over the reference copy mapped the same way — on ${RELEASE}, at its head, under "aggrega", with no code — and those words on no other entry; the Problems panel draws it, and nowhere draws "${OPERATION_REFUSALS_COLLECTION}"; ${RELEASE} opened, the entry stands beside whatever the Release's own validation files; given ${PLAIN_TEXT.name} — which the editor reports as closing the YAML document — the Release's own findings leave and that entry alone stays, watched for ${CLOSED_WATCH_MS} ms; and with the mapping put back, Build completes and the entry leaves`,
-    plant: 'in the scratch copy, out/src/extension.js made to keep the refusals of a build, a preview or a graph in the document-validation layer\'s collection; or out/src/operation-refusals.js made to file nothing for an answer that completed',
+    expected: `with the Manifest's Feature mapping "${SECRET_MAPPING}" rewritten on disk to "${UNHELD_MAPPING}", an entity no catalog holds, Build pressed on the Commands panel is refused, and the Problems panel then carries one entry in the words of the language server's own refusal of the same build over the reference copy mapped the same way — on ${RELEASE}, at its head, under "aggrega", its code the short code that refusal's data names for its condition — and those words on no other entry; the Problems panel draws it, and nowhere draws "${OPERATION_REFUSALS_COLLECTION}"; ${RELEASE} opened, the entry stands beside whatever the Release's own validation files; given ${PLAIN_TEXT.name} — which the editor reports as closing the YAML document — the Release's own findings leave and that entry alone stays, watched for ${CLOSED_WATCH_MS} ms; and with the mapping put back, Build completes and the entry leaves`,
+    plant: 'in the scratch copy, out/src/extension.js made to keep the refusals of a build, a preview or a graph in the document-validation layer\'s collection; or out/src/operation-refusals.js made to file nothing for an answer that completed; or out/src/error-surfaces.js with a refusal filed as an entry carrying none of the identifiers its data names',
   }, async () => {
     need((await statusLog(ctx.d)).slice(-1)[0]?.reading === RUNNING, 'the language server is not running, so nothing can be built');
     const found = fs.readFileSync(manifest, 'utf8');
@@ -1656,6 +1656,8 @@ async function refusedBuildCheck(ctx: SuiteContext, referenceFolder: string): Pr
       need(!ref.ok && ref.error.code === ERR_ENTITY_NOT_RESOLVABLE, `the language server answered the build of the reference copy ${ref.ok ? 'without refusing it' : `refusing it with ${String(ref.error.code)}: ${ref.error.message.slice(0, 200)}`}, so its dependencies do not fail in this state`);
       const named = ref.error.data as { file?: string; lockfile?: string } | null;
       need(!named?.file && !named?.lockfile, `the language server's refusal names a document of its own, ${JSON.stringify(named)}, so it is not about the Release this check reads`);
+      const shortCode = shortCodeOf(ref.error.data);
+      need(shortCode !== null, `the language server's refusal names no condition in its data, ${JSON.stringify(ref.error.data)}, so there is no short code for the entry to carry`);
       words = ref.error.message.split(referenceFolder).join(ctx.folder);
 
       // The same state in the folder the editor opened, made from outside it. Build
@@ -1676,7 +1678,7 @@ async function refusedBuildCheck(ctx: SuiteContext, referenceFolder: string): Pr
         if (on[0].source !== 'aggrega') { faults.push(`its source is ${on[0].source}`); }
         if (on[0].severity !== 'Error') { faults.push(`its severity is ${on[0].severity}`); }
         if (JSON.stringify(on[0].range) !== JSON.stringify(head)) { faults.push(`it spans ${JSON.stringify(on[0].range)}, not the head of the Release`); }
-        if (on[0].code !== null) { faults.push(`it carries the code ${on[0].code}`); }
+        if (on[0].code !== shortCode) { faults.push(`its code is ${on[0].code ?? 'none'}, the refusal's data naming ${shortCode}`); }
       }
       if (elsewhere.length > 0) { faults.push(`the same words are filed on ${JSON.stringify(elsewhere)} as well`); }
 

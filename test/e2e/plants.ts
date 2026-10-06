@@ -129,6 +129,27 @@ const SELECTED_RELEASE = 'releases-with-own-catalogs-selected-release';
 const RELEASE_TERMS = 'out/src/release-terms.js';
 const TRANSLATOR = 'out/src/translator.js';
 
+// A refusal filed as a Problems entry carrying none of the identifiers its data
+// names — the edit the two scenarios reading a refused build's entry are each read
+// against.
+const REFUSAL_ENTRY_WITHOUT_ITS_CODES = {
+  file: 'out/src/error-surfaces.js',
+  find: '        ...(0, error_text_1.refusalCondition)(err),\n',
+  replace: '',
+  says: 'a refusal filed as a Problems entry carries none of the identifiers its data names, so the entry shows no short code',
+} as const;
+
+// The scenario recording the workspace's default Release, the compiled line of the
+// command doing it, and the line of the ending a refused write is shown with.
+const DEFAULT_RELEASE = 'three-releases-default-release';
+const DEFAULT_RELEASE_COMMAND = '        await (0, release_actions_1.createActiveReleaseMarker)(selectedRelease(), requestSetActiveRelease);';
+const MARKER_NOT_WRITTEN = '            message: `Aggrega: could not write ${workspace_1.AGGREGA_DIR}/${workspace_1.ACTIVE_RELEASE_MARKER_BASENAME}: ${(0, error_text_1.describeError)(err)}`,';
+
+// The module deciding whether an action opens the workspace's configuration file,
+// and its compiled line deciding it from the language server's answer.
+const CONFIGURATION_OPENING = 'out/src/configuration-leading-out.js';
+const OPENING_DECIDED = '    return named === undefined ? OPENS : { open: false, message: configurationNotOpened(named) };';
+
 // The compiled lines composing a build request from the Release selected.
 const BUILD_DIALS = 'out/src/build-dials.js';
 const BUILD_RELEASE_PARAM = '    const params = {\n        release,\n        [exports.AUTO_PULL_DIAL]: on.includes(exports.AUTO_PULL_DIAL),';
@@ -1001,6 +1022,48 @@ export const PLANTS: readonly Plant[] = [
     name: 'graph-failure-line-without-the-reason', scenario: SELECTED_RELEASE, checks: ['graph.refused-for-a-catalog-file-leading-out-in-the-compilers-words'], moves: 'red', target: 'extension',
     file: GRAPH_FAILURE, find: '    return `The topology of ${release} could not be drawn: ${message}`;', replace: '    return `The topology of ${release} could not be drawn.`;',
     says: 'the line for a drawing that could not be made, on the channel and in a panel with nothing drawn, leaves out the compiler\'s words for why',
+  },
+  // The condition a refusal names, carried onto the Problems entry it is filed as.
+  { name: 'refusal-entry-without-its-short-code', scenario: SELECTED_RELEASE, checks: ['build.refused-for-an-output-directory-leading-out-in-the-compilers-words'], moves: 'red', target: 'extension', ...REFUSAL_ENTRY_WITHOUT_ITS_CODES },
+  { name: 'refusal-entry-without-its-short-code-storefront', scenario: 'storefront', checks: ['problems.refused-build-stays-on-the-release-through-its-close-until-a-build-resolves'], moves: 'red', target: 'extension', ...REFUSAL_ENTRY_WITHOUT_ITS_CODES },
+  // ---- the workspace's default Release, recorded by the language server ----
+  {
+    name: 'default-release-written-by-the-extension', scenario: DEFAULT_RELEASE,
+    checks: ['default-release.refused-where-its-directory-leads-out', 'default-release.refused-where-the-marker-leads-out', 'default-release.refused-where-the-marker-leads-nowhere-outside'],
+    moves: 'red', target: 'extension',
+    file: EXTENSION, find: DEFAULT_RELEASE_COMMAND,
+    replace: `        require('fs').mkdirSync(require('path').join(workspaceRootForCommands, '.aggrega'), { recursive: true });\n        require('fs').writeFileSync(require('path').join(workspaceRootForCommands, '.aggrega', 'active-release'), selectedRelease() + '\\n');\n${DEFAULT_RELEASE_COMMAND}`,
+    says: 'the command writes .aggrega/active-release itself, through whatever link stands at its place, before it asks the language server to',
+  },
+  {
+    name: 'default-release-refusal-in-the-extensions-words', scenario: DEFAULT_RELEASE,
+    checks: ['default-release.refused-where-its-directory-leads-out', 'default-release.refused-where-the-marker-leads-out', 'default-release.refused-where-the-marker-leads-nowhere-outside'],
+    moves: 'red', target: 'extension',
+    file: 'out/src/active-release-marker.js', find: MARKER_NOT_WRITTEN, replace: MARKER_NOT_WRITTEN.replace('${(0, error_text_1.describeError)(err)}', 'the language server refused it'),
+    says: 'a refused write of the marker ends in words of the extension\'s own in place of the compiler\'s',
+  },
+  {
+    name: 'default-release-asked-of-the-reader', scenario: DEFAULT_RELEASE, checks: ['default-release.recorded-inside-and-started-on-once-the-remembered-choice-is-gone'], moves: 'red', target: 'extension',
+    file: EXTENSION, find: "    return await daemon.request('aggrega/setActiveRelease', params);", replace: "    return await daemon.request('aggrega/activeRelease', params);",
+    says: 'the command is sent to the language server as the request reading the default rather than the one recording it, so nothing is recorded',
+  },
+  // ---- the configuration file, as the actions that open it find it ----
+  {
+    name: 'configuration-leading-out-opened', scenario: 'configuration-file-leading-out',
+    checks: ['configuration-file.release-configuration-command-leaves-one-leading-out-unopened', 'configuration-file.create-workspace-controls-leave-one-leading-out-unopened'],
+    moves: 'red', target: 'extension',
+    file: CONFIGURATION_OPENING, find: OPENING_DECIDED, replace: '    return OPENS;',
+    says: 'a configuration file the language server names as leading out of the workspace is opened like any other',
+  },
+  {
+    name: 'configuration-withheld-with-no-server', scenario: 'configuration-file-invalid', checks: ['configuration-file.release-configuration-command-opens-an-invalid-one'], moves: 'red', target: 'extension',
+    file: CONFIGURATION_OPENING, find: '    catch {\n        return OPENS;\n    }', replace: "    catch {\n        return { open: false, message: configurationNotOpened('.aggrega-config.yaml') };\n    }",
+    says: 'a configuration file is left unopened wherever no language server answers to judge it, so one the compiler refuses, which keeps the server from starting, cannot be opened to repair',
+  },
+  {
+    name: 'configuration-withheld-whatever-the-answer', scenario: 'configuration-file-linked-inside', checks: ['configuration-file.release-configuration-command-opens-one-linked-inside'], moves: 'red', target: 'extension',
+    file: CONFIGURATION_OPENING, find: OPENING_DECIDED, replace: '    return { open: false, message: configurationNotOpened(spelled) };',
+    says: 'a configuration file found already there is left unopened whether or not the language server names it as leading out',
   },
   // ---- the storefront folder with the topology graph open ----
   { name: 'context-row-renamed-graph-panel', scenario: 'storefront-graph-panel', checks: ['commands-panel.context-rows-name-the-opened-folder'], moves: 'red', target: 'extension', ...CONTEXT_ROW_LABEL },

@@ -671,15 +671,40 @@ say so:
   the build's output directory, the Release's lockfile, the selected Release
   itself and a document beneath a catalog directory it reads — and each refusal
   is read where the editor shows it, in the language server's own words: a
-  build's and a graph's on the Release in the Problems panel and in their
-  endings, a pull's in its ending, the Catalog panel's in its failure row, and a
-  validation's as a finding carrying its short code; nothing behind a link is
-  written or removed.
+  build's and a graph's on the Release in the Problems panel, carrying the short
+  code the refusal names, and in their endings, a pull's in its ending, the
+  Catalog panel's in its failure row, and a validation's as a finding carrying its
+  short code; nothing behind a link is written or removed.
 - `workspace-above-interruption` opens a folder beneath a workspace root it has
   no marker of its own for: the dialog that says so and the mark it leaves on the
   row, the dialog raised again in each new window until the reader asks not to be
   told about that folder, which silences that folder alone, and the two ways to
   open the workspace itself.
+
+Others follow what the editor writes into the workspace itself, and the actions
+that open its configuration file:
+
+- `three-releases-default-release` opens a folder holding three Releases and
+  naming no default, and records the selected one as the workspace's default
+  with **Aggrega: Set the selected Release as this workspace's default** — first
+  with the `.aggrega` directory a link to a directory outside the workspace, then
+  with the marker a link to a file outside it, then with the marker a link leading
+  nowhere, whose far end a write would create outside it. Each ends in the
+  language server's own refusal, and the directory outside holds the same files
+  with the same bytes before and after. Recorded inside the folder, the marker
+  names the selected Release, and once the Release the window remembers is no
+  longer offered, the editor closed and opened again starts on the one
+  recorded.
+- `configuration-file-leading-out` opens a folder whose `.aggrega-config.yaml` is
+  a link to a file outside the workspace: the Release configuration command, and
+  the control creating a workspace configuration on the welcome page and beside
+  the Aggrega workspace row, each say the file is not opened and why, and open
+  nothing.
+- `configuration-file-invalid` opens a folder whose `.aggrega-config.yaml` the
+  compiler refuses, so no language server starts there, and
+  `configuration-file-linked-inside` one whose `.aggrega-config.yaml` is a link to
+  a file inside the workspace: in each, the Release configuration command opens
+  the file.
 
 Another group reads the Commands panel and the panels beside it:
 

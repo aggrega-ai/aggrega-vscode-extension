@@ -127,6 +127,19 @@ channel says which. Nearest: `gateway-cache` /
 `cache.trim-that-removes-with-nothing-held-open-says-nothing-of-it`,
 `cache.clear-with-nothing-held-open-says-nothing-of-it`.
 
+### A configuration file beneath the workspace root, on Windows
+
+The language server names a link it did not read by its path relative to the workspace root, its
+parts separated by forward slashes on every platform, and the extension compares the configuration
+file it would open with those names. The suite runs where a path's parts are separated by a forward
+slash anyway, so no check reads that comparison where they are not. On Windows, open a folder
+beneath its Aggrega workspace, make that folder's `.aggrega-config.yaml` a link to a file outside
+the workspace holding no `workspace:` block, so the folder is no root of its own, and press **Create
+a workspace configuration** on the welcome page. Expect the error saying the file is not opened
+because it leads outside the Aggrega workspace, naming it by its path from the root with forward
+slashes, and no tab opened on it. Nearest: `configuration-file-leading-out` /
+`configuration-file.create-workspace-controls-leave-one-leading-out-unopened`.
+
 ### What needs the network or an input the suite is not given
 
 - **Seeding the official hub on a machine with no configuration file.** The welcome page's

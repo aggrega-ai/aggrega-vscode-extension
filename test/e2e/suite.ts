@@ -21,6 +21,11 @@ import { BENEATH_CHECKS, beneathChecks } from './suite-beneath';
 import { DISCOVERY_CHECKS, DISCOVERY_FIRST, DISCOVERY_LAYOUTS, discoveryChecks } from './suite-discovery';
 import { FOLDER_ADDS_CHECKS, FOLDER_ADDS_FIRST, FOLDER_ADDS_LAYOUTS, folderAddsChecks, NOT_A_FOLDER } from './suite-folder-adds';
 import { CACHE_CHECKS, cacheChecks } from './suite-cache';
+import {
+  INVALID_CHECKS, invalidConfigurationChecks, LEADING_OUT_CHECKS, leadingOutChecks, LINKED_INSIDE_CHECKS, linkedInsideChecks, placeConfigurationLeadingOut,
+  placeConfigurationLinkedInside, placeInvalidConfiguration,
+} from './suite-configuration-actions';
+import { DEFAULT_RELEASE_CHECKS, defaultReleaseChecks, placeThirdRelease } from './suite-default-release';
 import { COMMANDS_PANEL_CHECKS, commandsPanelChecks } from './suite-commands-panel';
 import { DOCKED_CONFIGURATION_CHECKS, dockedConfigurationChecks } from './suite-docked-configuration';
 import { DOCKED_MENUS_CHECKS, dockedMenusChecks } from './suite-docked-menus';
@@ -97,6 +102,10 @@ export const SCENARIO_CHECKS: Readonly<Record<string, readonly string[]>> = {
   'workspace-discovery-layouts': DISCOVERY_CHECKS,
   'release-beneath-a-workspace-root': BENEATH_CHECKS,
   'workspace-above-interruption': ABOVE_DIALOG_CHECKS,
+  'three-releases-default-release': DEFAULT_RELEASE_CHECKS,
+  'configuration-file-leading-out': LEADING_OUT_CHECKS,
+  'configuration-file-invalid': INVALID_CHECKS,
+  'configuration-file-linked-inside': LINKED_INSIDE_CHECKS,
   'welcome-page-empty-folder': WELCOME_EMPTY_FOLDER_CHECKS,
   'welcome-page-configured-workspace': WELCOME_CONFIGURED_CHECKS,
   'welcome-page-mixed-workspace': WELCOME_MIXED_CHECKS,
@@ -577,6 +586,59 @@ function plans(inputs: Inputs): ScenarioPlan[] {
         return { folder: path.join(layouts, ABOVE_DIALOG_FIRST), fixtures, extra: { layouts } };
       },
       body: (ctx, p) => aboveDialogChecks(ctx, p.extra?.layouts as string),
+    },
+    {
+      name: 'three-releases-default-release',
+      checks: DEFAULT_RELEASE_CHECKS,
+      prepare: async (root) => {
+        const folder = path.join(root.dir, 'workspace', 'three-releases');
+        const fixtures = [
+          placeFolder(inputs.extension.dir, 'two-releases', folder, inputs.catalog.dir),
+          placeThirdRelease(folder),
+          proveNothingAbove(folder),
+        ];
+        return { folder, fixtures };
+      },
+      body: (ctx) => defaultReleaseChecks(ctx),
+    },
+    {
+      name: 'configuration-file-leading-out',
+      checks: LEADING_OUT_CHECKS,
+      prepare: async (root) => {
+        const folder = path.join(root.dir, 'workspace', 'two-releases');
+        const placed = placeFolder(inputs.extension.dir, 'two-releases', folder, inputs.catalog.dir);
+        const leading = placeConfigurationLeadingOut(folder);
+        return { folder, fixtures: [placed, leading.proof, proveNothingAbove(folder)], extra: { outside: leading.outside } };
+      },
+      body: (ctx, p) => leadingOutChecks(ctx, p.extra?.outside as string),
+    },
+    {
+      name: 'configuration-file-invalid',
+      checks: INVALID_CHECKS,
+      prepare: async (root, home, log) => {
+        const folder = path.join(root.dir, 'workspace', 'two-releases');
+        const fixtures = [
+          placeFolder(inputs.extension.dir, 'two-releases', folder, inputs.catalog.dir),
+          await placeInvalidConfiguration(bin, folder, home, log),
+          proveNothingAbove(folder),
+        ];
+        return { folder, fixtures };
+      },
+      body: (ctx) => invalidConfigurationChecks(ctx),
+    },
+    {
+      name: 'configuration-file-linked-inside',
+      checks: LINKED_INSIDE_CHECKS,
+      prepare: async (root) => {
+        const folder = path.join(root.dir, 'workspace', 'two-releases');
+        const fixtures = [
+          placeFolder(inputs.extension.dir, 'two-releases', folder, inputs.catalog.dir),
+          placeConfigurationLinkedInside(folder),
+          proveNothingAbove(folder),
+        ];
+        return { folder, fixtures };
+      },
+      body: (ctx) => linkedInsideChecks(ctx),
     },
     {
       name: 'welcome-page-empty-folder',
