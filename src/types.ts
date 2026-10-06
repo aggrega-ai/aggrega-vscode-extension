@@ -126,6 +126,16 @@ export type JsonRpcError = wire.ErrorObject;
 // path; lockfile is a lockfile; release is a Release, spelled the way the
 // request named it, so a client can compose the remediating command without
 // parsing it back out of the message.
+//
+// code and shortCode name the condition a refusal reports, and they arrive
+// together or not at all. code is the descriptive name a client branches on;
+// shortCode is the letter E and four digits a reader quotes, the same code the
+// message opens with. Which condition a refusal names is read from these two and
+// never from the message: the short code at the head of the message is there for
+// the person reading it, and a message that merely opens with something shaped
+// like one names no condition. An answer without them names none, whatever its
+// numeric code — that code says how the request ended, and many conditions share
+// it.
 export type ErrorData = wire.ErrorData;
 
 // Daemon application error codes (see internal/serve/errors.go).
@@ -322,6 +332,13 @@ export type DependencyResolutionReport = wire.DependencyResolutionReport;
 // reading itself and change whenever that does. Pass it through; never match
 // patterns against it or lift values out of it.
 export type ActiveReleaseResponse = wire.ActiveReleaseResult;
+
+// SetActiveReleaseParams is the aggrega/setActiveRelease request: the Release to
+// record as the workspace's default, as a path relative to the workspace root.
+// The language server writes the marker, holding it and the directory it sits in
+// to the workspace, and answers with what aggrega/activeRelease answers once it
+// is written.
+export type SetActiveReleaseParams = wire.SetActiveReleaseParams;
 
 // ScaffoldEntityResponse is the aggrega/scaffoldEntity result: the kind the
 // skeleton was derived for, and the skeleton itself as YAML text.

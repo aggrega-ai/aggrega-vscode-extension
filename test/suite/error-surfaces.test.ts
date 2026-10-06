@@ -12,6 +12,7 @@ import {
   WhoAsked,
   handleDaemonError,
   lockfileNotice,
+  refusalEntry,
   resetSessionDedup,
 } from '../../src/error-surfaces';
 import { operationLabel } from '../../src/operation-groups';
@@ -511,6 +512,51 @@ describe('the identifier affordance a diagnostic earns', () => {
     assert.deepStrictEqual(Object.keys(shape).sort(), [
       'endChar', 'endLine', 'message', 'severity', 'source', 'startChar', 'startLine',
     ]);
+  });
+
+  it('a refusal filed as an entry shows the short code its fields name', () => {
+    // The refusal names its condition in its data, and its message opens with the
+    // short code for the person reading it. The entry carries both identifiers
+    // from the data, so the code the Problems panel shows is the field's.
+    const entry = refusalEntry({
+      code: ERR_ENTITY_NOT_RESOLVABLE,
+      message: 'E0321: the link /w/catalog/linked.yaml leads to /elsewhere/feature.yaml, outside /w: a file '
+        + 'this operation reads leads through a link out of the directory it must stay inside',
+      data: { file: '/w/release.yaml', line: 3, column: 5, code: 'read-leads-out-of-workspace', shortCode: 'E0321' },
+    });
+    assert.ok(entry !== undefined);
+    assert.strictEqual(entry.code, 'read-leads-out-of-workspace');
+    assert.strictEqual(entry.shortCode, 'E0321');
+    assert.strictEqual(editorCodeForShape(entry), 'E0321');
+  });
+
+  it('a refusal whose fields name no condition is filed with no code, as before', () => {
+    const entry = refusalEntry({ code: ERR_ENTITY_NOT_RESOLVABLE, message: 'oci://hub/foo not found', data: { file: '/w/a.yaml' } });
+    assert.ok(entry !== undefined);
+    assert.strictEqual(editorCodeForShape(entry), undefined);
+    // The exact key set, so a key present carrying nothing fails here.
+    assert.deepStrictEqual(Object.keys(entry).sort(), [
+      'endChar', 'endLine', 'message', 'severity', 'source', 'startChar', 'startLine',
+    ]);
+  });
+
+  it('a message that merely looks like it names a condition does not, and the fields win', () => {
+    // 🔴 THE MESSAGE IS NEVER READ FOR A CODE. One opening with a short code but
+    // carrying no fields names nothing; one whose fields name a condition shows
+    // the field's short code whatever the message opens with.
+    const looksCoded = refusalEntry({ code: ERR_ENTITY_NOT_RESOLVABLE, message: 'E0321: a sentence shaped like a refusal' });
+    assert.ok(looksCoded !== undefined);
+    assert.strictEqual(editorCodeForShape(looksCoded), undefined);
+    assert.ok(!('code' in looksCoded) && !('shortCode' in looksCoded), 'an identifier was read off the message');
+
+    const fieldsWin = refusalEntry({
+      code: ERR_ENTITY_NOT_RESOLVABLE,
+      message: 'E0999: words that open with another code',
+      data: { code: 'read-leads-out-of-workspace', shortCode: 'E0321' },
+    });
+    assert.ok(fieldsWin !== undefined);
+    assert.strictEqual(editorCodeForShape(fieldsWin), 'E0321');
+    assert.strictEqual(fieldsWin.message, 'E0999: words that open with another code', 'the message was altered');
   });
 
   it('tells a code that resolves to nothing apart from no code at all', () => {

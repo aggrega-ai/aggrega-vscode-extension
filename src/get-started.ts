@@ -53,6 +53,7 @@ import {
   stepReadings,
 } from './get-started-steps';
 import { AppliedWrite, ConfigurationWriter, endingInEffect } from './config-change-watch';
+import { ServerListing, configurationOpening } from './configuration-leading-out';
 import {
   ServerReading,
   VersionStandings,
@@ -194,6 +195,11 @@ export interface GetStartedDeps extends RendersOnReady {
   // server is held by the surface that starts it, and passing it in is what lets
   // the reading of that condition be exercised without a compiler.
   listRegistries(): Promise<RegistryListDoc>;
+  // serverListing is how the control creating a workspace configuration asks the
+  // running language server whether the configuration file it found already there
+  // is a link leading out of the workspace, which only that server judges. It is a
+  // dependency because the server is held by the surface that starts it.
+  serverListing: ServerListing;
   // readVersions reports what this extension and the compiler in use say about
   // themselves.
   //
@@ -834,6 +840,11 @@ async function setShown(shown: boolean): Promise<void> {
 // root of an Aggrega workspace, then re-attaches so the step reports itself met
 // without the window being reloaded. Where a language server has read the file
 // once that is over, its ending says the change is in effect.
+//
+// A configuration file already there is opened rather than replaced, except
+// where the language server attached by the re-attachment names it as a link
+// leading out of the workspace: then it is left unopened, and the one ending is
+// the error saying why, in place of the sentence saying it was opened.
 async function createWorkspace(deps: GetStartedDeps, refresh: () => void): Promise<void> {
   const folder = vscode.workspace.workspaceFolders?.[0];
   if (!folder) {
@@ -885,6 +896,11 @@ async function createWorkspace(deps: GetStartedDeps, refresh: () => void): Promi
   if (!attached) { return; }
   refresh();
 
+  const opening = await configurationOpening(deps.serverListing, target, created ? 'created' : 'found');
+  if (!opening.open) {
+    void vscode.window.showErrorMessage(opening.message);
+    return;
+  }
   const doc = await vscode.workspace.openTextDocument(target);
   await vscode.window.showTextDocument(doc);
   void vscode.window.showInformationMessage(

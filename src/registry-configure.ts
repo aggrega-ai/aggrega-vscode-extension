@@ -9,7 +9,7 @@ import {
   reachOfDestination,
   reachPhrase,
 } from './config-write-scope';
-import { isJsonRpcError } from './error-surfaces';
+import { refusalCondition } from './error-surfaces';
 import { OperationOutcome, outcomeOf } from './operation-outcome';
 import { PinnedByHand, registrationSentence } from './registration-outcome';
 import { withSubject } from './operation-groups';
@@ -260,16 +260,16 @@ export function keyDialogTitle(host: string): string {
 }
 export const KEY_DIALOG_BUTTON = 'Pin this key';
 
-// OFFLINE_REGISTRATION_WITHOUT_TRUST_POLICY is the short code of the compiler's
-// refusal to register a registry other than the official hub while the workspace
-// is offline and no policy was supplied by hand.
+// OFFLINE_REGISTRATION_WITHOUT_TRUST_POLICY is the code of the compiler's refusal
+// to register a registry other than the official hub while the workspace is
+// offline and no policy was supplied by hand.
 //
-// 🔴 IT IS HELD HERE BECAUSE NOTHING ELSE ON THE WIRE NAMES THE CONDITION. The
-// refusal carries it at the head of its message, and a short code is handed out
-// once and never given to another condition, which is what makes it the identity
-// a client records for a condition it acts on. The sentence after it is not read:
-// it is the compiler's, and it may be reworded.
-export const OFFLINE_REGISTRATION_WITHOUT_TRUST_POLICY = 'E0310';
+// 🔴 IT IS MATCHED AGAINST THE CODE THE REFUSAL'S DATA CARRIES, AND AGAINST
+// NOTHING ELSE. That field is the condition's descriptive name, the identifier
+// the compiler publishes for a client to branch on. The short code the message
+// opens with is there for the reader, and the sentence after it is the
+// compiler's and may be reworded, so neither is read.
+export const OFFLINE_REGISTRATION_WITHOUT_TRUST_POLICY = 'offline-registration-without-trust-policy';
 
 // asksForTrust says whether a completed registration leaves the reader a trust
 // policy to pin by hand: the registry was asked and no advertised policy came
@@ -291,8 +291,7 @@ export function asksForTrust(result: RegistryAddResult): boolean {
 // exactly the identities and the key as that remedy, so it is the same case as a
 // registry advertising nothing, met before anything was written.
 export function refusedForWantOfTrust(err: unknown): boolean {
-  return isJsonRpcError(err)
-    && err.message.startsWith(`${OFFLINE_REGISTRATION_WITHOUT_TRUST_POLICY}: `);
+  return refusalCondition(err).code === OFFLINE_REGISTRATION_WITHOUT_TRUST_POLICY;
 }
 
 // pinsAnything says whether a reader's answers supply anything to pin. Where they

@@ -15,6 +15,40 @@ export function isJsonRpcError(v: unknown): v is JsonRpcError {
   return !!v && typeof v === 'object' && typeof (v as JsonRpcError).code === 'number';
 }
 
+// RefusalCondition is the condition a refusal names, as the two identifiers the
+// language server carries for it in the refusal's data: code, the descriptive
+// name a client branches on, and shortCode, the one a reader quotes. A key is
+// present only where the refusal carried it.
+export interface RefusalCondition {
+  code?: string;
+  shortCode?: string;
+}
+
+// refusalCondition reads the condition a thrown value names, and it is the one
+// place the extension reads it.
+//
+// 🔴 IT READS THE FIELDS AND NEVER THE MESSAGE. The short code a refusal's
+// message opens with is for the person reading it, and the sentence after it is
+// the compiler's and may be reworded; a message that merely opens with something
+// shaped like a short code names no condition here. A value that is not a
+// language-server refusal, and a refusal whose data carries neither field, name
+// none, so the answer is empty and every caller reads it as it read such a
+// refusal before the fields existed.
+export function refusalCondition(err: unknown): RefusalCondition {
+  const named: RefusalCondition = {};
+  if (!isJsonRpcError(err)) {
+    return named;
+  }
+  const { code, shortCode } = err.data ?? {};
+  if (typeof code === 'string' && code !== '') {
+    named.code = code;
+  }
+  if (typeof shortCode === 'string' && shortCode !== '') {
+    named.shortCode = shortCode;
+  }
+  return named;
+}
+
 // REFUSAL_WITHOUT_WORDS is the line for a refusal the language server answered
 // with no message, which is the one case where there are no words of its own to
 // carry.

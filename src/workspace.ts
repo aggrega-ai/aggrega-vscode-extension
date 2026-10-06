@@ -91,10 +91,10 @@ export const NO_ANCHORED_WORKSPACE_ROW_TOOLTIP =
 // AGGREGA_DIR and ACTIVE_RELEASE_MARKER_BASENAME name the workspace's
 // .aggrega/ directory and the active-release marker inside it. Both have their
 // one definition here — the directory is a workspace anchor this module already
-// detects, and the marker is written from one surface and watched from another.
-// Both derive from these names rather than spelling them again: a marker that
-// moves has to move in one place, or the writer and the watcher part company
-// silently.
+// detects, and the marker is watched from one surface and named by another, the
+// action that has the language server write it. Both derive from these names
+// rather than spelling them again: a marker that moves has to move in one place,
+// or the watcher and the sentence naming the marker part company silently.
 export const AGGREGA_DIR = '.aggrega';
 export const ACTIVE_RELEASE_MARKER_BASENAME = 'active-release';
 const GLOB_PREFIXES = ['aggregate', 'release', 'manifest'] as const;
@@ -153,12 +153,6 @@ export const ANCHOR_CANDIDATE_GLOB =
     (prefix) => YAML_SUFFIXES.map((suffix) => `${prefix}*${suffix}`),
   ).join(',') +
   `}`;
-
-// activeReleaseMarkerPath is the absolute path of the workspace's
-// active-release marker.
-export function activeReleaseMarkerPath(workspaceRoot: string): string {
-  return path.join(workspaceRoot, AGGREGA_DIR, ACTIVE_RELEASE_MARKER_BASENAME);
-}
 
 // ACTIVE_RELEASE_MARKER_GLOB matches the active-release marker anywhere in the
 // open workspace, for a file watcher that wants to know when it changes.

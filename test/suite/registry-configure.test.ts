@@ -48,6 +48,7 @@ import { EXTENSION_ROOT, launchFacilityCount, readSourceTree } from '../helpers/
 interface DaemonRefusal {
   code: number;
   message: string;
+  data?: { code?: string; shortCode?: string };
 }
 
 // The three sentences the compiler writes when it refuses one of these
@@ -309,6 +310,9 @@ const OFFLINE_REFUSAL =
   + 'registered offline without a trust policy supplied by hand, because the policy it '
   + 'advertises cannot be fetched; register it once while online, or pin its trust by hand '
   + 'with `aggrega registry add <host> --identity <identity>=<issuer>` or `--key <public-key-file>`';
+// The condition the offline refusal names, as its data carries it: the
+// descriptive code a client branches on and the short code its message opens with.
+const OFFLINE_CONDITION = { code: 'offline-registration-without-trust-policy', shortCode: 'E0310' };
 const MALFORMED_IDENTITY_REFUSAL =
   'aggrega registry add: --identity "not-an-identity-pair" must be in the form identity=issuer';
 const NOT_ADVERTISED = 'registrytrust: registry advertises no trust config';
@@ -358,7 +362,7 @@ describe('the reader is asked for a trust policy to pin by hand exactly where th
   });
 
   it('asks after the offline refusal whose remedy is identities or a key, naming the host the request carried', async () => {
-    const refusal: DaemonRefusal = { code: REFUSAL_CODE, message: OFFLINE_REFUSAL };
+    const refusal: DaemonRefusal = { code: REFUSAL_CODE, message: OFFLINE_REFUSAL, data: OFFLINE_CONDITION };
     assert.strictEqual(refusedForWantOfTrust(refusal), true);
     const ending = await runRegistryAdd(recorder({ add: refusal }), '  localhost:2  ', 'global');
     assert.strictEqual(ending.asksForTrust, true);
@@ -372,21 +376,47 @@ describe('the reader is asked for a trust policy to pin by hand exactly where th
   });
 
   it('does not ask after any other refusal, nor after a failure that is not a refusal', async () => {
-    // The last row carries the offline refusal's words on a value that is not a
-    // language-server refusal, so the short code is read only where the server
-    // answered with it.
+    // The rows carrying the offline refusal's words name another condition in
+    // their data, or none, or arrive on a value that is not a language-server
+    // refusal at all — so what is read is the condition the server named, never
+    // the words.
     const others: unknown[] = [
       { code: REFUSAL_CODE, message: ADD_REFUSAL },
       { code: REFUSAL_CODE, message: MALFORMED_IDENTITY_REFUSAL },
       { code: REFUSAL_CODE, message: OFFLINE_REFUSAL.replace('E0310: ', 'E0309: ') },
       { code: REFUSAL_CODE, message: OFFLINE_REFUSAL.replace('E0310: ', '') },
+      {
+        code: REFUSAL_CODE,
+        message: OFFLINE_REFUSAL,
+        data: { code: 'workspace-config-invalid', shortCode: 'E0224' },
+      },
       new Error(OFFLINE_REFUSAL),
+      Object.assign(new Error(OFFLINE_REFUSAL), { data: OFFLINE_CONDITION }),
     ];
     for (const refusal of others) {
       assert.strictEqual(refusedForWantOfTrust(refusal), false, `read ${String((refusal as { message?: string }).message)} as the offline refusal`);
     }
     const ending = await runRegistryAdd(recorder({ add: { code: REFUSAL_CODE, message: ADD_REFUSAL } }), 'registry.example.test', 'global');
     assert.strictEqual(ending.asksForTrust, false);
+  });
+
+  it('reads the offline refusal from the condition its data names, whatever its message says', () => {
+    // 🔴 THE FIELDS WIN. A refusal whose message merely opens with the offline
+    // refusal's short code names no condition unless its data does, and one whose
+    // data names the condition is that refusal whatever its words — the short
+    // code at the head of a message is there for the person reading it.
+    assert.strictEqual(
+      refusedForWantOfTrust({ code: REFUSAL_CODE, message: OFFLINE_REFUSAL }),
+      false,
+      'a message opening with the short code was read as naming the condition',
+    );
+    for (const message of [OFFLINE_REFUSAL.replace('E0310: ', ''), OFFLINE_REFUSAL.replace('E0310: ', 'E0309: '), '']) {
+      assert.strictEqual(
+        refusedForWantOfTrust({ code: REFUSAL_CODE, message, data: OFFLINE_CONDITION }),
+        true,
+        `the condition its data names was not read beside the message ${JSON.stringify(message)}`,
+      );
+    }
   });
 
   it('offers exactly the two kinds the command line takes for this case, one, the other, both or neither', () => {

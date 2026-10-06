@@ -168,6 +168,7 @@ import {
   RequestMethod,
   ResolveResponse,
   ScaffoldEntityResponse,
+  SetActiveReleaseParams,
   ValidateParams,
   ValidateResponse,
 } from './types';
@@ -185,6 +186,7 @@ import {
 } from './workspace';
 import { candidateFilesUnder } from './workspace-search';
 import { openAuthoringReleaseConfig, createActiveReleaseMarker } from './release-actions';
+import type { ServerListing } from './configuration-leading-out';
 import { activateOperations, OperationsView } from './operations';
 import { activateLint, LintRunner } from './lint';
 import { LintAnswer, LintSubject, lintRequestParams } from './lint-run';
@@ -1047,6 +1049,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     onSelectionChange: (listener) => releaseSelection?.onChange(listener),
     seedConfiguration: requestConfigInit,
     listRegistries: requestRegistryList,
+    serverListing,
     readVersions: readRunningVersions,
     readServerStanding: languageServerReading,
     output: outputChannel,
@@ -1820,8 +1823,9 @@ function registerChooseProjectFolderCommand(context: vscode.ExtensionContext): v
 // to work on now and recording what to start on next are different acts, and
 // collapsing them would take away the ability to do either without the other.
 //
-// One writes the workspace's local marker; the other opens the configuration
-// file, which is the shared, committed default and outranks the marker.
+// One has the language server write the workspace's local marker; the other
+// opens the configuration file, which is the shared, committed default and
+// outranks the marker.
 //
 // Registered at activation so the Command Palette surfaces them regardless of
 // language-server state — invoking either without an anchored workspace
@@ -1833,14 +1837,14 @@ function registerReleaseActionCommands(context: vscode.ExtensionContext): void {
         void vscode.window.showInformationMessage(NO_ANCHORED_WORKSPACE_MESSAGE);
         return;
       }
-      await openAuthoringReleaseConfig(workspaceRootForCommands, configurationWatch.ownWrite);
+      await openAuthoringReleaseConfig(workspaceRootForCommands, configurationWatch.ownWrite, serverListing);
     }),
     vscode.commands.registerCommand('aggrega.workspace.createActiveReleaseMarker', async () => {
       if (!workspaceRootForCommands) {
         void vscode.window.showInformationMessage(NO_ANCHORED_WORKSPACE_MESSAGE);
         return;
       }
-      await createActiveReleaseMarker(workspaceRootForCommands, selectedRelease());
+      await createActiveReleaseMarker(selectedRelease(), requestSetActiveRelease);
     }),
   );
 }
@@ -2702,6 +2706,33 @@ async function requestActiveRelease(): Promise<ActiveReleaseResponse> {
   }
   return await daemon.request<ActiveReleaseResponse>('aggrega/activeRelease', {});
 }
+
+// requestSetActiveRelease asks the language server to record a Release as this
+// workspace's default by writing the active-release marker, and answers with
+// what requestActiveRelease reads once it is written.
+//
+// The server writes the marker rather than this extension, so the one judgement
+// every write inside the workspace is held to holds this one too: a marker or a
+// `.aggrega` directory that is a link leading out of the workspace is refused,
+// in the compiler's words, with nothing written.
+//
+// Throws when the server is not running, so a caller reports that the marker was
+// not written rather than reporting it recorded.
+async function requestSetActiveRelease(params: SetActiveReleaseParams): Promise<ActiveReleaseResponse> {
+  if (!daemon || daemon.getState() !== DaemonState.Running) {
+    throw new Error('the Aggrega language server is not running');
+  }
+  return await daemon.request<ActiveReleaseResponse>('aggrega/setActiveRelease', params);
+}
+
+// serverListing is how an action that opens the workspace's configuration file
+// asks the running language server whether that file is a link leading out of the
+// workspace: its Release listing, and the root it answers for, which the names in
+// that listing are relative to.
+const serverListing: ServerListing = {
+  listReleases: requestReleaseCandidates,
+  answeredRoot: anchoredWorkspaceRoot,
+};
 
 // requestBuildPreview asks the language server what a build of the given
 // Release would emit. The server runs the same computation a build runs, with

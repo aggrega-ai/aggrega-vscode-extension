@@ -5,14 +5,11 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as vscode from 'vscode';
 
+import { RecordsActiveRelease, recordActiveRelease } from './active-release-marker';
 import type { ConfigurationWriter } from './config-change-watch';
+import { ServerListing, configurationOpening } from './configuration-leading-out';
 import { describeError } from './error-text';
-import {
-  ACTIVE_RELEASE_MARKER_BASENAME,
-  AGGREGA_DIR,
-  CONFIG_FILENAME,
-  activeReleaseMarkerPath,
-} from './workspace';
+import { CONFIG_FILENAME } from './workspace';
 
 // CONFIG_TEMPLATE is what openAuthoringReleaseConfig writes when the
 // folder it was given carries no .aggrega-config.yaml yet. The cursor
@@ -58,9 +55,15 @@ const CONFIG_TEMPLATE = `build:
 // the reader came to write is the value they type next, and saving that is a
 // change the running server has not read, which the watch reports with the
 // restart beside it.
+//
+// A file found already there is opened only where the running language server
+// has not named it as a link leading out of the workspace; where it has, the
+// file is left unopened and an error says why. That judgement is the server's,
+// read through serverListing, and configurationOpening says when it is asked.
 export async function openAuthoringReleaseConfig(
   workspaceRoot: string,
   writeConfiguration: ConfigurationWriter,
+  serverListing: ServerListing,
 ): Promise<void> {
   const configPath = path.join(workspaceRoot, CONFIG_FILENAME);
   let created = false;
@@ -81,6 +84,12 @@ export async function openAuthoringReleaseConfig(
       );
       return;
     }
+  }
+
+  const opening = await configurationOpening(serverListing, configPath, created ? 'created' : 'found');
+  if (!opening.open) {
+    void vscode.window.showErrorMessage(opening.message);
+    return;
   }
 
   let doc: vscode.TextDocument;
@@ -114,56 +123,28 @@ export async function openAuthoringReleaseConfig(
   }
 }
 
-// createActiveReleaseMarker writes the Release the editor currently has
-// selected into the workspace's active-release marker, making it this
-// workspace's default: what a fresh editor session starts on, and what the
-// command line picks up when it is not told otherwise.
+// createActiveReleaseMarker records the Release the editor currently has
+// selected in the workspace's active-release marker, making it this workspace's
+// default: what a fresh editor session starts on, and what the command line
+// picks up when it is not told otherwise.
 //
 // Selecting a Release and persisting one are different acts, and this is the
-// second. The selection already travels on every request, so writing the marker
+// second. The selection already travels on every request, so recording it
 // changes nothing about the session in progress — which is why nothing is
 // restarted here. It records the choice for the next one.
 //
-// selectedRelease is the workspace-relative path the editor is acting on. This
-// function prompts for nothing and detects nothing: the editor already holds
-// the reader's answer, and a prompt here would be a second way to choose a
-// Release. A caller with no selection gets an informational message instead.
-//
-// Filesystem write failures (read-only mount, permission denied, .aggrega/
-// existing as a file rather than a directory) surface as error toasts. The
-// function is idempotent: re-invoking it overwrites the marker.
+// The marker is written by the language server, through record, and never by
+// this extension; recordActiveRelease says why and decides the ending, which is
+// shown here as an error where the write failed and as information otherwise.
+// Re-invoking it records the selection again.
 export async function createActiveReleaseMarker(
-  workspaceRoot: string,
   selectedRelease: string | null,
+  record: RecordsActiveRelease,
 ): Promise<void> {
-  if (!selectedRelease) {
-    void vscode.window.showInformationMessage(
-      'Aggrega: no Release is selected, so there is none to set as this workspace default. Select one first.',
-    );
+  const ending = await recordActiveRelease(record, selectedRelease);
+  if (ending.failed) {
+    void vscode.window.showErrorMessage(ending.message);
     return;
   }
-
-  const markerDir = path.join(workspaceRoot, AGGREGA_DIR);
-  const markerPath = activeReleaseMarkerPath(workspaceRoot);
-  try {
-    await fs.mkdir(markerDir, { recursive: true });
-  } catch (err) {
-    const reason = describeError(err);
-    void vscode.window.showErrorMessage(
-      `Aggrega: could not create ${AGGREGA_DIR}/: ${reason}`,
-    );
-    return;
-  }
-  try {
-    await fs.writeFile(markerPath, selectedRelease + '\n');
-  } catch (err) {
-    const reason = describeError(err);
-    void vscode.window.showErrorMessage(
-      `Aggrega: could not write ${AGGREGA_DIR}/${ACTIVE_RELEASE_MARKER_BASENAME}: ${reason}`,
-    );
-    return;
-  }
-  void vscode.window.showInformationMessage(
-    `Aggrega: ${selectedRelease} is now this workspace's default Release.`,
-  );
+  void vscode.window.showInformationMessage(ending.message);
 }

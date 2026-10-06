@@ -9,6 +9,7 @@ import {
   JsonRpcError,
 } from './types';
 import { ConvertedShape, DIAGNOSTIC_SOURCE_FALLBACK } from './diagnostics-shape';
+import { refusalCondition } from './error-text';
 import { operationLabel } from './operation-groups';
 
 // LOCKFILE_PULL_ACTION is the action the missing-lockfile notice offers, and it
@@ -168,6 +169,12 @@ export function refusalEntry(err: JsonRpcError): ConvertedShape | undefined {
     // validation. Named through the shared constant rather than spelled out
     // again, so the layer has one name across every producer.
     source: DIAGNOSTIC_SOURCE_FALLBACK,
+    // The condition the refusal names, read from its data's fields, so the short
+    // code the Problems panel shows beside the entry is the one the compiler
+    // identified the refusal by rather than one read off its message. A refusal
+    // naming no condition adds neither key, and its entry is what it was before
+    // the fields existed.
+    ...refusalCondition(err),
   };
 }
 
@@ -313,8 +320,8 @@ export function resetSessionDedup(dedup: Map<number, true | number>): void {
   dedup.clear();
 }
 
-// isJsonRpcError and describeError are declared in error-text, which imports
-// nothing at runtime so the language-server client can reach them too, and are
-// offered here as well because this is where every surface reporting a refusal
-// already imports from.
-export { describeError, isJsonRpcError } from './error-text';
+// isJsonRpcError, describeError and refusalCondition are declared in error-text,
+// which imports nothing at runtime so the language-server client can reach them
+// too, and are offered here as well because this is where every surface
+// reporting a refusal already imports from.
+export { describeError, isJsonRpcError, refusalCondition } from './error-text';

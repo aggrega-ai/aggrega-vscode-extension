@@ -9,7 +9,6 @@ import {
   ACTIVE_RELEASE_MARKER_BASENAME,
   ACTIVE_RELEASE_MARKER_GLOB,
   AGGREGA_DIR,
-  activeReleaseMarkerPath,
   findAggregaWorkspaceAnchor,
   releaseParamFor,
   toWorkspaceRelative,
@@ -409,24 +408,21 @@ describe('releaseParamFor', () => {
 });
 
 describe('active-release marker location', () => {
-  const root = path.join(path.sep + 'w', 'proj');
-
-  it('composes the marker path from the directory and file basenames', () => {
-    assert.strictEqual(
-      activeReleaseMarkerPath(root),
-      path.join(root, AGGREGA_DIR, ACTIVE_RELEASE_MARKER_BASENAME),
-    );
+  it('names the marker from the directory and file basenames', () => {
+    assert.strictEqual(ACTIVE_RELEASE_MARKER_GLOB, `**/${AGGREGA_DIR}/${ACTIVE_RELEASE_MARKER_BASENAME}`);
   });
 
-  it('watches exactly the path it writes', () => {
+  it('watches exactly the path the language server writes', () => {
     // This is the property the single definition exists for: the glob a
-    // watcher is built from and the path the marker is written to name the same
-    // location. A watcher whose pattern matches nothing reports no error and
-    // logs nothing, so a mismatch between the two has no symptom beyond an
-    // indicator that quietly stops refreshing — which is why renaming or moving
-    // the marker must break this assertion rather than the feature.
-    const written = path.relative(root, activeReleaseMarkerPath(root)).split(path.sep).join('/');
-    assert.strictEqual(ACTIVE_RELEASE_MARKER_GLOB, `**/${written}`);
+    // watcher is built from names the place the marker is written. The language
+    // server writes it, at `.aggrega/active-release` beneath the workspace root,
+    // so that path is spelled here as a literal rather than derived from the
+    // constants the glob is built from — a derivation would move with them. A
+    // watcher whose pattern matches nothing reports no error and logs nothing, so
+    // a mismatch has no symptom beyond an indicator that quietly stops refreshing,
+    // which is why moving the marker must break this assertion rather than the
+    // feature.
+    assert.strictEqual(ACTIVE_RELEASE_MARKER_GLOB, '**/.aggrega/active-release');
   });
 
   it('uses forward slashes in the glob on every platform', () => {

@@ -64,7 +64,7 @@ const HOST_LINE_READS_REACH = '        return host.unreachable === true';
 // composing the registration request.
 const REGISTRY_CONFIGURE = 'out/src/registry-configure.js';
 const ASKS_FOR_TRUST = '    return result.trust.notAdvertised === true && !result.trust.pinned && !result.trust.baseline;';
-const OFFLINE_REFUSAL_CODE = "exports.OFFLINE_REGISTRATION_WITHOUT_TRUST_POLICY = 'E0310';";
+const OFFLINE_REFUSAL_CODE = "exports.OFFLINE_REGISTRATION_WITHOUT_TRUST_POLICY = 'offline-registration-without-trust-policy';";
 const REGISTRATION_REQUEST = '    const request = { host: checked, ...(0, config_write_scope_1.configWriteOverrides)(destination) };';
 // The compiled lines ending a registration that carries what the reader supplied
 // by hand, where a refusal becomes the ending the reader is shown.
@@ -859,8 +859,8 @@ export const PLANTS: readonly Plant[] = [
   },
   {
     name: 'offline-refusal-code-misread', scenario: 'storefront-with-registries', checks: ['registration.asks-for-a-trust-policy-after-the-offline-refusal'], moves: 'red', target: 'extension',
-    file: REGISTRY_CONFIGURE, find: OFFLINE_REFUSAL_CODE, replace: OFFLINE_REFUSAL_CODE.replace("'E0310'", "'E0311'"),
-    says: 'the offline refusal is recognised by a short code it does not carry, so it is followed by no question',
+    file: REGISTRY_CONFIGURE, find: OFFLINE_REFUSAL_CODE, replace: OFFLINE_REFUSAL_CODE.replace("'offline-registration-without-trust-policy'", "'malformed-trust-policy'"),
+    says: 'the offline refusal is recognised by a code it does not carry, so it is followed by no question',
   },
   {
     name: 'refused-key-file-content-shown', scenario: 'storefront-with-registries', checks: ['registration.refuses-a-key-file-that-is-not-a-public-key-without-showing-its-content'], moves: 'red', target: 'extension',
@@ -1568,8 +1568,8 @@ export const PLANTS: readonly Plant[] = [
   {
     name: 'authoring-release-writes-where-nothing-is-anchored', scenario: 'no-workspace-first-day', checks: ['workspace-config.authoring-release-with-no-workspace-says-so-and-writes-nothing'], moves: 'red', target: 'extension',
     file: EXTENSION,
-    find: '        if (!workspaceRootForCommands) {\n            void vscode.window.showInformationMessage(workspace_1.NO_ANCHORED_WORKSPACE_MESSAGE);\n            return;\n        }\n        await (0, release_actions_1.openAuthoringReleaseConfig)(workspaceRootForCommands, configurationWatch.ownWrite);',
-    replace: '        if (!workspaceRootForCommands) {\n            await (0, release_actions_1.openAuthoringReleaseConfig)(vscode.workspace.workspaceFolders[0].uri.fsPath, configurationWatch.ownWrite);\n            return;\n        }\n        await (0, release_actions_1.openAuthoringReleaseConfig)(workspaceRootForCommands, configurationWatch.ownWrite);',
+    find: '        if (!workspaceRootForCommands) {\n            void vscode.window.showInformationMessage(workspace_1.NO_ANCHORED_WORKSPACE_MESSAGE);\n            return;\n        }\n        await (0, release_actions_1.openAuthoringReleaseConfig)(workspaceRootForCommands, configurationWatch.ownWrite, serverListing);',
+    replace: '        if (!workspaceRootForCommands) {\n            await (0, release_actions_1.openAuthoringReleaseConfig)(vscode.workspace.workspaceFolders[0].uri.fsPath, configurationWatch.ownWrite, serverListing);\n            return;\n        }\n        await (0, release_actions_1.openAuthoringReleaseConfig)(workspaceRootForCommands, configurationWatch.ownWrite, serverListing);',
     says: 'with nothing anchored, the Release configuration command writes a configuration into the folder opened',
   },
   {
@@ -1587,8 +1587,8 @@ export const PLANTS: readonly Plant[] = [
   {
     name: 'authoring-release-opens-the-folders-own', scenario: 'workspace-above-authoring-release', checks: ['workspace-config.authoring-release-opens-the-roots-configuration'], moves: 'red', target: 'extension',
     file: EXTENSION,
-    find: '        await (0, release_actions_1.openAuthoringReleaseConfig)(workspaceRootForCommands, configurationWatch.ownWrite);',
-    replace: '        await (0, release_actions_1.openAuthoringReleaseConfig)(vscode.workspace.workspaceFolders[0].uri.fsPath, configurationWatch.ownWrite);',
+    find: '        await (0, release_actions_1.openAuthoringReleaseConfig)(workspaceRootForCommands, configurationWatch.ownWrite, serverListing);',
+    replace: '        await (0, release_actions_1.openAuthoringReleaseConfig)(vscode.workspace.workspaceFolders[0].uri.fsPath, configurationWatch.ownWrite, serverListing);',
     says: 'the Release configuration command opens the configuration of the folder opened rather than the workspace root\'s',
   },
   // ---- the gateway folder, a draft and a publication ----
