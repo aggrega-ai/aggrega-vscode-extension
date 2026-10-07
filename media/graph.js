@@ -7,7 +7,8 @@
 // is declared in, since the IR ships no coordinates), draws it as
 // SVG with a legend for the parts of the drawing that are otherwise unreadable,
 // shows what is attached to the node the reader selects and what may attach to
-// it, and posts a source-open request back when a node is double-clicked.
+// it, shows what is attached to the connection the reader selects by its edge,
+// and posts a source-open request back when a node is double-clicked.
 //
 // This file owns the document, which makes it the only side that can measure
 // text — so it supplies the measurement the layout model asks for, and every
@@ -98,20 +99,33 @@
   // for it are not always the same moment.
   let unframedLayout = null;
 
-  // The projected attachments for every node of the rendered graph, and the
-  // node the panel is showing. Both are rebuilt on every render: a re-render
-  // may carry a different topology, and a panel left showing a node the new
-  // graph no longer holds would report an attachment set that is nobody's.
+  // The projected attachments for every node of the rendered graph and for
+  // every connection carrying any, and the node or the connection the panel is
+  // showing. All are rebuilt on every render: a re-render may carry a different
+  // topology, and a panel left showing a node or a connection the new graph no
+  // longer holds would report an attachment set that is nobody's.
   //
   // The projection is built once, at render, and the IR payload is not held
   // past it. What the panel needs is the projection; retaining the payload
   // would keep every value the projection withheld alive in this view for as
   // long as the panel stayed open, which buys nothing.
   let shownAttachments = new Map();
+  // The connections' rows, keyed by the attachment model's connection key, and
+  // how many connections of each node carry a row.
+  let shownConnections = new Map();
+  let connectionRowsOf = new Map();
   let selectedId = null;
+  // The drawn edge the panel is showing, or null. A node and a connection are
+  // never selected at once: selecting either clears the other.
+  let selectedEdge = null;
   // The drawn node groups, so selecting one can mark it and unmark the rest,
   // and so what the drawing on screen carries is read off the drawing itself.
   const nodeGroups = new Map();
+  // The drawn edges, each as its group and the connection it draws — the
+  // consuming node, the target, the socket and the alias the compiler sent for
+  // it, and the key its attachments are found under — so selecting one marks it
+  // and its panel is titled from its own facts.
+  let drawnEdges = [];
   // The body of the palette section for the node the panel is showing, so an
   // answer that arrives later fills it without the whole panel being redrawn
   // underneath the reader.
@@ -239,12 +253,18 @@
     hideStatus();
 
     // The selection survives a re-render when the new graph still holds the
-    // node. A recompile re-renders underneath the reader, and dropping the
+    // node, or still draws the connection — the same consuming node, socket and
+    // alias. A recompile re-renders underneath the reader, and dropping the
     // selection every time would close the panel while they are reading it.
     const wasSelected = selectedId;
-    shownAttachments = projectAttachments(graph, showsSensitiveValues);
+    const wasEdgeKey = selectedEdge === null ? null : selectedEdge.connection.key;
+    const projected = projectAttachments(graph, showsSensitiveValues);
+    shownAttachments = projected.nodes;
+    shownConnections = projected.connections;
+    connectionRowsOf = projected.rowsOf;
     clearSelection();
     nodeGroups.clear();
+    drawnEdges = [];
 
     while (canvas.firstChild) { canvas.removeChild(canvas.firstChild); }
     viewport = document.createElementNS(SVGNS, 'g');
@@ -267,6 +287,9 @@
 
     if (wasSelected !== null && nodeGroups.has(wasSelected)) {
       selectNode(wasSelected);
+    } else if (wasEdgeKey !== null) {
+      const still = drawnEdges.find((d) => d.connection.key === wasEdgeKey);
+      if (still) { selectEdge(still); }
     }
 
     // A drawing the reader asked for is framed afresh, and that is the way back
@@ -384,6 +407,14 @@
   // same colour, and the same dash where the edge's origin draws one — and an
   // arrowhead cannot read as belonging to a different edge than its line. It is
   // drawn on the last section of the edge, the one arriving at the target.
+  //
+  // An edge is a connection the reader can select, so each one is drawn as a
+  // group the click is taken on: its line, its arrowhead, and over both a wider
+  // band drawn in no colour, because a line drawn at the width an edge is drawn
+  // at is too thin to be pressed reliably. The connection it draws is read off
+  // the compiler's own edge — its consuming node, target, socket and alias —
+  // and keyed by the attachment model's one spelling of a connection, which is
+  // what the attachments drawn on it are found under.
   function drawEdges(edges, origins) {
     for (const e of edges) {
       // An edge's geometry is stated against the container the layout engine
@@ -394,33 +425,60 @@
       if (e._origin === 'release') { cls += ' edge-release'; }
       else if (e._origin === 'feature') { cls += ' edge-feature'; }
       const hover = model.edgeTooltip(e);
+      const group = document.createElementNS(SVGNS, 'g');
+      group.setAttribute('class', 'edge-group');
       paths.forEach((path, at) => {
-        const pts = path.map((p) => `${p.x},${p.y}`).join(' ');
-        const poly = document.createElementNS(SVGNS, 'polyline');
-        poly.setAttribute('points', pts);
-        poly.setAttribute('class', cls);
-        const tip = document.createElementNS(SVGNS, 'title');
-        tip.textContent = hover;
-        poly.appendChild(tip);
-        viewport.appendChild(poly);
-        if (at === paths.length - 1) { drawDirectionMark(path, cls, hover); }
+        group.appendChild(edgeLine(path, cls, hover));
+        if (at === paths.length - 1) { drawDirectionMark(group, path, `${cls} edge-mark`, hover); }
       });
+      // The bands come after the line and its arrowhead, so the arrowhead is
+      // still written straight after the line it ends.
+      paths.forEach((path, at) => {
+        group.appendChild(edgeLine(path, 'edge-hit', hover));
+        if (at === paths.length - 1) { drawDirectionMark(group, path, 'edge-hit', hover); }
+      });
+      const source = e.sources[0];
+      const drawn = {
+        group: group,
+        connection: {
+          key: attachments.connectionKey(source, e._socket, e._alias),
+          source: source,
+          target: e.targets[0],
+          socket: e._socket,
+          alias: e._alias,
+        },
+      };
+      group.addEventListener('click', () => { selectEdge(drawn); });
+      drawnEdges.push(drawn);
+      viewport.appendChild(group);
     }
   }
 
+  // edgeLine is one section of an edge as a line, with the edge's hover.
+  function edgeLine(path, cls, hover) {
+    const poly = document.createElementNS(SVGNS, 'polyline');
+    poly.setAttribute('points', path.map((p) => `${p.x},${p.y}`).join(' '));
+    poly.setAttribute('class', cls);
+    const tip = document.createElementNS(SVGNS, 'title');
+    tip.textContent = hover;
+    poly.appendChild(tip);
+    return poly;
+  }
+
   // drawDirectionMark draws the arrowhead at a line's last point, with the
-  // line's classes and its hover, so pointing at the arrowhead names the same
-  // edge pointing at the line does.
-  function drawDirectionMark(path, cls, hover) {
+  // classes it is handed — the line's own and the arrowhead's — and the line's
+  // hover, so pointing at the arrowhead names the same edge pointing at the line
+  // does. The band over it is drawn by the same call, with the band's class.
+  function drawDirectionMark(parent, path, cls, hover) {
     const points = model.directionMark(path);
     if (points.length === 0) { return; }
     const mark = document.createElementNS(SVGNS, 'polygon');
     mark.setAttribute('points', points.map((p) => `${p.x},${p.y}`).join(' '));
-    mark.setAttribute('class', `${cls} edge-mark`);
+    mark.setAttribute('class', cls);
     const tip = document.createElementNS(SVGNS, 'title');
     tip.textContent = hover;
     mark.appendChild(tip);
-    viewport.appendChild(mark);
+    parent.appendChild(mark);
   }
 
   // --- the legend -----------------------------------------------------------
@@ -479,7 +537,9 @@
 
   function clearSelection() {
     selectedId = null;
+    selectedEdge = null;
     nodeGroups.forEach((g) => { g.classList.remove('node-selected'); });
+    drawnEdges.forEach((d) => { d.group.classList.remove('edge-selected'); });
     panelEl.classList.add('hidden');
     panelTitleEl.textContent = '';
     clear(panelBodyEl);
@@ -490,20 +550,32 @@
     attachOutcomeEl = null;
   }
 
-  // projectAttachments projects every node's attachments up front, so the IR
-  // payload is read here and nowhere else and need not outlive the render. The
-  // projection is made against the setting the graph was posted with, so a panel
-  // left open shows what that graph was built to show until the next one arrives.
+  // projectAttachments projects every node's attachments up front, and the
+  // attachments of every connection carrying any, so the IR payload is read here
+  // and nowhere else and need not outlive the render. The projection is made
+  // against the setting the graph was posted with, so a panel left open shows
+  // what that graph was built to show until the next one arrives.
+  //
+  // Which list an attachment is drawn in is the attachment model's decision,
+  // taken once for both lists, so an attachment is drawn on its node or on its
+  // connection and never on both or on neither.
   function projectAttachments(graph, showsSensitiveValues) {
     const nodes = ((graph && graph.spec) || {}).nodes || {};
-    const projected = new Map();
+    const projected = { nodes: new Map(), connections: new Map(), rowsOf: new Map() };
     for (const id of Object.keys(nodes)) {
-      projected.set(id, attachments.attachmentsFor(graph, id, showsSensitiveValues));
+      projected.nodes.set(id, attachments.attachmentsFor(graph, id, showsSensitiveValues));
+      const rows = attachments.connectionAttachmentsFor(graph, id, showsSensitiveValues);
+      for (const row of rows) {
+        projected.connections.set(attachments.connectionKey(row.source, row.socket, row.alias), row);
+      }
+      projected.rowsOf.set(id, rows.length);
     }
     return projected;
   }
 
   function selectNode(nodeId) {
+    selectedEdge = null;
+    drawnEdges.forEach((d) => { d.group.classList.remove('edge-selected'); });
     selectedId = nodeId;
     nodeGroups.forEach((g, id) => { g.classList.toggle('node-selected', id === nodeId); });
     drawPanel(shownAttachments.get(nodeId) || { nodeId: nodeId, attachments: [] });
@@ -518,18 +590,67 @@
   // The palette below the attachments is appended in both cases, because "what
   // may attach" is a question worth an answer precisely when nothing is
   // attached yet.
+  //
+  // The attachments written on the node's connections are not in this list —
+  // they are drawn on each connection — so where any connection of the node
+  // carries one, the panel says where they are, and an empty list is said to be
+  // empty of the node's own attachments rather than of every attachment it has.
   function drawPanel(projected) {
     panelTitleEl.textContent = projected.nodeId;
     clear(panelBodyEl);
+    const onConnections = (connectionRowsOf.get(projected.nodeId) || 0) > 0;
 
     if (projected.attachments.length === 0) {
-      panelBodyEl.appendChild(el('p', 'panel-empty', 'Nothing is attached to this node.'));
+      panelBodyEl.appendChild(el('p', 'panel-empty', onConnections
+        ? 'Nothing is attached to this node itself.'
+        : 'Nothing is attached to this node.'));
     } else {
       for (const a of projected.attachments) {
         panelBodyEl.appendChild(drawAttachment(a));
       }
     }
+    if (onConnections) {
+      panelBodyEl.appendChild(el('p', 'panel-empty',
+        'Its connections carry attachments of their own: click a connection\'s edge to see them.'));
+    }
     panelBodyEl.appendChild(drawCandidatesSection());
+  }
+
+  // --- a selected connection ------------------------------------------------
+
+  // selectEdge opens the panel on the connection one drawn edge draws, and marks
+  // that edge. Selecting a connection clears a selected node first, and with it
+  // the palette a node's panel waits on, so an answer about a node arriving later
+  // has nothing to fill.
+  function selectEdge(drawn) {
+    clearSelection();
+    selectedEdge = drawn;
+    drawnEdges.forEach((d) => { d.group.classList.toggle('edge-selected', d === drawn); });
+    drawConnectionPanel(drawn.connection, shownConnections.get(drawn.connection.key));
+    panelEl.classList.remove('hidden');
+  }
+
+  // drawConnectionPanel writes one connection into the panel: a title naming it
+  // by the edge's own ends, its socket and its alias, and the attachments drawn
+  // on it, each by the same renderer a node's are drawn by and from the same
+  // projection — so a value withheld on a node is withheld on a connection by the
+  // same rule, under the same setting.
+  function drawConnectionPanel(connection, row) {
+    panelTitleEl.textContent = `${connection.source} → ${connection.target}`;
+    clear(panelBodyEl);
+    const facts = el('dl', 'facts');
+    addFact(facts, 'socket', connection.socket);
+    addFact(facts, 'alias', connection.alias);
+    if (facts.childNodes.length > 0) { panelBodyEl.appendChild(facts); }
+
+    const list = row ? row.attachments : [];
+    if (list.length === 0) {
+      panelBodyEl.appendChild(el('p', 'panel-empty', 'Nothing is attached to this connection.'));
+    } else {
+      for (const a of list) {
+        panelBodyEl.appendChild(drawAttachment(a));
+      }
+    }
   }
 
   // --- what may attach ------------------------------------------------------

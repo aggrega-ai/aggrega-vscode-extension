@@ -45,9 +45,19 @@ interface Projection {
   attachments: Attachment[];
 }
 
+interface ConnectionRow {
+  source: string;
+  socket: string;
+  alias: string;
+  attachments: Attachment[];
+}
+
 interface AttachmentsModel {
   attachmentsFor(graph: unknown, nodeId: string, showsSensitiveValues?: unknown): Projection;
+  connectionAttachmentsFor(graph: unknown, nodeId: string, showsSensitiveValues?: unknown): ConnectionRow[];
+  connectionKey(source: string, socket: string, alias: string): string;
   projectAttachment(name: string, entry: unknown, showsSensitiveValues?: unknown): Attachment;
+  redactGraph(graph: unknown): unknown;
   withheldNote(reason: string): string;
   WITHHELD_DECLARED: string;
   WITHHELD_ATTACHMENT: string;
@@ -69,7 +79,10 @@ function loadModel(): AttachmentsModel {
   // reaches the model exactly as a message carrying none does.
   return {
     attachmentsFor: (...args) => structuredClone(model.attachmentsFor(...args)),
+    connectionAttachmentsFor: (...args) => structuredClone(model.connectionAttachmentsFor(...args)),
+    connectionKey: (...args) => model.connectionKey(...args),
     projectAttachment: (...args) => structuredClone(model.projectAttachment(...args)),
+    redactGraph: (graph) => structuredClone(model.redactGraph(graph)),
     withheldNote: (reason) => model.withheldNote(reason),
     WITHHELD_DECLARED: model.WITHHELD_DECLARED,
     WITHHELD_ATTACHMENT: model.WITHHELD_ATTACHMENT,
@@ -504,4 +517,251 @@ describe('AggregaAttachments — the setting that shows sensitive values', () =>
       assert.deepStrictEqual(byPath.get('values.key'), { path: 'values.key', value: LOCATOR, withheld: '' });
     }
   });
+});
+
+describe('AggregaAttachments — an attachment written on a connection', () => {
+  // The fixtures here are the language server's own answer, copied as it emitted
+  // it: the graph of a Release whose gateway holds two attachments of its own and
+  // two written on its connections — one the Aggregate wrote on the connection it
+  // draws through `models` under `gpt`, filling a slot declared sensitive with a
+  // Feature that declares one of its values sensitive, and one the Release wrote
+  // on the connection it draws through `mirrors` under `m1`. Every edge the
+  // gateway draws is there, the two that carry nothing included, so a placement
+  // that matched an edge by anything less than its source, socket and alias
+  // would have somewhere wrong to put an attachment.
+  //
+  // The connection's sensitive value is spelled by the test rather than copied,
+  // so the withheld state can be asserted both ways on one payload; the shape
+  // around it is the emitted one.
+  const CONNECTION_SECRET = 'conn-plaintext-for-the-gpt-connection';
+  const OWN_SECRET = 'own-plaintext-for-the-gateway';
+
+  // Each IR edge the gateway draws, in the order the compiler wrote them.
+  const EDGES = [
+    { source: 'gateway', target: 'model', socket: 'models', alias: 'gpt', socket_declaration: 'declared' },
+    { source: 'gateway', target: 'sink', socket: 'extra', alias: 'side', socket_declaration: 'ad-hoc' },
+    {
+      source: 'gateway', target: 'model', socket: 'peer', alias: 'p1', socket_declaration: 'declared',
+      origin_feature: 'feature.conn/peering', origin_feature_instance: 'peering',
+    },
+    {
+      source: 'gateway', target: 'sink', socket: 'logs', alias: 'out', socket_declaration: 'declared',
+      origin_release: true,
+    },
+    {
+      source: 'gateway', target: 'sink', socket: 'mirrors', alias: 'm1', socket_declaration: 'declared',
+      origin_release: true,
+    },
+  ];
+
+  // The gateway's bucket as the compiler sends it with every value in place —
+  // the answer to a request that asks for the values — keyed and ordered as the
+  // compiler wrote it.
+  function gatewayBucket(): Record<string, unknown> {
+    return {
+      peering: { type: 'feature.conn/peering', resolved_version: '1.0.0', binding: 'free', origin: 'explicit' },
+      'own-token': {
+        type: 'feature.conn/token',
+        resolved_version: '1.0.0',
+        labels: { 'feature.aggrega.ai/kind': 'secret' },
+        binding: 'free',
+        values: { key: 'own-key', secret: OWN_SECRET },
+        origin: 'explicit',
+        values_provenance: { key: { origin: 'explicit' }, secret: { origin: 'explicit' } },
+        sensitive: true,
+        sensitive_payload_leaves: ['values.secret'],
+      },
+      'gpt.credential': {
+        type: 'feature.conn/token',
+        resolved_version: '1.0.0',
+        labels: { 'feature.aggrega.ai/kind': 'secret' },
+        binding: 'credential',
+        values: { key: 'gpt-key', secret: CONNECTION_SECRET },
+        origin: 'explicit',
+        values_provenance: { key: { origin: 'explicit' }, secret: { origin: 'explicit' } },
+        sensitive: true,
+        sensitive_payload_leaves: ['values.secret'],
+        connection: { socket: 'models', alias: 'gpt' },
+      },
+      'm1.note': {
+        type: 'feature.conn/audit',
+        resolved_version: '1.0.0',
+        binding: 'note',
+        origin: 'explicit',
+        connection: { socket: 'mirrors', alias: 'm1' },
+      },
+    };
+  }
+
+  // compiled wraps a bucket for the gateway, with the edges above, in the
+  // envelope the graph answer carries.
+  function compiled(bucket: Record<string, unknown>, edges: unknown[] = EDGES): unknown {
+    return {
+      apiVersion: 'aggrega.ai/v1alpha1',
+      kind: 'IR',
+      metadata: { aggregate_name: 'connection-site-app' },
+      spec: {
+        nodes: {
+          gateway: { component: 'conn/gateway', resolved_version: '1.0.0' },
+          model: { component: 'conn/model', resolved_version: '1.0.0' },
+          sink: { component: 'conn/sink', resolved_version: '1.0.0' },
+        },
+        edges,
+        values_mapping: {},
+        infra_mapping: {},
+        feature_values_mapping: { gateway: bucket },
+      },
+    };
+  }
+
+  function namesOn(projection: { attachments: Attachment[] }): string[] {
+    return projection.attachments.map((a) => a.name);
+  }
+
+  it('draws a connection attachment on its edge and leaves it out of the node\'s list', () => {
+    const graph = compiled(gatewayBucket());
+
+    assert.deepStrictEqual(namesOn(model.attachmentsFor(graph, 'gateway')), ['peering', 'own-token']);
+
+    const rows = model.connectionAttachmentsFor(graph, 'gateway');
+    assert.deepStrictEqual(
+      rows.map((r) => ({ source: r.source, socket: r.socket, alias: r.alias, names: namesOn(r) })),
+      [
+        { source: 'gateway', socket: 'models', alias: 'gpt', names: ['gpt.credential'] },
+        { source: 'gateway', socket: 'mirrors', alias: 'm1', names: ['m1.note'] },
+      ],
+    );
+
+    // Each connection row is drawn by the same projection a node's attachment is.
+    const credential = rows[0].attachments[0];
+    assert.strictEqual(credential.type, 'feature.conn/token');
+    assert.strictEqual(credential.version, '1.0.0');
+    assert.strictEqual(credential.binding, 'credential');
+    assert.strictEqual(credential.sensitive, true);
+
+    // The two lists partition the bucket: every entry is drawn once, on the node
+    // or on a connection, and none is drawn twice or left out.
+    const drawn = [
+      ...namesOn(model.attachmentsFor(graph, 'gateway')),
+      ...rows.flatMap((r) => namesOn(r)),
+    ].sort();
+    assert.deepStrictEqual(drawn, Object.keys(gatewayBucket()).sort());
+
+    // The row is keyed as the drawing keys the edge it belongs to.
+    assert.strictEqual(
+      model.connectionKey(rows[0].source, rows[0].socket, rows[0].alias),
+      model.connectionKey(EDGES[0].source, EDGES[0].socket, EDGES[0].alias),
+    );
+  });
+
+  it('keeps an entry whose connection mark cannot be read in the node\'s list', () => {
+    for (const mark of ['models.gpt', { socket: 'models' }, { alias: 'gpt' }, { socket: 1, alias: 'gpt' },
+      { socket: 'models', alias: null }, null, ['models', 'gpt']]) {
+      const bucket = gatewayBucket();
+      (bucket['gpt.credential'] as Record<string, unknown>).connection = mark;
+      const graph = compiled(bucket);
+      assert.deepStrictEqual(
+        namesOn(model.attachmentsFor(graph, 'gateway')), ['peering', 'own-token', 'gpt.credential'],
+        `the mark ${JSON.stringify(mark)} took the attachment out of the node's list`,
+      );
+      assert.ok(
+        !model.connectionAttachmentsFor(graph, 'gateway').some((r) => namesOn(r).includes('gpt.credential')),
+        `the mark ${JSON.stringify(mark)} placed the attachment on a connection`,
+      );
+    }
+  });
+
+  it('keeps an entry whose mark names no drawn edge out of its node in the node\'s list', () => {
+    const cases: Array<{ what: string; mark: unknown; edges: unknown[] }> = [
+      { what: 'an alias the socket carries no edge under', mark: { socket: 'models', alias: 'nonesuch' }, edges: EDGES },
+      { what: 'a socket the node draws no edge through', mark: { socket: 'nonesuch', alias: 'gpt' }, edges: EDGES },
+      {
+        what: 'an edge drawn from another node',
+        mark: { socket: 'models', alias: 'gpt' },
+        edges: [{ source: 'sink', target: 'model', socket: 'models', alias: 'gpt', socket_declaration: 'declared' }],
+      },
+      {
+        what: 'two edges, which leaves no one connection to draw it on',
+        mark: { socket: 'models', alias: 'gpt' },
+        edges: [EDGES[0], { ...EDGES[0], target: 'sink' }],
+      },
+      { what: 'a graph drawing no edge at all', mark: { socket: 'models', alias: 'gpt' }, edges: [] },
+    ];
+    for (const c of cases) {
+      const bucket = gatewayBucket();
+      (bucket['gpt.credential'] as Record<string, unknown>).connection = c.mark;
+      const graph = compiled(bucket, c.edges);
+      assert.ok(
+        namesOn(model.attachmentsFor(graph, 'gateway')).includes('gpt.credential'),
+        `a mark naming ${c.what} left the attachment undrawn on the node`,
+      );
+      assert.ok(
+        !model.connectionAttachmentsFor(graph, 'gateway').some((r) => namesOn(r).includes('gpt.credential')),
+        `a mark naming ${c.what} placed the attachment on a connection`,
+      );
+    }
+  });
+
+  it('keeps an entry of the node\'s own block in the node\'s list, whatever its name reads like', () => {
+    // An entry carrying no mark is the node's own, even under a name spelled the
+    // way a connection attachment's is; and an entry carrying a mark is placed on
+    // its connection under any name. The name is never read for a connection.
+    const bucket = gatewayBucket();
+    const own = { type: 'feature.conn/audit', resolved_version: '1.0.0', binding: 'free', origin: 'explicit' };
+    const placed = { ...(bucket['gpt.credential'] as Record<string, unknown>) };
+    const renamed: Record<string, unknown> = {
+      peering: bucket.peering,
+      'own-token': bucket['own-token'],
+      'gpt.trace': own,
+      'credential-for-the-model': placed,
+    };
+    const graph = compiled(renamed);
+
+    assert.deepStrictEqual(namesOn(model.attachmentsFor(graph, 'gateway')), ['peering', 'own-token', 'gpt.trace']);
+    assert.deepStrictEqual(
+      model.connectionAttachmentsFor(graph, 'gateway').map((r) => [r.socket, r.alias, namesOn(r)]),
+      [['models', 'gpt', ['credential-for-the-model']]],
+    );
+  });
+
+  it('withholds a declared-sensitive value on a connection attachment with the setting off, and shows it on',
+    () => {
+      const graph = compiled(gatewayBucket());
+
+      for (const stated of [undefined, false, 'true', 1]) {
+        const rows = model.connectionAttachmentsFor(graph, 'gateway', stated);
+        assert.ok(
+          !appearsAnywhere(rows, CONNECTION_SECRET),
+          `with the setting stated as ${JSON.stringify(stated)}, the connection's credential reached the projection`,
+        );
+        const byPath = fieldsByPath(rows[0].attachments[0]);
+        assert.deepStrictEqual(byPath.get('values.secret'), {
+          path: 'values.secret', value: null, withheld: model.WITHHELD_DECLARED,
+        });
+        // The value no declaration covers is shown, on a connection as on a node.
+        assert.deepStrictEqual(byPath.get('values.key'), { path: 'values.key', value: 'gpt-key', withheld: '' });
+      }
+
+      const shown = model.connectionAttachmentsFor(graph, 'gateway', true);
+      assert.deepStrictEqual(fieldsByPath(shown[0].attachments[0]).get('values.secret'), {
+        path: 'values.secret', value: CONNECTION_SECRET, withheld: '',
+      });
+      assert.strictEqual(shown[0].attachments[0].sensitive, true);
+    });
+
+  it('withholds a connection attachment\'s declared-sensitive value at the boundary, where the redaction runs',
+    () => {
+      // The side holding the graph redacts every entry of every bucket before the
+      // view is handed anything, so a connection's value is removed there too and
+      // the view finds only the marker saying why.
+      const redacted = model.redactGraph(compiled(gatewayBucket()));
+      assert.ok(!appearsAnywhere(redacted, CONNECTION_SECRET), 'the redaction left the connection\'s credential in');
+      assert.ok(!appearsAnywhere(redacted, OWN_SECRET), 'the redaction left the node\'s own credential in');
+
+      const rows = model.connectionAttachmentsFor(redacted, 'gateway', false);
+      assert.deepStrictEqual(rows.map((r) => [r.socket, r.alias]), [['models', 'gpt'], ['mirrors', 'm1']]);
+      assert.deepStrictEqual(fieldsByPath(rows[0].attachments[0]).get('values.secret'), {
+        path: 'values.secret', value: null, withheld: model.WITHHELD_DECLARED,
+      });
+    });
 });

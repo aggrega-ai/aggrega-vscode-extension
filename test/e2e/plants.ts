@@ -1270,7 +1270,7 @@ export const PLANTS: readonly Plant[] = [
   },
   {
     name: 'edge-mark-at-the-start', scenario: 'storefront-graph-drawing', checks: ['graph.each-edge-marked-at-the-end-it-points-to'], moves: 'red', target: 'extension',
-    file: GRAPH_SCRIPT, find: '        if (at === paths.length - 1) { drawDirectionMark(path, cls, hover); }', replace: '        if (at === paths.length - 1) { drawDirectionMark(path.slice().reverse(), cls, hover); }',
+    file: GRAPH_SCRIPT, find: '        if (at === paths.length - 1) { drawDirectionMark(group, path, `${cls} edge-mark`, hover); }', replace: '        if (at === paths.length - 1) { drawDirectionMark(group, path.slice().reverse(), `${cls} edge-mark`, hover); }',
     says: 'each edge\'s mark is drawn at the start of its line, on the component that uses the other, rather than at the end on its target',
   },
   {

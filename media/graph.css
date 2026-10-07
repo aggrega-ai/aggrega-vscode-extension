@@ -536,3 +536,27 @@ html, body {
   stroke: #cc79a7;
   stroke-opacity: 0.9;
 }
+
+/* An edge is a connection the reader selects by clicking it. The band drawn
+   over its line and its arrowhead takes the click: it is stroked in no colour,
+   wider than the line, and only its stroke is pressable, so a line bending
+   round a corner does not turn the area inside the bend into part of the edge. */
+.edge-group {
+  cursor: pointer;
+}
+
+.edge-hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 9;
+  pointer-events: stroke;
+}
+
+/* The selected connection, in the focus colour a selected node's outline is
+   drawn in. Its dash is kept, so a selected edge the Release drew still reads
+   as one. */
+.edge-selected .edge {
+  stroke: var(--vscode-focusBorder);
+  stroke-opacity: 1;
+  stroke-width: 2.5;
+}

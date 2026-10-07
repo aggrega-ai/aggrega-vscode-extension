@@ -2,8 +2,9 @@
 // Copyright 2026 Cognitio S.r.l.
 //
 // The document-free half of the attachments panel: the transform from the
-// compiler's IR into the rows the panel draws for one selected node, and the
-// redaction that runs before the IR is handed to the view at all. It reads no
+// compiler's IR into the rows the panel draws for one selected node or one
+// selected connection, and the redaction that runs before the IR is handed to
+// the view at all. It reads no
 // document, touches no DOM and holds no state between projections, so the
 // projection — and above all the withholding of sensitive material — can be
 // exercised on its own. media/graph.js draws whatever this produces.
@@ -401,7 +402,95 @@
     };
   }
 
-  // attachmentsFor projects everything attached to one node. The IR keys its
+  // --- where an attachment is drawn -----------------------------------------
+  //
+  // A node's bucket holds two kinds of attachment: the ones written on the
+  // component's own attachment block, and the ones written on one of the
+  // connections the component draws. The IR tells them apart by a mark the
+  // second kind carries — the connection's socket and alias — and by nothing
+  // else. The panel draws the first kind on the node and the second on the
+  // connection it belongs to.
+  //
+  // 🔴 THE MARK JOINED TO THE GRAPH'S EDGES IS THE ONLY ROUTE TO A CONNECTION.
+  // A connection attachment is keyed in the bucket by the connection's alias and
+  // the slot joined by a dot, and nothing here reads that key apart: the IR
+  // carries the connection as data so that no reader has to recover it from a
+  // name, and a name split on a dot would place an attachment on whichever edge
+  // happened to share a prefix.
+  //
+  // 🔴 NOTHING ATTACHED IS EVER LEFT UNDRAWN. The node's list and the
+  // connections' lists are both computed from the one placement decision below,
+  // so between them they hold every entry of the bucket exactly once. An entry
+  // the decision cannot place on a drawn connection — no mark, a mark in a shape
+  // this cannot read, a mark naming no edge of this graph out of this node, or
+  // one naming more than one, which leaves no single connection to draw it on —
+  // stays in the node's list, which is where the IR holds every one of them.
+  //
+  // Withholding does not depend on where an entry is drawn: both lists are
+  // projected through projectAttachment under the one statement of the setting
+  // the graph arrived with, and the redaction walks every entry of every bucket
+  // whatever it carries.
+
+  // connectionKey is the one spelling of a connection's identity on both sides of
+  // the drawing: the node that draws it, the socket it is wired through, and the
+  // alias it carries there. The drawing keys each edge it draws by it, and the
+  // lists below are keyed by it, so an edge and the attachments placed on it
+  // meet through one function rather than through two spellings that agree.
+  function connectionKey(source, socket, alias) {
+    return JSON.stringify([String(source), String(socket), String(alias)]);
+  }
+
+  // connectionOf is the placement decision for one entry of the bucket of the
+  // node nodeId: the socket and alias of the one edge of the graph whose source
+  // is that node and whose socket and alias are the ones the entry's mark names,
+  // or null where the entry stays in the node's own list.
+  function connectionOf(entry, nodeId, edges) {
+    if (!isPlainObject(entry) || !isPlainObject(entry.connection)) { return null; }
+    const socket = entry.connection.socket;
+    const alias = entry.connection.alias;
+    if (typeof socket !== 'string' || typeof alias !== 'string') { return null; }
+    let matched = 0;
+    for (let i = 0; i < edges.length; i++) {
+      const e = edges[i];
+      if (isPlainObject(e) && e.source === nodeId && e.socket === socket && e.alias === alias) {
+        matched += 1;
+      }
+    }
+    return matched === 1 ? { socket: socket, alias: alias } : null;
+  }
+
+  // placeBucket partitions one node's bucket by that decision, keeping the order
+  // the compiler wrote the entries in: the names that stay on the node, and the
+  // connections that carry the rest, each with its names, in the order each
+  // connection is first met.
+  function placeBucket(graph, nodeId) {
+    const spec = (graph && graph.spec) || {};
+    const mapping = spec.feature_values_mapping;
+    const bucket = isPlainObject(mapping) ? mapping[nodeId] : undefined;
+    const placed = { bucket: {}, own: [], connections: [] };
+    if (!isPlainObject(bucket)) { return placed; }
+    placed.bucket = bucket;
+    const edges = Array.isArray(spec.edges) ? spec.edges : [];
+    const byKey = {};
+    const names = Object.keys(bucket);
+    for (let i = 0; i < names.length; i++) {
+      const on = connectionOf(bucket[names[i]], nodeId, edges);
+      if (on === null) {
+        placed.own.push(names[i]);
+        continue;
+      }
+      const key = connectionKey(nodeId, on.socket, on.alias);
+      if (!Object.prototype.hasOwnProperty.call(byKey, key)) {
+        byKey[key] = { source: nodeId, socket: on.socket, alias: on.alias, names: [] };
+        placed.connections.push(byKey[key]);
+      }
+      byKey[key].names.push(names[i]);
+    }
+    return placed;
+  }
+
+  // attachmentsFor projects what is drawn on one node: the attachments of its
+  // bucket that are not drawn on one of its connections. The IR keys its
   // attachment table by the same node ids the topology is keyed by, so the
   // selected node addresses its own bucket directly and nothing is matched by
   // name or inferred.
@@ -410,17 +499,32 @@
   // and the panel states plainly. `showsSensitiveValues` is passed through to
   // each attachment's projection as it arrived.
   function attachmentsFor(graph, nodeId, showsSensitiveValues) {
-    const spec = (graph && graph.spec) || {};
-    const mapping = spec.feature_values_mapping;
-    const bucket = isPlainObject(mapping) ? mapping[nodeId] : undefined;
-    if (!isPlainObject(bucket)) { return { nodeId: nodeId, attachments: [] }; }
-    const names = Object.keys(bucket);
+    const placed = placeBucket(graph, nodeId);
     return {
       nodeId: nodeId,
-      attachments: names.map(function (n) {
-        return projectAttachment(n, bucket[n], showsSensitiveValues);
+      attachments: placed.own.map(function (n) {
+        return projectAttachment(n, placed.bucket[n], showsSensitiveValues);
       }),
     };
+  }
+
+  // connectionAttachmentsFor projects what is drawn on the connections one node
+  // draws: one row per connection carrying at least one attachment, naming the
+  // connection by its node, socket and alias, with its attachments projected
+  // exactly as a node's are. A connection carrying none has no row, and the
+  // drawing says so itself.
+  function connectionAttachmentsFor(graph, nodeId, showsSensitiveValues) {
+    const placed = placeBucket(graph, nodeId);
+    return placed.connections.map(function (c) {
+      return {
+        source: c.source,
+        socket: c.socket,
+        alias: c.alias,
+        attachments: c.names.map(function (n) {
+          return projectAttachment(n, placed.bucket[n], showsSensitiveValues);
+        }),
+      };
+    });
   }
 
   // --- redaction at the boundary -------------------------------------------
@@ -556,6 +660,8 @@
 
   root.AggregaAttachments = {
     attachmentsFor: attachmentsFor,
+    connectionAttachmentsFor: connectionAttachmentsFor,
+    connectionKey: connectionKey,
     projectAttachment: projectAttachment,
     redactGraph: redactGraph,
     withheldNote: withheldNote,
