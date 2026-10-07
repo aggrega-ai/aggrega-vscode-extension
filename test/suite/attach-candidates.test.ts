@@ -3,7 +3,12 @@
 
 import * as assert from 'node:assert';
 
-import { AttachCandidatesDeps, FEATURES_NOT_OFFERED, postAttachCandidates } from '../../src/attach-candidates';
+import {
+  AttachCandidatesDeps,
+  FEATURES_NOT_OFFERED,
+  postAttachCandidates,
+  postConnectionCandidates,
+} from '../../src/attach-candidates';
 import { AttachCandidatesRequest } from '../../src/attachment-edit';
 import { describeLinksLeadingOut } from '../../src/links-leading-out';
 import { CatalogIndexParams } from '../../src/types';
@@ -135,5 +140,55 @@ describe('the list of what may attach, and the links leading out of the workspac
     await postAttachCandidates({ post: (m) => { posted.push(m); } }, deps, NODE, RELEASE, REQUEST_ID);
     assert.strictEqual(held, false, 'the index was not asked until what may attach had been answered');
     assert.strictEqual(posted.length, 1);
+  });
+});
+
+describe('the slots a connection may fill', () => {
+  const GPT = { socket: 'models', alias: 'gpt' };
+  const SLOTS_ANSWER = { ...ANSWER, node: 'gateway', slots: [], noSlotReason: 'feature-created-connection' };
+
+  async function aboutGpt(
+    candidates: () => Promise<unknown>,
+    catalogIndex: () => Promise<CatalogIndexDoc>,
+  ): Promise<Recorded> {
+    const rec: Recorded = { posted: [], channel: [], attachAsked: [], indexAsked: [] };
+    const deps: AttachCandidatesDeps = {
+      requestAttachCandidates: (request) => { rec.attachAsked.push(request); return candidates(); },
+      requestCatalogIndex: (params) => { rec.indexAsked.push(params); return catalogIndex(); },
+      output: { appendLine: (line) => { rec.channel.push(line); } },
+    };
+    await postConnectionCandidates({ post: (m) => { rec.posted.push(m); } }, deps, 'gateway', GPT, RELEASE, REQUEST_ID);
+    return rec;
+  }
+
+  it('asks the language server with the connection beside the node and the Release', async () => {
+    const rec = await aboutGpt(() => Promise.resolve(SLOTS_ANSWER), naming([], []));
+    assert.deepStrictEqual(rec.attachAsked, [{ graphNode: 'gateway', release: RELEASE, connection: GPT }]);
+    assert.deepStrictEqual(rec.indexAsked, [{ release: RELEASE }]);
+  });
+
+  it('posts the answer as it arrived, tagged with the connection and the request id', async () => {
+    const rec = await aboutGpt(() => Promise.resolve(SLOTS_ANSWER), naming([], []));
+    assert.deepStrictEqual(rec.posted, [{
+      type: 'connectionCandidates', nodeId: 'gateway', connection: GPT, requestId: REQUEST_ID, result: SLOTS_ANSWER,
+    }]);
+    assert.deepStrictEqual(rec.channel, []);
+  });
+
+  it('carries the line naming a link leading out of the workspace, as the node\'s list does', async () => {
+    const rec = await aboutGpt(() => Promise.resolve(SLOTS_ANSWER), naming([], ['linked-feature.yaml']));
+    const [message] = rec.posted as { linksNote?: string }[];
+    assert.strictEqual(message.linksNote,
+      'Features reached through this link are not offered, because it leads outside the Aggrega workspace: linked-feature.yaml');
+  });
+
+  it('posts a refusal by the node\'s path, matched by its request id, and names the connection on the channel', async () => {
+    const rec = await aboutGpt(refused('the Aggrega language server is not running'), naming([], []));
+    assert.deepStrictEqual(rec.posted, [{
+      type: 'attachCandidatesError', nodeId: 'gateway', requestId: REQUEST_ID, message: 'the Aggrega language server is not running',
+    }]);
+    assert.deepStrictEqual(rec.channel, [
+      'attachCandidates failed for the connection gpt through socket models of gateway: the Aggrega language server is not running',
+    ]);
   });
 });

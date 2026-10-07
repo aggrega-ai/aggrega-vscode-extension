@@ -465,6 +465,33 @@ html, body {
   background: var(--vscode-button-secondaryHoverBackground, var(--vscode-button-hoverBackground));
 }
 
+/* One slot of a connection, with the Features that may fill it beneath it. Each
+   slot is ruled off from the one before, as a candidate is, and its candidates
+   sit indented under it, so a row reads as belonging to the slot above. */
+.slot {
+  border-top: 1px solid var(--vscode-editorWidget-border);
+  padding-top: 8px;
+  margin-top: 8px;
+}
+
+.slot:first-child {
+  border-top: none;
+  margin-top: 0;
+  padding-top: 0;
+}
+
+.slot-name {
+  font-weight: 600;
+}
+
+.slot .candidate {
+  margin-left: 10px;
+}
+
+.slot .facts {
+  margin-bottom: 6px;
+}
+
 /* What became of a commit. It keeps the palette's own width and sits under it,
    so a reader who attaches a second Feature still has the list. */
 .attach-outcome {

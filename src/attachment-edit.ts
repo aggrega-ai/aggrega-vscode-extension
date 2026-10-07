@@ -29,9 +29,12 @@ import { LspPosition, ServerEncoding } from './types';
 // authored, and the entry would be created under them.
 //
 // What this side supplies is what the compiler was not asked about: the name
-// the attachment is written under, derived from the Feature's own name; the
-// refusal where that yields nothing or collides with a name already on the
-// node; and the entry's own text.
+// the attachment is written under — derived from the Feature's own name on a
+// node, and the slot's own name on a connection; the refusal where that yields
+// nothing, collides with a name already on the node, or fills a slot the graph
+// already shows filled on the connection; for a connection, which of the two
+// documents the request names, read from the compiled edge that says which one
+// drew it; and the entry's own text.
 
 // INSTANCE_NAME_PATTERN is the shape an attachment's instance name may take.
 // A name outside it is refused rather than reshaped: the name decides whether
@@ -59,20 +62,23 @@ export interface AttachmentSite {
   attached: string[];
 }
 
-// AttachmentContainerRequest is the coordinate the compiler is asked a node's
-// attachment container with: the id the drawn graph keys the node under, and
-// the Release whose graph that is.
+// AttachmentContainerRequest is the coordinate the compiler is asked an
+// attachment container with: the id the drawn graph keys the node under, the
+// Release whose graph that is, and — for an attachment on one of the
+// connections that node's component draws — that connection and the document
+// the attachment is written in.
 //
-// The whole request is those two, and that is why the shape is named here
-// rather than spelled at the call site: there is nothing else for this side to
-// supply, so a third field could only be something this side had composed.
+// The shape is named here rather than spelled at the call site because there is
+// nothing else for this side to supply: a further field could only be something
+// this side had composed.
 export type AttachmentContainerRequest = Required<
   Pick<wire.AttachmentContainerParams, 'graphNode' | 'release'>
->;
+> & Pick<wire.AttachmentContainerParams, 'connection'>;
 
 // AttachCandidatesRequest is the coordinate the compiler is asked what may attach
-// to one drawn node with: the same two as the container question, the id the
-// drawn graph keys the node under and the Release whose graph that is.
+// with: the same as the container question, the id the drawn graph keys the node
+// under and the Release whose graph that is, and — for the slots of one
+// connection that node's component draws — that connection.
 //
 // It carries no label set. The request refuses a Release beside one, and the
 // Release is what decides which catalog directories the candidates are read
@@ -80,7 +86,55 @@ export type AttachmentContainerRequest = Required<
 // directories whichever Release the graph shows.
 export type AttachCandidatesRequest = Required<
   Pick<wire.AttachCandidatesParams, 'graphNode' | 'release'>
->;
+> & Pick<wire.AttachCandidatesParams, 'connection'>;
+
+// ConnectionAddress names one connection a drawn node's component draws: the
+// socket it is wired through and the alias it carries there. Together with the
+// node it is the whole address; nothing else about the connection is a name the
+// reader clicked.
+export type ConnectionAddress = Pick<wire.ConnectionCoordinate, 'socket' | 'alias'>;
+
+// ConnectionDocument is which document an attachment on a connection is
+// written in: the Aggregate, or the Release. The set is the request's own, and
+// closed.
+export type ConnectionDocument = 'aggregate' | 'release';
+
+// ConnectionSite is what the drawn graph knows about one connection: the node
+// whose component draws it, the socket and the alias, the document that drew it,
+// and the slots the graph already shows filled on it.
+//
+// Like AttachmentSite it is built host-side from the compiled graph, never
+// accepted back from the view, and it holds no authored value.
+export interface ConnectionSite extends ConnectionAddress {
+  source: string;
+  // The document an attachment on this connection is written in: the one that
+  // drew it. The compiled edge marks a connection the Release drew; every other
+  // connection is written in the Aggregate. A connection a Feature drew takes
+  // the Aggregate here too, and the compiler refuses an attachment on it in its
+  // own words — whether it may carry one is its answer, not this side's.
+  document: ConnectionDocument;
+  // The slots an attachment on this connection already fills, read from the
+  // entries the graph places on it, so a second fill of one is refused before
+  // anything is written.
+  filled: string[];
+}
+
+// ConnectionPlacement is the one decision of which attachment belongs to which
+// connection, as the drawing makes it. It is the shared attachment model's, run
+// on this side as the view runs it, so the side that refuses a filled slot and
+// the side that draws the connection's attachments read one placement rather
+// than two that agree.
+export interface ConnectionPlacement {
+  // connectionAttachmentsFor reports, for one node, a row per connection its
+  // component draws that carries an attachment, with each attachment's binding.
+  connectionAttachmentsFor(
+    graph: unknown,
+    nodeId: string,
+    showsSensitiveValues: boolean,
+  ): Array<{ source: string; socket: string; alias: string; attachments: Array<{ binding: string }> }>;
+  // connectionKey is the one spelling of a connection's identity.
+  connectionKey(source: string, socket: string, alias: string): string;
+}
 
 // LocatedContainer is the compiler's answer about where an attachment for one
 // node belongs: the document it was authored in, and the structural path to the
@@ -194,6 +248,154 @@ export function attachCandidatesRequest(
   release: string,
 ): AttachCandidatesRequest {
   return { graphNode: nodeId, release };
+}
+
+// connectionCandidatesRequest is the question asking which slots one connection
+// may fill and which Features may fill each: the node whose component draws it,
+// the Release that graph was built from, and the connection.
+//
+// It names no document. The answer is the socket's slots and the Features that
+// match them, the same whichever document an attachment is written in.
+export function connectionCandidatesRequest(
+  nodeId: string,
+  connection: ConnectionAddress,
+  release: string,
+): AttachCandidatesRequest {
+  return {
+    graphNode: nodeId,
+    release,
+    connection: { socket: connection.socket, alias: connection.alias },
+  };
+}
+
+// connectionContainerRequest is the question asking where an attachment on one
+// connection belongs: the node whose component draws it, the Release, and the
+// connection with the document that drew it — read from this side's own table
+// of the compiled graph, never from the view.
+export function connectionContainerRequest(
+  site: ConnectionSite,
+  release: string,
+): AttachmentContainerRequest {
+  return {
+    graphNode: site.source,
+    release,
+    connection: { socket: site.socket, alias: site.alias, document: site.document },
+  };
+}
+
+// connectionWords names one connection in a sentence, in the order the
+// compiler's own refusals name it — the alias, the socket, the node — for the
+// caller to open with an article.
+export function connectionWords(source: string, connection: ConnectionAddress): string {
+  return `connection ${connection.alias} through socket ${connection.socket} of ${source}`;
+}
+
+// fillSlot reports the name an attachment filling one slot of a connection is
+// written under — the slot's own name — or the reason it cannot be written.
+//
+// Both refusals are this side's own. A slot the graph already shows filled on
+// this connection would be a second fill of it, so it is refused before anything
+// is asked, as a name already on a node is. And a slot whose name is not one the
+// entry can be written under as a plain key is refused rather than reshaped:
+// which slot a fill binds is decided by that name alone.
+//
+// Whether the slot is one the socket declares, and whether the Feature may fill
+// it, are not judged here. The panel offers only what the language server
+// answered for this connection, and the build judges what is written.
+export function fillSlot(site: ConnectionSite, slot: string): AttachmentName {
+  if (!INSTANCE_NAME_PATTERN.test(text(slot))) {
+    return { refusal: `The slot ${slot} is not a name an attachment can be written under.` };
+  }
+  if (site.filled.indexOf(slot) >= 0) {
+    return {
+      refusal: `The slot ${slot} of the ${connectionWords(site.source, site)} is already filled.`,
+    };
+  }
+  return { instanceName: slot };
+}
+
+// connectionNotDrawn is the refusal for an attach to a connection this side's
+// table of the drawn graph does not hold — said as a node's is, since nothing
+// can be attached to a connection the graph does not draw.
+export function connectionNotDrawn(source: string, connection: ConnectionAddress): string {
+  return `The ${connectionWords(source, connection)} is not on the graph this panel drew.`;
+}
+
+// ConnectionSites looks one connection of the drawn graph up by the names a
+// message carries: the node whose component draws it, its socket and its alias.
+export type ConnectionSites = (source: string, connection: ConnectionAddress) => ConnectionSite | undefined;
+
+// NO_CONNECTION_SITES is the table of a panel that has drawn nothing.
+export const NO_CONNECTION_SITES: ConnectionSites = () => undefined;
+
+// connectionSites reads what the drawn graph knows about every connection, so
+// an attach to one is computed for a connection the compiler drew rather than
+// for one the view named.
+//
+// A connection is a site where exactly one edge of the graph is drawn from that
+// node through that socket under that alias — the pair is how an attachment
+// names its connection, and a pair two edges share names neither. An edge whose
+// socket or alias is not a name is no site: no connection can be asked about by
+// it.
+//
+// Which slots are filled is read through the shared placement, which puts each
+// attachment of a node on the connection its mark names; this side reads the
+// binding of each entry placed there and nothing else. The placement is asked
+// with the sensitive values withheld, and of what it projects only the bindings
+// are kept.
+//
+// The table is looked up through the same placement's spelling of a
+// connection, so the names a message carries meet the graph's edges through
+// one function.
+export function connectionSites(
+  graph: unknown,
+  placement: ConnectionPlacement,
+): ConnectionSites {
+  const sites = readConnectionSites(graph, placement);
+  return (source, connection) => sites.get(
+    placement.connectionKey(source, connection.socket, connection.alias),
+  );
+}
+
+function readConnectionSites(
+  graph: unknown,
+  placement: ConnectionPlacement,
+): Map<string, ConnectionSite> {
+  const sites = new Map<string, ConnectionSite>();
+  if (!isPlainObject(graph)) { return sites; }
+  const spec = graph.spec;
+  if (!isPlainObject(spec) || !Array.isArray(spec.edges)) { return sites; }
+
+  const shared = new Set<string>();
+  for (const edge of spec.edges) {
+    if (!isPlainObject(edge)) { continue; }
+    const source = text(edge.source);
+    const socket = text(edge.socket);
+    const alias = text(edge.alias);
+    if (!source || !socket || !alias) { continue; }
+    const key = placement.connectionKey(source, socket, alias);
+    if (sites.has(key)) { shared.add(key); }
+    sites.set(key, {
+      source,
+      socket,
+      alias,
+      document: edge.origin_release === true ? 'release' : 'aggregate',
+      filled: [],
+    });
+  }
+  for (const key of shared) { sites.delete(key); }
+
+  const sources = new Set(Array.from(sites.values(), (site) => site.source));
+  for (const source of sources) {
+    for (const row of placement.connectionAttachmentsFor(graph, source, false)) {
+      const site = sites.get(placement.connectionKey(row.source, row.socket, row.alias));
+      if (!site) { continue; }
+      for (const a of row.attachments) {
+        if (a.binding) { site.filled.push(a.binding); }
+      }
+    }
+  }
+  return sites;
 }
 
 // readAttachmentContainer reads the answer about where an attachment belongs,

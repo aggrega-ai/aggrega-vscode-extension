@@ -6,6 +6,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import {
   AttachmentSite,
+  ConnectionSite,
   Insertion,
   attachCandidatesRequest,
   attachFailureLine,
@@ -14,6 +15,11 @@ import {
   attachmentEntryLines,
   attachmentSites,
   composeInsertionText,
+  connectionCandidatesRequest,
+  connectionContainerRequest,
+  connectionNotDrawn,
+  connectionSites,
+  fillSlot,
   insertionEncoding,
   insertionPositionInDocument,
   instanceNameFor,
@@ -22,7 +28,9 @@ import {
   readInsertion,
   refusesEntryShape,
 } from '../../src/attachment-edit';
+import { loadAttachmentsModel } from '../../src/graph-payload';
 import { ERR_ENTITY_NOT_RESOLVABLE } from '../../src/types';
+import { EXTENSION_ROOT } from '../helpers/launch-census';
 
 // The two documents the compiler's own locating tests are written against: one
 // where the attachments block has to be created, one where it has to be
@@ -599,5 +607,222 @@ describe('attachmentSites', () => {
       nodeId: 'orphan',
       attached: [],
     });
+  });
+});
+
+// ---- attaching to a connection ----------------------------------------------
+
+// The edges and the consuming node's bucket the language server answered for a
+// workspace drawing every kind of connection: one the Aggregate drew whose
+// `credential` slot it fills, one into a socket the component does not declare,
+// one a Feature drew, and two the Release drew — through a socket with no slot,
+// and through one whose `note` slot the Release fills. Copied from that answer,
+// with the withheld markers it carried by default.
+const CONNECTION_GRAPH = {
+  spec: {
+    nodes: { gateway: {}, model: {}, sink: {} },
+    edges: [
+      { source: 'gateway', target: 'model', socket: 'models', alias: 'gpt', socket_declaration: 'declared' },
+      { source: 'gateway', target: 'sink', socket: 'extra', alias: 'side', socket_declaration: 'ad-hoc' },
+      {
+        source: 'gateway', target: 'model', socket: 'peer', alias: 'p1', socket_declaration: 'declared',
+        origin_feature: 'feature.conn/peering', origin_feature_instance: 'peering',
+      },
+      { source: 'gateway', target: 'sink', socket: 'logs', alias: 'out', socket_declaration: 'declared', origin_release: true },
+      { source: 'gateway', target: 'sink', socket: 'mirrors', alias: 'm1', socket_declaration: 'declared', origin_release: true },
+    ],
+    feature_values_mapping: {
+      gateway: {
+        'peering': { type: 'feature.conn/peering', resolved_version: '1.0.0', binding: 'free', origin: 'explicit' },
+        'own-token': {
+          type: 'feature.conn/token', resolved_version: '1.0.0', binding: 'free',
+          values: { key: 'own-key', secret: { aggrega_withheld: 'declared' } },
+          sensitive: true, sensitive_payload_leaves: ['values.secret'],
+        },
+        'gpt.credential': {
+          type: 'feature.conn/token', resolved_version: '1.0.0', binding: 'credential',
+          values: { key: 'gpt-key', secret: { aggrega_withheld: 'declared' } },
+          sensitive: true, sensitive_payload_leaves: ['values.secret'],
+          connection: { socket: 'models', alias: 'gpt' },
+        },
+        'm1.note': {
+          type: 'feature.conn/audit', resolved_version: '1.0.0', binding: 'note', origin: 'explicit',
+          connection: { socket: 'mirrors', alias: 'm1' },
+        },
+      },
+    },
+  },
+};
+
+const placement = loadAttachmentsModel(EXTENSION_ROOT);
+
+function connectionSite(over: Partial<ConnectionSite> = {}): ConnectionSite {
+  return { source: 'gateway', socket: 'models', alias: 'gpt', document: 'aggregate', filled: [], ...over };
+}
+
+describe('connectionSites', () => {
+  const sites = connectionSites(CONNECTION_GRAPH, placement);
+  const at = (socket: string, alias: string): ConnectionSite | undefined => sites('gateway', { socket, alias });
+
+  it('reads each connection the graph draws, with the document that drew it and the slots filled on it', () => {
+    assert.deepStrictEqual(at('models', 'gpt'), connectionSite({ filled: ['credential'] }));
+    assert.deepStrictEqual(at('mirrors', 'm1'),
+      connectionSite({ socket: 'mirrors', alias: 'm1', document: 'release', filled: ['note'] }));
+    assert.deepStrictEqual(at('logs', 'out'),
+      connectionSite({ socket: 'logs', alias: 'out', document: 'release' }));
+    assert.deepStrictEqual(at('extra', 'side'), connectionSite({ socket: 'extra', alias: 'side' }));
+  });
+
+  it('takes the Aggregate for a connection a Feature drew, and leaves whether it may carry one to the compiler', () => {
+    // The table does not refuse it: the language server answers that nothing may
+    // be attached there, and refuses an attach in its own words.
+    assert.deepStrictEqual(at('peer', 'p1'), connectionSite({ socket: 'peer', alias: 'p1' }));
+  });
+
+  it('reads the filled slots from where the shared placement puts each entry, never from its key', () => {
+    // The node's own attachments fill no slot of any connection, whatever they
+    // are called; an entry named like a connection's but carrying no mark stays
+    // on the node; a marked entry is placed under any key.
+    const graph = {
+      spec: {
+        edges: [{ source: 'gateway', target: 'model', socket: 'models', alias: 'gpt' }],
+        feature_values_mapping: {
+          gateway: {
+            'gpt.trace': { type: 'f/a', resolved_version: '1', binding: 'free' },
+            'anything': { type: 'f/b', resolved_version: '1', binding: 'trace', connection: { socket: 'models', alias: 'gpt' } },
+          },
+        },
+      },
+    };
+    assert.deepStrictEqual(connectionSites(graph, placement)('gateway', { socket: 'models', alias: 'gpt' }),
+      connectionSite({ filled: ['trace'] }));
+  });
+
+  it('holds names and no authored value', () => {
+    const site = at('models', 'gpt');
+    assert.ok(site !== undefined);
+    assert.deepStrictEqual(Object.keys(site).sort(), ['alias', 'document', 'filled', 'socket', 'source']);
+    assert.ok(!JSON.stringify(site).includes('gpt-key'), 'a value of the connection\'s attachment reached the table');
+  });
+
+  it('holds no connection the graph does not draw', () => {
+    assert.strictEqual(at('models', 'claude'), undefined);
+    assert.strictEqual(at('nope', 'gpt'), undefined);
+    assert.strictEqual(sites('model', { socket: 'models', alias: 'gpt' }), undefined,
+      'a connection is found by the node whose component draws it, not by its target');
+  });
+
+  it('holds no connection two edges name, and none an edge draws without a socket or an alias', () => {
+    const graph = {
+      spec: {
+        edges: [
+          { source: 'a', target: 'b', socket: 's', alias: 'x' },
+          { source: 'a', target: 'c', socket: 's', alias: 'x' },
+          { source: 'a', target: 'b', socket: 's' },
+          { source: 'a', target: 'b', alias: 'y' },
+          { source: 'a', target: 'b', socket: '', alias: 'z' },
+          { source: 'a', target: 'b', socket: 's', alias: 'ok' },
+        ],
+      },
+    };
+    const read = connectionSites(graph, placement);
+    assert.strictEqual(read('a', { socket: 's', alias: 'x' }), undefined);
+    assert.strictEqual(read('a', { socket: '', alias: 'z' }), undefined);
+    // The control: the one connection named once, in full, is held.
+    assert.deepStrictEqual(read('a', { socket: 's', alias: 'ok' }),
+      { source: 'a', socket: 's', alias: 'ok', document: 'aggregate', filled: [] });
+  });
+
+  it('reads a payload in an unexpected shape as no connections, rather than failing', () => {
+    for (const graph of [null, {}, { spec: {} }, { spec: { edges: 'some' } }, { spec: { edges: [7, null] } }]) {
+      assert.strictEqual(connectionSites(graph, placement)('a', { socket: 's', alias: 'x' }), undefined);
+    }
+  });
+});
+
+describe('the requests an attach to a connection asks', () => {
+  it('asks what may fill a connection by the node, the Release and the connection, with no document', () => {
+    const request = connectionCandidatesRequest('gateway', { socket: 'models', alias: 'gpt' }, 'release.yaml');
+    assert.deepStrictEqual(request, {
+      graphNode: 'gateway', release: 'release.yaml', connection: { socket: 'models', alias: 'gpt' },
+    });
+    // The node's own question is unchanged by it.
+    assert.deepStrictEqual(Object.keys(attachCandidatesRequest('gateway', 'release.yaml')).sort(), ['graphNode', 'release']);
+  });
+
+  it('carries only the socket and the alias of a connection it is handed, whatever else the value holds', () => {
+    const handed = { socket: 'models', alias: 'gpt', document: 'release', extra: 1 } as unknown as { socket: string; alias: string };
+    assert.deepStrictEqual(connectionCandidatesRequest('gateway', handed, 'release.yaml').connection,
+      { socket: 'models', alias: 'gpt' });
+  });
+
+  it('asks where the entry goes in the document that drew the connection, read from the table', () => {
+    assert.deepStrictEqual(connectionContainerRequest(connectionSite(), 'release.yaml'), {
+      graphNode: 'gateway', release: 'release.yaml',
+      connection: { socket: 'models', alias: 'gpt', document: 'aggregate' },
+    });
+    assert.deepStrictEqual(
+      connectionContainerRequest(connectionSite({ socket: 'mirrors', alias: 'm1', document: 'release' }), 'release.yaml'),
+      { graphNode: 'gateway', release: 'release.yaml', connection: { socket: 'mirrors', alias: 'm1', document: 'release' } },
+    );
+  });
+
+  it('follows the edge\'s origin from the compiled graph to the request', () => {
+    const sites = connectionSites(CONNECTION_GRAPH, placement);
+    const documentOf = (socket: string, alias: string): unknown => {
+      const site = sites('gateway', { socket, alias });
+      assert.ok(site, `no site for ${socket}/${alias}`);
+      return connectionContainerRequest(site, 'release.yaml').connection?.document;
+    };
+    assert.strictEqual(documentOf('models', 'gpt'), 'aggregate');
+    assert.strictEqual(documentOf('mirrors', 'm1'), 'release');
+    assert.strictEqual(documentOf('logs', 'out'), 'release');
+  });
+});
+
+describe('fillSlot', () => {
+  it('writes the entry under the slot\'s own name', () => {
+    assert.deepStrictEqual(fillSlot(connectionSite({ filled: ['credential'] }), 'trace'), { instanceName: 'trace' });
+  });
+
+  it('refuses a slot the graph already shows filled on that connection, before anything is asked', () => {
+    const named = fillSlot(connectionSite({ filled: ['credential'] }), 'credential');
+    assert.deepStrictEqual(named, {
+      refusal: 'The slot credential of the connection gpt through socket models of gateway is already filled.',
+    });
+  });
+
+  it('refuses only on the connection the slot is filled on', () => {
+    // The same slot name filled on another connection is another slot.
+    assert.deepStrictEqual(fillSlot(connectionSite({ alias: 'claude', filled: [] }), 'credential'),
+      { instanceName: 'credential' });
+  });
+
+  it('refuses a slot name it cannot write as a plain key, rather than reshaping it', () => {
+    for (const slot of ['', 'has space', 'has.dot', 'a: b']) {
+      const named = fillSlot(connectionSite(), slot);
+      assert.ok('refusal' in named, `${JSON.stringify(slot)} was written`);
+    }
+  });
+
+  it('composes the entry under the slot, with the Feature as its type', () => {
+    const named = fillSlot(connectionSite(), 'trace');
+    assert.ok('instanceName' in named);
+    assert.strictEqual(
+      composeInsertionText(
+        answer({ missingContainerKeys: ['models', 'gpt', 'features'], entryIndent: 18, indentStep: 2, entryShape: 'unknown' }),
+        attachmentEntryLines(named.instanceName, 'feature.conn/audit', 2),
+      ),
+      '\n            models:\n              gpt:\n                features:\n                  trace:\n                    type: feature.conn/audit',
+    );
+  });
+});
+
+describe('connectionNotDrawn', () => {
+  it('says the connection is not on the graph, naming it as the compiler does', () => {
+    assert.strictEqual(
+      connectionNotDrawn('gateway', { socket: 'models', alias: 'claude' }),
+      'The connection claude through socket models of gateway is not on the graph this panel drew.',
+    );
   });
 });

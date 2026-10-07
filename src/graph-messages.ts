@@ -15,6 +15,18 @@ export interface GraphMessage {
   nodeId?: string;
   requestId?: number;
   featureName?: string;
+  // The connection a message about one is about, beside the node whose
+  // component draws it: its socket and its alias, read as names.
+  connection?: { socket?: unknown; alias?: unknown };
+  // The slot of that connection an attach fills.
+  slot?: string;
+}
+
+// ConnectionNames names one connection by the socket it is wired through and the
+// alias it carries there — names the reader clicked, never a location.
+export interface ConnectionNames {
+  socket: string;
+  alias: string;
 }
 
 // GraphMessageSinks are the effects a webview message can have. Injecting them
@@ -53,6 +65,16 @@ export interface GraphMessageSinks {
   // arrives here is what the reader clicked: the node they are looking at, and
   // the entity named on the row.
   attachFeature(nodeId: string, featureName: string): void;
+  // requestConnectionCandidates asks which slots one drawn connection may fill
+  // and which Features may fill each, and is answered back into the panel that
+  // asked. The connection is named by the node whose component draws it, its
+  // socket and its alias; the side holding the graph adds the Release. The
+  // request id is carried through unread, as for a node.
+  requestConnectionCandidates(nodeId: string, connection: ConnectionNames, requestId: number): void;
+  // attachToConnection commits the Feature the reader chose into one slot of the
+  // connection they selected. Every argument is a name: which document the edit
+  // lands in, and where, is resolved on the side that holds the compiled graph.
+  attachToConnection(nodeId: string, connection: ConnectionNames, slot: string, featureName: string): void;
   // listening is the panel's document saying it now hears what is posted to it,
   // which is when what was held for it can be sent (holdUntilListening, below).
   listening(): void;
@@ -86,6 +108,14 @@ export function makeGraphMessageHandler(
     }
     if (msg.type === 'attachFeature') {
       dispatchAttachFeature(msg, sinks);
+      return;
+    }
+    if (msg.type === 'connectionCandidates') {
+      dispatchConnectionCandidates(msg, sinks);
+      return;
+    }
+    if (msg.type === 'attachToConnection') {
+      dispatchAttachToConnection(msg, sinks);
       return;
     }
     if (msg.type === 'listening') {
@@ -154,6 +184,45 @@ function dispatchAttachFeature(msg: GraphMessage, sinks: GraphMessageSinks): voi
     return;
   }
   sinks.attachFeature(msg.nodeId, msg.featureName);
+}
+
+// connectionNamed reads the connection a message names, or null where it names
+// none: a socket and an alias that are both non-empty strings, and nothing else.
+// A connection named in any other shape names no subject, and is not completed
+// with a default — that would be asking about, or editing, a connection nobody
+// clicked.
+function connectionNamed(msg: GraphMessage): ConnectionNames | null {
+  const c = msg.connection;
+  if (typeof c !== 'object' || c === null) { return null; }
+  if (typeof c.socket !== 'string' || !c.socket) { return null; }
+  if (typeof c.alias !== 'string' || !c.alias) { return null; }
+  return { socket: c.socket, alias: c.alias };
+}
+
+// dispatchConnectionCandidates forwards a request for the slots one connection
+// may fill. Like a node's, it reads no workspace root, and a request with no id
+// is still served; one naming no node or no readable connection names no subject
+// and is dropped.
+function dispatchConnectionCandidates(msg: GraphMessage, sinks: GraphMessageSinks): void {
+  const connection = connectionNamed(msg);
+  if (!msg.nodeId || connection === null) {
+    return;
+  }
+  const requestId = typeof msg.requestId === 'number' && Number.isFinite(msg.requestId)
+    ? msg.requestId
+    : 0;
+  sinks.requestConnectionCandidates(msg.nodeId, connection, requestId);
+}
+
+// dispatchAttachToConnection forwards the reader's choice of what to attach into
+// a slot of a connection. Every name must be there and none is interpreted; an
+// absent one is dropped rather than defaulted, for the reason a node's is.
+function dispatchAttachToConnection(msg: GraphMessage, sinks: GraphMessageSinks): void {
+  const connection = connectionNamed(msg);
+  if (!msg.nodeId || connection === null || !msg.slot || !msg.featureName) {
+    return;
+  }
+  sinks.attachToConnection(msg.nodeId, connection, msg.slot, msg.featureName);
 }
 
 // PanelDelivery is the one way a message reaches the graph panel's document.

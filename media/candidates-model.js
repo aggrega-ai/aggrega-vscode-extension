@@ -2,11 +2,14 @@
 // Copyright 2026 Cognitio S.r.l.
 //
 // The document-free half of the candidate palette: the transform from the
-// language server's answer about what may attach into the rows the panel draws,
-// and the sentences the panel shows while it waits, when nothing matched, and
-// when the request was refused. It reads no document, touches no DOM and holds
-// no state between projections, so the wording and the row shape can be
-// exercised on their own. media/graph.js draws whatever this produces.
+// language server's answer about what may attach into the rows the panel draws
+// — for a node, the Features that may attach to it, and for a connection, the
+// slots its socket declares with the Features that may fill each — and the
+// sentences the panel shows while it waits, when nothing matched, when no slot
+// may be filled, and when the request was refused. It reads no document,
+// touches no DOM and holds no state between projections, so the wording and the
+// row shape can be exercised on their own. media/graph.js draws whatever this
+// produces.
 //
 // WHAT THIS PROJECTS IS A DIFFERENT PAYLOAD FROM THE ATTACHMENT PROJECTION NEXT
 // TO IT, and the two share no rule. That one renders what IS attached, out of
@@ -48,6 +51,36 @@
   const ATTACH_ACTION_CAPTION =
     'Attaching edits the Aggregate that declares this component. '
     + 'The change lands in the editor, where it can be undone.';
+
+  // The same section for a connection: what it lists, what pressing a row's
+  // control does, and the sentence while the answer is in flight.
+  //
+  // Its caption names the two things the answer matched, because a Feature
+  // listed under a slot is one whose declared applicability the consuming
+  // component's labels satisfy AND whose own labels satisfy the slot's
+  // selector — again a statement of what Features declare, not an outcome. The
+  // action caption says which document the edit lands in, and under which name,
+  // because the reader is about to have a file changed: the document that drew
+  // the connection, under the slot's name.
+  const SLOTS_CAPTION =
+    'The slots this connection\'s socket declares, each with the Features that may fill it: '
+    + 'those whose declared applicability the labels on the consuming component satisfy and '
+    + 'whose own labels satisfy the slot\'s selector. '
+    + 'Listing is what a Feature declares, not what a build will do.';
+
+  const SLOTS_ACTION_CAPTION =
+    'Attaching writes the Feature under the slot\'s name on this connection, in the document '
+    + 'that drew it: the Release for a connection the Release drew, the Aggregate otherwise. '
+    + 'The change lands in the editor, where it can be undone.';
+
+  const SLOTS_PENDING_NOTE = 'Looking for the slots this connection may fill…';
+
+  // The reasons the answer gives for a connection with no slot to fill. These
+  // are wire values, matched but never shown; the set is the answer's own, and
+  // closed.
+  const NO_SLOT_FEATURE_CREATED = 'feature-created-connection';
+  const NO_SLOT_AD_HOC = 'ad-hoc-socket';
+  const NO_SLOT_DECLARED = 'no-slot-declared';
 
   // The label sets an answer can be computed over. Each is a genuinely
   // different statement, so the empty-result sentence is worded from it rather
@@ -175,10 +208,102 @@
     };
   }
 
+  // noSlotNote is the sentence shown in place of the slots when the answer says
+  // no slot may be filled on the connection, worded from the reason it gives.
+  //
+  // Each says why, in the answer's own terms, and that nothing may be attached
+  // here — which is the answer's claim, not this file's. A reason this file has
+  // no wording for, or none at all, claims nothing beyond that: naming a cause
+  // the answer did not give would be a guess.
+  function noSlotNote(reason) {
+    if (reason === NO_SLOT_FEATURE_CREATED) {
+      return 'A Feature drew this connection, and an attachment is written only on a connection '
+        + 'a component or the Release draws, so nothing may be attached here.';
+    }
+    if (reason === NO_SLOT_AD_HOC) {
+      return 'This connection is wired through a socket the component does not declare, so no slot '
+        + 'is declared for it to fill and nothing may be attached here.';
+    }
+    if (reason === NO_SLOT_DECLARED) {
+      return 'The component declares this connection\'s socket with no slots, so nothing may be '
+        + 'attached here.';
+    }
+    return 'Nothing may be attached here.';
+  }
+
+  // SLOT_EMPTY_NOTE is the sentence shown under a slot no Feature was listed
+  // for. Like the node's empty sentence it states the narrower thing the answer
+  // supports — that no Feature matched both — and never that nothing can fill
+  // the slot.
+  const SLOT_EMPTY_NOTE =
+    'No Feature whose declared applicability the labels on the consuming component satisfy '
+    + 'carries labels this slot\'s selector matches.';
+
+  // NOT_DECLARED stands for a selector or an inject list the slot declares none
+  // of: an empty value in the answer is the slot declaring nothing, and saying so
+  // keeps it from reading as a fact nothing filled in.
+  const NOT_DECLARED = 'none declared';
+
+  function yesNo(v) {
+    return v === true ? 'yes' : 'no';
+  }
+
+  // slotRow reduces one slot of the answer to what the panel draws: its name and
+  // what it says it is for, the facts the answer gives about it, and the
+  // Features that may fill it, each as the node's palette draws a candidate.
+  function slotRow(slot) {
+    const safe = isPlainObject(slot) ? slot : {};
+    const selector = text(safe.selector);
+    const inject = Array.isArray(safe.inject)
+      ? safe.inject.filter(function (m) { return typeof m === 'string'; })
+      : [];
+    const fills = Array.isArray(safe.candidates) ? safe.candidates.map(candidateRow) : [];
+    return {
+      name: text(safe.slot),
+      description: text(safe.description),
+      facts: [
+        { key: 'required', value: yesNo(safe.required) },
+        { key: 'sensitive', value: yesNo(safe.sensitive) },
+        { key: 'inject', value: inject.length > 0 ? inject.join(', ') : NOT_DECLARED },
+        { key: 'selector', value: selector || NOT_DECLARED },
+      ],
+      rows: fills,
+      emptyNote: fills.length === 0 ? SLOT_EMPTY_NOTE : '',
+    };
+  }
+
+  // projectSlots turns the answer about one connection into what the panel
+  // draws: each slot in the order the answer names them, or the sentence for the
+  // reason none may be filled.
+  //
+  // An answer naming no slot in a shape this file reads is drawn as one naming
+  // none, with the sentence for the reason it gives; nothing is offered out of a
+  // payload it could not read. The line naming the links leading out of the
+  // workspace is carried only beside slots, since it explains why a Feature is
+  // not offered and with no slot nothing is offered at all.
+  function projectSlots(result, linksNote) {
+    const safe = isPlainObject(result) ? result : {};
+    const list = Array.isArray(safe.slots) ? safe.slots : [];
+    const slots = list.map(slotRow);
+    return {
+      title: CANDIDATES_TITLE,
+      caption: SLOTS_CAPTION,
+      slots: slots,
+      noSlotNote: slots.length === 0 ? noSlotNote(text(safe.noSlotReason)) : '',
+      linksNote: slots.length > 0 ? text(linksNote) : '',
+    };
+  }
+
   root.AggregaCandidates = {
     projectCandidates: projectCandidates,
+    projectSlots: projectSlots,
+    noSlotNote: noSlotNote,
     emptyNote: emptyNote,
     failureNote: failureNote,
+    SLOTS_CAPTION: SLOTS_CAPTION,
+    SLOTS_ACTION_CAPTION: SLOTS_ACTION_CAPTION,
+    SLOTS_PENDING_NOTE: SLOTS_PENDING_NOTE,
+    SLOT_EMPTY_NOTE: SLOT_EMPTY_NOTE,
     CANDIDATES_TITLE: CANDIDATES_TITLE,
     CANDIDATES_CAPTION: CANDIDATES_CAPTION,
     PENDING_NOTE: PENDING_NOTE,

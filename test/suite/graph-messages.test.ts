@@ -5,7 +5,7 @@ import * as assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-import { GraphMessage, holdUntilListening, makeGraphMessageHandler } from '../../src/graph-messages';
+import { ConnectionNames, GraphMessage, holdUntilListening, makeGraphMessageHandler } from '../../src/graph-messages';
 import { callArguments } from '../helpers/anchoring-census';
 import { EXTENSION_ROOT } from '../helpers/launch-census';
 import { loadGraphWebview } from '../helpers/webview-dom';
@@ -15,11 +15,16 @@ interface Recorder {
   noWorkspaceReports: number;
   asked: Array<{ nodeId: string; requestId: number }>;
   attached: Array<{ nodeId: string; featureName: string }>;
+  askedAboutConnections: Array<{ nodeId: string; connection: ConnectionNames; requestId: number }>;
+  attachedToConnections: Array<{ nodeId: string; connection: ConnectionNames; slot: string; featureName: string }>;
   listened: number;
 }
 
 function recorder(): Recorder {
-  return { opened: [], noWorkspaceReports: 0, asked: [], attached: [], listened: 0 };
+  return {
+    opened: [], noWorkspaceReports: 0, asked: [], attached: [],
+    askedAboutConnections: [], attachedToConnections: [], listened: 0,
+  };
 }
 
 function handlerOver(getRoot: () => string | null, rec: Recorder) {
@@ -30,6 +35,12 @@ function handlerOver(getRoot: () => string | null, rec: Recorder) {
       rec.asked.push({ nodeId, requestId });
     },
     attachFeature: (nodeId, featureName) => { rec.attached.push({ nodeId, featureName }); },
+    requestConnectionCandidates: (nodeId, connection, requestId) => {
+      rec.askedAboutConnections.push({ nodeId, connection, requestId });
+    },
+    attachToConnection: (nodeId, connection, slot, featureName) => {
+      rec.attachedToConnections.push({ nodeId, connection, slot, featureName });
+    },
     listening: () => { rec.listened++; },
   });
 }
@@ -198,6 +209,107 @@ describe('makeGraphMessageHandler', () => {
     assert.strictEqual(rec.listened, 1);
     assert.deepStrictEqual(rec.opened, []);
     assert.deepStrictEqual(rec.asked, []);
+    assert.deepStrictEqual(rec.attached, []);
+    assert.deepStrictEqual(rec.askedAboutConnections, []);
+    assert.deepStrictEqual(rec.attachedToConnections, []);
+  });
+});
+
+describe('a message about a connection', () => {
+  const GPT = { socket: 'models', alias: 'gpt' };
+
+  it('forwards a question about a connection with the node, the connection and the request id', () => {
+    const rec = recorder();
+    const handle = handlerOver(() => null, rec);
+
+    handle({ type: 'connectionCandidates', nodeId: 'gateway', connection: GPT, requestId: 4 });
+
+    assert.deepStrictEqual(rec.askedAboutConnections, [{ nodeId: 'gateway', connection: GPT, requestId: 4 }]);
+    // It is not a node's question, and it is served with nothing anchored, as a
+    // node's is: the connection is addressed on the graph the panel drew.
+    assert.deepStrictEqual(rec.asked, []);
+    assert.strictEqual(rec.noWorkspaceReports, 0);
+  });
+
+  it('carries only the socket and the alias of the connection it names', () => {
+    const rec = recorder();
+    const handle = handlerOver(() => '/a/root', rec);
+
+    // A document field, or anything else beside the two names, is not this
+    // side's to accept from the view: which document an attachment is written
+    // in is read from the compiled graph.
+    handle({
+      type: 'connectionCandidates', nodeId: 'gateway',
+      connection: { socket: 'models', alias: 'gpt', document: 'release' } as GraphMessage['connection'],
+      requestId: 1,
+    });
+    handle({
+      type: 'attachToConnection', nodeId: 'gateway',
+      connection: { socket: 'models', alias: 'gpt', document: 'release' } as GraphMessage['connection'],
+      slot: 'trace', featureName: 'feature.conn/audit',
+    });
+
+    assert.deepStrictEqual(rec.askedAboutConnections.map((a) => a.connection), [GPT]);
+    assert.deepStrictEqual(rec.attachedToConnections.map((a) => a.connection), [GPT]);
+  });
+
+  it('still serves a question about a connection that minted no id', () => {
+    const rec = recorder();
+    const handle = handlerOver(() => '/a/root', rec);
+
+    handle({ type: 'connectionCandidates', nodeId: 'gateway', connection: GPT });
+
+    assert.deepStrictEqual(rec.askedAboutConnections.map((a) => a.requestId), [0]);
+  });
+
+  it('asks nothing where the node or the connection is not named in full', () => {
+    const rec = recorder();
+    const handle = handlerOver(() => '/a/root', rec);
+
+    for (const connection of [undefined, null, {}, { socket: 'models' }, { alias: 'gpt' },
+      { socket: '', alias: 'gpt' }, { socket: 'models', alias: '' }, { socket: 7, alias: 'gpt' }]) {
+      handle({ type: 'connectionCandidates', nodeId: 'gateway', connection, requestId: 1 } as GraphMessage);
+    }
+    handle({ type: 'connectionCandidates', connection: GPT, requestId: 2 });
+    handle({ type: 'connectionCandidates', nodeId: '', connection: GPT, requestId: 3 });
+
+    assert.deepStrictEqual(rec.askedAboutConnections, []);
+    // And a question about a connection named in part is not served as a node's.
+    assert.deepStrictEqual(rec.asked, []);
+  });
+
+  it('forwards an attach to a connection with every name it was given, and nothing else', () => {
+    const rec = recorder();
+    const handle = handlerOver(() => '/a/root', rec);
+
+    handle({
+      type: 'attachToConnection', nodeId: 'gateway', connection: GPT,
+      slot: 'trace', featureName: 'feature.conn/audit',
+    });
+
+    assert.deepStrictEqual(rec.attachedToConnections, [{
+      nodeId: 'gateway', connection: GPT, slot: 'trace', featureName: 'feature.conn/audit',
+    }]);
+    // It is not an attach to the node.
+    assert.deepStrictEqual(rec.attached, []);
+  });
+
+  it('commits nothing to a connection when any name is missing, rather than completing one', () => {
+    const rec = recorder();
+    const handle = handlerOver(() => '/a/root', rec);
+
+    const whole = {
+      type: 'attachToConnection', nodeId: 'gateway', connection: GPT,
+      slot: 'trace', featureName: 'feature.conn/audit',
+    };
+    handle({ ...whole, nodeId: undefined });
+    handle({ ...whole, connection: undefined });
+    handle({ ...whole, connection: { socket: 'models' } });
+    handle({ ...whole, slot: undefined });
+    handle({ ...whole, slot: '' });
+    handle({ ...whole, featureName: undefined });
+
+    assert.deepStrictEqual(rec.attachedToConnections, []);
     assert.deepStrictEqual(rec.attached, []);
   });
 });

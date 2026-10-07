@@ -2,19 +2,32 @@
 // Copyright 2026 Cognitio S.r.l.
 
 import * as vscode from 'vscode';
-import { postAttachCandidates } from './attach-candidates';
-import { GraphRedactor, IrGraphRequest, createGraphRedactor, irGraphRequest } from './graph-payload';
-import { PanelDelivery, holdUntilListening, makeGraphMessageHandler } from './graph-messages';
+import { postAttachCandidates, postConnectionCandidates } from './attach-candidates';
+import {
+  GraphRedactor,
+  IrGraphRequest,
+  createConnectionSiteReader,
+  createGraphRedactor,
+  irGraphRequest,
+} from './graph-payload';
+import { ConnectionNames, PanelDelivery, holdUntilListening, makeGraphMessageHandler } from './graph-messages';
 import {
   AttachCandidatesRequest,
   AttachmentContainerRequest,
   AttachmentSite,
+  ConnectionSite,
+  ConnectionSites,
+  NO_CONNECTION_SITES,
   attachFailureLine,
   attachRefusal,
   attachmentContainerRequest,
   attachmentEntryLines,
   attachmentSites,
   composeInsertionText,
+  connectionContainerRequest,
+  connectionNotDrawn,
+  connectionWords,
+  fillSlot,
   insertionPositionInDocument,
   nameAttachment,
   readAttachmentContainer,
@@ -68,6 +81,10 @@ export interface GraphDeps extends RendersOnReady {
   // hold. A label set sent on its own would be matched against the workspace's
   // own directories instead, which a Release given directories of its own does
   // not build against.
+  //
+  // Where the request also names one of the connections the node's component
+  // draws, the answer carries that connection's slots, each with the Features
+  // that may fill it, or the reason none may be filled.
   requestAttachCandidates(request: AttachCandidatesRequest): Promise<unknown>;
   // requestCatalogIndex asks for the entity index in the terms the parameters
   // name. The list of what may attach asks it in the terms of the Release its
@@ -83,7 +100,10 @@ export interface GraphDeps extends RendersOnReady {
   // The whole request is composed where its answer is read, and is passed on the
   // wire exactly as composed — this side supplies a coordinate and nothing
   // structural, because how an Aggregate nests its components is the compiler's
-  // knowledge and a second copy of it here would be free to disagree.
+  // knowledge and a second copy of it here would be free to disagree. For an
+  // attachment on a connection the request also names the connection and the
+  // document that drew it, and the answer is that connection's own container in
+  // that document.
   requestAttachmentContainer(request: AttachmentContainerRequest): Promise<unknown>;
   // requestInsertionPoint reports where a new entry under the named container
   // belongs in one authored document.
@@ -151,10 +171,25 @@ export function activateGraphView(context: vscode.ExtensionContext, deps: GraphD
   // and the view is a separate context; this way every edit lands in a document
   // the compiler itself named.
   let shownSites = new Map<string, AttachmentSite>();
+  // What the drawn graph knows about each connection, kept for the same reason
+  // and rebuilt at the same moment: the node whose component draws it, its
+  // socket and alias, the document that drew it, and the slots already filled
+  // on it. Like the node table it holds names and no authored value.
+  let shownConnections: ConnectionSites = NO_CONNECTION_SITES;
+  // Which attachment belongs to which connection is read through the rule the
+  // view draws with, built once per activation like the redactor.
+  const readConnections = createConnectionSiteReader(context.extensionUri.fsPath);
   // How a completed render hands back what it read. The render is a free
   // function so it can be reasoned about without this closure; this is the one
-  // thing it has to put back.
-  const keepSites = (sites: Map<string, AttachmentSite>): void => { shownSites = sites; };
+  // thing it has to put back. Both tables are read before either is replaced,
+  // so a render that cannot read one leaves the two it had rather than one of
+  // each.
+  const keepSites = (graph: unknown): void => {
+    const nodes = attachmentSites(graph);
+    const connections = readConnections(graph);
+    shownSites = nodes;
+    shownConnections = connections;
+  };
 
   context.subscriptions.push(
     vscode.commands.registerCommand('aggrega.graph.show', async () => {
@@ -194,6 +229,7 @@ export function activateGraphView(context: vscode.ExtensionContext, deps: GraphD
           toPanel = null;
           shownRelease = null;
           shownSites = new Map();
+          shownConnections = NO_CONNECTION_SITES;
         }, null, context.subscriptions);
         // The panel keeps its context while the editor is not showing it, so it
         // goes on receiving graphs and drawing them — and a drawing has to be
@@ -241,7 +277,7 @@ export function activateGraphView(context: vscode.ExtensionContext, deps: GraphD
               // hold has nowhere to attach anything and says so.
               const site = shownSites.get(nodeId);
               if (!site) {
-                postAttachOutcome(toPanel, nodeId,
+                postAttachOutcome(toPanel, { nodeId },
                   `${nodeId} is not on the graph this panel drew.`, false);
                 return;
               }
@@ -251,11 +287,43 @@ export function activateGraphView(context: vscode.ExtensionContext, deps: GraphD
               // and asking about a different Release would answer about a
               // different graph.
               if (!shownRelease) {
-                postAttachOutcome(toPanel, nodeId,
+                postAttachOutcome(toPanel, { nodeId },
                   'This panel is not showing a Release yet.', false);
                 return;
               }
               void attachFeature(toPanel, deps, site, featureName, shownRelease);
+            },
+            requestConnectionCandidates: (nodeId, connection, requestId) => {
+              // Answered into the panel that asked, about the Release its graph
+              // was drawn from, for the reasons a node's question is.
+              if (!toPanel) { return; }
+              if (!shownRelease) {
+                toPanel.post({
+                  type: 'attachCandidatesError', nodeId, requestId,
+                  message: 'this panel is not showing a Release yet.',
+                });
+                return;
+              }
+              void postConnectionCandidates(toPanel, deps, nodeId, connection, shownRelease, requestId);
+            },
+            attachToConnection: (nodeId, connection, slot, featureName) => {
+              if (!toPanel) { return; }
+              const about = { nodeId, connection };
+              // Looked up in this render's own table, as a node is: a connection
+              // the current graph does not draw has nowhere to attach anything,
+              // and which document an attachment on one that it does draw is
+              // written in is read from this table, never from the message.
+              const site = shownConnections(nodeId, connection);
+              if (!site) {
+                postAttachOutcome(toPanel, about, connectionNotDrawn(nodeId, connection), false);
+                return;
+              }
+              if (!shownRelease) {
+                postAttachOutcome(toPanel, about,
+                  'This panel is not showing a Release yet.', false);
+                return;
+              }
+              void attachToConnection(toPanel, deps, site, slot, featureName, shownRelease);
             },
             // The panel's document now hears what is posted to it, so what was
             // held for it is sent.
@@ -318,7 +386,7 @@ async function renderGraph(
   deps: GraphDeps,
   redact: GraphRedactor,
   release: string,
-  keepSites: (sites: Map<string, AttachmentSite>) => void,
+  keepSites: (graph: unknown) => void,
   opts: { quiet?: boolean } = {},
 ): Promise<void> {
   if (!opts.quiet) {
@@ -349,10 +417,10 @@ async function renderGraph(
       );
     const graph = redact(answer, showsSensitiveValues);
     // Read from the answer rather than from the redacted payload, and only once
-    // the redaction has succeeded: what this keeps is a path and a set of names
-    // per node, none of which the redaction touches, and a render that posts
-    // nothing must leave no sites behind for an edit to act on.
-    keepSites(attachmentSites(answer));
+    // the redaction has succeeded: what this keeps is a set of names per node
+    // and per connection, none of which the redaction touches, and a render that
+    // posts nothing must leave no sites behind for an edit to act on.
+    keepSites(answer);
     // Whether the reader asked for this drawing is one fact read at three moments
     // rather than three answers. Here it decides whether a notice was shown; in
     // the panel it decides whether the drawing is framed afresh or left where
@@ -383,7 +451,76 @@ async function renderGraph(
 }
 
 // attachFeature commits the Feature the reader chose onto the node they
-// selected, by editing the Aggregate that declares it.
+// selected, by editing the Aggregate that declares it, under the name derived
+// from the Feature's own. What happens after the name is settled is
+// writeAttachment's, which a connection's attach goes through as well.
+async function attachFeature(
+  toPanel: PanelDelivery,
+  deps: GraphDeps,
+  site: AttachmentSite,
+  featureName: string,
+  release: string,
+): Promise<void> {
+  const about: OutcomeSubject = { nodeId: site.nodeId };
+  const named = nameAttachment(site, featureName);
+  if ('refusal' in named) {
+    postAttachOutcome(toPanel, about, named.refusal, false);
+    return;
+  }
+  await writeAttachment(toPanel, deps, {
+    container: attachmentContainerRequest(site, release),
+    entryName: named.instanceName,
+    subject: site.nodeId,
+    about,
+  }, featureName);
+}
+
+// attachToConnection commits the Feature the reader chose into one slot of the
+// connection they selected, under the slot's own name, in the document that
+// drew the connection — the Release for one the Release drew, the Aggregate
+// otherwise, read from this side's table of the compiled graph.
+//
+// A slot the graph already shows filled on this connection is refused before
+// anything is asked. Everything else — whether the connection may carry an
+// attachment at all, where its container is, whether the document holds an entry
+// for it — is the compiler's answer, and a refusal is shown in its words.
+async function attachToConnection(
+  toPanel: PanelDelivery,
+  deps: GraphDeps,
+  site: ConnectionSite,
+  slot: string,
+  featureName: string,
+  release: string,
+): Promise<void> {
+  const about: OutcomeSubject = {
+    nodeId: site.source,
+    connection: { socket: site.socket, alias: site.alias },
+  };
+  const named = fillSlot(site, slot);
+  if ('refusal' in named) {
+    postAttachOutcome(toPanel, about, named.refusal, false);
+    return;
+  }
+  await writeAttachment(toPanel, deps, {
+    container: connectionContainerRequest(site, release),
+    entryName: named.instanceName,
+    subject: `the ${connectionWords(site.source, site)}`,
+    about,
+  }, featureName);
+}
+
+// AttachTarget is one attach as the writer is handed it: the question asking
+// where its container is, the name its entry is written under, how the thing
+// attached to is named on the output channel and in the line reporting a made
+// attach, and what the outcome is about.
+interface AttachTarget {
+  container: AttachmentContainerRequest;
+  entryName: string;
+  subject: string;
+  about: OutcomeSubject;
+}
+
+// writeAttachment writes one attachment entry where the compiler says it goes.
 //
 // # THE COMPILER SAYS WHERE; THIS SIDE WRITES
 //
@@ -415,37 +552,32 @@ async function renderGraph(
 //
 // The first asks which document the attachment belongs in and the path to the
 // container inside it, addressed by the node id the drawn graph carries and the
-// Release that graph was built from. The second asks where in that document
-// such an entry goes. The first answer is handed to the second exactly as it
-// arrived, segment for segment — which is what makes a component authored
-// inside a subsystem commit by the same path as one authored at the top level,
-// with neither depending on this side knowing how an Aggregate spells its
-// nesting.
-async function attachFeature(
+// Release that graph was built from — and, for a connection, by the connection
+// and the document that drew it. The second asks where in that document such an
+// entry goes. The first answer is handed to the second exactly as it arrived,
+// segment for segment — which is what makes a component authored inside a
+// subsystem commit by the same path as one authored at the top level, and a
+// connection's entry by the same path as a node's, with none of them depending
+// on this side knowing how an Aggregate or a Release spells its nesting.
+async function writeAttachment(
   toPanel: PanelDelivery,
   deps: GraphDeps,
-  site: AttachmentSite,
+  target: AttachTarget,
   featureName: string,
-  release: string,
 ): Promise<void> {
-  const named = nameAttachment(site, featureName);
-  if ('refusal' in named) {
-    postAttachOutcome(toPanel, site.nodeId, named.refusal, false);
-    return;
-  }
-
+  const about = target.about;
   const root = deps.getWorkspaceRoot();
   if (root === null) {
-    postAttachOutcome(toPanel, site.nodeId, NO_ANCHORED_WORKSPACE_MESSAGE, false);
+    postAttachOutcome(toPanel, about, NO_ANCHORED_WORKSPACE_MESSAGE, false);
     return;
   }
 
   try {
     const located = readAttachmentContainer(
-      await deps.requestAttachmentContainer(attachmentContainerRequest(site, release)),
+      await deps.requestAttachmentContainer(target.container),
     );
     if (located === null) {
-      postAttachOutcome(toPanel, site.nodeId, attachRefusal(
+      postAttachOutcome(toPanel, about, attachRefusal(
         'the compiler\'s answer about which document this belongs in is in a shape this cannot '
         + 'apply.'), false);
       return;
@@ -459,14 +591,14 @@ async function attachFeature(
     const answer = await deps.requestInsertionPoint(located.file, located.container ?? []);
     const insertion = readInsertion(answer);
     if (insertion === null) {
-      postAttachOutcome(toPanel, site.nodeId, attachRefusal(
+      postAttachOutcome(toPanel, about, attachRefusal(
         'the compiler\'s answer about where in that document this belongs is in a shape this '
         + 'cannot apply.'), false);
       return;
     }
     const shapeRefusal = refusesEntryShape(insertion);
     if (shapeRefusal) {
-      postAttachOutcome(toPanel, site.nodeId, attachRefusal(shapeRefusal), false);
+      postAttachOutcome(toPanel, about, attachRefusal(shapeRefusal), false);
       return;
     }
     // The answer names the document workspace-relative, as every other
@@ -481,7 +613,7 @@ async function attachFeature(
     // rather than an error anybody sees.
     const at = insertionPositionInDocument(doc.getText(), insertion);
     if (at === null) {
-      postAttachOutcome(toPanel, site.nodeId, attachRefusal(
+      postAttachOutcome(toPanel, about, attachRefusal(
         `the position is reported in ${insertion.positionEncoding || 'unstated'} units, which `
         + 'this cannot convert from.'), false);
       return;
@@ -489,13 +621,13 @@ async function attachFeature(
 
     const text = composeInsertionText(
       insertion,
-      attachmentEntryLines(named.instanceName, featureName, insertion.indentStep),
+      attachmentEntryLines(target.entryName, featureName, insertion.indentStep),
     );
 
     const edit = new vscode.WorkspaceEdit();
     edit.insert(uri, new vscode.Position(at.line, at.character), text);
     if (!(await vscode.workspace.applyEdit(edit))) {
-      postAttachOutcome(toPanel, site.nodeId, 'The editor did not apply the edit.', false);
+      postAttachOutcome(toPanel, about, 'The editor did not apply the edit.', false);
       return;
     }
 
@@ -511,16 +643,23 @@ async function attachFeature(
       ? ''
       : ' The document exhibits no nesting to measure, so a default indentation was used.';
     deps.output.appendLine(
-      `attached ${featureName} to ${site.nodeId} as ${named.instanceName} in ${insertion.file}`,
+      `attached ${featureName} to ${target.subject} as ${target.entryName} in ${insertion.file}`,
     );
-    postAttachOutcome(toPanel, site.nodeId,
-      `Attached ${featureName} to ${site.nodeId} as ${named.instanceName}.${note}`, true);
+    postAttachOutcome(toPanel, about,
+      `Attached ${featureName} to ${target.subject} as ${target.entryName}.${note}`, true);
   } catch (err) {
     deps.output.appendLine(
-      `attaching ${featureName} to ${site.nodeId} failed: ${describeError(err)}`,
+      `attaching ${featureName} to ${target.subject} failed: ${describeError(err)}`,
     );
-    postAttachOutcome(toPanel, site.nodeId, attachFailureLine(err), false);
+    postAttachOutcome(toPanel, about, attachFailureLine(err), false);
   }
+}
+
+// OutcomeSubject is what an attach's outcome is about: a node, or one of the
+// connections a node's component draws, named by its socket and alias.
+interface OutcomeSubject {
+  nodeId: string;
+  connection?: ConnectionNames;
 }
 
 // postAttachOutcome tells the panel what became of the reader's click.
@@ -528,14 +667,18 @@ async function attachFeature(
 // It is reported into the panel the click came from rather than onto the
 // document, for the reason a candidate refusal is: what failed is a request
 // about a place in a file, and nothing it can be refused for is a fault of the
-// file the reader would be sent to.
+// file the reader would be sent to. It names the subject it is about, so the
+// panel draws it only under that subject — a node, or a connection.
 function postAttachOutcome(
   toPanel: PanelDelivery,
-  nodeId: string,
+  about: OutcomeSubject,
   message: string,
   attached: boolean,
 ): void {
-  toPanel.post({ type: 'attachOutcome', nodeId, message, attached });
+  const { nodeId, connection } = about;
+  toPanel.post(connection === undefined
+    ? { type: 'attachOutcome', nodeId, message, attached }
+    : { type: 'attachOutcome', nodeId, connection, message, attached });
 }
 
 // openSource opens the node's authoring file. The IR carries workspace-relative

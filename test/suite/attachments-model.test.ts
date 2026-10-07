@@ -32,6 +32,7 @@ interface Attachment {
   type: string;
   version: string;
   binding: string;
+  slot: string;
   origin: string;
   annotationKey: string;
   annotationSource: string;
@@ -59,6 +60,7 @@ interface AttachmentsModel {
   projectAttachment(name: string, entry: unknown, showsSensitiveValues?: unknown): Attachment;
   redactGraph(graph: unknown): unknown;
   withheldNote(reason: string): string;
+  FILLS_NO_SLOT: string;
   WITHHELD_DECLARED: string;
   WITHHELD_ATTACHMENT: string;
   WITHHELD_UNREADABLE: string;
@@ -84,6 +86,7 @@ function loadModel(): AttachmentsModel {
     projectAttachment: (...args) => structuredClone(model.projectAttachment(...args)),
     redactGraph: (graph) => structuredClone(model.redactGraph(graph)),
     withheldNote: (reason) => model.withheldNote(reason),
+    FILLS_NO_SLOT: model.FILLS_NO_SLOT,
     WITHHELD_DECLARED: model.WITHHELD_DECLARED,
     WITHHELD_ATTACHMENT: model.WITHHELD_ATTACHMENT,
     WITHHELD_UNREADABLE: model.WITHHELD_UNREADABLE,
@@ -764,4 +767,38 @@ describe('AggregaAttachments — an attachment written on a connection', () => {
         path: 'values.secret', value: null, withheld: model.WITHHELD_DECLARED,
       });
     });
+
+  it('says an attachment of the node\'s own block that the IR marks free fills no declared slot', () => {
+    // The IR's marker is matched and never shown: a slot fact reading "free"
+    // reads as a slot of that name.
+    const graph = compiled(gatewayBucket());
+    const own = model.attachmentsFor(graph, 'gateway').attachments;
+    assert.deepStrictEqual(own.map((a) => [a.name, a.slot]), [
+      ['peering', model.FILLS_NO_SLOT],
+      ['own-token', model.FILLS_NO_SLOT],
+    ]);
+    assert.strictEqual(model.FILLS_NO_SLOT, 'fills no declared slot');
+    // The binding itself is carried as the IR set it, for anything that reads it.
+    assert.deepStrictEqual(own.map((a) => a.binding), ['free', 'free']);
+  });
+
+  it('names the slot a connection attachment fills, whatever the slot is called', () => {
+    // The IR states an attachment carrying a connection never reports the
+    // marker, so its binding is a slot's name — even a slot named free.
+    const bucket = gatewayBucket();
+    (bucket['m1.note'] as Record<string, unknown>).binding = 'free';
+    const rows = model.connectionAttachmentsFor(compiled(bucket), 'gateway');
+    assert.deepStrictEqual(rows.map((r) => r.attachments.map((a) => a.slot)), [['credential'], ['free']]);
+  });
+
+  it('says nothing of the slot where the IR could not resolve the declared ones', () => {
+    // An empty binding is a different statement from the marker: the declared
+    // slots could not be resolved, so nothing is claimed either way.
+    for (const binding of [undefined, '', 7]) {
+      const a = model.projectAttachment('x', { type: 'f/x', resolved_version: '1', binding });
+      assert.strictEqual(a.slot, '', `a slot was drawn for the binding ${JSON.stringify(binding)}`);
+    }
+    // The control: a named slot is drawn as its name.
+    assert.strictEqual(model.projectAttachment('x', { type: 'f/x', resolved_version: '1', binding: 'tls' }).slot, 'tls');
+  });
 });

@@ -5,6 +5,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as vm from 'vm';
 
+import { ConnectionPlacement, ConnectionSites, connectionSites } from './attachment-edit';
 import type { IrGraphParams } from './types';
 
 // The payload the topology view is given is built here, on this side of the
@@ -32,8 +33,10 @@ import type { IrGraphParams } from './types';
 // TypeScript sources and the tests, and does not exclude the media directory.
 const ATTACHMENTS_MODEL_PATH = ['media', 'attachments-model.js'];
 
-// AttachmentsModel is the part of the shared rule this side calls.
-export interface AttachmentsModel {
+// AttachmentsModel is the part of the shared rule this side calls: the
+// redaction, and the placement of each attachment on the connection it belongs
+// to, which is how this side reads the slots a connection already has filled.
+export interface AttachmentsModel extends ConnectionPlacement {
   // redactGraph returns the graph with every withheld value removed and every
   // sensitivity marking kept, so the view can still report why a field is
   // absent.
@@ -53,10 +56,32 @@ export function loadAttachmentsModel(extensionRoot: string): AttachmentsModel {
   vm.createContext(sandbox);
   vm.runInContext(source, sandbox as vm.Context, { filename: file });
   const model = sandbox.AggregaAttachments as AttachmentsModel | undefined;
-  if (!model || typeof model.redactGraph !== 'function') {
+  if (!model || typeof model.redactGraph !== 'function'
+    || typeof model.connectionAttachmentsFor !== 'function'
+    || typeof model.connectionKey !== 'function') {
     throw new Error(`${file} defines no attachment projection`);
   }
   return model;
+}
+
+// ConnectionSiteReader reads the table of connections an attach may be made to
+// out of one compiled graph.
+export type ConnectionSiteReader = (graph: unknown) => ConnectionSites;
+
+// createConnectionSiteReader returns the reader for an installed extension.
+//
+// It places each attachment through the shared rule, loaded on first use and
+// kept, for the reason the redactor loads it: which entry belongs to which
+// connection is decided once, in the file the view draws with, and this side
+// asks it rather than deciding again. A rule file that cannot be loaded throws
+// here, at the render, where the failure is reported like any other — the view
+// draws with the same file, so it has nothing to draw with either.
+export function createConnectionSiteReader(extensionRoot: string): ConnectionSiteReader {
+  let model: AttachmentsModel | null = null;
+  return (graph: unknown): ConnectionSites => {
+    if (model === null) { model = loadAttachmentsModel(extensionRoot); }
+    return connectionSites(graph, model);
+  };
 }
 
 // IrGraphRequest is the question one drawing asks the language server: the

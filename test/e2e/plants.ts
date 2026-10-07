@@ -1185,7 +1185,7 @@ export const PLANTS: readonly Plant[] = [
   },
   {
     name: 'refusal-for-an-undrawn-node-dropped', scenario: 'storefront-graph-panel', checks: ['attach.request-for-a-node-the-panel-did-not-draw-is-refused-in-its-words'], moves: 'red', target: 'extension',
-    file: GRAPH_SCRIPT, find: '    if (nodeId !== selectedId && (attached || nodeGroups.has(nodeId))) { return; }', replace: '    if (nodeId !== selectedId) { return; }',
+    file: GRAPH_SCRIPT, find: '    if (subject !== shownSubject() && (attached || drawsSubject(subject))) { return; }', replace: '    if (subject !== shownSubject()) { return; }',
     says: 'the panel drops every line about an attach whose node is not the one it is showing, the refusal for a node its drawing does not carry included',
   },
   {

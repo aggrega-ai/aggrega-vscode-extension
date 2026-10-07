@@ -35,13 +35,35 @@ interface Projected {
   linksNote: string;
 }
 
+interface SlotProjected {
+  name: string;
+  description: string;
+  facts: CandidateFact[];
+  rows: CandidateRow[];
+  emptyNote: string;
+}
+
+interface SlotsProjected {
+  title: string;
+  caption: string;
+  slots: SlotProjected[];
+  noSlotNote: string;
+  linksNote: string;
+}
+
 interface CandidatesModel {
   projectCandidates(result: unknown, linksNote?: unknown): Projected;
+  projectSlots(result: unknown, linksNote?: unknown): SlotsProjected;
+  noSlotNote(reason: unknown): string;
   emptyNote(labelSource: string): string;
   failureNote(message: unknown): string;
   CANDIDATES_TITLE: string;
   CANDIDATES_CAPTION: string;
   PENDING_NOTE: string;
+  SLOTS_CAPTION: string;
+  SLOTS_ACTION_CAPTION: string;
+  SLOTS_PENDING_NOTE: string;
+  SLOT_EMPTY_NOTE: string;
 }
 
 function loadModel(): CandidatesModel {
@@ -57,11 +79,17 @@ function loadModel(): CandidatesModel {
   // lets the assertions below compare values rather than realms.
   return {
     projectCandidates: (result, linksNote) => structuredClone(model.projectCandidates(result, linksNote)),
+    projectSlots: (result, linksNote) => structuredClone(model.projectSlots(result, linksNote)),
+    noSlotNote: (reason) => model.noSlotNote(reason),
     emptyNote: (labelSource) => model.emptyNote(labelSource),
     failureNote: (message) => model.failureNote(message),
     CANDIDATES_TITLE: model.CANDIDATES_TITLE,
     CANDIDATES_CAPTION: model.CANDIDATES_CAPTION,
     PENDING_NOTE: model.PENDING_NOTE,
+    SLOTS_CAPTION: model.SLOTS_CAPTION,
+    SLOTS_ACTION_CAPTION: model.SLOTS_ACTION_CAPTION,
+    SLOTS_PENDING_NOTE: model.SLOTS_PENDING_NOTE,
+    SLOT_EMPTY_NOTE: model.SLOT_EMPTY_NOTE,
   };
 }
 
@@ -256,5 +284,129 @@ describe('the candidate projection', () => {
     for (const sent of [undefined, null, 42, { line: 'x' }]) {
       assert.strictEqual(model.projectCandidates(answer([]), sent).linksNote, '', `a line for ${JSON.stringify(sent) ?? 'undefined'}`);
     }
+  });
+});
+
+// The answer the language server gives for a connection, as it answered for one
+// the Aggregate drew with two slots: the node half, then the slots in the order
+// the component declares them.
+const TOKEN = { kind: 'Feature', name: 'feature.conn/token', file: 'catalog/features/token.yaml', origin: 'workspace' };
+const AUDIT = { kind: 'Feature', name: 'feature.conn/audit', file: 'catalog/features/audit.yaml', origin: 'workspace' };
+const PEERING = { kind: 'Feature', name: 'feature.conn/peering', file: 'catalog/features/peering.yaml', origin: 'workspace' };
+
+function connectionAnswer(slots: unknown, noSlotReason?: string): unknown {
+  const result: Record<string, unknown> = {
+    node: 'gateway', nodeLabels: { 'component.aggrega.ai/type': 'server' }, labelSource: 'resolved',
+    candidates: [AUDIT, PEERING, TOKEN], slots,
+  };
+  if (noSlotReason !== undefined) { result.noSlotReason = noSlotReason; }
+  return result;
+}
+
+const MEASURED_SLOTS = [
+  {
+    slot: 'credential', selector: 'feature.aggrega.ai/kind=secret', required: true, inject: ['env'], sensitive: true,
+    description: 'The credential the gateway presents to the model a connection reaches.', candidates: [TOKEN],
+  },
+  {
+    slot: 'trace', selector: '', required: false, inject: [], sensitive: false,
+    description: 'Where the gateway reports the calls a connection carries.', candidates: [AUDIT, PEERING, TOKEN],
+  },
+];
+
+describe('the slot projection', () => {
+  const model = loadModel();
+
+  it('draws each slot in the order the answer names them, with what the answer says about it', () => {
+    const projected = model.projectSlots(connectionAnswer(MEASURED_SLOTS));
+    assert.deepStrictEqual(projected.slots.map((s) => s.name), ['credential', 'trace']);
+    assert.deepStrictEqual(projected.slots[0].facts, [
+      { key: 'required', value: 'yes' },
+      { key: 'sensitive', value: 'yes' },
+      { key: 'inject', value: 'env' },
+      { key: 'selector', value: 'feature.aggrega.ai/kind=secret' },
+    ]);
+    assert.strictEqual(projected.slots[0].description, 'The credential the gateway presents to the model a connection reaches.');
+    // A slot declaring no selector and no inject says so, rather than leaving
+    // the fact out as though nothing had filled it in.
+    assert.deepStrictEqual(projected.slots[1].facts, [
+      { key: 'required', value: 'no' },
+      { key: 'sensitive', value: 'no' },
+      { key: 'inject', value: 'none declared' },
+      { key: 'selector', value: 'none declared' },
+    ]);
+    assert.strictEqual(projected.noSlotNote, '');
+  });
+
+  it('draws the Features of each slot as the node\'s palette draws a candidate, in the answer\'s order', () => {
+    const projected = model.projectSlots(connectionAnswer(MEASURED_SLOTS));
+    assert.deepStrictEqual(projected.slots[0].rows, [
+      { name: 'feature.conn/token', facts: [{ key: 'kind', value: 'Feature' }, { key: 'declared in', value: 'catalog/features/token.yaml' }] },
+    ]);
+    assert.deepStrictEqual(projected.slots[1].rows.map((r) => r.name),
+      ['feature.conn/audit', 'feature.conn/peering', 'feature.conn/token']);
+    // The node's own candidates, which the same answer carries, are not drawn
+    // as a slot's: they answer a different question.
+    assert.strictEqual(projected.slots.length, 2);
+  });
+
+  it('says what a slot with no Feature listed supports, and never that nothing can fill it', () => {
+    const projected = model.projectSlots(connectionAnswer([{ ...MEASURED_SLOTS[0], candidates: [] }]));
+    assert.deepStrictEqual(projected.slots[0].rows, []);
+    assert.strictEqual(projected.slots[0].emptyNote, model.SLOT_EMPTY_NOTE);
+    assert.match(model.SLOT_EMPTY_NOTE, /declared applicability/);
+    assert.match(model.SLOT_EMPTY_NOTE, /selector/);
+    assert.doesNotMatch(model.SLOT_EMPTY_NOTE, /cannot|nothing can/i);
+    // A slot with rows has no sentence standing in for them.
+    assert.strictEqual(model.projectSlots(connectionAnswer(MEASURED_SLOTS)).slots[0].emptyNote, '');
+  });
+
+  it('draws the reason for no slot in words, one sentence per reason the answer can give', () => {
+    const notes = ['feature-created-connection', 'ad-hoc-socket', 'no-slot-declared'].map((reason) => {
+      const projected = model.projectSlots(connectionAnswer([], reason));
+      assert.deepStrictEqual(projected.slots, [], `slots drawn for ${reason}`);
+      return projected.noSlotNote;
+    });
+    assert.strictEqual(new Set(notes).size, 3, 'two reasons share one sentence');
+    assert.match(notes[0], /A Feature drew this connection/);
+    assert.match(notes[1], /socket the component does not declare/);
+    assert.match(notes[2], /with no slots/);
+    for (const note of notes) {
+      assert.match(note, /nothing may be attached here/);
+      // The wire words for the reasons are matched on, never shown.
+      assert.doesNotMatch(note, /feature-created|ad-hoc-socket|no-slot-declared/);
+    }
+  });
+
+  it('claims nothing beyond "nothing may be attached here" for a reason it has no words for, or none', () => {
+    for (const reason of ['a-reason-from-later', undefined]) {
+      assert.strictEqual(model.projectSlots(connectionAnswer([], reason)).noSlotNote, 'Nothing may be attached here.');
+    }
+    assert.strictEqual(model.noSlotNote(7), 'Nothing may be attached here.');
+  });
+
+  it('offers nothing out of an answer whose slots it cannot read', () => {
+    for (const bad of [undefined, null, 'nope', { slots: 'nope' }, { node: 'gateway' }]) {
+      const projected = model.projectSlots(bad);
+      assert.deepStrictEqual(projected.slots, [], `slots for ${JSON.stringify(bad) ?? 'undefined'}`);
+      assert.strictEqual(projected.noSlotNote, 'Nothing may be attached here.');
+    }
+  });
+
+  it('carries the line naming the links leading out of the workspace beside slots, and not where none may be filled', () => {
+    const line = 'Features reached through this link are not offered, because it leads outside the Aggrega workspace: linked-feature.yaml';
+    assert.strictEqual(model.projectSlots(connectionAnswer(MEASURED_SLOTS), line).linksNote, line);
+    assert.strictEqual(model.projectSlots(connectionAnswer([], 'no-slot-declared'), line).linksNote, '');
+  });
+
+  it('heads the section as the node\'s palette is headed, with captions of its own', () => {
+    const projected = model.projectSlots(connectionAnswer(MEASURED_SLOTS));
+    assert.strictEqual(projected.title, model.CANDIDATES_TITLE);
+    assert.strictEqual(projected.caption, model.SLOTS_CAPTION);
+    assert.match(model.SLOTS_CAPTION, /not what a build will do/);
+    assert.match(model.SLOTS_ACTION_CAPTION, /under the slot's name/);
+    assert.match(model.SLOTS_ACTION_CAPTION, /the Release for a connection the Release drew, the Aggregate otherwise/);
+    assert.ok(model.SLOTS_PENDING_NOTE.length > 0);
+    assert.notStrictEqual(model.SLOTS_PENDING_NOTE, model.PENDING_NOTE);
   });
 });

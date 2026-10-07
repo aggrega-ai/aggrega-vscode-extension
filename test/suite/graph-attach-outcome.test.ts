@@ -91,6 +91,27 @@ function outcome(view: GraphWebview, nodeId: string, message: string, attached: 
   view.post({ type: 'attachOutcome', nodeId, message, attached });
 }
 
+// The one connection DRAWABLE_GRAPH draws, as an outcome about it names it.
+const PRIMARY = { socket: 'store', alias: 'primary' };
+
+function connectionOutcome(
+  view: GraphWebview, nodeId: string, connection: { socket: string; alias: string }, message: string, attached: boolean,
+): void {
+  view.post({ type: 'attachOutcome', nodeId, connection, message, attached });
+}
+
+// selectConnection presses the one drawn edge, as a reader does, through the
+// handler the renderer put on its group.
+function selectConnection(view: GraphWebview): void {
+  const edge = find(view.element('canvas'), (el) => el.tag === 'g' && el.getAttribute('class') === 'edge-group');
+  assert.ok(edge, 'the drawing carries no edge to press');
+  edge.fire('click');
+  assert.strictEqual(
+    view.element('panel-title').textContent, 'api → db',
+    'pressing the edge did not open the panel on its connection, so nothing below is about the list it shows',
+  );
+}
+
 // outcomeLine is the line under the list the panel is showing — its words, and
 // whether it is drawn as a failure — or null where no line is drawn.
 function outcomeLine(view: GraphWebview): { text: string; failed: boolean } | null {
@@ -212,4 +233,80 @@ describe('which line about an attach the panel draws', () => {
         'once db is off the drawing, the refusal naming it is not drawn under the list the panel shows',
       );
     });
+});
+
+// The same rule, with a connection as the subject. A connection's panel draws
+// its own section of what may fill its slots, with its own outcome line, and an
+// outcome naming a connection is judged by the one rule a node's is.
+describe('which line about an attach to a connection the panel draws', () => {
+  const ATTACHED = 'Attached feature.conn/audit to the connection primary through socket store of api as trace.';
+  const FILLED = 'The slot credential of the connection primary through socket store of api is already filled.';
+  const notDrawn = (alias: string): string => `The connection ${alias} through socket store of api is not on the graph this panel drew.`;
+
+  async function onTheConnection(): Promise<GraphWebview> {
+    const view = loadGraphWebview();
+    await draw(view, DRAWABLE_GRAPH);
+    selectConnection(view);
+    return view;
+  }
+
+  it('asks what may fill the connection it opens on, by the node, the socket and the alias', async () => {
+    const view = await onTheConnection();
+    const asked = view.posted.filter((m) => (m as { type?: string }).type === 'connectionCandidates');
+    assert.strictEqual(asked.length, 1, 'selecting the connection asked nothing, or asked twice');
+    const question = asked[0] as { nodeId: string; connection: unknown; requestId: number };
+    assert.strictEqual(question.nodeId, 'api');
+    assert.deepStrictEqual({ ...(question.connection as object) }, PRIMARY);
+    assert.strictEqual(typeof question.requestId, 'number');
+  });
+
+  it('draws the outcome about the connection it is showing, in the words it arrived in', async () => {
+    const view = await onTheConnection();
+    assert.strictEqual(outcomeLine(view), null, 'a line was drawn before any attach was answered');
+
+    connectionOutcome(view, 'api', PRIMARY, ATTACHED, true);
+    assert.deepStrictEqual(outcomeLine(view), { text: ATTACHED, failed: false });
+
+    connectionOutcome(view, 'api', PRIMARY, FILLED, false);
+    assert.deepStrictEqual(outcomeLine(view), { text: FILLED, failed: true });
+  });
+
+  it('drops an outcome about a node the drawing carries while it shows a connection', async () => {
+    const view = await onTheConnection();
+
+    outcome(view, 'api', attachedTo('api'), true);
+    outcome(view, 'db', LIST_REFUSAL, false);
+    assert.strictEqual(outcomeLine(view), null,
+      'a line about a node was drawn under the list for a connection, where it reads as being about the connection');
+
+    // The control: the same panel draws the line it is owed.
+    connectionOutcome(view, 'api', PRIMARY, ATTACHED, true);
+    assert.deepStrictEqual(outcomeLine(view), { text: ATTACHED, failed: false });
+  });
+
+  it('drops an outcome about the connection while it shows a node, and draws the node\'s own', async () => {
+    const view = await shownOn('api');
+
+    connectionOutcome(view, 'api', PRIMARY, ATTACHED, true);
+    connectionOutcome(view, 'api', PRIMARY, FILLED, false);
+    assert.strictEqual(outcomeLine(view), null,
+      'a line about a drawn connection was drawn under the list for a node');
+
+    outcome(view, 'api', attachedTo('api'), true);
+    assert.deepStrictEqual(outcomeLine(view), { text: attachedTo('api'), failed: false });
+  });
+
+  it('draws the refusal for a connection the drawing does not carry, and drops a line saying one was attached', async () => {
+    const view = await onTheConnection();
+    const undrawn = { socket: 'store', alias: 'nonesuch' };
+
+    connectionOutcome(view, 'api', undrawn, 'Attached core/x to the connection nonesuch.', true);
+    assert.strictEqual(outcomeLine(view), null,
+      'a line saying an attach was made to a connection the drawing does not carry was drawn');
+
+    connectionOutcome(view, 'api', undrawn, notDrawn('nonesuch'), false);
+    assert.deepStrictEqual(outcomeLine(view), { text: notDrawn('nonesuch'), failed: true },
+      'the refusal for a connection the drawing does not carry was not drawn as a failure in its own words');
+    assert.strictEqual(view.element('panel-title').textContent, 'api → db', 'the refusal moved the panel off the connection');
+  });
 });

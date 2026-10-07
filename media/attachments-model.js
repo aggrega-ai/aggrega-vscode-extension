@@ -19,7 +19,10 @@
 // handing the payload over, so a value the rule withholds is removed while it is
 // still on that side; the view then projects what arrives. Both sides run these
 // same functions, so the question "is this value withheld" has one answer and
-// one implementation, and the two cannot drift into disagreeing.
+// one implementation, and the two cannot drift into disagreeing. The same holds
+// for which connection an attachment belongs to: the view draws each connection's
+// attachments through connectionAttachmentsFor, and the side holding the graph
+// reads through it which slots a connection already has filled.
 //
 // The reader's setting that shows sensitive values reaches both sides from one
 // reading of it. The sending side does not redact a payload built with the
@@ -356,6 +359,30 @@
     return typeof v === 'string' ? v : '';
   }
 
+  // BINDING_FREE is the IR's marker, in an attachment's binding, for an
+  // attachment that fills no declared slot. It is a wire value, matched and
+  // never shown: a slot fact reading "free" would read as a slot named free.
+  const BINDING_FREE = 'free';
+
+  // FILLS_NO_SLOT is what the slot fact says where the IR's marker stands in the
+  // binding.
+  const FILLS_NO_SLOT = 'fills no declared slot';
+
+  // slotText is what the panel says about the slot an attachment fills: the
+  // slot's name, the sentence for the IR's marker, or nothing.
+  //
+  // The marker means what the IR says only on an attachment of the node's own
+  // block. On an attachment carrying a connection mark the IR states the binding
+  // is never the marker — a connection's slots are closed — so there the binding
+  // is a slot's name whatever it spells. An empty binding is the IR saying the
+  // declared slots could not be resolved, which is not the marker either, and
+  // nothing is drawn for it.
+  function slotText(entry) {
+    const binding = text(entry.binding);
+    if (binding === BINDING_FREE && !isPlainObject(entry.connection)) { return FILLS_NO_SLOT; }
+    return binding;
+  }
+
   // projectAttachment turns one IR attachment into the row the panel draws.
   // `name` is the instance name its author gave the attachment, which is the
   // key it sits under; `binding` is the host Component slot it fills, which is
@@ -390,6 +417,8 @@
       type: text(safe.type),
       version: text(safe.resolved_version),
       binding: text(safe.binding),
+      // What the panel says about the slot, in words: see slotText.
+      slot: slotText(safe),
       origin: text(safe.origin),
       annotationKey: text(safe.annotation_key),
       annotationSource: text(safe.annotation_source),
@@ -665,6 +694,7 @@
     projectAttachment: projectAttachment,
     redactGraph: redactGraph,
     withheldNote: withheldNote,
+    FILLS_NO_SLOT: FILLS_NO_SLOT,
     WITHHELD_DECLARED: WITHHELD_DECLARED,
     WITHHELD_ATTACHMENT: WITHHELD_ATTACHMENT,
     WITHHELD_UNREADABLE: WITHHELD_UNREADABLE,

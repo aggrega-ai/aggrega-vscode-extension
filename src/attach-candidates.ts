@@ -1,7 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cognitio S.r.l.
 
-import { AttachCandidatesRequest, attachCandidatesRequest } from './attachment-edit';
+import {
+  AttachCandidatesRequest,
+  ConnectionAddress,
+  attachCandidatesRequest,
+  connectionCandidatesRequest,
+  connectionWords,
+} from './attachment-edit';
 import { describeError } from './error-surfaces';
 import { PanelDelivery } from './graph-messages';
 import { Withheld, describeLinksLeadingOut } from './links-leading-out';
@@ -23,7 +29,9 @@ export const FEATURES_NOT_OFFERED: Withheld = { things: 'Features', as: 'offered
 // the list's failures are recorded on.
 export interface AttachCandidatesDeps {
   // requestAttachCandidates asks which Features declare an applicability one
-  // drawn node's labels satisfy, on the graph of the Release named.
+  // drawn node's labels satisfy, on the graph of the Release named — and, where
+  // the request names one of the connections that node's component draws, which
+  // slots that connection may fill and which Features may fill each.
   requestAttachCandidates(request: AttachCandidatesRequest): Promise<unknown>;
   // requestCatalogIndex asks for the entity index in the terms the parameters
   // name. Here it is asked for the links leading out of the workspace that the
@@ -92,23 +100,64 @@ export async function postAttachCandidates(
   release: string,
   requestId: number,
 ): Promise<void> {
-  const links = readLinksLine(deps, release);
+  await askAndPost(toPanel, deps, nodeId, nodeId, attachCandidatesRequest(nodeId, release), requestId,
+    (result, linksNote) => (linksNote === null
+      ? { type: 'attachCandidates', nodeId, requestId, result }
+      : { type: 'attachCandidates', nodeId, requestId, result, linksNote }));
+}
+
+// postConnectionCandidates asks which slots one connection may fill, and which
+// Features may fill each, and posts the answer back to the panel tagged with the
+// connection it was asked about and the request id it was asked with.
+//
+// It is the node's question asked about a connection: the same request, naming
+// the connection beside the node whose component draws it, answered and refused
+// by the same path — the links leading out of the workspace travel with it for
+// the same reason, since the Features that may fill a slot are read from the
+// same places as those that may attach to the node. A refusal is posted as the
+// node's is, matched by its request id.
+export async function postConnectionCandidates(
+  toPanel: Pick<PanelDelivery, 'post'>,
+  deps: AttachCandidatesDeps,
+  nodeId: string,
+  connection: ConnectionAddress,
+  release: string,
+  requestId: number,
+): Promise<void> {
+  await askAndPost(toPanel, deps, nodeId, connectionWords(nodeId, connection),
+    connectionCandidatesRequest(nodeId, connection, release), requestId,
+    (result, linksNote) => (linksNote === null
+      ? { type: 'connectionCandidates', nodeId, connection, requestId, result }
+      : { type: 'connectionCandidates', nodeId, connection, requestId, result, linksNote }));
+}
+
+// askAndPost is the one path both questions take: the index asked beside the
+// question, the answer posted as `answered` words it, and a refusal posted and
+// recorded. `subject` names what was asked about on the output channel.
+async function askAndPost(
+  toPanel: Pick<PanelDelivery, 'post'>,
+  deps: AttachCandidatesDeps,
+  nodeId: string,
+  subject: string,
+  request: AttachCandidatesRequest,
+  requestId: number,
+  answered: (result: unknown, linksNote: string | null) => unknown,
+): Promise<void> {
+  const links = readLinksLine(deps, request.release);
   try {
-    const result = await deps.requestAttachCandidates(attachCandidatesRequest(nodeId, release));
+    const result = await deps.requestAttachCandidates(request);
     const read = await links;
     if ('failure' in read) {
-      deps.output.appendLine(`catalogIndex failed for ${nodeId}, so the list of what may attach names no link leading out of the workspace: ${read.failure}`);
+      deps.output.appendLine(`catalogIndex failed for ${subject}, so the list of what may attach names no link leading out of the workspace: ${read.failure}`);
     }
     const linksNote = 'line' in read ? read.line : null;
-    toPanel.post(linksNote === null
-      ? { type: 'attachCandidates', nodeId, requestId, result }
-      : { type: 'attachCandidates', nodeId, requestId, result, linksNote });
+    toPanel.post(answered(result, linksNote));
   } catch (err) {
     // describeError is the extension's one home for rendering a thrown value as
     // a line for a reader, so a transport refusal and a language server that is
     // not running are worded here by the same rule they are worded everywhere.
     const message = describeError(err);
-    deps.output.appendLine(`attachCandidates failed for ${nodeId}: ${message}`);
+    deps.output.appendLine(`attachCandidates failed for ${subject}: ${message}`);
     toPanel.post({ type: 'attachCandidatesError', nodeId, requestId, message });
   }
 }

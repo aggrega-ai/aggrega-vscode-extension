@@ -7,8 +7,9 @@
 // is declared in, since the IR ships no coordinates), draws it as
 // SVG with a legend for the parts of the drawing that are otherwise unreadable,
 // shows what is attached to the node the reader selects and what may attach to
-// it, shows what is attached to the connection the reader selects by its edge,
-// and posts a source-open request back when a node is double-clicked.
+// it, shows what is attached to the connection the reader selects by its edge
+// and what may fill its slots, and posts a source-open request back when a node
+// is double-clicked.
 //
 // This file owns the document, which makes it the only side that can measure
 // text — so it supplies the measurement the layout model asks for, and every
@@ -27,9 +28,9 @@
 //
 // THE PANEL ANSWERS TWO DIFFERENT QUESTIONS AND KEEPS THEM APART. What IS
 // attached is projected from the IR already in hand and is drawn at once. What
-// MAY attach is not in the IR at all: it is asked for when a node is selected
-// and drawn when the answer arrives, so that half of the panel has a waiting
-// state and a failure state the first half has no use for.
+// MAY attach is not in the IR at all: it is asked for when a node or a
+// connection is selected and drawn when the answer arrives, so that half of the
+// panel has a waiting state and a failure state the first half has no use for.
 
 (function () {
   'use strict';
@@ -160,10 +161,12 @@
         .catch((err) => reportFailure(msg.release, String(err)));
     } else if (msg.type === 'attachCandidates') {
       showCandidates(msg.requestId, candidates.projectCandidates(msg.result, msg.linksNote));
+    } else if (msg.type === 'connectionCandidates') {
+      showSlots(msg.requestId, candidates.projectSlots(msg.result, msg.linksNote));
     } else if (msg.type === 'attachCandidatesError') {
       showCandidatesFailure(msg.requestId, msg.message);
     } else if (msg.type === 'attachOutcome') {
-      showAttachOutcome(msg.nodeId, msg.message, msg.attached);
+      showAttachOutcome(outcomeSubject(msg.nodeId, msg.connection), msg.message, msg.attached);
     } else if (msg.type === 'visibility') {
       panelOnScreen = !!msg.visible;
       // Coming back on screen is when a framing that was refused can be
@@ -618,16 +621,27 @@
 
   // --- a selected connection ------------------------------------------------
 
-  // selectEdge opens the panel on the connection one drawn edge draws, and marks
-  // that edge. Selecting a connection clears a selected node first, and with it
-  // the palette a node's panel waits on, so an answer about a node arriving later
-  // has nothing to fill.
+  // selectEdge opens the panel on the connection one drawn edge draws, marks
+  // that edge, and asks what may fill the connection's slots. Selecting a
+  // connection clears a selected node first, and with it the palette a node's
+  // panel waits on; the question it asks mints a newer id, so an answer about a
+  // node arriving later is not the one the panel is waiting for and is dropped.
   function selectEdge(drawn) {
     clearSelection();
     selectedEdge = drawn;
     drawnEdges.forEach((d) => { d.group.classList.toggle('edge-selected', d === drawn); });
     drawConnectionPanel(drawn.connection, shownConnections.get(drawn.connection.key));
     panelEl.classList.remove('hidden');
+    if (askable(drawn.connection)) { askWhatMayFill(drawn.connection); }
+  }
+
+  // askable reports whether a connection can be asked about at all. The
+  // compiler names a connection by the socket it is wired through and the alias
+  // it carries there, and an edge the graph draws without either has no name to
+  // ask by — so it gets no section of what may fill it, rather than a question
+  // nobody could answer.
+  function askable(connection) {
+    return !!connection.socket && !!connection.alias;
   }
 
   // drawConnectionPanel writes one connection into the panel: a title naming it
@@ -635,6 +649,9 @@
   // on it, each by the same renderer a node's are drawn by and from the same
   // projection — so a value withheld on a node is withheld on a connection by the
   // same rule, under the same setting.
+  //
+  // Below them it draws the section listing what may fill the connection's
+  // slots, in its waiting state, as a node's panel draws what may attach to it.
   function drawConnectionPanel(connection, row) {
     panelTitleEl.textContent = `${connection.source} → ${connection.target}`;
     clear(panelBodyEl);
@@ -651,19 +668,36 @@
         panelBodyEl.appendChild(drawAttachment(a));
       }
     }
+    if (askable(connection)) {
+      panelBodyEl.appendChild(drawPaletteSection(
+        [candidates.SLOTS_CAPTION, candidates.SLOTS_ACTION_CAPTION], candidates.SLOTS_PENDING_NOTE,
+      ));
+    }
   }
 
   // --- what may attach ------------------------------------------------------
 
-  // drawCandidatesSection builds the palette in its waiting state and hands
-  // back the section. Its body is kept so the answer fills it in place.
+  // drawCandidatesSection builds a node's palette in its waiting state and hands
+  // back the section.
   function drawCandidatesSection() {
+    return drawPaletteSection(
+      [candidates.CANDIDATES_CAPTION, candidates.ATTACH_ACTION_CAPTION], candidates.PENDING_NOTE,
+    );
+  }
+
+  // drawPaletteSection builds the section listing what may attach — to a node,
+  // or into a connection's slots — under its heading and captions, in its
+  // waiting state, and hands it back. Its body is kept so the answer fills it in
+  // place, and so is its outcome line: the panel shows one subject at a time,
+  // so there is one of each.
+  function drawPaletteSection(captions, pendingNote) {
     const box = el('section', 'candidates');
     box.appendChild(el('div', 'candidates-title', candidates.CANDIDATES_TITLE));
-    box.appendChild(el('p', 'candidates-caption', candidates.CANDIDATES_CAPTION));
-    box.appendChild(el('p', 'candidates-caption', candidates.ATTACH_ACTION_CAPTION));
+    for (const caption of captions) {
+      box.appendChild(el('p', 'candidates-caption', caption));
+    }
     const body = el('div', 'candidates-body');
-    body.appendChild(el('p', 'panel-empty', candidates.PENDING_NOTE));
+    body.appendChild(el('p', 'panel-empty', pendingNote));
     box.appendChild(body);
     candidatesBodyEl = body;
     // The outcome line sits below the palette and outside its body, so filling
@@ -691,6 +725,21 @@
     });
   }
 
+  // askWhatMayFill asks the host which slots the connection the reader just
+  // selected may fill, naming it by the node whose component draws it, its
+  // socket and its alias — the names this drawing read off the compiler's own
+  // edge. It mints its id from the same counter a node's question does, so only
+  // the newest question about whatever the panel shows is drawn.
+  function askWhatMayFill(connection) {
+    candidatesRequestId += 1;
+    vscode.postMessage({
+      type: 'connectionCandidates',
+      nodeId: connection.source,
+      connection: { socket: connection.socket, alias: connection.alias },
+      requestId: candidatesRequestId,
+    });
+  }
+
   // showCandidates draws the answer, or the sentence that stands in for an
   // answer naming nothing, and under either the line naming the links leading
   // out of the workspace where the host sent one.
@@ -710,12 +759,69 @@
       body.appendChild(el('p', 'panel-empty', projected.emptyNote));
     } else {
       for (const row of projected.rows) {
-        body.appendChild(drawCandidate(row));
+        body.appendChild(drawCandidate(row, () => {
+          vscode.postMessage({ type: 'attachFeature', nodeId: selectedId, featureName: row.name });
+        }));
       }
     }
     if (projected.linksNote) {
       body.appendChild(el('p', 'candidates-links', projected.linksNote));
     }
+  }
+
+  // showSlots draws the answer about the connection the panel shows: each slot
+  // its socket declares, in the order the answer names them, with the Features
+  // that may fill it — or, where none may be filled, the sentence for the reason
+  // the answer gives, and no control at all. Whether anything may be attached
+  // to a connection is the answer's to say: a connection a Feature drew is
+  // offered nothing because the answer says so, not because this panel decided.
+  //
+  // It is dropped exactly as a node's answer is, by the request id.
+  function showSlots(requestId, projected) {
+    if (!answering(requestId) || selectedEdge === null) { return; }
+    const connection = selectedEdge.connection;
+    const body = candidatesBodyEl;
+    clear(body);
+
+    if (projected.slots.length === 0) {
+      body.appendChild(el('p', 'panel-empty', projected.noSlotNote));
+    } else {
+      for (const slot of projected.slots) {
+        body.appendChild(drawSlot(connection, slot));
+      }
+    }
+    if (projected.linksNote) {
+      body.appendChild(el('p', 'candidates-links', projected.linksNote));
+    }
+  }
+
+  // drawSlot draws one slot of a connection: its name, what it says it is for,
+  // the facts the answer gives about it, and the Features that may fill it —
+  // each with the control that commits it into this slot of this connection —
+  // or the sentence standing in for none.
+  function drawSlot(connection, slot) {
+    const box = el('section', 'slot');
+    box.appendChild(el('div', 'slot-name', slot.name));
+    if (slot.description) { box.appendChild(el('p', 'candidates-caption', slot.description)); }
+    const facts = el('dl', 'facts');
+    for (const f of slot.facts) { addFact(facts, f.key, f.value); }
+    box.appendChild(facts);
+    if (slot.rows.length === 0) {
+      box.appendChild(el('p', 'panel-empty', slot.emptyNote));
+    } else {
+      for (const row of slot.rows) {
+        box.appendChild(drawCandidate(row, () => {
+          vscode.postMessage({
+            type: 'attachToConnection',
+            nodeId: connection.source,
+            connection: { socket: connection.socket, alias: connection.alias },
+            slot: slot.name,
+            featureName: row.name,
+          });
+        }));
+      }
+    }
+    return box;
   }
 
   // showCandidatesFailure says the list could not be produced, in place of the
@@ -742,21 +848,16 @@
   // readable without being an affordance: a reader scanning what may attach is
   // not one press away from editing their file every time they click a name.
   //
-  // The button carries the entity's name and nothing else. Where the edit lands
-  // is resolved on the other side of this boundary, from the graph the compiler
-  // sent — so this posts what the reader chose and never where it goes.
-  function drawCandidate(row) {
+  // The button carries names and nothing else — the entity's, and the subject
+  // it is attached to, which `commit` posts. Where the edit lands is resolved on
+  // the other side of this boundary, from the graph the compiler sent — so this
+  // posts what the reader chose and never where it goes.
+  function drawCandidate(row, commit) {
     const box = el('section', 'candidate');
     const head = el('div', 'candidate-head');
     head.appendChild(el('span', 'candidate-name', row.name));
     const attach = el('button', 'candidate-attach', candidates.ATTACH_ACTION);
-    attach.addEventListener('click', () => {
-      vscode.postMessage({
-        type: 'attachFeature',
-        nodeId: selectedId,
-        featureName: row.name,
-      });
-    });
+    attach.addEventListener('click', commit);
     head.appendChild(attach);
     box.appendChild(head);
     if (row.facts.length > 0) {
@@ -767,27 +868,67 @@
     return box;
   }
 
+  // --- what an outcome is about ----------------------------------------------
+  //
+  // An attach is made to a node or to a connection, and its outcome says which.
+  // Both are one notion here — a subject — spelled by one pair of functions, so
+  // the rule below is one rule whichever the panel shows: a node by its id, a
+  // connection by the attachment model's key for it. The two kinds are spelled
+  // apart, so no node id can read as a connection.
+  function nodeSubject(nodeId) {
+    return JSON.stringify(['node', String(nodeId)]);
+  }
+
+  function connectionSubject(key) {
+    return JSON.stringify(['connection', key]);
+  }
+
+  // outcomeSubject is the subject an outcome names: the connection, where it
+  // names one by a socket and an alias, and otherwise the node.
+  function outcomeSubject(nodeId, connection) {
+    if (connection && typeof connection.socket === 'string' && typeof connection.alias === 'string') {
+      return connectionSubject(attachments.connectionKey(nodeId, connection.socket, connection.alias));
+    }
+    return nodeSubject(nodeId);
+  }
+
+  // shownSubject is the subject the panel is showing, or null.
+  function shownSubject() {
+    if (selectedId !== null) { return nodeSubject(selectedId); }
+    if (selectedEdge !== null) { return connectionSubject(selectedEdge.connection.key); }
+    return null;
+  }
+
+  // drawsSubject reports whether the drawing on screen carries a subject, read
+  // off the node groups and the edges it was drawn with.
+  function drawsSubject(subject) {
+    for (const id of nodeGroups.keys()) {
+      if (nodeSubject(id) === subject) { return true; }
+    }
+    return drawnEdges.some((d) => connectionSubject(d.connection.key) === subject);
+  }
+
   // showAttachOutcome reports what became of a commit, under the list the panel
   // is showing, in the words it arrived in.
   //
-  // It draws an outcome about the node the panel is showing, and a refusal
-  // naming a node the drawing on screen does not carry. The first answers the
-  // reader's press. The second is about a node this drawing never offered for
-  // selection, so no selection in it can have moved on from that node, and
-  // dropping it would leave the request with no answer at all.
+  // It draws an outcome about the subject the panel is showing, and a refusal
+  // naming a subject the drawing on screen does not carry. The first answers the
+  // reader's press. The second is about a node or a connection this drawing
+  // never offered for selection, so no selection in it can have moved on from
+  // that subject, and dropping it would leave the request with no answer at all.
   //
-  // An outcome about another node the drawing does carry is dropped. The reader
-  // has selected something else, and a line about the previous node under the
-  // current node's palette reads as being about the current one.
+  // An outcome about another subject the drawing does carry is dropped. The
+  // reader has selected something else, and a line about the previous subject
+  // under the current one's list reads as being about the current one.
   //
-  // What the drawing carries is read off the node groups it was drawn with.
-  // They are replaced only once a new layout has been drawn, so an outcome
-  // arriving while one is still being computed is judged against the drawing
-  // still on screen, which is the one whose list the line would be written
-  // under.
-  function showAttachOutcome(nodeId, message, attached) {
+  // What the drawing carries is read off the node groups and the edges it was
+  // drawn with. They are replaced only once a new layout has been drawn, so an
+  // outcome arriving while one is still being computed is judged against the
+  // drawing still on screen, which is the one whose list the line would be
+  // written under.
+  function showAttachOutcome(subject, message, attached) {
     if (attachOutcomeEl === null) { return; }
-    if (nodeId !== selectedId && (attached || nodeGroups.has(nodeId))) { return; }
+    if (subject !== shownSubject() && (attached || drawsSubject(subject))) { return; }
     attachOutcomeEl.textContent = message;
     attachOutcomeEl.classList.remove('hidden');
     attachOutcomeEl.classList.toggle('attach-failed', !attached);
@@ -806,7 +947,7 @@
     const facts = el('dl', 'facts');
     addFact(facts, 'feature', a.type);
     addFact(facts, 'version', a.version);
-    addFact(facts, 'slot', a.binding);
+    addFact(facts, 'slot', a.slot);
     addFact(facts, 'origin', a.origin);
     addFact(facts, 'annotation', a.annotationKey);
     addFact(facts, 'declared at', a.annotationSource);
