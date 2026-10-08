@@ -124,7 +124,7 @@ export async function postConnectionCandidates(
   release: string,
   requestId: number,
 ): Promise<void> {
-  await askAndPost(toPanel, deps, nodeId, connectionWords(nodeId, connection),
+  await askAndPost(toPanel, deps, nodeId, `the ${connectionWords(nodeId, connection)}`,
     connectionCandidatesRequest(nodeId, connection, release), requestId,
     (result, linksNote) => (linksNote === null
       ? { type: 'connectionCandidates', nodeId, connection, requestId, result }
