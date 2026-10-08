@@ -20,6 +20,11 @@ export interface GraphMessage {
   connection?: { socket?: unknown; alias?: unknown };
   // The slot of that connection an attach fills.
   slot?: string;
+  // The id of a selection the extension asked the panel to make, echoed on an
+  // attach made from it and on a selection the drawing could not make. It is an
+  // id and nothing else: what it stands for is looked up on the side that minted
+  // it, in what that side itself posted.
+  selection?: number;
 }
 
 // ConnectionNames names one connection by the socket it is wired through and the
@@ -74,7 +79,18 @@ export interface GraphMessageSinks {
   // attachToConnection commits the Feature the reader chose into one slot of the
   // connection they selected. Every argument is a name: which document the edit
   // lands in, and where, is resolved on the side that holds the compiled graph.
-  attachToConnection(nodeId: string, connection: ConnectionNames, slot: string, featureName: string): void;
+  // selection is the id of the selection the extension asked for, where the
+  // connection was selected that way, and undefined for a pressed edge.
+  attachToConnection(
+    nodeId: string,
+    connection: ConnectionNames,
+    slot: string,
+    featureName: string,
+    selection: number | undefined,
+  ): void;
+  // selectionNotDrawn is the panel saying the selection the extension asked for
+  // under this id names a connection its drawing does not carry.
+  selectionNotDrawn(selection: number): void;
   // listening is the panel's document saying it now hears what is posted to it,
   // which is when what was held for it can be sent (holdUntilListening, below).
   listening(): void;
@@ -116,6 +132,11 @@ export function makeGraphMessageHandler(
     }
     if (msg.type === 'attachToConnection') {
       dispatchAttachToConnection(msg, sinks);
+      return;
+    }
+    if (msg.type === 'selectionNotDrawn') {
+      const selection = selectionNamed(msg);
+      if (selection !== undefined) { sinks.selectionNotDrawn(selection); }
       return;
     }
     if (msg.type === 'listening') {
@@ -216,13 +237,22 @@ function dispatchConnectionCandidates(msg: GraphMessage, sinks: GraphMessageSink
 
 // dispatchAttachToConnection forwards the reader's choice of what to attach into
 // a slot of a connection. Every name must be there and none is interpreted; an
-// absent one is dropped rather than defaulted, for the reason a node's is.
+// absent one is dropped rather than defaulted, for the reason a node's is. A
+// selection id is carried where the message names one in the shape ids are
+// minted in, and is otherwise absent: the attach is then a pressed edge's.
 function dispatchAttachToConnection(msg: GraphMessage, sinks: GraphMessageSinks): void {
   const connection = connectionNamed(msg);
   if (!msg.nodeId || connection === null || !msg.slot || !msg.featureName) {
     return;
   }
-  sinks.attachToConnection(msg.nodeId, connection, msg.slot, msg.featureName);
+  sinks.attachToConnection(msg.nodeId, connection, msg.slot, msg.featureName, selectionNamed(msg));
+}
+
+// selectionNamed reads the selection id a message carries: a positive whole
+// number, the shape the side holding the graph mints them in, or undefined.
+function selectionNamed(msg: GraphMessage): number | undefined {
+  const id = msg.selection;
+  return typeof id === 'number' && Number.isInteger(id) && id > 0 ? id : undefined;
 }
 
 // PanelDelivery is the one way a message reaches the graph panel's document.

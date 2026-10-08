@@ -133,6 +133,10 @@
         {
           "command": "aggrega.workspace.openRootFolder",
           "when": "false"
+        },
+        {
+          "command": "aggrega.graph.attachToConnectionAtCursor",
+          "when": "resourcePath in aggrega.connectionDocuments"
         }
       ],
       "view/title": [
@@ -213,6 +217,13 @@
           "when": "viewItem == aggrega.plugin.configEntry",
           "group": "plugin@1"
         }
+      ],
+      "editor/context": [
+        {
+          "command": "aggrega.graph.attachToConnectionAtCursor",
+          "when": "resourcePath in aggrega.connectionDocuments",
+          "group": "aggrega@1"
+        }
       ]
     },
     "commands": [
@@ -273,6 +284,11 @@
         "title": "Show topology graph",
         "category": "Aggrega",
         "icon": "$(type-hierarchy)"
+      },
+      {
+        "command": "aggrega.graph.attachToConnectionAtCursor",
+        "title": "Attach a Feature to the connection at the cursor",
+        "category": "Aggrega"
       },
       {
         "command": "aggrega.catalog.searchPublished",

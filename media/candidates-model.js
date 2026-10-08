@@ -73,6 +73,16 @@
     + 'that drew it: the Release for a connection the Release drew, the Aggregate otherwise. '
     + 'The change lands in the editor, where it can be undone.';
 
+  // The action caption for a connection selected from its entry in a document
+  // rather than by pressing its edge. An attach made from that selection is
+  // written on the entry the cursor was in, which for a Release's own entry on a
+  // connection the Aggregate drew is not in the document that drew it — so this
+  // caption names the document by where the command was run.
+  const SLOTS_ENTRY_ACTION_CAPTION =
+    'Attaching writes the Feature under the slot\'s name on this connection\'s entry in the '
+    + 'document the command was run in. '
+    + 'The change lands in the editor, where it can be undone.';
+
   const SLOTS_PENDING_NOTE = 'Looking for the slots this connection may fill…';
 
   // The reasons the answer gives for a connection with no slot to fill. These
@@ -302,6 +312,7 @@
     failureNote: failureNote,
     SLOTS_CAPTION: SLOTS_CAPTION,
     SLOTS_ACTION_CAPTION: SLOTS_ACTION_CAPTION,
+    SLOTS_ENTRY_ACTION_CAPTION: SLOTS_ENTRY_ACTION_CAPTION,
     SLOTS_PENDING_NOTE: SLOTS_PENDING_NOTE,
     SLOT_EMPTY_NOTE: SLOT_EMPTY_NOTE,
     CANDIDATES_TITLE: CANDIDATES_TITLE,

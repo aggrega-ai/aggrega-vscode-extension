@@ -17,13 +17,16 @@ interface Recorder {
   attached: Array<{ nodeId: string; featureName: string }>;
   askedAboutConnections: Array<{ nodeId: string; connection: ConnectionNames; requestId: number }>;
   attachedToConnections: Array<{ nodeId: string; connection: ConnectionNames; slot: string; featureName: string }>;
+  // The selection id each attach to a connection was forwarded with, in order.
+  attachSelections: Array<number | undefined>;
+  notDrawn: number[];
   listened: number;
 }
 
 function recorder(): Recorder {
   return {
     opened: [], noWorkspaceReports: 0, asked: [], attached: [],
-    askedAboutConnections: [], attachedToConnections: [], listened: 0,
+    askedAboutConnections: [], attachedToConnections: [], attachSelections: [], notDrawn: [], listened: 0,
   };
 }
 
@@ -38,9 +41,11 @@ function handlerOver(getRoot: () => string | null, rec: Recorder) {
     requestConnectionCandidates: (nodeId, connection, requestId) => {
       rec.askedAboutConnections.push({ nodeId, connection, requestId });
     },
-    attachToConnection: (nodeId, connection, slot, featureName) => {
+    attachToConnection: (nodeId, connection, slot, featureName, selection) => {
       rec.attachedToConnections.push({ nodeId, connection, slot, featureName });
+      rec.attachSelections.push(selection);
     },
+    selectionNotDrawn: (selection) => { rec.notDrawn.push(selection); },
     listening: () => { rec.listened++; },
   });
 }
@@ -311,6 +316,68 @@ describe('a message about a connection', () => {
 
     assert.deepStrictEqual(rec.attachedToConnections, []);
     assert.deepStrictEqual(rec.attached, []);
+  });
+});
+
+// A connection the extension asked the panel to select is named back by an id
+// the extension minted, and by nothing that says where to write: the id is
+// forwarded only in the shape ids are minted in, and an attach carrying none is
+// a pressed edge's.
+describe('the selection id a message about a connection carries', () => {
+  const GPT = { socket: 'models', alias: 'gpt' };
+  const whole = {
+    type: 'attachToConnection', nodeId: 'gateway', connection: GPT,
+    slot: 'trace', featureName: 'feature.conn/audit',
+  };
+
+  it('forwards an attach with the id it echoes, and one without an id as carrying none', () => {
+    const rec = recorder();
+    const handle = handlerOver(() => '/a/root', rec);
+
+    handle({ ...whole, selection: 3 });
+    handle({ ...whole });
+
+    assert.deepStrictEqual(rec.attachSelections, [3, undefined]);
+    assert.strictEqual(rec.attachedToConnections.length, 2);
+  });
+
+  it('forwards no id in any shape an id is not minted in, and still forwards the attach', () => {
+    const rec = recorder();
+    const handle = handlerOver(() => '/a/root', rec);
+
+    for (const selection of [0, -1, 1.5, Number.NaN, '3', null, {}, [3]]) {
+      handle({ ...whole, selection } as unknown as GraphMessage);
+    }
+
+    assert.deepStrictEqual(rec.attachSelections, [undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined]);
+    assert.strictEqual(rec.attachedToConnections.length, 8);
+  });
+
+  it('carries no document an attach names beside its id', () => {
+    const rec = recorder();
+    const handle = handlerOver(() => '/a/root', rec);
+
+    handle({
+      ...whole, selection: 2,
+      connection: { socket: 'models', alias: 'gpt', document: 'release' } as GraphMessage['connection'],
+    });
+
+    assert.deepStrictEqual(rec.attachedToConnections.map((a) => a.connection), [GPT]);
+    assert.deepStrictEqual(rec.attachSelections, [2]);
+  });
+
+  it('forwards a selection the drawing could not make by its id, and drops one naming none', () => {
+    const rec = recorder();
+    const handle = handlerOver(() => '/a/root', rec);
+
+    handle({ type: 'selectionNotDrawn', selection: 4 });
+    handle({ type: 'selectionNotDrawn' });
+    handle({ type: 'selectionNotDrawn', selection: 0 } as GraphMessage);
+    handle({ type: 'selectionNotDrawn', selection: '4' } as unknown as GraphMessage);
+
+    assert.deepStrictEqual(rec.notDrawn, [4]);
+    // It is not an attach.
+    assert.deepStrictEqual(rec.attachedToConnections, []);
   });
 });
 

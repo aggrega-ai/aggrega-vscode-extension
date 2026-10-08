@@ -62,6 +62,7 @@ interface CandidatesModel {
   PENDING_NOTE: string;
   SLOTS_CAPTION: string;
   SLOTS_ACTION_CAPTION: string;
+  SLOTS_ENTRY_ACTION_CAPTION: string;
   SLOTS_PENDING_NOTE: string;
   SLOT_EMPTY_NOTE: string;
 }
@@ -88,6 +89,7 @@ function loadModel(): CandidatesModel {
     PENDING_NOTE: model.PENDING_NOTE,
     SLOTS_CAPTION: model.SLOTS_CAPTION,
     SLOTS_ACTION_CAPTION: model.SLOTS_ACTION_CAPTION,
+    SLOTS_ENTRY_ACTION_CAPTION: model.SLOTS_ENTRY_ACTION_CAPTION,
     SLOTS_PENDING_NOTE: model.SLOTS_PENDING_NOTE,
     SLOT_EMPTY_NOTE: model.SLOT_EMPTY_NOTE,
   };
@@ -408,5 +410,14 @@ describe('the slot projection', () => {
     assert.match(model.SLOTS_ACTION_CAPTION, /the Release for a connection the Release drew, the Aggregate otherwise/);
     assert.ok(model.SLOTS_PENDING_NOTE.length > 0);
     assert.notStrictEqual(model.SLOTS_PENDING_NOTE, model.PENDING_NOTE);
+  });
+
+  it('says where an attach from a connection selected from its entry in a document is written', () => {
+    assert.strictEqual(
+      model.SLOTS_ENTRY_ACTION_CAPTION,
+      'Attaching writes the Feature under the slot\'s name on this connection\'s entry in the document the '
+      + 'command was run in. The change lands in the editor, where it can be undone.',
+    );
+    assert.notStrictEqual(model.SLOTS_ENTRY_ACTION_CAPTION, model.SLOTS_ACTION_CAPTION);
   });
 });

@@ -12,6 +12,11 @@ import { CancellationSignal } from './cancellation';
 import type { RegistrySearchParams, SearchDoc } from './catalog-search-run';
 import type { ConfigInitParams, ConfigInitResult } from './config-seeding';
 import {
+  CONNECTION_DOCUMENTS_CONTEXT_KEY,
+  ConnectionAtPositionRequest,
+  connectionDocumentFiles,
+} from './connection-at-cursor';
+import {
   AppliedWrite,
   ConfigurationWatch,
   configurationChangedWarning,
@@ -336,8 +341,14 @@ let releaseStatus: ReleaseStatus | null = null;
 let graphView: GraphView | null = null;
 // workspaceCatalogView is the Catalog panel, held so it can be told to read its
 // list again when a document is created, changed or deleted on disk, or closed in
-// the editor.
+// the editor. Telling it so also reads again which documents the attach at the
+// cursor is offered in, since that is read off the same index at the same
+// moments (readConnectionDocuments, below).
 let workspaceCatalogView: WorkspaceCatalogView | null = null;
+// connectionDocumentsRead counts the reads of the documents the attach at the
+// cursor is offered in, so an answer arriving after a later read began is
+// dropped rather than left standing over the later one.
+let connectionDocumentsRead = 0;
 let lintRunner: LintRunner | null = null;
 // releaseSelection is the editor's one answer to "which Release are we talking
 // about". Every surface that acts on a Release reads it, and it travels on
@@ -900,6 +911,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       return await daemon.request<unknown>('aggrega/insertionPoint', { file, container });
     },
+    // Which connection's entry a position in an Aggregate or a Release falls
+    // inside, on the compiled graph of the Release the request names. It is sent
+    // exactly as the view composed it, and like the insertion point it is
+    // answered from what the session holds for the document, which is what the
+    // editor last sent it, ahead of the bytes on disk.
+    requestConnectionAtPosition: async (request: ConnectionAtPositionRequest) => {
+      if (!daemon || daemon.getState() !== DaemonState.Running) {
+        throw new Error('the Aggrega language server is not running');
+      }
+      return await daemon.request<unknown>('aggrega/connectionAtPosition', request);
+    },
+    validationsAnswered: () => documentValidations.answered(),
+    // UTF-16 where no session has settled on units, as the protocol's own
+    // default; a request then sent finds no server to answer it.
+    serverEncoding: () => daemon?.getServerEncoding() ?? 'utf-16',
     showsSensitiveValues: () => getSettings().showSensitiveValues,
     reportDaemonError,
     onReady: ready.onReady,
@@ -974,7 +1000,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // the workspace the compiler reads rather than a set the extension walked for
   // itself; the getters read live state so the tree tracks the root the server
   // later attaches to.
-  workspaceCatalogView = activateWorkspaceCatalogView(context, {
+  const catalogPanel = activateWorkspaceCatalogView(context, {
     getWorkspaceRoot: () => workspaceRootForCommands,
     getBinaryPath: () => getSettings().binaryPath,
     isLanguageServerRunning,
@@ -992,6 +1018,27 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     lintEntity: (entityPath) => lintRunner?.runEntity(entityPath) ?? Promise.resolve(),
     onReady: ready.onReady,
     output: outputChannel,
+  });
+  // Which documents the attach at the cursor is offered in is read off the same
+  // index the Catalog panel lists, at every moment the panel is told to read it
+  // again and as the compiler becomes answerable. It is read on its own rather
+  // than taken from the panel's reading, because the editor reads a tree it is
+  // not showing only once it is revealed, so a reader who never opens the panel
+  // would never be offered the command. As the compiler stops being answerable
+  // the command is offered nowhere, as a condition nothing can act on is not
+  // left standing.
+  workspaceCatalogView = {
+    refresh: () => {
+      catalogPanel.refresh();
+      void readConnectionDocuments();
+    },
+  };
+  ready.onChange((answerable) => {
+    if (answerable) {
+      void readConnectionDocuments();
+    } else {
+      clearConnectionDocuments();
+    }
   });
 
   // 🔴 WHAT THE SELECTED RELEASE'S MOVE CHANGES IS ASKED FOR AGAIN HERE, ONCE PER
@@ -2881,6 +2928,57 @@ async function requestCatalogIndexWith(params: CatalogIndexParams, signal?: Canc
     throw new Error('the Aggrega language server is not running');
   }
   return await daemon.request<CatalogIndexDoc>('aggrega/catalogIndex', params, signal);
+}
+
+// readConnectionDocuments reads which documents the attach at the cursor is
+// offered in, and publishes them as the editor condition the manifest offers the
+// command under: each document the entity index reports as an Aggregate or a
+// Release, as connectionDocumentFiles decides. The index is asked in the selected
+// Release's terms, as the Catalog panel asks it, so the documents are the ones
+// that panel lists.
+//
+// A read that cannot be answered offers the command in no document — none can be
+// said to be an Aggregate or a Release — and the reason is on the channel. A read
+// overtaken by a later one, or by the compiler stopping, publishes nothing.
+async function readConnectionDocuments(): Promise<void> {
+  connectionDocumentsRead += 1;
+  const read = connectionDocumentsRead;
+  const root = workspaceRootForCommands;
+  if (!root || !isLanguageServerRunning()) {
+    publishConnectionDocuments([]);
+    return;
+  }
+  let files: string[] = [];
+  try {
+    files = connectionDocumentFiles(await requestCatalogIndex());
+  } catch (err) {
+    outputChannel?.appendLine(`catalogIndex failed, so the attach at the cursor is offered in no document: ${describeError(err)}`);
+  }
+  if (read !== connectionDocumentsRead) { return; }
+  publishConnectionDocuments(files.map((file) => vscode.Uri.file(fromWorkspaceRelative(root, file)).fsPath));
+}
+
+// clearConnectionDocuments offers the command in no document, and drops the
+// answer of a read still in flight.
+function clearConnectionDocuments(): void {
+  connectionDocumentsRead += 1;
+  publishConnectionDocuments([]);
+}
+
+// publishConnectionDocuments sets the editor condition to a list of paths, which
+// the manifest matches the active document's resourcePath against.
+//
+// Each is the path of the document's file URI as this side holds it, which is the
+// spelling that matches in a local window and in a remote one alike. The editor
+// writes a document's resourcePath as that same path for a document it holds as
+// a file. Where the extension runs on a remote host, the editor holds the document
+// under the remote's own scheme and writes the URI's path instead, which is the
+// path this side holds wherever the host spells a path from its root with forward
+// slashes — every host but a Windows one. A URI string would match in neither
+// remote case, because the editor's URI for the document is not the one this
+// side holds.
+function publishConnectionDocuments(paths: string[]): void {
+  void vscode.commands.executeCommand('setContext', CONNECTION_DOCUMENTS_CONTEXT_KEY, paths);
 }
 
 // requestScaffoldEntity asks the language server to draft a starter document for

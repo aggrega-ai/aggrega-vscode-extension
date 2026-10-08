@@ -7,9 +7,9 @@
 // is declared in, since the IR ships no coordinates), draws it as
 // SVG with a legend for the parts of the drawing that are otherwise unreadable,
 // shows what is attached to the node the reader selects and what may attach to
-// it, shows what is attached to the connection the reader selects by its edge
-// and what may fill its slots, and posts a source-open request back when a node
-// is double-clicked.
+// it, shows what is attached to the connection the reader selects by its edge —
+// or the one the extension asks it to select — and what may fill its slots, and
+// posts a source-open request back when a node is double-clicked.
 //
 // This file owns the document, which makes it the only side that can measure
 // text — so it supplies the measurement the layout model asks for, and every
@@ -146,6 +146,17 @@
   // older answer land last and draw a candidate list computed over labels the
   // graph no longer has.
   let candidatesRequestId = 0;
+  // A connection the extension asked this panel to select, held until the
+  // drawing sent before the request has landed: the id it was asked under, the
+  // key of the connection, and the drawing it waits for.
+  let heldSelection = null;
+  // That selection while it is the one the panel shows, or null. An attach made
+  // from it echoes its id; an attach from any other selection echoes none, so the
+  // id never travels with a connection it was not minted for.
+  let documentSelection = null;
+  // How many drawings have started, and the newest one to have landed.
+  let drawingsStarted = 0;
+  let drawingLanded = 0;
 
   window.addEventListener('message', (event) => {
     const msg = event.data;
@@ -167,6 +178,8 @@
       showCandidatesFailure(msg.requestId, msg.message);
     } else if (msg.type === 'attachOutcome') {
       showAttachOutcome(outcomeSubject(msg.nodeId, msg.connection), msg.message, msg.attached);
+    } else if (msg.type === 'selectConnection') {
+      holdSelection(msg);
     } else if (msg.type === 'visibility') {
       panelOnScreen = !!msg.visible;
       // Coming back on screen is when a framing that was refused can be
@@ -230,6 +243,8 @@
   // layout arrives with no such line, and is named after its Release with the
   // layout's own words.
   function reportFailure(release, message, line) {
+    // A selection waiting on a drawing waits on one that is not coming.
+    heldSelection = null;
     const subject = release ? `${release}: ` : '';
     const stale = hasDrawing();
     setStatus(stale
@@ -242,6 +257,8 @@
   // --- render -------------------------------------------------------------
 
   async function renderGraph(graph, asked, showsSensitiveValues) {
+    drawingsStarted += 1;
+    const drawing = drawingsStarted;
     const { root, meta } = model.toElkGraph(graph, measureText);
     // A first layout says which groupings came out tall; where two or more
     // siblings did, the graph is laid out again with those siblings side by
@@ -261,6 +278,9 @@
     // selection every time would close the panel while they are reading it.
     const wasSelected = selectedId;
     const wasEdgeKey = selectedEdge === null ? null : selectedEdge.connection.key;
+    // A connection selected at the extension's request stays that selection
+    // across the redraw, as the press on its edge would stay a press.
+    const wasDocumentSelection = documentSelection;
     const projected = projectAttachments(graph, showsSensitiveValues);
     shownAttachments = projected.nodes;
     shownConnections = projected.connections;
@@ -292,7 +312,7 @@
       selectNode(wasSelected);
     } else if (wasEdgeKey !== null) {
       const still = drawnEdges.find((d) => d.connection.key === wasEdgeKey);
-      if (still) { selectEdge(still); }
+      if (still) { selectEdge(still, wasDocumentSelection); }
     }
 
     // A drawing the reader asked for is framed afresh, and that is the way back
@@ -307,6 +327,10 @@
     // The drawing on the canvas is now the one the compiler just built, so
     // whatever an earlier failure said about the last one no longer applies.
     canvas.classList.remove('out-of-date');
+    // And a selection the extension asked for once this drawing was sent can
+    // now be made on it.
+    drawingLanded = Math.max(drawingLanded, drawing);
+    applyHeldSelection();
   }
 
   function drawContainer(box) {
@@ -541,6 +565,7 @@
   function clearSelection() {
     selectedId = null;
     selectedEdge = null;
+    documentSelection = null;
     nodeGroups.forEach((g) => { g.classList.remove('node-selected'); });
     drawnEdges.forEach((d) => { d.group.classList.remove('edge-selected'); });
     panelEl.classList.add('hidden');
@@ -578,6 +603,7 @@
 
   function selectNode(nodeId) {
     selectedEdge = null;
+    documentSelection = null;
     drawnEdges.forEach((d) => { d.group.classList.remove('edge-selected'); });
     selectedId = nodeId;
     nodeGroups.forEach((g, id) => { g.classList.toggle('node-selected', id === nodeId); });
@@ -626,9 +652,13 @@
   // connection clears a selected node first, and with it the palette a node's
   // panel waits on; the question it asks mints a newer id, so an answer about a
   // node arriving later is not the one the panel is waiting for and is dropped.
-  function selectEdge(drawn) {
+  //
+  // chosen is the selection the extension asked for, where this is it, and is
+  // absent for a press on the edge — which therefore drops any id held before.
+  function selectEdge(drawn, chosen) {
     clearSelection();
     selectedEdge = drawn;
+    documentSelection = chosen || null;
     drawnEdges.forEach((d) => { d.group.classList.toggle('edge-selected', d === drawn); });
     drawConnectionPanel(drawn.connection, shownConnections.get(drawn.connection.key));
     panelEl.classList.remove('hidden');
@@ -669,10 +699,68 @@
       }
     }
     if (askable(connection)) {
-      panelBodyEl.appendChild(drawPaletteSection(
-        [candidates.SLOTS_CAPTION, candidates.SLOTS_ACTION_CAPTION], candidates.SLOTS_PENDING_NOTE,
-      ));
+      panelBodyEl.appendChild(drawPaletteSection(slotCaptions(connection), candidates.SLOTS_PENDING_NOTE));
     }
+  }
+
+  // slotCaptions are the captions over a connection's slots: what the list is,
+  // and where pressing Attach writes. An attach from a press on the edge is
+  // written in the document that drew the connection; one from the connection
+  // the extension selected from its entry in a document is written on that
+  // entry, in the document the command was run in, and its caption says so.
+  function slotCaptions(connection) {
+    const action = documentSelectionOn(connection) !== null
+      ? candidates.SLOTS_ENTRY_ACTION_CAPTION
+      : candidates.SLOTS_ACTION_CAPTION;
+    return [candidates.SLOTS_CAPTION, action];
+  }
+
+  // documentSelectionOn is the selection the extension asked for, where the
+  // connection is the one it was asked for, and null otherwise. Both what an
+  // attach to the connection echoes and which caption says where that attach is
+  // written are read from it, so the panel cannot say one document and send for
+  // another.
+  function documentSelectionOn(connection) {
+    return documentSelection !== null && documentSelection.key === connection.key
+      ? documentSelection
+      : null;
+  }
+
+  // --- a selection the extension asks for ------------------------------------
+
+  // holdSelection takes the extension's request to select one connection, and
+  // makes it once the drawing sent before the request has landed — so it is made
+  // on the graph it was asked about, not on the one that drawing replaces. A
+  // request that does not name its id and its connection in full is dropped.
+  function holdSelection(msg) {
+    const connection = msg.connection || {};
+    if (typeof msg.selection !== 'number' || typeof msg.nodeId !== 'string'
+      || typeof connection.socket !== 'string' || typeof connection.alias !== 'string') {
+      return;
+    }
+    heldSelection = {
+      selection: msg.selection,
+      key: attachments.connectionKey(msg.nodeId, connection.socket, connection.alias),
+      waitsFor: drawingsStarted,
+    };
+    applyHeldSelection();
+  }
+
+  // applyHeldSelection makes the held selection once the drawing it waits for
+  // has landed: the connection's edge is selected as a press on it selects it,
+  // carrying the selection's id; where the landed drawing draws no such edge,
+  // nothing is selected and the extension is told so under the id, to say it in
+  // the words an attach to a connection the drawing lacks is refused in.
+  function applyHeldSelection() {
+    if (heldSelection === null || drawingLanded < heldSelection.waitsFor) { return; }
+    const held = heldSelection;
+    heldSelection = null;
+    const drawn = drawnEdges.find((d) => d.connection.key === held.key);
+    if (!drawn) {
+      vscode.postMessage({ type: 'selectionNotDrawn', selection: held.selection });
+      return;
+    }
+    selectEdge(drawn, { selection: held.selection, key: held.key });
   }
 
   // --- what may attach ------------------------------------------------------
@@ -811,13 +899,20 @@
     } else {
       for (const row of slot.rows) {
         box.appendChild(drawCandidate(row, () => {
-          vscode.postMessage({
+          const message = {
             type: 'attachToConnection',
             nodeId: connection.source,
             connection: { socket: connection.socket, alias: connection.alias },
             slot: slot.name,
             featureName: row.name,
-          });
+          };
+          // The id is echoed only for the selection it was minted for, read as
+          // the row is pressed, so a press on another connection carries none.
+          const chosen = documentSelectionOn(connection);
+          if (chosen !== null) {
+            message.selection = chosen.selection;
+          }
+          vscode.postMessage(message);
         }));
       }
     }

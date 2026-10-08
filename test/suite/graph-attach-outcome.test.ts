@@ -2,7 +2,11 @@
 // Copyright 2026 Cognitio S.r.l.
 
 import * as assert from 'node:assert';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import * as vm from 'node:vm';
 
+import { EXTENSION_ROOT } from '../helpers/launch-census';
 import { DRAWABLE_GRAPH, GraphWebview, StubElement, loadGraphWebview } from '../helpers/webview-dom';
 
 // Which line about an attach the panel draws, and under which list.
@@ -308,5 +312,105 @@ describe('which line about an attach to a connection the panel draws', () => {
     assert.deepStrictEqual(outcomeLine(view), { text: notDrawn('nonesuch'), failed: true },
       'the refusal for a connection the drawing does not carry was not drawn as a failure in its own words');
     assert.strictEqual(view.element('panel-title').textContent, 'api → db', 'the refusal moved the panel off the connection');
+  });
+});
+
+// Where the panel says an attach to a connection is written, and what the attach
+// it sends carries. A connection selected by pressing its edge is written in the
+// document that drew it; the connection the extension asked the panel to select,
+// from its entry in a document, is written on that entry — and the caption saying
+// which, and the id the attach is sent with, are read off the same selection.
+describe('where the panel says an attach to a connection is written', () => {
+  // The id the extension asks for the selection under.
+  const SELECTION = 7;
+
+  // The shipped captions, evaluated as the view evaluates them.
+  const captions = ((): { SLOTS_CAPTION: string; SLOTS_ACTION_CAPTION: string; SLOTS_ENTRY_ACTION_CAPTION: string } => {
+    const file = path.join(EXTENSION_ROOT, 'media', 'candidates-model.js');
+    const sandbox: Record<string, unknown> = {};
+    vm.createContext(sandbox);
+    vm.runInContext(fs.readFileSync(file, 'utf8'), sandbox as vm.Context, { filename: file });
+    const model = sandbox.AggregaCandidates as Record<string, string>;
+    return {
+      SLOTS_CAPTION: model.SLOTS_CAPTION,
+      SLOTS_ACTION_CAPTION: model.SLOTS_ACTION_CAPTION,
+      SLOTS_ENTRY_ACTION_CAPTION: model.SLOTS_ENTRY_ACTION_CAPTION,
+    };
+  })();
+
+  // slotCaptions are the captions over the connection's slots, in the order drawn.
+  function slotCaptions(view: GraphWebview): string[] {
+    const section = find(view.element('panel-body'), (el) => el.tag === 'section' && el.classes.has('candidates'));
+    assert.ok(section, 'the connection\'s panel draws no section of what may fill its slots');
+    return section.children.filter((c) => c.classes.has('candidates-caption')).map((c) => c.textContent);
+  }
+
+  // askToSelect posts the extension's request to select the drawn connection, and
+  // returns once the panel shows it.
+  async function askToSelect(view: GraphWebview): Promise<void> {
+    view.post({ type: 'selectConnection', selection: SELECTION, nodeId: 'api', connection: PRIMARY });
+    await view.settle(
+      () => view.element('panel-title').textContent === 'api → db',
+      'the panel opened on the connection the extension asked for',
+    );
+  }
+
+  // attachFromSlots answers the newest question about what may fill the
+  // connection with one slot and one Feature, presses that Feature's Attach, and
+  // returns the attach the panel sent.
+  function attachFromSlots(view: GraphWebview): Record<string, unknown> {
+    const asked = view.posted.filter((m) => (m as { type?: string }).type === 'connectionCandidates');
+    assert.ok(asked.length > 0, 'the panel asked nothing about the connection, so there is no list to press');
+    const { requestId } = asked[asked.length - 1] as { requestId: number };
+    view.post({
+      type: 'connectionCandidates',
+      requestId,
+      result: { slots: [{ slot: 'trace', candidates: [{ name: 'feature.conn/audit', kind: 'Feature' }] }] },
+    });
+    const attach = find(view.element('panel-body'), (el) => el.tag === 'button' && el.classes.has('candidate-attach'));
+    assert.ok(attach, 'the answer drew no Attach control under its slot');
+    attach.fire('click');
+    const sent = view.posted.filter((m) => (m as { type?: string }).type === 'attachToConnection');
+    assert.ok(sent.length > 0, 'pressing Attach sent no attach');
+    return sent[sent.length - 1] as Record<string, unknown>;
+  }
+
+  it('says a pressed edge\'s attach is written in the document that drew the connection, and sends no id', async () => {
+    const view = loadGraphWebview();
+    await draw(view, DRAWABLE_GRAPH);
+    selectConnection(view);
+
+    assert.deepStrictEqual(slotCaptions(view), [captions.SLOTS_CAPTION, captions.SLOTS_ACTION_CAPTION]);
+    assert.strictEqual('selection' in attachFromSlots(view), false, 'a pressed edge\'s attach carried an id');
+  });
+
+  it('says an attach from the connection selected from its entry is written on that entry, and sends its id', async () => {
+    const view = loadGraphWebview();
+    await draw(view, DRAWABLE_GRAPH);
+    await askToSelect(view);
+
+    assert.deepStrictEqual(slotCaptions(view), [captions.SLOTS_CAPTION, captions.SLOTS_ENTRY_ACTION_CAPTION]);
+    assert.strictEqual(attachFromSlots(view).selection, SELECTION);
+  });
+
+  it('goes back to the pressed edge\'s caption, and to no id, once the reader presses the edge', async () => {
+    const view = loadGraphWebview();
+    await draw(view, DRAWABLE_GRAPH);
+    await askToSelect(view);
+    selectConnection(view);
+
+    assert.deepStrictEqual(slotCaptions(view), [captions.SLOTS_CAPTION, captions.SLOTS_ACTION_CAPTION]);
+    assert.strictEqual('selection' in attachFromSlots(view), false, 'the press kept the id of the selection it replaced');
+  });
+
+  it('keeps the selected entry\'s caption across a redraw that still draws the connection', async () => {
+    const view = loadGraphWebview();
+    await draw(view, DRAWABLE_GRAPH);
+    await askToSelect(view);
+    await draw(view, DRAWABLE_GRAPH);
+
+    assert.strictEqual(view.element('panel-title').textContent, 'api → db', 'the redraw dropped the selection');
+    assert.deepStrictEqual(slotCaptions(view), [captions.SLOTS_CAPTION, captions.SLOTS_ENTRY_ACTION_CAPTION]);
+    assert.strictEqual(attachFromSlots(view).selection, SELECTION);
   });
 });

@@ -88,8 +88,9 @@ export interface Readiness extends RendersOnReady {
   // prevent, so it needs the falling edge too.
   //
   // It is not a dependency interface of its own because nothing takes it as
-  // one. The single publisher is the extension's activation, which sets the
-  // editor condition above from it and does nothing else with it.
+  // one. Its one subscriber is the extension's activation, which sets the editor
+  // condition above from it and reads, or clears, the documents a command is
+  // offered in.
   onChange(listener: (answerable: boolean) => void): void;
   // reassess re-reads both facts and announces the answer if it has just become
   // yes. It is called from the single place that observes the server's

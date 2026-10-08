@@ -34,13 +34,25 @@ import {
   readInsertion,
   refusesEntryShape,
 } from './attachment-edit';
+import {
+  ATTACH_TO_CONNECTION_AT_CURSOR_COMMAND,
+  ConnectionAtCursor,
+  ConnectionAtPositionRequest,
+  UNREADABLE_ANSWER,
+  connectionAtPositionRequest,
+  documentSelections,
+  loadNoSlotNote,
+  noConnectionSentence,
+  readConnectionAtPosition,
+  selectConnectionMessage,
+} from './connection-at-cursor';
 import { DaemonErrorRouting, WhoAsked, describeError } from './error-surfaces';
 import { reportGraphFailure } from './graph-failure';
 import { RendersOnReady } from './readiness';
 import { CancellationSignal } from './cancellation';
 import { withCancellableProgress } from './progress';
-import { CatalogIndexParams } from './types';
-import { NO_ANCHORED_WORKSPACE_MESSAGE, fromWorkspaceRelative } from './workspace';
+import { CatalogIndexParams, ServerEncoding } from './types';
+import { NO_ANCHORED_WORKSPACE_MESSAGE, fromWorkspaceRelative, toWorkspaceRelative } from './workspace';
 import { CatalogIndexDoc } from './workspace-catalog-run';
 
 // GraphDeps supplies the live state the graph view needs without importing
@@ -113,6 +125,19 @@ export interface GraphDeps extends RendersOnReady {
   // side, because this side owns the buffer, the undo history and whatever the
   // reader has typed and not yet saved.
   requestInsertionPoint(file: string, container: string[]): Promise<unknown>;
+  // requestConnectionAtPosition reports which connection's entry a position in
+  // an Aggregate or a Release falls inside — the graph node and the connection,
+  // with the document the position was read in — or why there is none. It is
+  // read-only, and answered on the compiled graph of the Release it names.
+  requestConnectionAtPosition(request: ConnectionAtPositionRequest): Promise<unknown>;
+  // validationsAnswered sends at once every open document's validation still
+  // waiting out a pause in typing, and settles once every validation sent so far
+  // has been answered. The language server learns an unsaved buffer's text from
+  // its validation alone, so a position asked about after it settles is a
+  // position in the text the reader sees.
+  validationsAnswered(): Promise<void>;
+  // serverEncoding is the units the session settled on for a position's offset.
+  serverEncoding(): ServerEncoding;
   // showsSensitiveValues reports whether the reader has asked to see the values
   // a Feature declares sensitive. Read on each render rather than captured, so
   // changing the setting takes effect on the next render of an open panel.
@@ -145,9 +170,10 @@ export interface GraphView {
   shownRelease(): string | null;
 }
 
-// activateGraphView registers the topology-graph command. A single panel is
-// reused across invocations so re-running the command refreshes the existing
-// view rather than stacking panels.
+// activateGraphView registers the topology-graph command, and the attach from a
+// connection's entry in a document, which ends in the same panel. A single panel
+// is reused across invocations so re-running either refreshes the existing view
+// rather than stacking panels.
 export function activateGraphView(context: vscode.ExtensionContext, deps: GraphDeps): GraphView {
   let panel: vscode.WebviewPanel | null = null;
   // How anything reaches the open panel's document: made and cleared with the
@@ -190,6 +216,184 @@ export function activateGraphView(context: vscode.ExtensionContext, deps: GraphD
     shownSites = nodes;
     shownConnections = connections;
   };
+  // The selection this side asked the panel to make from a connection's entry in
+  // a document, kept here for the reason the tables above are: an attach made
+  // from it is written in the document the compiler read that entry in, and the
+  // panel is told an id rather than a document, so the document is never one it
+  // sent back. Cleared with the panel.
+  const selections = documentSelections();
+  // The sentence the panel says for a connection a Feature drew, read from the
+  // shipped candidate projection on first use, so a cursor on such a connection
+  // is told the same fact in the same words.
+  let noSlotNoteOf: ((reason: string) => string) | null = null;
+  const noSlotNote = (reason: string): string => {
+    if (noSlotNoteOf === null) { noSlotNoteOf = loadNoSlotNote(context.extensionUri.fsPath); }
+    return noSlotNoteOf(reason);
+  };
+
+  // openPanel is the one panel the graph is shown in: made on first use, with
+  // everything that listens to it, and brought forward on every use after that.
+  const openPanel = (): { shown: vscode.WebviewPanel; delivery: PanelDelivery } => {
+    if (!panel || !toPanel) {
+      const created = vscode.window.createWebviewPanel(
+        'aggrega.graph',
+        'Aggrega Graph',
+        vscode.ViewColumn.Active,
+        {
+          enableScripts: true,
+          retainContextWhenHidden: true,
+          localResourceRoots: [
+            vscode.Uri.joinPath(context.extensionUri, 'media'),
+            vscode.Uri.joinPath(context.extensionUri, 'node_modules', 'elkjs', 'lib'),
+          ],
+        },
+      );
+      panel = created;
+      // The one call that posts to the panel's document, behind the hold: the
+      // drawing this press asks for is often ready before the panel listens,
+      // and is sent when the panel says it does.
+      toPanel = holdUntilListening((message) => { void created.webview.postMessage(message); });
+      panel.onDidDispose(() => {
+        panel = null;
+        toPanel = null;
+        shownRelease = null;
+        shownSites = new Map();
+        shownConnections = NO_CONNECTION_SITES;
+        selections.clear();
+      }, null, context.subscriptions);
+      // The panel keeps its context while the editor is not showing it, so it
+      // goes on receiving graphs and drawing them — and a drawing has to be
+      // sized against the area it will be read in. That area is not something
+      // the panel can measure for itself while it is off screen, and it is
+      // not something it can infer from what it measures: a panel nobody is
+      // looking at reports a size like any other. So the one side that knows
+      // says so, on every change, and the panel does not have to guess.
+      panel.onDidChangeViewState(() => {
+        if (!panel || !toPanel) { return; }
+        toPanel.post({ type: 'visibility', visible: panel.visible });
+      }, null, context.subscriptions);
+      // The handler is registered once, with the panel, and the panel
+      // outlives the anchor — so it reads the root through the getter on each
+      // message rather than closing over one read for a single press. Every
+      // other read in this file goes through the getter for the same reason.
+      panel.webview.onDidReceiveMessage(
+        makeGraphMessageHandler(deps.getWorkspaceRoot, {
+          openSource: (workspaceRoot, sourceFile) => { void openSource(workspaceRoot, sourceFile); },
+          reportNoWorkspace: () => {
+            void vscode.window.showInformationMessage(NO_ANCHORED_WORKSPACE_MESSAGE);
+          },
+          requestAttachCandidates: (nodeId, requestId) => {
+            // The panel that asked is the panel answered. There is one, it is
+            // reused, and it is cleared when it closes — so a request whose
+            // panel is already gone has nowhere to report and is dropped.
+            if (!toPanel) { return; }
+            // Asked about the Release this panel's graph was drawn from, for
+            // the reason the commit below is: the node id belongs to that
+            // graph, and the selection may since have moved.
+            if (!shownRelease) {
+              toPanel.post({
+                type: 'attachCandidatesError', nodeId, requestId,
+                message: 'this panel is not showing a Release yet.',
+              });
+              return;
+            }
+            void postAttachCandidates(toPanel, deps, nodeId, shownRelease, requestId);
+          },
+          attachFeature: (nodeId, featureName) => {
+            if (!toPanel) { return; }
+            // The site is looked up in this render's own table rather than
+            // taken from the message, so a node the current graph does not
+            // hold has nowhere to attach anything and says so.
+            const site = shownSites.get(nodeId);
+            if (!site) {
+              postAttachOutcome(toPanel, { nodeId },
+                `${nodeId} is not on the graph this panel drew.`, false);
+              return;
+            }
+            // The Release asked about is the one this panel's graph was drawn
+            // from, not whatever is selected now: the node ids and the
+            // attachments the click was made against came from that render,
+            // and asking about a different Release would answer about a
+            // different graph.
+            if (!shownRelease) {
+              postAttachOutcome(toPanel, { nodeId },
+                'This panel is not showing a Release yet.', false);
+              return;
+            }
+            void attachFeature(toPanel, deps, site, featureName, shownRelease);
+          },
+          requestConnectionCandidates: (nodeId, connection, requestId) => {
+            // Answered into the panel that asked, about the Release its graph
+            // was drawn from, for the reasons a node's question is.
+            if (!toPanel) { return; }
+            if (!shownRelease) {
+              toPanel.post({
+                type: 'attachCandidatesError', nodeId, requestId,
+                message: 'this panel is not showing a Release yet.',
+              });
+              return;
+            }
+            void postConnectionCandidates(toPanel, deps, nodeId, connection, shownRelease, requestId);
+          },
+          attachToConnection: (nodeId, connection, slot, featureName, selection) => {
+            if (!toPanel) { return; }
+            const about = { nodeId, connection };
+            // Looked up in this render's own table, as a node is: a connection
+            // the current graph does not draw has nowhere to attach anything,
+            // and which document an attachment on one that it does draw is
+            // written in is read from this table, never from the message.
+            const site = shownConnections(nodeId, connection);
+            if (!site) {
+              postAttachOutcome(toPanel, about, connectionNotDrawn(nodeId, connection), false);
+              return;
+            }
+            if (!shownRelease) {
+              postAttachOutcome(toPanel, about,
+                'This panel is not showing a Release yet.', false);
+              return;
+            }
+            // A connection selected from its entry in a document is written in
+            // the document the compiler read that entry in. The id the panel
+            // echoes is looked up in what this side posted, and names a document
+            // only for the connection it was minted for.
+            void attachToConnection(toPanel, deps, selections.siteFor(site, selection), slot, featureName, shownRelease);
+          },
+          selectionNotDrawn: (selection) => {
+            // The connection the compiler named at the cursor is not on the
+            // drawing the panel made, so there is nothing to attach to there,
+            // said in the words the panel's own attach says it in.
+            const chosen = selections.named(selection);
+            if (!chosen) { return; }
+            void vscode.window.showWarningMessage(connectionNotDrawn(chosen.source, chosen));
+          },
+          // The panel's document now hears what is posted to it, so what was
+          // held for it is sent.
+          listening: () => { toPanel?.listening(); },
+        }),
+        null,
+        context.subscriptions,
+      );
+      panel.webview.html = graphHtml(panel.webview, context.extensionUri);
+    } else {
+      panel.reveal(vscode.ViewColumn.Active);
+    }
+    return { shown: panel, delivery: toPanel };
+  };
+
+  // showRelease draws one Release in the panel, opening it where none is open,
+  // and reports whether the drawing was sent to it — which it is not where the
+  // graph could not be built, a failure the render has already reported.
+  const showRelease = async (release: string): Promise<boolean> => {
+    const { shown, delivery } = openPanel();
+    shown.title = `Aggrega Graph — ${release}`;
+    shownRelease = release;
+    let sent = false;
+    await renderGraph(delivery, deps, redact, release, (graph) => {
+      keepSites(graph);
+      sent = true;
+    });
+    return sent;
+  };
 
   context.subscriptions.push(
     vscode.commands.registerCommand('aggrega.graph.show', async () => {
@@ -205,141 +409,61 @@ export function activateGraphView(context: vscode.ExtensionContext, deps: GraphD
         return;
       }
 
-      if (!panel || !toPanel) {
-        const created = vscode.window.createWebviewPanel(
-          'aggrega.graph',
-          'Aggrega Graph',
-          vscode.ViewColumn.Active,
-          {
-            enableScripts: true,
-            retainContextWhenHidden: true,
-            localResourceRoots: [
-              vscode.Uri.joinPath(context.extensionUri, 'media'),
-              vscode.Uri.joinPath(context.extensionUri, 'node_modules', 'elkjs', 'lib'),
-            ],
-          },
-        );
-        panel = created;
-        // The one call that posts to the panel's document, behind the hold: the
-        // drawing this press asks for is often ready before the panel listens,
-        // and is sent when the panel says it does.
-        toPanel = holdUntilListening((message) => { void created.webview.postMessage(message); });
-        panel.onDidDispose(() => {
-          panel = null;
-          toPanel = null;
-          shownRelease = null;
-          shownSites = new Map();
-          shownConnections = NO_CONNECTION_SITES;
-        }, null, context.subscriptions);
-        // The panel keeps its context while the editor is not showing it, so it
-        // goes on receiving graphs and drawing them — and a drawing has to be
-        // sized against the area it will be read in. That area is not something
-        // the panel can measure for itself while it is off screen, and it is
-        // not something it can infer from what it measures: a panel nobody is
-        // looking at reports a size like any other. So the one side that knows
-        // says so, on every change, and the panel does not have to guess.
-        panel.onDidChangeViewState(() => {
-          if (!panel || !toPanel) { return; }
-          toPanel.post({ type: 'visibility', visible: panel.visible });
-        }, null, context.subscriptions);
-        // The handler is registered once, with the panel, and the panel
-        // outlives the anchor — so it reads the root through the getter on each
-        // message rather than closing over the one bound above, which belongs
-        // to this single invocation. Every other read in this file goes through
-        // the getter for the same reason.
-        panel.webview.onDidReceiveMessage(
-          makeGraphMessageHandler(deps.getWorkspaceRoot, {
-            openSource: (workspaceRoot, sourceFile) => { void openSource(workspaceRoot, sourceFile); },
-            reportNoWorkspace: () => {
-              void vscode.window.showInformationMessage(NO_ANCHORED_WORKSPACE_MESSAGE);
-            },
-            requestAttachCandidates: (nodeId, requestId) => {
-              // The panel that asked is the panel answered. There is one, it is
-              // reused, and it is cleared when it closes — so a request whose
-              // panel is already gone has nowhere to report and is dropped.
-              if (!toPanel) { return; }
-              // Asked about the Release this panel's graph was drawn from, for
-              // the reason the commit below is: the node id belongs to that
-              // graph, and the selection may since have moved.
-              if (!shownRelease) {
-                toPanel.post({
-                  type: 'attachCandidatesError', nodeId, requestId,
-                  message: 'this panel is not showing a Release yet.',
-                });
-                return;
-              }
-              void postAttachCandidates(toPanel, deps, nodeId, shownRelease, requestId);
-            },
-            attachFeature: (nodeId, featureName) => {
-              if (!toPanel) { return; }
-              // The site is looked up in this render's own table rather than
-              // taken from the message, so a node the current graph does not
-              // hold has nowhere to attach anything and says so.
-              const site = shownSites.get(nodeId);
-              if (!site) {
-                postAttachOutcome(toPanel, { nodeId },
-                  `${nodeId} is not on the graph this panel drew.`, false);
-                return;
-              }
-              // The Release asked about is the one this panel's graph was drawn
-              // from, not whatever is selected now: the node ids and the
-              // attachments the click was made against came from that render,
-              // and asking about a different Release would answer about a
-              // different graph.
-              if (!shownRelease) {
-                postAttachOutcome(toPanel, { nodeId },
-                  'This panel is not showing a Release yet.', false);
-                return;
-              }
-              void attachFeature(toPanel, deps, site, featureName, shownRelease);
-            },
-            requestConnectionCandidates: (nodeId, connection, requestId) => {
-              // Answered into the panel that asked, about the Release its graph
-              // was drawn from, for the reasons a node's question is.
-              if (!toPanel) { return; }
-              if (!shownRelease) {
-                toPanel.post({
-                  type: 'attachCandidatesError', nodeId, requestId,
-                  message: 'this panel is not showing a Release yet.',
-                });
-                return;
-              }
-              void postConnectionCandidates(toPanel, deps, nodeId, connection, shownRelease, requestId);
-            },
-            attachToConnection: (nodeId, connection, slot, featureName) => {
-              if (!toPanel) { return; }
-              const about = { nodeId, connection };
-              // Looked up in this render's own table, as a node is: a connection
-              // the current graph does not draw has nowhere to attach anything,
-              // and which document an attachment on one that it does draw is
-              // written in is read from this table, never from the message.
-              const site = shownConnections(nodeId, connection);
-              if (!site) {
-                postAttachOutcome(toPanel, about, connectionNotDrawn(nodeId, connection), false);
-                return;
-              }
-              if (!shownRelease) {
-                postAttachOutcome(toPanel, about,
-                  'This panel is not showing a Release yet.', false);
-                return;
-              }
-              void attachToConnection(toPanel, deps, site, slot, featureName, shownRelease);
-            },
-            // The panel's document now hears what is posted to it, so what was
-            // held for it is sent.
-            listening: () => { toPanel?.listening(); },
-          }),
-          null,
-          context.subscriptions,
-        );
-        panel.webview.html = graphHtml(panel.webview, context.extensionUri);
-      } else {
-        panel.reveal(vscode.ViewColumn.Active);
+      await showRelease(release);
+    }),
+
+    // The attach offered from a connection's entry in a document. The compiler
+    // is asked which connection is written at the cursor, in the selected
+    // Release's terms as every cursor feature is. On a connection, the graph is
+    // shown on that Release with the connection selected, and the attach is the
+    // panel's own from there: the slots and the Features it answers, the entry
+    // written where it says. On any other position the reason is said and
+    // nothing opens.
+    vscode.commands.registerCommand(ATTACH_TO_CONNECTION_AT_CURSOR_COMMAND, async () => {
+      const editor = vscode.window.activeTextEditor;
+      if (!editor) { return; }
+      const root = deps.getWorkspaceRoot();
+      if (!root) {
+        void vscode.window.showInformationMessage(NO_ANCHORED_WORKSPACE_MESSAGE);
+        return;
+      }
+      const selected = deps.selectedRelease();
+      if (!selected) {
+        deps.requireSelectedRelease();
+        return;
       }
 
-      panel.title = `Aggrega Graph — ${release}`;
-      shownRelease = release;
-      await renderGraph(toPanel, deps, redact, release, keepSites);
+      // The position is composed from the text the reader sees at the press,
+      // and asked about once every validation sent so far is answered, so the
+      // text the language server holds for the document is that same text.
+      const doc = editor.document;
+      const request = connectionAtPositionRequest(
+        toWorkspaceRelative(root, doc.uri.fsPath),
+        doc.getText(),
+        editor.selection.active,
+        deps.serverEncoding(),
+        selected,
+      );
+      let answer: ConnectionAtCursor | null;
+      try {
+        await deps.validationsAnswered();
+        answer = readConnectionAtPosition(await deps.requestConnectionAtPosition(request));
+      } catch (err) {
+        reportConnectionAtCursorFailure(deps, err, selected);
+        return;
+      }
+      if (answer === null) {
+        void vscode.window.showWarningMessage(UNREADABLE_ANSWER);
+        return;
+      }
+      if ('noConnectionReason' in answer) {
+        void vscode.window.showInformationMessage(noConnectionSentence(answer.noConnectionReason, noSlotNote));
+        return;
+      }
+
+      const { selection } = answer;
+      if (!(await showRelease(selected)) || !toPanel) { return; }
+      toPanel.post(selectConnectionMessage(selections.mint(selection), selection));
     }),
   );
 
@@ -476,9 +600,11 @@ async function attachFeature(
 }
 
 // attachToConnection commits the Feature the reader chose into one slot of the
-// connection they selected, under the slot's own name, in the document that
-// drew the connection — the Release for one the Release drew, the Aggregate
-// otherwise, read from this side's table of the compiled graph.
+// connection they selected, under the slot's own name, in the document the site
+// names. For a pressed edge that is the document that drew the connection — the
+// Release for one the Release drew, the Aggregate otherwise, read from this
+// side's table of the compiled graph; for a connection selected from its entry
+// in a document, it is the document the compiler read that entry in.
 //
 // A slot the graph already shows filled on this connection is refused before
 // anything is asked. Everything else — whether the connection may carry an
@@ -679,6 +805,21 @@ function postAttachOutcome(
   toPanel.post(connection === undefined
     ? { type: 'attachOutcome', nodeId, message, attached }
     : { type: 'attachOutcome', nodeId, connection, message, attached });
+}
+
+// reportConnectionAtCursorFailure says why the connection at the cursor could
+// not be asked about, in the compiler's words. The refusal is routed first to the
+// surface the extension keeps for its code — filed on the document it names, or
+// the notice offering the act that resolves it — then written to the channel, and
+// raised as a notification of its own unless that routing raised one: the reader
+// pressed for this, so a refusal of it is put in front of them.
+function reportConnectionAtCursorFailure(deps: GraphDeps, err: unknown, release: string): void {
+  const routed = deps.reportDaemonError(err, release, 'reader');
+  const message = describeError(err);
+  deps.output.appendLine(`aggrega/connectionAtPosition failed: ${message}`);
+  if (routed !== 'notified') {
+    void vscode.window.showErrorMessage(message);
+  }
 }
 
 // openSource opens the node's authoring file. The IR carries workspace-relative
