@@ -33,6 +33,7 @@ interface Attachment {
   version: string;
   binding: string;
   slot: string;
+  realization: string;
   origin: string;
   annotationKey: string;
   annotationSource: string;
@@ -531,7 +532,8 @@ describe('AggregaAttachments — an attachment written on a connection', () => {
   // on the connection it draws through `mirrors` under `m1`. Every edge the
   // gateway draws is there, the two that carry nothing included, so a placement
   // that matched an edge by anything less than its source, socket and alias
-  // would have somewhere wrong to put an attachment.
+  // would have somewhere wrong to put an attachment. Each entry names the
+  // FeatureRecipe that realizes it, as the server wrote it.
   //
   // The connection's sensitive value is spelled by the test rather than copied,
   // so the withheld state can be asserted both ways on one payload; the shape
@@ -562,7 +564,10 @@ describe('AggregaAttachments — an attachment written on a connection', () => {
   // compiler wrote it.
   function gatewayBucket(): Record<string, unknown> {
     return {
-      peering: { type: 'feature.conn/peering', resolved_version: '1.0.0', binding: 'free', origin: 'explicit' },
+      peering: {
+        type: 'feature.conn/peering', resolved_version: '1.0.0', binding: 'free', origin: 'explicit',
+        realization: 'conn-peering-compose:1.0.0',
+      },
       'own-token': {
         type: 'feature.conn/token',
         resolved_version: '1.0.0',
@@ -573,6 +578,7 @@ describe('AggregaAttachments — an attachment written on a connection', () => {
         values_provenance: { key: { origin: 'explicit' }, secret: { origin: 'explicit' } },
         sensitive: true,
         sensitive_payload_leaves: ['values.secret'],
+        realization: 'conn-token-compose:1.0.0',
       },
       'gpt.credential': {
         type: 'feature.conn/token',
@@ -585,6 +591,7 @@ describe('AggregaAttachments — an attachment written on a connection', () => {
         sensitive: true,
         sensitive_payload_leaves: ['values.secret'],
         connection: { socket: 'models', alias: 'gpt' },
+        realization: 'conn-token-compose:1.0.0',
       },
       'm1.note': {
         type: 'feature.conn/audit',
@@ -592,6 +599,7 @@ describe('AggregaAttachments — an attachment written on a connection', () => {
         binding: 'note',
         origin: 'explicit',
         connection: { socket: 'mirrors', alias: 'm1' },
+        realization: 'conn-audit-compose:1.0.0',
       },
     };
   }
@@ -800,5 +808,62 @@ describe('AggregaAttachments — an attachment written on a connection', () => {
     }
     // The control: a named slot is drawn as its name.
     assert.strictEqual(model.projectAttachment('x', { type: 'f/x', resolved_version: '1', binding: 'tls' }).slot, 'tls');
+  });
+
+  it('carries the realization the graph names, on a node\'s own attachment and on a connection\'s alike', () => {
+    // The same projection serves both lists, so both carry it; and the field is
+    // no configuration value, so neither the redaction nor either state of the
+    // setting changes it.
+    const graph = compiled(gatewayBucket());
+    const seen = (g: unknown, stated: unknown) => ({
+      own: model.attachmentsFor(g, 'gateway', stated).attachments.map((a) => [a.name, a.realization]),
+      connections: model.connectionAttachmentsFor(g, 'gateway', stated)
+        .map((r) => [r.socket, r.alias, r.attachments.map((a) => [a.name, a.realization])]),
+    });
+    const want = {
+      own: [['peering', 'conn-peering-compose:1.0.0'], ['own-token', 'conn-token-compose:1.0.0']],
+      connections: [
+        ['models', 'gpt', [['gpt.credential', 'conn-token-compose:1.0.0']]],
+        ['mirrors', 'm1', [['m1.note', 'conn-audit-compose:1.0.0']]],
+      ],
+    };
+    assert.deepStrictEqual(seen(graph, false), want, 'with the setting off');
+    assert.deepStrictEqual(seen(graph, true), want, 'with the setting on');
+    assert.deepStrictEqual(seen(model.redactGraph(graph), false), want, 'after the redaction at the boundary');
+
+    // It is carried as the graph wrote it, whole: nothing reads a name or a
+    // version out of it.
+    assert.strictEqual(
+      model.projectAttachment('x', { type: 'f/x', realization: 'a:b-recipe:2.0.0' }).realization,
+      'a:b-recipe:2.0.0',
+    );
+  });
+
+  it('carries no realization where the graph names none, and nothing in place of one', () => {
+    // An entry the Manifest binds to no FeatureRecipe the catalog holds carries
+    // no field, and neither does any entry from a server that does not write it.
+    // The projection then says nothing: an empty fact is not drawn, and no
+    // sentence stands in for a binding the graph does not state.
+    const bucket = gatewayBucket();
+    delete (bucket.peering as Record<string, unknown>).realization;
+    delete (bucket['m1.note'] as Record<string, unknown>).realization;
+    const graph = compiled(bucket);
+
+    assert.deepStrictEqual(
+      model.attachmentsFor(graph, 'gateway').attachments.map((a) => [a.name, a.realization]),
+      [['peering', ''], ['own-token', 'conn-token-compose:1.0.0']],
+    );
+    assert.deepStrictEqual(
+      model.connectionAttachmentsFor(graph, 'gateway').map((r) => r.attachments.map((a) => [a.name, a.realization])),
+      [[['gpt.credential', 'conn-token-compose:1.0.0']], [['m1.note', '']]],
+    );
+
+    // A value in no shape the panel reads as text is not drawn either.
+    for (const realization of [undefined, null, '', 7, true, { name: 'conn-audit-compose' }, ['conn-audit-compose:1.0.0']]) {
+      assert.strictEqual(
+        model.projectAttachment('x', { type: 'f/x', realization }).realization, '',
+        `the realization ${JSON.stringify(realization)} projected to something drawable`,
+      );
+    }
   });
 });

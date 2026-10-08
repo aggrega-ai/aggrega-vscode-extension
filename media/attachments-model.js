@@ -419,6 +419,11 @@
       binding: text(safe.binding),
       // What the panel says about the slot, in words: see slotText.
       slot: slotText(safe),
+      // The FeatureRecipe the graph names as realizing this attachment, name and
+      // version in the one string the graph writes. It is carried whole rather
+      // than split, so the panel shows the text the graph carries; an entry
+      // naming none leaves it empty, and nothing is drawn in its place.
+      realization: text(safe.realization),
       origin: text(safe.origin),
       annotationKey: text(safe.annotation_key),
       annotationSource: text(safe.annotation_source),

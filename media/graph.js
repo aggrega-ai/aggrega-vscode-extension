@@ -948,6 +948,7 @@
     addFact(facts, 'feature', a.type);
     addFact(facts, 'version', a.version);
     addFact(facts, 'slot', a.slot);
+    addFact(facts, 'realization', a.realization);
     addFact(facts, 'origin', a.origin);
     addFact(facts, 'annotation', a.annotationKey);
     addFact(facts, 'declared at', a.annotationSource);
