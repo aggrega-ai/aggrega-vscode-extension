@@ -156,8 +156,8 @@ describe('what a reader is told, composed from the answer rather than from the r
   });
 
   it('says a dry run published nothing, which an exit status could not distinguish', () => {
-    // 🔴 THE THREE ENDINGS A ZERO EXIT CANNOT TELL APART. A publication, an
-    // idempotent re-publication of identical bytes and a dry run all succeed, so
+    // 🔴 THE THREE ENDINGS A ZERO EXIT CANNOT TELL APART. A publication, a
+    // re-publication of identical bytes and a dry run all succeed, so
     // the surface this replaced could report only that something had happened.
     const outcome = publicationOutcome(published({
       dryRun: true, reach: { registry: 'registry.example.com', beyondThisMachine: false },
@@ -169,15 +169,27 @@ describe('what a reader is told, composed from the answer rather than from the r
     );
   });
 
-  it('says an already-published tag landed nothing', () => {
+  it('says an already-published tag uploaded no content', () => {
     const outcome = publicationOutcome(published({
       alreadyPublished: true,
       reach: { registry: 'registry.example.com', beyondThisMachine: false },
     }));
     assert.strictEqual(
       outcome.kind === 'ok' ? outcome.detail : '',
-      'found registry.example.com/component/api-server:1.2.0 already published as sha256:abc123'
-      + ' and published nothing. Nothing left this machine.',
+      'found registry.example.com/component/api-server:1.2.0 already published as sha256:abc123,'
+      + ' uploaded no content. Nothing left this machine.',
+    );
+  });
+
+  it('says an already-published tag was given the signature it lacked, where the answer says one was attached', () => {
+    // The answer carries whether a signature was attached and not whether a
+    // publication date was, so the sentence names the signature and nothing else.
+    const outcome = publicationOutcome(published({ alreadyPublished: true, signed: true }));
+    assert.strictEqual(
+      outcome.kind === 'ok' ? outcome.detail : '',
+      'found registry.example.com/component/api-server:1.2.0 already published as sha256:abc123,'
+      + ' uploaded no content and attached a signature.'
+      + ' Anyone resolving from registry.example.com now sees it.',
     );
   });
 

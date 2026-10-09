@@ -42,7 +42,7 @@ const DRAFT_NAME_TITLE = 'Aggrega: draft an entity';
 const DRAFTED_KIND = 'Component';
 const DRAFTED_NAME = 'drafts/example';
 const published = (ref: string, tag: string, digest: string, host: string): string => `The publication published ${ref}:${tag} as ${digest}. Anyone resolving from ${host} now sees it.`;
-const republished = (ref: string, tag: string, digest: string, host: string): string => `The publication found ${ref}:${tag} already published as ${digest} and published nothing. Anyone resolving from ${host} now sees it.`;
+const republished = (ref: string, tag: string, digest: string, host: string): string => `The publication found ${ref}:${tag} already published as ${digest}, uploaded no content. Anyone resolving from ${host} now sees it.`;
 const BUILD_STOPPED = 'The build stopped at your request.';
 const PULL_STOPPED = 'The pull stopped at your request.';
 const buildProgress = (release: string): string => `Aggrega: building ${release}`;

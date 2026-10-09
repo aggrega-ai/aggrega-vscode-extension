@@ -269,8 +269,9 @@ export function withdrawalOpeningLine(reference: string): string {
 // the kind, the media type and the size; the same facts travel on the answer, so
 // they are composed here from the answer rather than read off a stream this
 // surface does not have. A dry run and an already-published tag each say what
-// they are instead, because neither landed anything and reporting either as a
-// publication would be the one thing a reader cannot check for themselves.
+// they are instead, because neither uploaded the entity's content, and
+// reporting either as a publication would be the one thing a reader cannot
+// check for themselves.
 export function publicationLines(result: PublishEntityResult): readonly string[] {
   const lines: string[] = [];
   if (result.dryRun) {
@@ -346,9 +347,9 @@ function reachPhrase(reach: PublicationReach): string {
 // named on the opening line instead, because that one is the request and this
 // sentence is the result.
 //
-// All of it is strictly more than an exit status says: a publication, an
-// idempotent re-publication of identical bytes, and a dry run all exit zero, so
-// an exit status alone cannot tell a reader which of the three happened.
+// All of it is strictly more than an exit status says: a publication, a
+// re-publication of identical bytes, and a dry run all exit zero, so an exit
+// status alone cannot tell a reader which of the three happened.
 export function publicationOutcome(result: PublishEntityResult): OperationOutcome {
   if (result.dryRun) {
     return {
@@ -358,10 +359,14 @@ export function publicationOutcome(result: PublishEntityResult): OperationOutcom
     };
   }
   if (result.alreadyPublished) {
+    // The answer says whether this publication attached a signature the version
+    // lacked, and not whether it attached a publication date, so the sentence
+    // names the one and says nothing about the other.
+    const attached = result.signed ? ' and attached a signature' : '';
     return {
       kind: 'ok',
-      detail: `found ${result.reference}:${result.tag} already published as ${result.digest}`
-        + ` and published nothing. ${reachPhrase(result.reach)}`,
+      detail: `found ${result.reference}:${result.tag} already published as ${result.digest},`
+        + ` uploaded no content${attached}. ${reachPhrase(result.reach)}`,
     };
   }
   const signature = result.signed ? ', signed' : '';
