@@ -631,7 +631,7 @@ export const STEP_CONTENT: readonly StepContent[] = [
       {
         bullets: [
           'a **language server**, started once and kept running, which answers validation, navigation, hover, completion, the topology graph and the workspace catalog;',
-          '**one-shot commands**, run per operation and streamed to the Aggrega output channel, which carry publishing, dependency fetching and cache maintenance.',
+          '**one-shot commands**, run per operation and streamed to the Aggrega output channel, which carry fetching dependencies, the plugin list, generating catalog entities from a plugin, and the Catalog panel\'s check of one entity.',
         ],
       },
       {

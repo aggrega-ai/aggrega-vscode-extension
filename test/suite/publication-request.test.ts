@@ -164,7 +164,7 @@ describe('what a reader is told, composed from the answer rather than from the r
     }));
     assert.strictEqual(
       outcome.kind === 'ok' ? outcome.detail : '',
-      'reported registry.example.com/component/api-server:1.2.0 without publishing it.'
+      'reported registry.example.com/component/api-server:1.2.0 (sha256:abc123) without publishing it.'
       + ' Nothing left this machine.',
     );
   });
@@ -280,7 +280,7 @@ describe('the lines the channel gets', () => {
   it('says a dry run published nothing on the channel too', () => {
     assert.strictEqual(
       publicationLines(published({ dryRun: true }))[0],
-      '  dry run: registry.example.com/component/api-server:1.2.0 — nothing was published',
+      '  dry run: registry.example.com/component/api-server:1.2.0 (sha256:abc123) — nothing was published',
     );
   });
 

@@ -483,7 +483,7 @@
       },
       {
         "command": "aggrega.workspace.switchAnchor",
-        "title": "Aggrega: Switch anchored folder…"
+        "title": "Aggrega: Choose the Aggrega workspace…"
       },
       {
         "command": "aggrega.project.selectFolder",
@@ -495,7 +495,7 @@
       },
       {
         "command": "aggrega.workspace.openRootFolder",
-        "title": "Aggrega: Open the Aggrega workspace as the project folder"
+        "title": "Aggrega: Open the Aggrega workspace as the Project folder"
       },
       {
         "command": "aggrega.workspace.openAuthoringReleaseConfig",

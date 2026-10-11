@@ -3135,11 +3135,10 @@ async function requestCacheClear(): Promise<CacheClearResponse> {
 // offered the operation can tell the reader the reach of what just changed
 // instead of inferring it from a choice the request did not make.
 //
-// It carries no cancellation, and that is read off what the compiler does rather
-// than assumed: the shared operation behind the request takes none, and the
-// handler checks for a stopped caller only after its operation has returned. A
-// stop sent here would stop this client waiting and not the work, so none is
-// offered.
+// It carries no cancellation. The compiler would honour one — the handler hands
+// the request's own context to the shared operation, which ends the registry's
+// trust fetch on a stop — but this surface draws no stop for the seeding, so a
+// request once sent runs to its answer.
 //
 // A seeding that wrote is followed by a restart of the language server, which
 // reads configuration only when it starts; see configurationWatch. The answer

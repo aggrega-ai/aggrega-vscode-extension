@@ -110,7 +110,9 @@ export type PublicationReach = wire.PublicationReach;
 // than in an exit status: the reference and tag name what the compiler resolved
 // the entity to, the digest names what that tag now points at, and the two
 // booleans say which path ran — a dry run landed nothing, and an already-published
-// tag already pointed at byte-identical content and landed nothing either.
+// tag already pointed at byte-identical content and landed nothing either. On a
+// dry run the digest is the one a publication of the same content would land,
+// which is the digest the command line's dry run prints.
 //
 // sizeText is the compiler's own rendering of size. It is read rather than
 // recomputed, so this surface does not carry a second copy of the rounding rule
@@ -266,16 +268,17 @@ export function withdrawalOpeningLine(reference: string): string {
 // command line's own words for the same facts.
 //
 // The compiler prints `Push complete: <reference>:<tag> (<digest>)` followed by
-// the kind, the media type and the size; the same facts travel on the answer, so
-// they are composed here from the answer rather than read off a stream this
-// surface does not have. A dry run and an already-published tag each say what
-// they are instead, because neither uploaded the entity's content, and
-// reporting either as a publication would be the one thing a reader cannot
-// check for themselves.
+// the kind, the media type and the size, and its dry run prints the same
+// `<reference>:<tag> (<digest>)` with the digest a publication would land; the
+// same facts travel on the answer, so they are composed here from the answer
+// rather than read off a stream this surface does not have. A dry run and an
+// already-published tag each say what they are instead, because neither uploaded
+// the entity's content, and reporting either as a publication would be the one
+// thing a reader cannot check for themselves.
 export function publicationLines(result: PublishEntityResult): readonly string[] {
   const lines: string[] = [];
   if (result.dryRun) {
-    lines.push(`  dry run: ${result.reference}:${result.tag} — nothing was published`);
+    lines.push(`  dry run: ${result.reference}:${result.tag} (${result.digest}) — nothing was published`);
   } else if (result.alreadyPublished) {
     lines.push(`  already published: ${result.reference}:${result.tag} (${result.digest})`);
   } else {
@@ -342,10 +345,10 @@ function reachPhrase(reach: PublicationReach): string {
 // publicationOutcome is the sentence a publication ends in.
 //
 // 🔴 EVERY FACT IN IT IS READ OFF THE ANSWER RATHER THAN OFF THE REQUEST. What
-// the entity resolved to, what the tag now points at, and how far the operation
-// reached are all things the compiler measured; the entity the reader chose is
-// named on the opening line instead, because that one is the request and this
-// sentence is the result.
+// the entity resolved to, what the tag points at or a dry run would have it point
+// at, and how far the operation reached are all things the compiler measured; the
+// entity the reader chose is named on the opening line instead, because that one
+// is the request and this sentence is the result.
 //
 // All of it is strictly more than an exit status says: a publication, a
 // re-publication of identical bytes, and a dry run all exit zero, so an exit
@@ -354,7 +357,7 @@ export function publicationOutcome(result: PublishEntityResult): OperationOutcom
   if (result.dryRun) {
     return {
       kind: 'ok',
-      detail: `reported ${result.reference}:${result.tag} without publishing it.`
+      detail: `reported ${result.reference}:${result.tag} (${result.digest}) without publishing it.`
         + ' Nothing left this machine.',
     };
   }

@@ -18,14 +18,11 @@ import { CONFIG_FILENAME } from './workspace';
 //
 // It is deliberately minimal, and it deliberately carries no top-level
 // `workspace:` key. That key is what marks a directory as the root of a
-// workspace, and this file is written into the folder the editor has
-// open — which is frequently not that root, because discovery climbs
-// from the open folder and an explicit root above it wins. Writing the
-// key here would not record where the root is; it would place a new and
-// nearer one in the way, changing which Releases are enumerated and
-// which paths resolve. Making a directory a workspace root is a
-// separate act with its own template, which lives in workspace.ts
-// beside the discovery that recognises it.
+// workspace, and this file is written at the root the workspace is
+// already anchored at — the command refuses until one is — so it needs
+// no marker of its own to be read there. Making a directory a workspace
+// root is a separate act with its own template, which lives in
+// workspace.ts beside the discovery that recognises it.
 const CONFIG_TEMPLATE = `build:
   authoring_release:
 `;

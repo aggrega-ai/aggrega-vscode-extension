@@ -16,6 +16,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - A quick-action menu, automatic daemon restart, a daemon version check, and time-based toast debouncing.
 - A `server.buildOnInspect` setting, forwarded to the daemon as `--build-on-inspect`, with a command and a quick-action-menu entry that toggle it without opening settings JSON.
 - Problems-panel grouping by the compiler layer that raised each finding, read from the daemon's own report rather than assigned by the extension.
+- A Plugins panel whose rows name each plugin's type, version and readiness, keep a plugin the compiler could not resolve or describe on a row of its own with the compiler's message, and carry its configuration key, capabilities, input kinds, boundary and exports in the tooltip.
+- A published-catalog search narrowed from one filter list — free text, entity kinds, a label selector, plugin capabilities, a plugin socket and a result cap — that reads each registry's local index and copies a matched reference.
 - An end-to-end suite that launches the editor with no display, loads the extension and a real `aggrega` language server into it and checks what the editor shows and does, beside specs that build `aggrega` on demand from the sibling checkout and exercise the daemon client against a real daemon, including cooperative-shutdown-under-load coverage.
 
 ### Changed

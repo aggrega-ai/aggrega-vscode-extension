@@ -68,9 +68,10 @@ export function attachmentProgressTitle(type: string): string {
 // 🔴 IT CARRIES THE TYPE, THE SEARCH TERM AND THE ONE ANSWER SOME TYPES REQUIRE,
 // AND THE ABSENCE OF THE REST IS THE CONTRACT RATHER THAN AN OMISSION. The
 // operation also accepts the two write-target overrides that force which
-// configuration file the attachment lands in, and a field carrying the
-// capability decision a command-extension install needs. None of the three is
-// declared here, because a declared field is a field a later call site will fill.
+// configuration file the attachment lands in, a field carrying the capability
+// decision a command-extension install needs, and a switch that reports the
+// configuration instead of writing it. None of the four is declared here,
+// because a declared field is a field a later call site will fill.
 //
 // Sending no override takes the operation's own default, which is the default a
 // reader gets from the command line. Every type this surface offers is scoped to
