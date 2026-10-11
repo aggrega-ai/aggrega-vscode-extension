@@ -405,18 +405,18 @@ export function releaseParamFor(workspaceRoot: string, releasePath: string): str
 //
 // The contract is the same one every destination on this surface takes: a path
 // relative to the workspace root, naming somewhere inside it. What a build then
-// writes is its output directory created INSIDE that path, which is the result
-// a reader gets from running a build in the folder they are standing in — so
-// the value is where they are standing, expressed the way a request can carry
-// it, and the artifacts land one level below it rather than in it. That is why
-// the parameter names a parent rather than the directory written into.
+// writes is its output directory created INSIDE that path, so the artifacts
+// arrive beside the work in the folder the reader chose — the value is that
+// folder, expressed the way a request can carry it, and the artifacts land one
+// level below it rather than in it. That is why the parameter names a parent
+// rather than the directory written into.
 //
 // 🔴 NULL MEANS "SEND NOTHING", AND IT IS AN ANSWER RATHER THAN A FAILURE. A
 // window with several folders open and none chosen has no folder the reader is
 // standing in, and a request that named one of them would be reporting a choice
 // nobody made. Omitting the parameter is a defined state — a build then writes
-// where a build run at the workspace root writes — so the honest value for "the
-// editor cannot say" is no value at all.
+// beneath the workspace root — so the honest value for "the editor cannot say"
+// is no value at all.
 //
 // The same answer covers a folder that does not sit inside the root at all.
 // That it does is not a structural invariant: it holds because one re-evaluation

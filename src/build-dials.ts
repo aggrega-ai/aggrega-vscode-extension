@@ -73,9 +73,8 @@ export const BUILD_DIALS: BuildDial[] = [
 // key, and a composition that still named the old one stops compiling.
 //
 // The destination is optional because its absence is a state the compiler
-// defines rather than a gap: a request that names none writes where a build run
-// at the workspace root writes. Sending it is how a reader standing somewhere
-// else says so.
+// defines rather than a gap: a request that names none writes beneath the
+// workspace root. Sending it is how a reader standing somewhere else says so.
 //
 // 🔴 IT NAMES THE OUTPUT DIRECTORY'S PARENT, WHICH IS WHY IT IS NOT SPELLED LIKE
 // THE DESTINATION THE OTHER WRITING REQUESTS TAKE. A build creates its output
@@ -113,11 +112,10 @@ export interface BuildPreviewRequestParams {
 // adjustment always has a value, because the reader either turned it on or did
 // not. The destination does not: where nothing can be said about the folder the
 // reader is standing in, the key is left off entirely, and the compiler then
-// writes where a build run at the workspace root writes. Sending an empty
-// string for that case would collapse two different facts — "the reader is
-// standing at the root" and "the editor cannot tell where they are standing" —
-// into the same bytes, and the first is a location while the second is its
-// absence.
+// writes beneath the workspace root. Sending an empty string for that case
+// would collapse two different facts — "the reader is standing at the root" and
+// "the editor cannot tell where they are standing" — into the same bytes, and
+// the first is a location while the second is its absence.
 //
 // The destination arrives already converted rather than being derived here, and
 // the argument is REQUIRED so no call site can compose a build without having

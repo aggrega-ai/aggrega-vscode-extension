@@ -2820,9 +2820,10 @@ async function requestBuildPreview(
 
 // requestBuild asks the language server to build the given Release and write
 // the artifacts it renders. The server runs the same computation the preview
-// runs, with every gate on, and writes the result into the workspace's output
-// directory — so a refusal here is a refusal a command-line build would reach,
-// and a success puts the same files on disk that one would.
+// runs, with every gate on, and writes the result into an output directory
+// inside the workspace, placed as described below — so a refusal here is a
+// refusal a command-line build would reach, and a success writes the same files
+// that one would.
 //
 // The findings that carry a document position do not come back through this
 // call's answer: the server publishes them on its diagnostic channel, so they
@@ -2843,13 +2844,15 @@ async function requestBuildPreview(
 // from a client that does not know about it.
 //
 // 🔴 WHERE THE BUILD WRITES IS THE FOLDER THE READER WORKS FROM, AND IT IS THE
-// CHOSEN ONE RATHER THAN THE ONE THE ANCHORING SETTLED ON. A build run in a
-// terminal writes beneath the directory it was run in; a request carries no
-// such directory, so the editor states it. What a reader is standing in is the
-// folder they chose, and where they have chosen nothing the request says
-// nothing — the compiler then writes where a build run at the workspace root
-// writes. Answering from the anchoring's own folder instead would name a folder
-// nobody picked in exactly the window where the two differ.
+// CHOSEN ONE RATHER THAN THE ONE THE ANCHORING SETTLED ON. The request names
+// that folder so the artifacts arrive beside the work the reader is looking at,
+// rather than at the workspace root however deep inside it they are working.
+// Where they have chosen nothing the request says nothing, and the compiler then
+// writes beneath the workspace root. A build run at a terminal writes beneath the
+// workspace root wherever it is run, so for a folder below the root this build
+// and that one write different trees, by design. Answering from the anchoring's
+// own folder instead would name a folder nobody picked in exactly the window
+// where the two folders differ.
 //
 // It is converted against the root the server ANSWERED with, which is the root
 // this request names and the same one the Release path is converted against, so

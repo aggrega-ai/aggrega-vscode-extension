@@ -22,7 +22,7 @@ import { blockAfter, sourceOf } from '../helpers/graph-refresh-census';
 // chosen, the folder the anchoring settled on has a value and the folder the
 // reader chose does not. Reading the first would name a folder nobody picked;
 // the second names nothing, and naming nothing is what makes the compiler write
-// where a build run at the workspace root writes.
+// beneath the workspace root.
 
 const EXTENSION = 'src/extension.ts';
 

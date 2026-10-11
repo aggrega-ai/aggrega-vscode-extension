@@ -43,9 +43,9 @@ const RULED_PREVIEW_KEYS = ['release'];
 
 // NOWHERE is the destination argument for a build that names none: the editor
 // could not say where the reader is standing, so the request says nothing and
-// the compiler writes where a build run at the workspace root writes. Spelled
-// as a named constant rather than as a bare null at each call so what the value
-// MEANS is readable at the call site.
+// the compiler writes beneath the workspace root. Spelled as a named constant
+// rather than as a bare null at each call so what the value MEANS is readable
+// at the call site.
 const NOWHERE = null;
 
 // The fixture the destination clauses are read against: a workspace root with
@@ -63,9 +63,9 @@ const RELEASE_UNDER_DOCS = path.join(DOCS, 'release-bare.yaml');
 const RULED_DOCS_DESTINATION = 'docs';
 // RULED_ROOT_DESTINATION is what a window opened on the root itself sends. It is
 // the empty string, and that is a location rather than a gap — the root IS where
-// that reader is standing, and the compiler reads an empty destination as the
-// place a build run at the root writes. It is carried rather than dropped so the
-// request states the reader's location in both cases.
+// that reader is standing, and the compiler reads an empty destination as naming
+// the root. It is carried rather than dropped so the request states the reader's
+// location in both cases.
 const RULED_ROOT_DESTINATION = '';
 // RULED_RELEASE_FROM_DOCS is the Release parameter for a document under the
 // subdirectory, with the root ABOVE it. Written out literally for the same
@@ -208,9 +208,9 @@ describe('where a build request says it writes', () => {
   it('names the root as the empty destination when that is where the reader is', () => {
     // 🔴 EMPTY IS A LOCATION, NOT A GAP, AND IT IS SENT RATHER THAN DROPPED.
     // The root is where that reader is standing, and the compiler reads an empty
-    // destination as the place a build run at the root writes — so the value is
-    // carried, and the request states the reader's location in this case exactly
-    // as it does in the one above.
+    // destination as naming the root — so the value is carried, and the request
+    // states the reader's location in this case exactly as it does in the one
+    // above.
     assert.strictEqual(
       outputParentFor(ROOT, ROOT), RULED_ROOT_DESTINATION,
       'a window opened on the root itself produces something other than the ruled destination',
