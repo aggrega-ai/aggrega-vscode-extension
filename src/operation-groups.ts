@@ -691,7 +691,8 @@ export interface CacheConfirmation {
   confirmLabel: string;
 }
 
-// THIS_MACHINE_CACHES names the caches that are not this workspace's.
+// THIS_MACHINE_CACHES names the caches that are not this workspace's and that a
+// prune reclaims from.
 //
 // They are shared because what they hold is identical across projects — a
 // compiled plugin is the same bytes whichever workspace asked for it — so
@@ -700,6 +701,14 @@ export interface CacheConfirmation {
 // reader who runs the report sees the same words back.
 const THIS_MACHINE_CACHES =
   'the compiled-module cache and the plugin-describe cache, which every project on this machine shares';
+
+// EVERY_MACHINE_CACHE names every cache that is not this workspace's, the
+// docs-bundle cache among them: the documentation for one registry and version
+// is the same bytes whichever workspace reads it, so it is kept once per
+// machine. A wipe empties it; a prune never removes from it, which is why the
+// prune names the two above and not this list.
+const EVERY_MACHINE_CACHE =
+  'the compiled-module cache, the plugin-describe cache and the docs-bundle cache, which every project on this machine shares';
 
 // THE_COMPILED_MODULE_CACHE names the single store a trim addresses, in the
 // compiler's own words. It is machine-wide without qualification: every project
@@ -711,13 +720,13 @@ const THE_COMPILED_MODULE_CACHE =
 // THIS_WORKSPACE_CACHES names the caches that sit under this workspace's own
 // configured cache directory.
 const THIS_WORKSPACE_CACHES =
-  "this workspace's own entity, source-artifact, external-input and docs-bundle caches";
+  "this workspace's own entity, source-artifact and external-input caches";
 
 // cacheConfirmation reports what to ask before a cache operation runs, or null
 // where nothing is removed and there is nothing to confirm.
 //
 // Two of the three removals reach both scopes: clear empties this workspace's
-// caches and the two shared ones, and prune reclaims unreferenced entries from
+// caches and every shared one, and prune reclaims unreferenced entries from
 // this workspace's caches, from the shared plugin-describe cache, and from the
 // shared compiled-module cache by reference. The trim reaches one — its subject
 // is the compiled-module store alone — so it names one.
@@ -740,7 +749,7 @@ export function cacheConfirmation(operation: CacheOperation): CacheConfirmation 
     case 'clear':
       return {
         question: 'Empty every cache?',
-        scope: `This empties ${THIS_WORKSPACE_CACHES}, and ${THIS_MACHINE_CACHES}. The caches repopulate on the next build.`,
+        scope: `This empties ${THIS_WORKSPACE_CACHES}, and ${EVERY_MACHINE_CACHE}. The caches repopulate on the next build.`,
         confirmLabel: CACHE_CONFIRM_LABEL_CLEAR,
       };
   }

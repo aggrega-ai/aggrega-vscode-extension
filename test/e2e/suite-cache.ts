@@ -77,7 +77,7 @@ const ASKED = {
   },
   clear: {
     message: 'Empty every cache?', button: 'Empty every cache',
-    detail: "This empties this workspace's own entity, source-artifact, external-input and docs-bundle caches, and the compiled-module cache and the plugin-describe cache, which every project on this machine shares. The caches repopulate on the next build.",
+    detail: "This empties this workspace's own entity, source-artifact and external-input caches, and the compiled-module cache, the plugin-describe cache and the docs-bundle cache, which every project on this machine shares. The caches repopulate on the next build.",
     names: [] as string[],
   },
 };
