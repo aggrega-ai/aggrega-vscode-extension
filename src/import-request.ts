@@ -38,10 +38,11 @@ import { withSubject } from './operation-groups';
 
 // IMPORT_SOURCE_PROMPT is what the reader is asked for.
 //
-// A path or a reference, because the value is passed through verbatim and the
-// compiler accepts either — so narrowing the question here would narrow the
-// operation to less than it performs.
-export const IMPORT_SOURCE_PROMPT = 'Path or reference of the source to import';
+// A file or a directory, because the value is passed through verbatim and the
+// compiler reads either — a directory into the files of it the importer's declared
+// file patterns select — so narrowing the question here would narrow the operation
+// to less than it performs.
+export const IMPORT_SOURCE_PROMPT = 'Path of the file or directory to import';
 
 // IMPORT_SOURCE_TITLE is the heading over that question.
 export const IMPORT_SOURCE_TITLE = 'Aggrega: import source';
@@ -69,8 +70,8 @@ export const IMPORT_SUBJECT = 'The import';
 // It is deliberately not absolute. A destination is written to, and a written path
 // is confined to the workspace whatever the request sends — so an absolute value
 // would be refused even when it named the very same directory. The source is the
-// other case entirely: it is read, it is a file the reader chose, and it may name
-// anywhere on the machine.
+// other case entirely: it is read, it is a file or a directory the reader chose,
+// and it may name anywhere on the machine.
 export const IMPORT_OUTPUT_DIR = '.';
 
 // --- the request and answer shapes ---------------------------------------
@@ -156,9 +157,9 @@ export interface ImportReport {
 
 // importRequest composes the import of one source into the workspace.
 //
-// The source is passed through verbatim: the compiler accepts a path or a
-// reference and reads whichever the reader pointed at, so a translation here would
-// be a second answer to what a source is.
+// The source is passed through verbatim: the compiler reads the file or the
+// directory the reader pointed at, so a translation here would be a second answer
+// to what a source is.
 //
 // The blank guard is REACHED rather than restated. It is the extension's one home
 // for refusing an operation with nothing to act on, and a second blank check

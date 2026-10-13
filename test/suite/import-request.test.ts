@@ -116,6 +116,24 @@ describe('the import request carries the source and the destination', () => {
     );
   });
 
+  it('carries a directory through to the request exactly as it carries a file', async () => {
+    // A directory is a source in its own right: the compiler reads it into the
+    // files its importer's declared file patterns select. So nothing here lists it,
+    // expands it into files or appends a separator — a composer that did any of
+    // that would be a second answer to which files a directory import reads.
+    // 🔴 A COUNT AND AN EQUALITY, over both the composed request and the one sent.
+    assert.deepStrictEqual(
+      importRequest('charts/demo'),
+      { source: 'charts/demo', outputDir: '.' },
+    );
+    const r = recorder(DRAFTED);
+    await runImport(r.deps, '/home/reader/projects/crew');
+    assert.strictEqual(r.sent.length, 1);
+    assert.deepStrictEqual(r.sent, [
+      { source: '/home/reader/projects/crew', outputDir: '.' },
+    ]);
+  });
+
   it('names the workspace root as the destination, as a relative value', () => {
     // 🔴 THE EXPECTATION IS THE LITERAL, NOT THE CONSTANT. Asserting the request's
     // destination equals the module's own constant would pass whatever that
@@ -403,10 +421,11 @@ describe("the channel carries the importer's own words", () => {
     );
   });
 
-  it('asks for the source in the words it always has', () => {
-    // The prompt accepts a path or a reference because the compiler accepts either.
-    // Narrowing the question would narrow the operation to less than it performs.
-    assert.strictEqual(IMPORT_SOURCE_PROMPT, 'Path or reference of the source to import');
+  it('asks for a file or a directory, because the compiler reads either', () => {
+    // Narrowing the question to a file would narrow the operation to less than it
+    // performs, and offering anything the compiler does not read would invite a
+    // value it refuses.
+    assert.strictEqual(IMPORT_SOURCE_PROMPT, 'Path of the file or directory to import');
     assert.strictEqual(IMPORT_SOURCE_TITLE, 'Aggrega: import source');
   });
 });

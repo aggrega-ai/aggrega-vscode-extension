@@ -1012,9 +1012,9 @@ async function runPreview(deps: OperationDeps): Promise<void> {
   );
 }
 
-// runImport prompts for the source to import, then asks the language server to
-// draft authoring files from it. The source is passed through verbatim; the
-// compiler reads it and reports on it.
+// runImport prompts for the file or the directory to import, then asks the
+// language server to draft authoring files from it. The source is passed through
+// verbatim; the compiler reads it and reports on it.
 //
 // It is watched and it can be stopped, and both follow from what the compiler
 // does with it. The importer is a module the compiler resolves, prepares and runs

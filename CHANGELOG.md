@@ -20,6 +20,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - A published-catalog search narrowed from one filter list — free text, entity kinds, a label selector, plugin capabilities, a plugin socket and a result cap — that reads each registry's local index and copies a matched reference.
 - An end-to-end suite that launches the editor with no display, loads the extension and a real `aggrega` language server into it and checks what the editor shows and does, beside specs that build `aggrega` on demand from the sibling checkout and exercise the daemon client against a real daemon, including cooperative-shutdown-under-load coverage.
 - The import's output channel shows how the importer mapped each source node, after its diagnostics and before the files it wrote: one line per node, in the words `aggrega import` prints on standard error — `mapped <node id> (<node type>) to <target> as a <mode>, <tier> at <score>` — with every value the importer's own, so an author sees where an import guessed without opening the drafts. A cross-language parity test holds the line to the compiler's own wording.
+- Importing a directory: the import asks for the path of the file or the directory to import and hands a directory to the language server exactly as typed, as it does a file. The compiler reads a directory into the files of it the importer's declared file patterns select, each named by its path inside the directory, and never follows a link inside it out of it.
 
 ### Changed
 
