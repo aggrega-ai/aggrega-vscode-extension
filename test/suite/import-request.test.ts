@@ -9,8 +9,10 @@ import {
   IMPORT_SOURCE_PROMPT,
   IMPORT_SOURCE_TITLE,
   IMPORT_SUBJECT,
+  ImportDecision,
   ImportParams,
   ImportResult,
+  decisionLine,
   diagnosticLine,
   importDetail,
   importLines,
@@ -78,6 +80,7 @@ const DRAFTED: ImportResult = {
     { path: 'release.yaml', content: 'kind: Release\n' },
   ],
   diagnostics: [],
+  decisions: [],
   halted: false,
 };
 
@@ -405,6 +408,154 @@ describe("the channel carries the importer's own words", () => {
     // Narrowing the question would narrow the operation to less than it performs.
     assert.strictEqual(IMPORT_SOURCE_PROMPT, 'Path or reference of the source to import');
     assert.strictEqual(IMPORT_SOURCE_TITLE, 'Aggrega: import source');
+  });
+});
+
+// --- the mapping decisions ---------------------------------------------------
+
+// DECISION_LINE_CASES is the case manifest the mapping-decision line is held to on
+// both sides of the language boundary. The compiler's tree owns it, beside the Go
+// formatter it holds; its Langflow entries are the decisions a real import of the
+// committed Langflow fixture returns, which the compiler's end-to-end spec requires
+// the live session answer to equal.
+const DECISION_LINE_CASES = path.resolve(
+  __dirname,
+  '..',
+  '..',
+  '..',
+  '..',
+  'aggrega-cli',
+  'internal',
+  'importops',
+  'testdata',
+  'decision_line_cases.json',
+);
+
+// WANT_DECISION_LINE_CASES_REVISION is the revision of that manifest THIS side was
+// written against, and the spec below refuses any other.
+//
+// 🔴 A DELIBERATE NEAR-DUPLICATE OF THE GO SPEC'S OWN PINNED COPY, AND IT MUST NOT
+// BE UNIFIED WITH IT — not read out of the manifest, not imported, not generated.
+// The line is rendered twice across a language boundary on purpose, and two pins
+// are what make a green from each side evidence that the side read this revision
+// rather than evidence that a comparison agreed. One constant cannot disagree with
+// itself, and disagreement is the whole signal.
+const WANT_DECISION_LINE_CASES_REVISION = 1;
+
+interface DecisionLineCase {
+  name?: string;
+  decision: ImportDecision;
+  line: string;
+}
+
+interface DecisionLineCases {
+  revision?: number;
+  langflow: DecisionLineCase[];
+  shapes: DecisionLineCase[];
+}
+
+// 🔴 AN UNREADABLE MANIFEST FAILS HERE; IT DOES NOT STAND THE SPEC DOWN. A side that
+// reads nothing and reports success is indistinguishable from one that compared
+// every case and agreed, which is how a parity pair rots.
+function readDecisionLineCases(): DecisionLineCases {
+  let raw: string;
+  try {
+    raw = fs.readFileSync(DECISION_LINE_CASES, 'utf8');
+  } catch (err) {
+    throw new Error(
+      `decision-line cases unreadable at ${DECISION_LINE_CASES} (${String(err)}). The aggrega-cli sibling `
+      + 'checkout holds the shared manifest; without it this spec compares nothing. Check out aggrega-cli '
+      + 'beside this repo.',
+    );
+  }
+  const doc = JSON.parse(raw) as DecisionLineCases;
+  assert.strictEqual(
+    doc.revision,
+    WANT_DECISION_LINE_CASES_REVISION,
+    `decision-line manifest revision mismatch: this side is pinned to ${WANT_DECISION_LINE_CASES_REVISION}. `
+    + "Move this pin and the Go spec's own pin together, and run BOTH sides.",
+  );
+  assert.ok(doc.langflow.length > 0, 'the manifest holds no Langflow decision');
+  assert.ok(doc.shapes.length > 0, 'the manifest holds no shape');
+  return doc;
+}
+
+describe("the channel carries the importer's mapping decisions", () => {
+  it('renders every manifest decision in the line the command line writes for it', () => {
+    // 🔴 THE EXPECTED LINE IS THE MANIFEST'S WRITTEN LITERAL, the same one the Go
+    // formatter is held to, so the two sides agree because each matches the
+    // literal rather than because one was derived from the other. The channel
+    // indents every line it writes, so the literal is read indented.
+    const cases = readDecisionLineCases();
+    for (const tc of [...cases.langflow, ...cases.shapes]) {
+      assert.strictEqual(
+        decisionLine(tc.decision),
+        `  ${tc.line}`,
+        `case ${JSON.stringify(tc.name ?? tc.decision.sourceNode.id)}`,
+      );
+    }
+  });
+
+  it("puts the Langflow import's decisions on the channel, after the diagnostics and before what was written", () => {
+    // An array equality over the real decisions of the Langflow fixture: every node
+    // the importer mapped appears once, in the importer's order, with the choice,
+    // tier and score it reported, between the importer's objections and the files
+    // that reached disk — the order the command line prints them in.
+    //
+    // 🔴 PLANTED DEFECT: drop the decisions from importLines (src/import-request.ts)
+    // and this case reddens, its three mapped lines missing; render the score with
+    // toFixed(4) in decisionLine and the case above reddens on the whole-number and
+    // long-score shapes.
+    const cases = readDecisionLineCases();
+    const lines = importLines({
+      ...DRAFTED,
+      written: ['aggregate.yaml'],
+      diagnostics: [{ severity: 'warning', message: 'the edge from A to B names no socket' }],
+      decisions: cases.langflow.map((c) => c.decision),
+    });
+    assert.deepStrictEqual(lines, [
+      '  warning: the edge from A to B names no socket',
+      '  mapped OpenAIModel-a1b2 (OpenAIModel) to imported/ai-model/openaimodel as a draft, LOW at 0.3138',
+      '  mapped Retrieval-c3d4 (Retrieval) to imported/ai-tool/retrieval as a draft, NONE at 0.0167',
+      '  mapped CustomLogic-e5f6 (CustomPythonComponent) to imported/component/custompythoncomponent as a draft, NONE',
+      '  wrote aggregate.yaml',
+    ]);
+  });
+
+  it('carries the node, the choice, the tier and the top score as the importer reported them', () => {
+    // Field by field, against independent literals, so a line that re-worded or
+    // dropped one fact fails here even where it happened to match a manifest line.
+    assert.strictEqual(
+      decisionLine({
+        sourceNode: { id: 'n1', type: 'OpenAIModel', paramsSummary: 'no parameters' },
+        candidates: [
+          {
+            componentName: 'acme/ai-model/b', score: 0.4, tier: 'LOW',
+            signals: { table: 0, category: 0.2, domainLabels: 0.15, shape: 0.05, name: 0 },
+          },
+          {
+            componentName: 'acme/ai-model/a', score: 0.92, tier: 'HIGH',
+            signals: { table: 0.5, category: 0.2, domainLabels: 0.15, shape: 0.02, name: 0.05 },
+          },
+        ],
+        chosen: { target: 'acme/ai-model/a', mode: 'reference', tier: 'HIGH' },
+      }),
+      '  mapped n1 (OpenAIModel) to acme/ai-model/a as a reference, HIGH at 0.92',
+    );
+    assert.strictEqual(
+      decisionLine({ sourceNode: { id: 'n2', type: 'Mystery', paramsSummary: 'no parameters' } }),
+      '  made no choice for n2 (Mystery)',
+    );
+  });
+
+  it('contributes no decision line for an importer that reports none', () => {
+    // A COUNT, as for the diagnostics: an empty list adds nothing, and an import
+    // whose importer reports no decisions reads as it did before decisions existed.
+    assert.deepStrictEqual(importLines({ ...DRAFTED, decisions: [] }), [
+      '  wrote aggregate.yaml',
+      '  wrote components/api.yaml',
+      '  wrote release.yaml',
+    ]);
   });
 });
 

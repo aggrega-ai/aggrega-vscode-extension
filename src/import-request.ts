@@ -13,9 +13,10 @@ import { withSubject } from './operation-groups';
 //
 // The compiler owns the work. Nothing here decides what an import does, nothing
 // here reads the source, and nothing here re-words what the compiler says about
-// it: every diagnostic reaches the channel with the importer's own text, the
-// closing sentence is composed from the answer's own fields, and a refusal travels
-// through the extension's one rendering home with the compiler's text intact.
+// it: every diagnostic reaches the channel with the importer's own text, every
+// mapping decision with the importer's own values, the closing sentence is
+// composed from the answer's own fields, and a refusal travels through the
+// extension's one rendering home with the compiler's text intact.
 //
 // 🔴 THIS ONE CAN BE STOPPED, AND THAT IS READ OFF THE COMPILER RATHER THAN
 // ASSUMED. A stop is offered exactly where the compiler can honour one. Here it
@@ -107,6 +108,11 @@ export type ImportedFile = wire.ImportedFile;
 // the diagnostic rather than a gap — so it is optional here and rendered only when
 // it is there.
 export type ImportDiagnostic = wire.ImportDiagnostic;
+
+// ImportDecision is one of the importer's mapping decisions as the answer carries
+// it: the source node, the catalog Components it weighed with their scores, what
+// it chose, why, and how to swap the choice — each value the importer's own.
+export type ImportDecision = wire.ImportDecision;
 
 // ImportResult is the answer an import produces.
 //
@@ -229,12 +235,51 @@ export function writtenLine(path: string): string {
   return `  wrote ${path}`;
 }
 
+// decisionLine renders one mapping decision for the channel, in the sentence the
+// command line prints for it on its error stream:
+//
+//   mapped <node id> (<node type>) to <target> as a <mode>, <tier> at <score>
+//
+// Every value is the importer's own and none is re-worded: the node's identifier
+// and type, the target it chose, how it emitted it, the tier of the choice, and
+// the score of its top candidate — the highest among the candidates it weighed —
+// written as the shortest decimal that reads back as the same number, so the line
+// shows the digits the importer computed and no others. A decision the importer
+// weighed no candidate for ends at its tier, because there is no score to show;
+// one that records no choice reads "made no choice for <node id> (<node type>)".
+//
+// 🔴 A DELIBERATE SECOND COPY OF THE COMMAND LINE'S SENTENCE, ACROSS A LANGUAGE
+// BOUNDARY, AND HELD TO IT RATHER THAN TRUSTED TO AGREE. The compiler composes the
+// sentence in Go for its own surfaces and this side cannot call that, so the two
+// are kept in step by a case manifest the compiler's tree owns, which both sides'
+// specs read and both pin to one revision: the compiler's spec renders every case
+// with its formatter and this side's spec renders every case with this one, each
+// against the same written line.
+export function decisionLine(decision: ImportDecision): string {
+  const node = `${decision.sourceNode.id} (${decision.sourceNode.type})`;
+  const chosen = decision.chosen;
+  if (chosen === undefined) {
+    return `  made no choice for ${node}`;
+  }
+  const line = `  mapped ${node} to ${chosen.target} as a ${chosen.mode}, ${chosen.tier}`;
+  const candidates = decision.candidates ?? [];
+  if (candidates.length === 0) {
+    return line;
+  }
+  const top = Math.max(...candidates.map((c) => c.score));
+  return `${line} at ${String(top)}`;
+}
+
 // importLines is everything one import puts on the channel, in order: what the
-// importer objected to, then what reached disk.
+// importer objected to, then how it mapped each source node, then what reached
+// disk.
 //
 // The diagnostics come first because they are what a reader acts on, and an import
 // that objected to nothing contributes none — so a clean import's channel is the
-// list of what it drafted and nothing else.
+// list of what it decided and drafted and nothing else. The decisions follow them,
+// as they follow them on the command line's error stream, because they say where
+// the import guessed: the Component each node was mapped to, and how sure the
+// importer was. An importer that reports no decisions contributes no line.
 //
 // These findings carry no document position. The importer's subject is a foreign
 // source file rather than a place in an authored document, so there is no span to
@@ -243,6 +288,7 @@ export function writtenLine(path: string): string {
 export function importLines(result: ImportResult): readonly string[] {
   return [
     ...draftingDiagnostics(result).map(diagnosticLine),
+    ...result.decisions.map(decisionLine),
     ...draftedPaths(result).map(writtenLine),
   ];
 }
