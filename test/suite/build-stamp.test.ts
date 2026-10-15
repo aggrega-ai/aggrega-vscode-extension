@@ -151,9 +151,8 @@ describe('every compile stamps the build', () => {
   const scripts = (): Record<string, string> =>
     JSON.parse(fs.readFileSync(path.join(EXTENSION_ROOT, 'package.json'), 'utf8')).scripts;
 
-  // The development launch, the packaging tool's prepublish step and the
-  // workspace build all run this one script, so its last step is what every
-  // build carries.
+  // The development launch and the packaging tool's prepublish step both run
+  // this one script, so its last step is what each of their builds carries.
   it('runs the stamp as the compile\'s last step, and packaging runs the compile', () => {
     const steps = scripts().compile.split('&&').map((step) => step.trim());
     assert.strictEqual(steps[steps.length - 1], 'npm run stamp-build-version');

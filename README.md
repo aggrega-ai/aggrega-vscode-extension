@@ -419,9 +419,8 @@ compiler's build scripts stamp it, and is built again whenever either moves.
 The unit suite never draws an editor. The end-to-end suite does: it launches the
 real editor with no display, loads this extension and a real `aggrega` language
 server into it, drives the workbench from outside, and checks what the editor
-shows and does. It is a runner of its own, run by hand or by the workspace build
-mode described below, and by nothing else. It runs on Linux, because it reads
-the processes it starts from `/proc`.
+shows and does. It is a runner of its own, run by hand and by nothing else. It
+runs on Linux, because it reads the processes it starts from `/proc`.
 
 It compiles nothing and builds no compiler. Everything it tests is handed to it,
 and it refuses to start, naming the input, when one is missing or is not what it
@@ -460,21 +459,6 @@ node out/test/e2e/run.js suite --scratch <dir> \
 
 `npm run test:e2e -- suite …` runs the same, and npm then writes a debug log of
 its own under your home directory, which invoking `node` directly does not.
-
-In the Aggrega workspace, where this repository is checked out beside
-`aggrega-cli`, the workspace's build script runs the suite as a mode of its own:
-`scripts/build.sh --test-editor`, from the workspace root. It compiles this
-repository with `tsc`, the vendored assets and the build stamp — never with
-`npm run compile`, which would also build in `aggrega-abi` — builds the language
-server from the sibling `aggrega-cli` checkout the way the specs that need a real
-binary build it, and runs every scenario as one invocation. Before it builds
-anything it refuses when that checkout, or a sibling module the build reads, has
-uncommitted or untracked changes, because the report would then name a compiler
-commit the build does not reproduce. No other mode of that script runs the
-suite, and it runs only when the workspace's operator asks for it.
-`scripts/build.sh --help` says what a green of that mode covers and what it does
-not: a local headless window, and not your own editor client, native dialogs, a
-screen reader or the checks left for a person.
 
 Each run writes `suite.json` beside a plain summary, `suite.txt`, in a directory
 of its own under the scratch directory. The report is headed with the
