@@ -21,7 +21,7 @@
 // ControlKind is the shape of control a schema declaration calls for.
 //
 // It is derived from the declaration and never from the setting's name: the
-// compiler is blind to what a setting means, and so is this. A declaration whose
+// compiler is agnostic to what a setting means, and so is this. A declaration whose
 // shape none of these covers is reported as Unsupported rather than guessed at,
 // because drawing a text box for a shape that is not text would invite a value
 // the schema refuses.
