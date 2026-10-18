@@ -8,3 +8,4 @@ out/
 # from a development dependency. They ship in the packaged extension and are not
 # carried in this repository's own history.
 media/vendor/
+search-refusals.log
