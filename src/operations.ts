@@ -39,13 +39,27 @@ import { CancellationSignal } from './cancellation';
 import { reportOutcome, runWatchableCli } from './cli-operation';
 import { DaemonErrorRouting, WhoAsked } from './error-surfaces';
 import {
+  IMPORT_DESTINATION_PROMPT,
+  IMPORT_DESTINATION_TITLE,
+  IMPORT_FORMAT_PLACEHOLDER,
+  IMPORT_FORMAT_TITLE,
+  IMPORT_OPTIONS,
+  IMPORT_OPTIONS_TITLE,
+  IMPORT_SOURCE_KINDS,
   IMPORT_SOURCE_PROMPT,
   IMPORT_SOURCE_TITLE,
   IMPORT_SUBJECT,
+  IMPORT_TARGET_PROMPT,
+  IMPORT_TARGET_TITLE,
   ImportParams,
+  ImportQuestions,
   ImportResult,
+  askImport,
+  chooseSource,
+  clickedSource,
   importOpeningLine,
   runImport as performImport,
+  switchesFrom,
 } from './import-request';
 import {
   DeprecateArtifactParams,
@@ -774,7 +788,10 @@ export function activateOperations(
   // drafting, named the way a reader reads it. That is how a control existing
   // for one kind reaches this one flow rather than growing a flow of its own.
   reg('scaffold', (chosen, drafting) => { void runScaffold(deps, chosen, drafting); });
-  reg('import', () => { void runImport(deps); });
+  // The import reads its source off the invocation where one carries it — the
+  // explorer passes the file or the folder it was opened on — and asks for one
+  // otherwise.
+  reg('import', (clicked) => { void runImport(deps, clickedSource(clicked)); });
   reg('inspect', (chosen) => {
     void runInspect(deps, provider.chosenSubject('inspect', chosen));
   });
@@ -1012,9 +1029,12 @@ async function runPreview(deps: OperationDeps): Promise<void> {
   );
 }
 
-// runImport prompts for the file or the directory to import, then asks the
-// language server to draft authoring files from it. The source is passed through
-// verbatim; the compiler reads it and reports on it.
+// runImport asks for the file or the directory to import, unless the invocation
+// carried one, then for each option the import takes, then asks the language
+// server to draft authoring files from it. What is asked, in what order, and what
+// each answer sends is decided in import-request.ts; this binds each question to
+// the editor's own input. The source is passed through verbatim; the compiler
+// reads it and reports on it.
 //
 // It is watched and it can be stopped, and both follow from what the compiler
 // does with it. The importer is a module the compiler resolves, prepares and runs
@@ -1028,13 +1048,10 @@ async function runPreview(deps: OperationDeps): Promise<void> {
 // document, so they are written to this channel — the same surface a build's
 // positionless advisories reach, and for the same reason. The ending is composed
 // from the answer's own fields.
-async function runImport(deps: OperationDeps): Promise<void> {
-  const source = await vscode.window.showInputBox({
-    title: IMPORT_SOURCE_TITLE,
-    prompt: IMPORT_SOURCE_PROMPT,
-    ignoreFocusOut: true,
-  });
-  if (!source) { return; }
+async function runImport(deps: OperationDeps, clicked: string | null): Promise<void> {
+  const choices = await askImport(IMPORT_QUESTIONS, clicked);
+  if (choices === null) { return; }
+  const source = choices.source;
 
   const out = deps.output;
   out.show(true);
@@ -1042,12 +1059,62 @@ async function runImport(deps: OperationDeps): Promise<void> {
 
   const report = await withCancellableProgress(
     `Aggrega: importing ${source}`,
-    (signal) => performImport(deps, source, signal),
+    (signal) => performImport(
+      { importSource: (params, s) => deps.importSource(params, s), nameFormat: askImportFormat },
+      choices,
+      signal,
+    ),
   );
   for (const line of report.lines) {
     out.appendLine(line);
   }
   await reportOutcome(deps, IMPORT_SUBJECT, report.outcome, true);
+}
+
+// IMPORT_QUESTIONS binds each of the import's questions to the editor's own input.
+// A dismissed question answers undefined, which ends the import with nothing sent.
+//
+// The source is chosen with the editor's own open dialog, after a choice between a
+// file and a folder (chooseSource). The destination and the target are typed, and
+// an empty answer chooses none of either. The options are one list in which
+// several may be ticked, and ticking none writes the drafts whole.
+const IMPORT_QUESTIONS: ImportQuestions = {
+  source: () => chooseSource({
+    kind: async () => (await vscode.window.showQuickPick(
+      IMPORT_SOURCE_KINDS.map((k) => ({ label: k.label, sourceKind: k.kind })),
+      { title: IMPORT_SOURCE_TITLE, placeHolder: IMPORT_SOURCE_PROMPT, ignoreFocusOut: true },
+    ))?.sourceKind,
+    open: (dialog) => Promise.resolve(vscode.window.showOpenDialog(dialog)),
+  }),
+  destination: () => Promise.resolve(vscode.window.showInputBox({
+    title: IMPORT_DESTINATION_TITLE,
+    prompt: IMPORT_DESTINATION_PROMPT,
+    ignoreFocusOut: true,
+  })),
+  switches: async () => {
+    const picked = await vscode.window.showQuickPick(
+      IMPORT_OPTIONS.map((o) => ({ label: o.label, detail: o.detail })),
+      { title: IMPORT_OPTIONS_TITLE, canPickMany: true, ignoreFocusOut: true },
+    );
+    return switchesFrom(picked?.map((p) => p.label));
+  },
+  target: () => Promise.resolve(vscode.window.showInputBox({
+    title: IMPORT_TARGET_TITLE,
+    prompt: IMPORT_TARGET_PROMPT,
+    ignoreFocusOut: true,
+  })),
+};
+
+// askImportFormat asks for the format after the compiler refused to settle one,
+// showing the refusal in the compiler's own words as the question, because those
+// words name the formats the reader may send.
+function askImportFormat(refusal: string): Promise<string | undefined> {
+  return Promise.resolve(vscode.window.showInputBox({
+    title: IMPORT_FORMAT_TITLE,
+    prompt: refusal,
+    placeHolder: IMPORT_FORMAT_PLACEHOLDER,
+    ignoreFocusOut: true,
+  }));
 }
 
 // runCache offers the cache operations as a quick-pick, then asks the language

@@ -3,6 +3,7 @@
 
 import type * as wire from '@aggrega-ai/aggrega-abi/dist/servewire_gen';
 import { CancellationSignal } from './cancellation';
+import { describeError, refusalCondition } from './error-text';
 import { OperationOutcome, outcomeOf } from './operation-outcome';
 import { withSubject } from './operation-groups';
 
@@ -38,69 +39,199 @@ import { withSubject } from './operation-groups';
 
 // IMPORT_SOURCE_PROMPT is what the reader is asked for.
 //
-// A file or a directory, because the value is passed through verbatim and the
-// compiler reads either — a directory into the files of it the importer's declared
+// A file or a folder, because the path chosen is passed through verbatim and the
+// compiler reads either — a folder into the files of it the importer's declared
 // file patterns select — so narrowing the question here would narrow the operation
 // to less than it performs.
-export const IMPORT_SOURCE_PROMPT = 'Path of the file or directory to import';
+export const IMPORT_SOURCE_PROMPT = 'The file or the folder to import';
 
-// IMPORT_SOURCE_TITLE is the heading over that question.
+// IMPORT_SOURCE_TITLE is the heading over that question, and over the editor's open
+// dialog that follows it.
 export const IMPORT_SOURCE_TITLE = 'Aggrega: import source';
+
+// SourceKind is which of the two the reader chose to import.
+export type SourceKind = 'file' | 'folder';
+
+// IMPORT_SOURCE_KINDS are the two choices the source question offers, in order.
+//
+// 🔴 TWO CHOICES, AND THE REASON IS THE EDITOR'S OWN DIALOG. On Windows and Linux
+// one open dialog cannot select both a file and a folder — asked for both, it
+// selects folders only — so asking which comes first is what lets the dialog that
+// follows choose either on every platform. A typed path is not offered beside them:
+// the source is a file or a folder on the machine the language server reads from,
+// and the dialog names any of those.
+export const IMPORT_SOURCE_KINDS: ReadonlyArray<{ label: string; kind: SourceKind }> = [
+  { label: 'File…', kind: 'file' },
+  { label: 'Folder…', kind: 'folder' },
+];
+
+// SourceDialog is the open dialog a chosen kind is asked through: one entry, of
+// that kind only.
+export interface SourceDialog {
+  title: string;
+  canSelectFiles: boolean;
+  canSelectFolders: boolean;
+  canSelectMany: false;
+}
+
+// sourceDialog is the open dialog for a kind.
+export function sourceDialog(kind: SourceKind): SourceDialog {
+  return {
+    title: IMPORT_SOURCE_TITLE,
+    canSelectFiles: kind === 'file',
+    canSelectFolders: kind === 'folder',
+    canSelectMany: false,
+  };
+}
+
+// SourceAsks asks the two halves of the source question: which kind, and then the
+// one entry of that kind. Each answers undefined where the reader dismissed it.
+export interface SourceAsks {
+  kind(): Promise<SourceKind | undefined>;
+  open(dialog: SourceDialog): Promise<unknown>;
+}
+
+// chooseSource asks for the source: the kind, then the dialog for it, read back as
+// the path the dialog answered with. A dismissed question, a dismissed dialog and a
+// dialog answering with nothing on this machine's file system all end the import
+// with nothing sent.
+export async function chooseSource(asks: SourceAsks): Promise<string | undefined> {
+  const kind = await asks.kind();
+  if (kind === undefined) { return undefined; }
+  const chosen = await asks.open(sourceDialog(kind));
+  const picked = Array.isArray(chosen) ? chosen[0] : chosen;
+  return clickedSource(picked) ?? undefined;
+}
+
+// IMPORT_OPTIONS_TITLE and IMPORT_OPTIONS are the question offering the two
+// options that are on or off, each with the sentence saying what it does. Neither
+// is chosen until the reader chooses it, so leaving both off writes the drafts
+// whole, as `aggrega import` does with neither flag.
+export const IMPORT_OPTIONS_TITLE = 'Aggrega: import options';
+export const IMPORT_OPTIONS: ReadonlyArray<{ label: string; detail: string; option: keyof ImportSwitches }> = [
+  { label: 'Preview', detail: 'Show the drafts without writing them', option: 'dryRun' },
+  { label: 'Sync', detail: 'Bring what an earlier import drafted up to date with the source', option: 'sync' },
+];
+
+// switchesFrom reads the options question's answer: the labels the reader ticked,
+// or undefined where they dismissed it.
+export function switchesFrom(picked: readonly string[] | undefined): ImportSwitches | undefined {
+  if (picked === undefined) { return undefined; }
+  const on = (option: keyof ImportSwitches): boolean =>
+    IMPORT_OPTIONS.some((o) => o.option === option && picked.includes(o.label));
+  return { dryRun: on('dryRun'), sync: on('sync') };
+}
 
 // IMPORT_SUBJECT is the operation in the reader's terms, used for the sentence
 // every ending produces. One spelling, so a completion and a failure name the
 // same thing.
 export const IMPORT_SUBJECT = 'The import';
 
-// IMPORT_OUTPUT_DIR is where the drafted files go.
+// IMPORT_DESTINATION_TITLE and IMPORT_DESTINATION_PROMPT ask where the drafts go.
 //
-// 🔴 IT IS THE WORKSPACE ROOT, SENT AS A RELATIVE VALUE, AND SENDING IT IS
-// REQUIRED. The request surface names no destination of its own: it refuses a
-// request that omits one rather than choosing on the caller's behalf, because the
-// drafted paths are relative to that directory and drafts belonging to nowhere
-// would be the alternative. So the destination is this surface's decision to
-// state, and this is it.
+// 🔴 LEAVING IT EMPTY IS AN ANSWER, AND IT SENDS NO DESTINATION AT ALL. The
+// operation drafts beneath the workspace root when it is named none, which is the
+// default the command line has without --output-dir, so this side states no
+// default of its own and sends nothing in its place. A folder named here is sent
+// as written: the language server resolves it against the workspace root and
+// refuses one that leads out of the workspace, because the destination is written
+// to and a written path is held to the workspace whatever a request sends. The
+// source is the other case entirely: it is read, it is a file or a directory the
+// reader chose, and it may name anywhere on the machine.
+export const IMPORT_DESTINATION_TITLE = 'Aggrega: import destination';
+export const IMPORT_DESTINATION_PROMPT =
+  'Folder inside the workspace to draft into, relative to its root. Leave it empty to draft beneath the workspace root';
+
+// IMPORT_TARGET_TITLE and IMPORT_TARGET_PROMPT ask for the provider capability to
+// draft a Manifest for.
 //
-// The value reproduces what the reader gets from the command line, which drafts
-// into the directory it was run in. A relative destination is resolved against the
-// root of the workspace the session was opened over rather than against whatever
-// directory a process happens to sit in, so "." names that root and names it
-// unambiguously.
+// It is typed rather than chosen from a list, because nothing this side already
+// holds lists the capabilities the workspace's Recipes bind to, and the target is
+// matched against exactly those. A capability no Recipe binds to is refused by the
+// compiler before anything runs, in words naming the ones that do. Leaving it empty
+// sends no target, and no Manifest is drafted.
+export const IMPORT_TARGET_TITLE = 'Aggrega: import target';
+export const IMPORT_TARGET_PROMPT =
+  'Provider capability to draft a Manifest for, such as compose or helm. Leave it empty to draft none';
+
+// IMPORT_FORMAT_TITLE and IMPORT_FORMAT_PLACEHOLDER ask for the format, after the
+// compiler refused to settle one from the source's shape. The question's prompt is
+// the refusal itself, in the compiler's words, because those words name the formats
+// a reader may send; the format is typed for the same reason the target is.
+export const IMPORT_FORMAT_TITLE = 'Aggrega: import format';
+export const IMPORT_FORMAT_PLACEHOLDER = 'The format to read the source as';
+
+// IMPORT_RECORD_FILE is the record every import that drafts anything writes beside
+// its drafts, which a later sync reads.
 //
-// It is deliberately not absolute. A destination is written to, and a written path
-// is confined to the workspace whatever the request sends — so an absolute value
-// would be refused even when it named the very same directory. The source is the
-// other case entirely: it is read, it is a file or a directory the reader chose,
-// and it may name anywhere on the machine.
-export const IMPORT_OUTPUT_DIR = '.';
+// 🔴 A DELIBERATE SECOND COPY OF A NAME THE COMPILER OWNS, ACROSS A LANGUAGE
+// BOUNDARY. The published contract of the import request states it, and the
+// answer carries the record among the files written, after the drafts, with this
+// path, because it sits at the root of the destination. It is read here for one
+// purpose: the record is not a draft, so the sentence counting what was drafted
+// leaves it out, while the lines listing what reached disk still name it.
+export const IMPORT_RECORD_FILE = '.aggrega-import.json';
+
+// FORMAT_REMEDIED_REFUSALS are the conditions whose remedy is naming the format,
+// read off the refusal's data and never off its message: a source the signatures
+// of no format recognise, and one the signatures of more than one format do. Each
+// is answered by asking for the format and sending the request again carrying it.
+export const FORMAT_REMEDIED_REFUSALS: readonly string[] = ['unrecognised-import-format', 'ambiguous-import-format'];
 
 // --- the request and answer shapes ---------------------------------------
 
 // ImportParams is what this client sends to import a source.
 //
-// 🔴 IT CARRIES THE SOURCE AND THE DESTINATION, AND THE ABSENCE OF THE REST IS THE
-// CONTRACT RATHER THAN AN OMISSION. The operation also accepts an explicit source
-// format and a switch that returns the drafts as content instead of writing them.
-// This client sends neither, so neither is declared here, because a declared field
-// is a field a later call site will fill.
+// 🔴 THE SOURCE IS ALWAYS SENT, AND EVERY OTHER FIELD ONLY WHEN THE READER CHOSE
+// IT. Each option is the command line's own, on the command line's terms: a
+// destination (--output-dir), the format (--format), the target (--target), a
+// preview (--dry-run) and a sync (--sync). An option left unchosen is absent from
+// the request rather than sent with a value standing for "none", so what the
+// compiler does with it is its own default — the format recognised from the
+// source's shape, the drafts beneath the workspace root, no Manifest, written
+// whole — exactly as for a command line naming none of them.
+export type ImportParams =
+  Pick<wire.ImportParams, 'outputDir' | 'format' | 'target' | 'dryRun' | 'sync'> & { source: string };
+
+// ImportChoices is what the reader answered: the source, and each option they
+// chose. A text left blank and a switch left off are both unchosen.
+export interface ImportChoices {
+  source: string;
+  outputDir?: string;
+  format?: string;
+  target?: string;
+  dryRun?: boolean;
+  sync?: boolean;
+}
+
+// ImportSwitches is the reader's answer to the two options that are on or off: a
+// preview, which answers with the drafts without writing them, and a sync, which
+// brings what an earlier import drafted up to date with the source. They compose,
+// as on the command line: together they answer with what the sync would write.
+export interface ImportSwitches {
+  dryRun: boolean;
+  sync: boolean;
+}
+
+// ImportQuestions asks the reader for each part of an import, in order. Each
+// answers undefined where the reader dismissed the question, which ends the
+// import with nothing sent; an empty text is an answer, choosing none.
 //
-// Omitting the format takes the compiler's own default, which is the default a
-// reader gets from a bare command line: the format is recognised from the source's
-// own shape, and a shape the compiler does not recognise is refused in its own
-// words naming what to send instead. A format named here would be this surface
-// guessing at something it cannot read.
-//
-// Omitting the second is the more consequential choice: the drafts are written.
-// The operation's product is a set of authoring files an author goes on editing,
-// and asking for them as content would mean this surface deciding where they land
-// — which is the decision the destination above already makes once.
-export type ImportParams = Required<Pick<wire.ImportParams, 'source' | 'outputDir'>>;
+// It is declared free of editor types so the order and what each answer sends are
+// driven by a test with no editor at all.
+export interface ImportQuestions {
+  source(): Promise<string | undefined>;
+  destination(): Promise<string | undefined>;
+  switches(): Promise<ImportSwitches | undefined>;
+  target(): Promise<string | undefined>;
+}
 
 // ImportedFile is one drafted file as the answer carries it: the path it is for,
 // relative to the destination, and its content.
 //
-// The content is read by nothing here: the drafts are written by the compiler, so
-// this surface reports the paths rather than placing the bytes.
+// The drafts are written by the compiler, so this surface never places the bytes.
+// It shows them only for a preview, where nothing reaches disk and the content is
+// the whole of what the reader asked to see.
 export type ImportedFile = wire.ImportedFile;
 
 // ImportDiagnostic is one importer diagnostic as the answer carries it.
@@ -132,14 +263,16 @@ export type ImportDecision = wire.ImportDecision;
 // on them.
 export type ImportResult = wire.ImportResult;
 
-// ImportRequestDeps is the one thing an import needs: a way to ask the compiler,
-// carrying the reader's stop.
+// ImportRequestDeps is what an import needs: a way to ask the compiler, carrying
+// the reader's stop, and a way to ask the reader for the format where the
+// compiler's refusal says naming one is the remedy.
 //
-// It is declared this narrowly so the surface that owns the panel passes its own
-// richer dependency set here unchanged, and so a test drives the whole decision
-// with a fake answer and no transport at all.
+// It is declared this narrowly so a test drives the whole decision with a fake
+// answer and no transport at all. nameFormat answers undefined, or an empty text,
+// where the reader names none; without it a refusal is reported as it arrived.
 export interface ImportRequestDeps {
   importSource(params: ImportParams, signal?: CancellationSignal): Promise<ImportResult>;
+  nameFormat?(refusal: string): Promise<string | undefined>;
 }
 
 // ImportReport is what one import leaves behind: how it ended, and the lines the
@@ -155,21 +288,85 @@ export interface ImportReport {
 
 // --- composing the request -----------------------------------------------
 
-// importRequest composes the import of one source into the workspace.
+// importRequest composes the import of one source into the workspace, carrying
+// each option the reader chose and no other.
 //
-// The source is passed through verbatim: the compiler reads the file or the
-// directory the reader pointed at, so a translation here would be a second answer
-// to what a source is.
+// The source and every named text are passed through as written, trimmed: the
+// compiler reads the file or the directory the reader pointed at, resolves the
+// destination, and settles the format and the target, so a translation here would
+// be a second answer to any of them. A text left blank is unchosen rather than an
+// empty value, and a switch is sent only when it is on.
 //
-// The blank guard is REACHED rather than restated. It is the extension's one home
-// for refusing an operation with nothing to act on, and a second blank check
-// written here would agree with it until the day one of the two was changed. It is
-// a second guard rather than the only one — the prompt that asks for a source
-// invokes nothing when it is dismissed — and it is the one that holds if a later
-// binding is written more loosely.
-export function importRequest(source: string): ImportParams {
-  const [, checked] = withSubject('import', source, 'the source to import');
-  return { source: checked, outputDir: IMPORT_OUTPUT_DIR };
+// The blank guard on the source is REACHED rather than restated. It is the
+// extension's one home for refusing an operation with nothing to act on, and a
+// second blank check written here would agree with it until the day one of the two
+// was changed. It is a second guard rather than the only one — the question that
+// asks for a source invokes nothing when it is dismissed — and it is the one that
+// holds if a later binding is written more loosely.
+export function importRequest(choices: ImportChoices): ImportParams {
+  const [, source] = withSubject('import', choices.source, 'the source to import');
+  const params: ImportParams = { source };
+  const outputDir = chosenText(choices.outputDir);
+  if (outputDir !== undefined) { params.outputDir = outputDir; }
+  const format = chosenText(choices.format);
+  if (format !== undefined) { params.format = format; }
+  const target = chosenText(choices.target);
+  if (target !== undefined) { params.target = target; }
+  if (choices.dryRun === true) { params.dryRun = true; }
+  if (choices.sync === true) { params.sync = true; }
+  return params;
+}
+
+// chosenText reads one typed option: its trimmed text, or undefined where the
+// reader left it blank.
+function chosenText(value: string | undefined): string | undefined {
+  const trimmed = value?.trim() ?? '';
+  return trimmed === '' ? undefined : trimmed;
+}
+
+// clickedSource reads the source an invocation carried, or null where it carried
+// none.
+//
+// The explorer runs the import command with the file or the folder it was opened
+// on as the first argument, so the source is the clicked path and is not asked for
+// again. Every other invocation — the panel's button, the command palette —
+// carries nothing a source can be read from, and the import asks for one. The
+// argument is read by its shape rather than by the editor's type, so this module
+// stays free of the editor. A location the editor names under the file scheme, or
+// under the scheme it gives a remote window's files, carries the path on the file
+// system the language server reads from; any other location — an unsaved
+// document, a virtual file — names nothing the compiler could read.
+export function clickedSource(arg: unknown): string | null {
+  if (typeof arg !== 'object' || arg === null) { return null; }
+  const { scheme, fsPath } = arg as { scheme?: unknown; fsPath?: unknown };
+  if (!FILE_SYSTEM_SCHEMES.includes(scheme as string) || typeof fsPath !== 'string' || fsPath === '') {
+    return null;
+  }
+  return fsPath;
+}
+
+const FILE_SYSTEM_SCHEMES: readonly string[] = ['file', 'vscode-remote'];
+
+// askImport asks the reader for each part of an import and answers what they
+// chose, or null where they dismissed a question.
+//
+// The order is the source, where to draft, whether to preview or sync, then the
+// target. The format is not asked here: the compiler recognises it from the
+// source's shape, and the reader is asked for it only where the compiler says it
+// cannot (runImport). A source the invocation already carries is not asked for.
+export async function askImport(
+  questions: ImportQuestions,
+  clicked: string | null,
+): Promise<ImportChoices | null> {
+  const source = clicked ?? await questions.source();
+  if (source === undefined || source === '') { return null; }
+  const outputDir = await questions.destination();
+  if (outputDir === undefined) { return null; }
+  const switches = await questions.switches();
+  if (switches === undefined) { return null; }
+  const target = await questions.target();
+  if (target === undefined) { return null; }
+  return { source, outputDir, target, dryRun: switches.dryRun, sync: switches.sync };
 }
 
 // --- running it ----------------------------------------------------------
@@ -187,20 +384,44 @@ export function importRequest(source: string): ImportParams {
 // and the compiler unwinds the importer it is running — so a reader who stops this
 // stops the conversion. The operations beside it take none, for the opposite reason
 // read off their own handlers.
+//
+// 🔴 A REFUSAL WHOSE REMEDY IS NAMING THE FORMAT IS ANSWERED BY ONE MORE REQUEST,
+// AND ONLY WHERE THE READER NAMES ONE. The condition is read off the refusal's data
+// (FORMAT_REMEDIED_REFUSALS); the reader is shown the refusal in the compiler's
+// words and asked for the format, and the same request is sent again carrying it,
+// with every other choice as it was. A request that already named a format is
+// never asked again, so a second refusal is the ending; a reader who names none
+// gets the first refusal as the ending.
 export async function runImport(
   deps: ImportRequestDeps,
-  source: string,
+  choices: ImportChoices,
   signal?: CancellationSignal,
 ): Promise<ImportReport> {
+  let params: ImportParams;
   let result: ImportResult;
   try {
-    result = await deps.importSource(importRequest(source), signal);
+    params = importRequest(choices);
+    result = await deps.importSource(params, signal);
   } catch (err) {
+    const named = remediesWithAFormat(err) && chosenText(choices.format) === undefined && deps.nameFormat
+      ? chosenText(await deps.nameFormat(describeError(err)))
+      : undefined;
+    if (named !== undefined) {
+      return runImport(deps, { ...choices, format: named }, signal);
+    }
     // Nothing reached the channel, because nothing was answered. The refusal's own
     // text is the whole of what the reader gets, and it travels unaltered.
     return { outcome: outcomeOf(err), lines: [] };
   }
-  return { outcome: importOutcome(result), lines: importLines(result) };
+  const preview = params.dryRun === true;
+  return { outcome: importOutcome(result, preview), lines: importLines(result, preview) };
+}
+
+// remediesWithAFormat says whether a refusal names a condition whose remedy is
+// naming the format.
+function remediesWithAFormat(err: unknown): boolean {
+  const { code } = refusalCondition(err);
+  return code !== undefined && FORMAT_REMEDIED_REFUSALS.includes(code);
 }
 
 // --- what the reader reads -----------------------------------------------
@@ -234,6 +455,18 @@ export function diagnosticLine(diagnostic: ImportDiagnostic): string {
 // line's own words for the same fact.
 export function writtenLine(path: string): string {
   return `  wrote ${path}`;
+}
+
+// previewLines renders one file a preview answered with: the path it would be
+// written to, then its content, each line of it indented beneath the path.
+//
+// A preview writes nothing, so its content is the whole of what the reader asked
+// to see, and the channel is where an import's answer is shown. The trailing line
+// ending a file's content closes its last line rather than opening an empty one.
+export function previewLines(file: ImportedFile): readonly string[] {
+  const content = file.content.endsWith('\n') ? file.content.slice(0, -1) : file.content;
+  const body = content === '' ? [] : content.split('\n').map((line) => `    ${line}`);
+  return [`  would write ${file.path}:`, ...body];
 }
 
 // decisionLine renders one mapping decision for the channel, in the sentence the
@@ -271,9 +504,66 @@ export function decisionLine(decision: ImportDecision): string {
   return `${line} at ${String(top)}`;
 }
 
+// ImportDrift is one part a sync brought up to date, or under a preview would, as
+// the answer carries it.
+export type ImportDrift = wire.ImportDrift;
+
+// driftLine renders one drifted part for the channel, in the sentence the command
+// line prints for it:
+//
+//   <change> <file>                    for a whole drafted file
+//   <change> <key path> in <file>      for a part inside a drafted Aggregate
+//
+// The key path is the keys joined by full stops, with a key holding a full stop,
+// whitespace or a quotation mark, or an empty one, written quoted — so two
+// different parts are never written alike.
+//
+// 🔴 A DELIBERATE SECOND COPY OF THE COMMAND LINE'S SENTENCE, ACROSS A LANGUAGE
+// BOUNDARY, HELD TO IT BY A SHARED CASE MANIFEST rather than trusted to agree, as
+// the decision line is: the compiler's tree owns the manifest, and both sides'
+// specs render every case in it against the same written line. The quoting follows
+// the compiler's for every character a key can hold in ASCII, named escapes and
+// hexadecimal ones alike; a character beyond ASCII is written as it is.
+export function driftLine(drift: ImportDrift): string {
+  const key = drift.key ?? [];
+  if (key.length === 0) {
+    return `  ${drift.change} ${drift.file}`;
+  }
+  return `  ${drift.change} ${key.map(keySegment).join('.')} in ${drift.file}`;
+}
+
+// keySegment writes one key of a key path: as it is, or quoted where it is empty
+// or holds a full stop, whitespace or a quotation mark.
+function keySegment(key: string): string {
+  return key === '' || /[. \t\n\r"']/.test(key) ? quoted(key) : key;
+}
+
+// quoted writes a key between double quotation marks, escaping as the compiler's
+// quoting does: a backslash and a quotation mark behind a backslash, the named
+// control characters by name, every other ASCII control character in hexadecimal.
+function quoted(key: string): string {
+  let out = '"';
+  for (const ch of key) {
+    const code = ch.codePointAt(0) ?? 0;
+    const named = NAMED_ESCAPES[ch];
+    if (named !== undefined) {
+      out += named;
+    } else if (code < 0x20 || code === 0x7f) {
+      out += `\\x${code.toString(16).padStart(2, '0')}`;
+    } else {
+      out += ch;
+    }
+  }
+  return `${out}"`;
+}
+
+const NAMED_ESCAPES: Readonly<Record<string, string>> = {
+  '\\': '\\\\', '"': '\\"', '\x07': '\\a', '\b': '\\b', '\f': '\\f', '\n': '\\n', '\r': '\\r', '\t': '\\t', '\v': '\\v',
+};
+
 // importLines is everything one import puts on the channel, in order: what the
 // importer objected to, then how it mapped each source node, then what reached
-// disk.
+// disk — or, for a preview, each file it would write and its content.
 //
 // The diagnostics come first because they are what a reader acts on, and an import
 // that objected to nothing contributes none — so a clean import's channel is the
@@ -286,19 +576,36 @@ export function decisionLine(decision: ImportDecision): string {
 // source file rather than a place in an authored document, so there is no span to
 // navigate to and the channel is the only surface that can show them — which is
 // the same reason a build's positionless advisories are written here.
-export function importLines(result: ImportResult): readonly string[] {
+//
+// A sync's drift follows the decisions, one line per part brought up to date — or,
+// for a preview, one the sync would bring — as the command line prints them under
+// --sync after the decisions. An import that is not a sync carries none.
+export function importLines(result: ImportResult, preview = false): readonly string[] {
   return [
     ...draftingDiagnostics(result).map(diagnosticLine),
     ...result.decisions.map(decisionLine),
-    ...draftedPaths(result).map(writtenLine),
+    ...(result.drift ?? []).map(driftLine),
+    ...(preview
+      ? answeredFiles(result).flatMap(previewLines)
+      : writtenPaths(result).map(writtenLine)),
   ];
 }
 
 // An empty collection reaches the wire as null rather than as an empty list, and
 // the two say the same thing — so each is coalesced in one place here and read
 // through that rather than defended against at every use.
-function draftedPaths(result: ImportResult): readonly string[] {
+function writtenPaths(result: ImportResult): readonly string[] {
   return result.written ?? [];
+}
+
+function answeredFiles(result: ImportResult): readonly ImportedFile[] {
+  return result.files ?? [];
+}
+
+// draftCount counts the drafts among the paths an answer names: every one but the
+// record of what the import wrote, which sits beside them and is not one of them.
+function draftCount(paths: readonly string[]): number {
+  return paths.filter((p) => p !== IMPORT_RECORD_FILE).length;
 }
 
 function draftingDiagnostics(result: ImportResult): readonly ImportDiagnostic[] {
@@ -311,11 +618,15 @@ function draftingDiagnostics(result: ImportResult): readonly ImportDiagnostic[] 
 // command line reports for the same run: it exits non-zero when the importer
 // raised a halt-severity diagnostic. Reporting it as done would tell a reader a
 // source was converted when part of it was not.
-export function importOutcome(result: ImportResult): OperationOutcome {
+//
+// preview says the request asked for the drafts as content rather than written,
+// which the answer alone cannot say: a preview and a write that wrote nothing
+// both answer with nothing written.
+export function importOutcome(result: ImportResult, preview = false): OperationOutcome {
   if (result.halted) {
     return { kind: 'failed', message: haltedMessage(result) };
   }
-  return { kind: 'ok', detail: importDetail(result) };
+  return { kind: 'ok', detail: importDetail(result, preview) };
 }
 
 // fileCount renders a count of drafted files as a phrase, so the zero case is a
@@ -344,12 +655,24 @@ function problemCount(count: number): string {
 // recognised, so a reader whose source was read as something other than they
 // expected learns it from the drafts rather than from the report.
 //
-// The destination is named only when something reached it. Naming a directory
-// nothing was written to would answer a question the reader did not ask, and the
-// count already says nothing arrived.
-export function importDetail(result: ImportResult): string {
-  const written = draftedPaths(result);
-  const drafted = `drafted ${fileCount(written.length)}, recognised as ${result.format}`;
+// The destination is named only when something reached it, or for a preview, where
+// it says where the drafts would go. Naming a directory nothing was written to
+// would otherwise answer a question the reader did not ask, and the count already
+// says nothing arrived.
+//
+// 🔴 THE COUNT IS OF DRAFTS, AND THE RECORD OF WHAT THE IMPORT WROTE IS NOT ONE.
+// Every import that drafts anything writes that record beside its drafts, and the
+// answer names it among the files, so counting every path would report one draft
+// more than the import made. The lines above still name it, because it did reach
+// disk.
+export function importDetail(result: ImportResult, preview = false): string {
+  if (preview) {
+    const files = answeredFiles(result).map((f) => f.path);
+    return `previewed ${fileCount(draftCount(files))}, recognised as ${result.format}, for ${result.outputDir},`
+      + ' and nothing was written.';
+  }
+  const written = writtenPaths(result);
+  const drafted = `drafted ${fileCount(draftCount(written))}, recognised as ${result.format}`;
   if (written.length === 0) {
     return `${drafted}, and nothing was written.`;
   }
@@ -365,13 +688,14 @@ export function importDetail(result: ImportResult): string {
 // partial, and what was nonetheless written, because those files are on disk and a
 // reader needs to know before they run it again.
 export function haltedMessage(result: ImportResult): string {
-  const written = draftedPaths(result);
+  const written = writtenPaths(result);
   const problems = `${problemCount(draftingDiagnostics(result).length)} listed above`;
   if (written.length === 0) {
     return `the importer could not convert the source, recognised as ${result.format}`
       + ` — ${problems}. Nothing was written.`;
   }
+  const drafts = draftCount(written);
   return `the importer could not convert all of the source, recognised as ${result.format}`
-    + ` — ${problems}. The ${fileCount(written.length)} it could draft`
-    + ` ${written.length === 1 ? 'was' : 'were'} written to ${result.outputDir}.`;
+    + ` — ${problems}. The ${fileCount(drafts)} it could draft`
+    + ` ${drafts === 1 ? 'was' : 'were'} written to ${result.outputDir}.`;
 }

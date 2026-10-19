@@ -224,6 +224,13 @@
           "when": "resourcePath in aggrega.connectionDocuments",
           "group": "aggrega@1"
         }
+      ],
+      "explorer/context": [
+        {
+          "command": "aggrega.op.import",
+          "when": "resourceScheme == file || resourceScheme == vscode-remote",
+          "group": "aggrega@1"
+        }
       ]
     },
     "commands": [
@@ -424,7 +431,7 @@
       },
       {
         "command": "aggrega.op.import",
-        "title": "Import…",
+        "title": "Import into Aggrega",
         "category": "Aggrega",
         "icon": "$(arrow-into)"
       },
