@@ -149,10 +149,12 @@ export const IMPORT_DESTINATION_PROMPT =
 // holds lists the capabilities the workspace's Recipes bind to, and the target is
 // matched against exactly those. A capability no Recipe binds to is refused by the
 // compiler before anything runs, in words naming the ones that do. Leaving it empty
-// sends no target, and no Manifest is drafted.
+// sends no target: a plain import then drafts no Manifest, and a sync drafts for the
+// target the earlier import was given, which the record beside the drafts names. It
+// is asked after the sync choice whatever that answer was, so the prompt says both.
 export const IMPORT_TARGET_TITLE = 'Aggrega: import target';
 export const IMPORT_TARGET_PROMPT =
-  'Provider capability to draft a Manifest for, such as compose or helm. Leave it empty to draft none';
+  'Provider capability to draft a Manifest for, such as compose or helm. Leave it empty to draft none, or, for a sync, to keep the target the earlier import was given';
 
 // IMPORT_FORMAT_TITLE and IMPORT_FORMAT_PLACEHOLDER ask for the format, after the
 // compiler refused to settle one from the source's shape. The question's prompt is

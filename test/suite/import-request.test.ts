@@ -435,7 +435,7 @@ describe('the import asks for each part in order, and each answer sends only wha
     assert.strictEqual(IMPORT_TARGET_TITLE, 'Aggrega: import target');
     assert.strictEqual(
       IMPORT_TARGET_PROMPT,
-      'Provider capability to draft a Manifest for, such as compose or helm. Leave it empty to draft none',
+      'Provider capability to draft a Manifest for, such as compose or helm. Leave it empty to draft none, or, for a sync, to keep the target the earlier import was given',
     );
     assert.strictEqual(IMPORT_FORMAT_TITLE, 'Aggrega: import format');
     assert.strictEqual(IMPORT_FORMAT_PLACEHOLDER, 'The format to read the source as');
