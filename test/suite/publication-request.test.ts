@@ -44,7 +44,7 @@ function published(over: Partial<PublishEntityResult> = {}): PublishEntityResult
     signed: false,
     alreadyPublished: false,
     dryRun: false,
-    reach: { registry: 'registry.example.com', beyondThisMachine: true },
+    reach: { registries: ['registry.example.com'], beyondThisMachine: true },
     ...over,
   };
 }
@@ -52,7 +52,7 @@ function published(over: Partial<PublishEntityResult> = {}): PublishEntityResult
 function signedBatch(over: Partial<SignArtifactsResult> = {}): SignArtifactsResult {
   return {
     signed: [{ reference: 'registry.example.com/component/api-server:1.2.0', digest: 'sha256:abc123' }],
-    reach: { registry: 'registry.example.com', beyondThisMachine: true },
+    reach: { registries: ['registry.example.com'], beyondThisMachine: true },
     ...over,
   };
 }
@@ -65,7 +65,7 @@ function withdrawn(over: Partial<DeprecateArtifactResult> = {}): DeprecateArtifa
       issuedOn: '2026-09-11T10:00:00Z',
       digest: 'sha256:marker99',
     }],
-    reach: { registry: 'registry.example.com', beyondThisMachine: true },
+    reach: { registries: ['registry.example.com'], beyondThisMachine: true },
     ...over,
   };
 }
@@ -160,7 +160,7 @@ describe('what a reader is told, composed from the answer rather than from the r
     // re-publication of identical bytes and a dry run all succeed, so
     // the surface this replaced could report only that something had happened.
     const outcome = publicationOutcome(published({
-      dryRun: true, reach: { registry: 'registry.example.com', beyondThisMachine: false },
+      dryRun: true, reach: { registries: ['registry.example.com'], beyondThisMachine: false },
     }));
     assert.strictEqual(
       outcome.kind === 'ok' ? outcome.detail : '',
@@ -169,21 +169,37 @@ describe('what a reader is told, composed from the answer rather than from the r
     );
   });
 
-  it('says an already-published tag uploaded no content', () => {
+  it('says a re-run over a complete version uploaded nothing and attached nothing at the registry it addressed', () => {
+    // 🔴 THE CASE THE REACH USED TO GET WRONG. A re-run is not a dry run, so a
+    // reach read off "not a dry run" claimed a landing here; the compiler now
+    // answers false, and the sentence must say nothing new reached the registry
+    // rather than that anyone resolving from it now sees something.
     const outcome = publicationOutcome(published({
       alreadyPublished: true,
-      reach: { registry: 'registry.example.com', beyondThisMachine: false },
+      reach: { registries: ['registry.example.com'], beyondThisMachine: false },
     }));
     assert.strictEqual(
       outcome.kind === 'ok' ? outcome.detail : '',
       'found registry.example.com/component/api-server:1.2.0 already published as sha256:abc123,'
-      + ' uploaded no content. Nothing left this machine.',
+      + ' uploaded no content. Nothing new was attached at registry.example.com.',
+    );
+  });
+
+  it('says a re-run attached the publication date it lacked, where the reach is true with no signature', () => {
+    // A re-run uploads no content, so a true reach with no signature attached
+    // can only be the date.
+    const outcome = publicationOutcome(published({ alreadyPublished: true }));
+    assert.strictEqual(
+      outcome.kind === 'ok' ? outcome.detail : '',
+      'found registry.example.com/component/api-server:1.2.0 already published as sha256:abc123,'
+      + ' uploaded no content and attached the publication date it lacked.'
+      + ' Anyone resolving from registry.example.com now sees it.',
     );
   });
 
   it('says an already-published tag was given the signature it lacked, where the answer says one was attached', () => {
-    // The answer carries whether a signature was attached and not whether a
-    // publication date was, so the sentence names the signature and nothing else.
+    // signed says whether a signature was attached; whether a date was attached
+    // beside it is not on the answer, so the sentence names the signature alone.
     const outcome = publicationOutcome(published({ alreadyPublished: true, signed: true }));
     assert.strictEqual(
       outcome.kind === 'ok' ? outcome.detail : '',
@@ -215,9 +231,57 @@ describe('what a reader is told, composed from the answer rather than from the r
     );
   });
 
+  it('says a reference found already signed was signed before, and that nothing was attached', () => {
+    // The batch reports the reference among those signed, and its reach is false
+    // because it attached nothing — so the sentence must not announce a signature.
+    const outcome = signatureOutcome(signedBatch({
+      reach: { registries: ['registry.example.com'], beyondThisMachine: false },
+    }));
+    assert.strictEqual(
+      outcome.kind === 'ok' ? outcome.detail : '',
+      'found registry.example.com/component/api-server:1.2.0 already signed,'
+      + ' committing to sha256:abc123.'
+      + ' Nothing new was attached at registry.example.com.',
+    );
+    assert.deepStrictEqual(signatureLines(signedBatch({
+      reach: { registries: ['registry.example.com'], beyondThisMachine: false },
+    })), [
+      '  already signed: registry.example.com/component/api-server:1.2.0 (sha256:abc123)',
+    ]);
+  });
+
+  it('names every registry a batch spanning registries addressed, in the order the answer gives them', () => {
+    // The order is deliberately not alphabetical, so a sentence that sorted the
+    // hosts, or named only the first, would read differently from this.
+    const twoRegistries = signedBatch({
+      signed: [
+        { reference: 'second.example.com/docs/handbook:2.0.0', digest: 'sha256:def456' },
+        { reference: 'registry.example.com/component/api-server:1.2.0', digest: 'sha256:abc123' },
+      ],
+      reach: { registries: ['second.example.com', 'registry.example.com'], beyondThisMachine: true },
+    });
+    assert.strictEqual(
+      (() => { const o = signatureOutcome(twoRegistries); return o.kind === 'ok' ? o.detail : ''; })(),
+      'signed 2 references.'
+      + ' Anyone resolving from second.example.com and registry.example.com now sees it.',
+    );
+    const threeRegistries = withdrawalOutcome(withdrawn({
+      marked: [
+        { reference: 'c.example.com/x:1', severity: 'warning', issuedOn: '2026-09-11T10:00:00Z', digest: 'sha256:m1' },
+        { reference: 'a.example.com/x:1', severity: 'warning', issuedOn: '2026-09-11T10:00:00Z', digest: 'sha256:m2' },
+        { reference: 'b.example.com/x:1', severity: 'warning', issuedOn: '2026-09-11T10:00:00Z', digest: 'sha256:m3' },
+      ],
+      reach: { registries: ['c.example.com', 'a.example.com', 'b.example.com'], beyondThisMachine: true },
+    }));
+    assert.strictEqual(
+      threeRegistries.kind === 'ok' ? threeRegistries.detail : '',
+      'attached 3 markers. Anyone resolving from c.example.com, a.example.com and b.example.com now sees it.',
+    );
+  });
+
   it('reports a batch that signed nothing as a result rather than as silence', () => {
     const outcome = signatureOutcome(signedBatch({
-      signed: [], reach: { registry: 'registry.example.com', beyondThisMachine: false },
+      signed: [], reach: { registries: ['registry.example.com'], beyondThisMachine: false },
     }));
     assert.strictEqual(
       outcome.kind === 'ok' ? outcome.detail : '',

@@ -3394,7 +3394,7 @@ async function requestPluginRemove(params: PluginRemoveParams): Promise<AppliedW
 // ITS REACH. Everything else on these surfaces changes this machine; these change
 // what every consumer of that registry resolves, and neither published bytes nor a
 // signature can be recalled from anyone who has already fetched them. Each answer
-// carries the registry host it addressed and whether anything actually landed, so
+// carries every registry host it addressed and whether it attached anything, so
 // the ending states what became true rather than that a process exited zero.
 //
 // 🔴 EACH CARRIES CANCELLATION, AND THE STOP REACHES THE WORK. The request's own

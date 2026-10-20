@@ -95,13 +95,16 @@ export type DeprecateArtifactParams = Required<
 
 // --- the answer shapes ----------------------------------------------------
 
-// PublicationReach is how far one publication reached: the registry host it
-// addressed, and whether anything landed somewhere other people resolve from.
+// PublicationReach is how far one publication reached: every registry host it
+// addressed, in the order it first addressed them, and whether it attached
+// anything a registry now serves to other people — content, a signature, a
+// publication date or a withdrawal marker.
 //
 // It is on every answer here, and it is the fact none of the command line's own
 // status lines states. The compiler derives it from what the operation actually
-// did rather than from what the request asked for, so an ending cannot describe
-// a dry run as a publication or the reverse.
+// attached rather than from what the request asked for, so an ending cannot
+// describe a dry run, or a re-run that found everything already there, as a
+// publication — or the reverse.
 export type PublicationReach = wire.PublicationReach;
 
 // PublishEntityResult is the answer publishing one entity produces.
@@ -301,8 +304,17 @@ export function publicationLines(result: PublishEntityResult): readonly string[]
 
 // signatureLines lists each reference the batch signed with the digest its
 // signature commits to, in the command line's own form for the same fact.
+//
+// The label is read off the reach: a batch that attached nothing found every
+// reference already signed, and one reference alone that reached past this
+// machine was attached. Which of several were attached is not on the answer, so
+// those are labelled signed, which is true of each.
 export function signatureLines(result: SignArtifactsResult): readonly string[] {
-  return signedArtifacts(result).map((a) => `  signature attached: ${a.reference} (${a.digest})`);
+  const signed = signedArtifacts(result);
+  const label = !result.reach.beyondThisMachine
+    ? 'already signed'
+    : signed.length === 1 ? 'signature attached' : 'signed';
+  return signed.map((a) => `  ${label}: ${a.reference} (${a.digest})`);
 }
 
 // A batch that signed or marked nothing answers with null rather than an empty
@@ -334,12 +346,28 @@ export function withdrawalLines(result: DeprecateArtifactResult): readonly strin
 //
 // It is the fact that separates these operations from everything else a reader
 // can press: the others change this machine, and these change what anyone
-// pulling from that registry resolves. An operation that landed nothing says so
-// rather than naming a host it did not reach.
+// pulling from those registries resolves. It names every registry the call
+// addressed, in the order the answer gives them. A call that attached nothing
+// says so: where it addressed a registry and found everything already there,
+// the sentence names that registry and says nothing new reached it, rather than
+// claiming a landing that did not happen.
 function reachPhrase(reach: PublicationReach): string {
+  const registries = registryList(reach.registries);
+  if (registries === '') {
+    return 'Nothing left this machine.';
+  }
   return reach.beyondThisMachine
-    ? `Anyone resolving from ${reach.registry} now sees it.`
-    : 'Nothing left this machine.';
+    ? `Anyone resolving from ${registries} now sees it.`
+    : `Nothing new was attached at ${registries}.`;
+}
+
+// registryList joins hosts the way a sentence lists them: one alone, two with
+// "and", more with commas and a closing "and".
+function registryList(hosts: readonly string[]): string {
+  if (hosts.length <= 1) {
+    return hosts[0] ?? '';
+  }
+  return `${hosts.slice(0, -1).join(', ')} and ${hosts[hosts.length - 1]}`;
 }
 
 // publicationOutcome is the sentence a publication ends in.
@@ -362,10 +390,14 @@ export function publicationOutcome(result: PublishEntityResult): OperationOutcom
     };
   }
   if (result.alreadyPublished) {
-    // The answer says whether this publication attached a signature the version
-    // lacked, and not whether it attached a publication date, so the sentence
-    // names the one and says nothing about the other.
-    const attached = result.signed ? ' and attached a signature' : '';
+    // A re-publication uploads no content, so its reach is true exactly when it
+    // attached a signature or a publication date the version lacked. signed says
+    // whether it attached a signature; a reach that is true without one can only
+    // be the date. A reach that is false attached nothing, and the reach phrase
+    // says so.
+    const attached = result.signed
+      ? ' and attached a signature'
+      : result.reach.beyondThisMachine ? ' and attached the publication date it lacked' : '';
     return {
       kind: 'ok',
       detail: `found ${result.reference}:${result.tag} already published as ${result.digest},`
@@ -391,6 +423,15 @@ export function signatureOutcome(result: SignArtifactsResult): OperationOutcome 
   if (signed.length === 0) {
     return { kind: 'ok', detail: 'signed nothing. Nothing left this machine.' };
   }
+  // A batch reports a reference it found already signed among those it signed,
+  // and its reach is false exactly when it attached nothing at all — so a false
+  // reach means every reference listed already carried a signature that verifies.
+  if (!result.reach.beyondThisMachine) {
+    const subject = signed.length === 1
+      ? `found ${signed[0].reference} already signed, committing to ${signed[0].digest}`
+      : `found all ${signed.length} references already signed`;
+    return { kind: 'ok', detail: `${subject}. ${reachPhrase(result.reach)}` };
+  }
   if (signed.length === 1) {
     const only = signed[0];
     return {
@@ -399,9 +440,11 @@ export function signatureOutcome(result: SignArtifactsResult): OperationOutcome 
         + ` ${reachPhrase(result.reach)}`,
     };
   }
+  // Which of several references were signed before is not on the answer, so the
+  // sentence counts the references rather than the signatures attached.
   return {
     kind: 'ok',
-    detail: `attached ${signed.length} signatures. ${reachPhrase(result.reach)}`,
+    detail: `signed ${signed.length} references. ${reachPhrase(result.reach)}`,
   };
 }
 
