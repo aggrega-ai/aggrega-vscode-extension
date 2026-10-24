@@ -280,6 +280,10 @@
         "title": "Aggrega: Download the compiler"
       },
       {
+        "command": "aggrega.compiler.selectVersion",
+        "title": "Aggrega: Select Compiler Version"
+      },
+      {
         "command": "aggrega.getStarted.draftRelease",
         "title": "Aggrega: Draft a Release"
       },

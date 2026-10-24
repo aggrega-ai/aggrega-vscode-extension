@@ -87,7 +87,8 @@ import {
   notifyStoppedResponding,
   warnNotRunning,
 } from './notifications';
-import { BINARY_PATH_SETTING, StartFailure } from './start-failure';
+import { BINARY_PATH_SETTING, StartFailure, startFailureWords } from './start-failure';
+import type { ServerStart } from './compiler-version';
 import {
   COMPILER_ANSWERABLE_CONTEXT_KEY,
   Readiness,
@@ -1103,6 +1104,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // uses it, through the same seam every other version reading takes.
     runVersion: spawnForCompat,
     compatibilityRange: declaredCompatibility,
+    // A change of version starts the server from the new copy before that copy
+    // replaces anything, and puts it back on the configured compiler where the
+    // new one does not start.
+    startServerOn: startLanguageServerOn,
+    restoreServer: restoreLanguageServer,
     output: outputChannel,
   });
   refreshGetStarted = welcome.refresh;
@@ -2258,6 +2264,36 @@ async function replaceLanguageServer(): Promise<boolean> {
     );
     return false;
   }
+}
+
+// startLanguageServerOn starts the language server from one compiler file and
+// answers whether it came up, leaving the setting naming the compiler where it
+// is.
+//
+// 🔴 IT IS A TRIAL, NOT A CHANGE OF COMPILER, AND IT REPORTS RATHER THAN
+// NOTIFIES. The file is a new version not yet put in place, so a failure here is
+// the caller's to explain — it deletes that copy and puts the server back — and
+// a notification that the language server failed to start, naming a file about
+// to be deleted, would send the reader after the wrong thing. Where no language
+// server runs in the window there is nothing to start, and the answer says so.
+async function startLanguageServerOn(file: string): Promise<ServerStart> {
+  if (!daemon) { return { kind: 'noServer' }; }
+  daemon.updateSettings({ ...getSettings(), binaryPath: file });
+  try {
+    await daemon.restart();
+    return { kind: 'started' };
+  } catch (err) {
+    return { kind: 'failed', reason: startFailureWords(daemon?.lastStartFailure() ?? { reason: err, binaryPath: file }) };
+  }
+}
+
+// restoreLanguageServer starts the language server again from the compiler the
+// setting names, through the one restart the restart command takes, so a failure
+// here is reported as any failed restart is.
+async function restoreLanguageServer(): Promise<void> {
+  if (!daemon) { return; }
+  daemon.updateSettings(getSettings());
+  await replaceLanguageServer();
 }
 
 // startLanguageServer puts a language server where there is none, by running

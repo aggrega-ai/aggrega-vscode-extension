@@ -19,6 +19,13 @@ import {
   samePath,
   situationLine,
 } from './compiler-provision';
+import {
+  SELECT_COMPILER_VERSION_COMMAND,
+  ServerStart,
+  VersionPrompts,
+  selectCompilerVersion,
+  versionDescription,
+} from './compiler-version';
 import { RESTART_COMMAND } from './daemon-status';
 import { SpawnFn, readDaemonVersion } from './version-check';
 import { describeError } from './error-surfaces';
@@ -242,6 +249,13 @@ export interface GetStartedDeps extends RendersOnReady {
   // with, as the installed manifest declares it, which is what a download offers
   // from.
   compatibilityRange(): string | undefined;
+  // startServerOn starts the language server from one compiler file without
+  // moving the setting, and restoreServer starts it again from the compiler the
+  // setting names. A change of version tries the new copy through the first and
+  // puts the server back through the second; both are dependencies because the
+  // language server is held by the surface that starts it.
+  startServerOn(file: string): Promise<ServerStart>;
+  restoreServer(): Promise<void>;
   output: vscode.OutputChannel;
 }
 
@@ -618,6 +632,7 @@ export function activateGetStarted(
     vscode.commands.registerCommand(USE_COMPILER_ON_PATH_COMMAND, () => useCompilerOnPath(deps, refresh)),
     vscode.commands.registerCommand(LOCATE_COMPILER_COMMAND, () => locateCompiler(deps, refresh)),
     vscode.commands.registerCommand(DOWNLOAD_COMPILER_COMMAND, () => downloadCompilerHere(deps, refresh, memory)),
+    vscode.commands.registerCommand(SELECT_COMPILER_VERSION_COMMAND, () => selectCompilerVersionHere(deps, refresh, memory)),
     vscode.commands.registerCommand(DRAFT_RELEASE_COMMAND, () => draftRelease()),
     vscode.commands.registerCommand(SEED_REGISTRY_COMMAND, () => seedRegistry(deps, refresh, null)),
     vscode.commands.registerCommand(SEED_NAMED_REGISTRY_COMMAND, () => seedNamedRegistry(deps, refresh)),
@@ -1190,6 +1205,50 @@ async function downloadCompilerHere(
     return;
   }
   await reattachIfSilent(deps, refresh);
+}
+
+// versionPrompts is every question a change of version puts to the reader: the
+// download's own dialogs, and the list the version is chosen from.
+function versionPrompts(): VersionPrompts {
+  return {
+    ...downloadPrompts(),
+    pickVersion: async (versions, current) => {
+      const picked = await vscode.window.showQuickPick(
+        versions.map((version, at) => ({
+          label: version,
+          description: versionDescription(version, current, at === 0),
+        })),
+        {
+          title: 'Aggrega: choose the compiler version',
+          placeHolder: 'The version every workspace on this machine runs',
+          ignoreFocusOut: true,
+        },
+      );
+      return picked?.label;
+    },
+  };
+}
+
+// selectCompilerVersionHere changes the version of the compiler in use, and
+// redraws the welcome page once the change has settled.
+async function selectCompilerVersionHere(
+  deps: GetStartedDeps,
+  refresh: () => void,
+  memory: CompilerMemory,
+): Promise<void> {
+  const outcome = await selectCompilerVersion({
+    source: PUBLISHED_RELEASES,
+    host: hostFacts(),
+    compatibilityRange: deps.compatibilityRange(),
+    configuredPath: deps.getBinaryPath(),
+    memory,
+    runVersion: deps.runVersion,
+    writeBinaryPath,
+    startServerOn: deps.startServerOn,
+    restoreServer: deps.restoreServer,
+    prompts: versionPrompts(),
+  });
+  if (outcome.kind === 'switched' || outcome.kind === 'kept') { refresh(); }
 }
 
 // readCompilerStanding writes down which compiler a plain name found on PATH,

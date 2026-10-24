@@ -83,6 +83,16 @@ export function fakeCompiler(version: string, fails = false): string {
   return `#!/bin/sh\nif [ "$1" = version ]; then printf '%s\\n' '${payload}'; exit 0; fi\nexit 1\n`;
 }
 
+// fakeServingCompiler is a program that answers `version -o json` as
+// fakeCompiler does and also answers `serve`: exiting cleanly where it serves,
+// and with an error where it does not — a version that passes every check a
+// download makes and still cannot start the language server.
+export function fakeServingCompiler(version: string, serves: boolean): string {
+  const payload = JSON.stringify({ version, commit: 'abc1234', goVersion: 'go1.23.0', platform: 'linux/amd64' });
+  const serve = serves ? 'exit 0' : 'echo "the language server cannot start here" >&2; exit 4';
+  return `#!/bin/sh\nif [ "$1" = version ]; then printf '%s\\n' '${payload}'; exit 0; fi\nif [ "$1" = serve ]; then ${serve}; fi\nexit 1\n`;
+}
+
 // PublishedFile is one file a served release carries.
 export interface PublishedFile {
   name: string;
