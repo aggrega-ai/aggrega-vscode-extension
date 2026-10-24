@@ -4,11 +4,15 @@
 import * as assert from 'node:assert';
 import { NOT_RUNNING_WARNING, notRunningWarning, startFailedMessage } from '../../src/daemon-status';
 import { REFUSAL_WITHOUT_WORDS, describeError } from '../../src/error-text';
+import { DOWNLOAD_COMPILER_COMMAND, STEP_CONTENT } from '../../src/get-started-steps';
 import { binaryPathSettingPress } from '../../src/settings';
 import {
   BINARY_PATH_SETTING,
+  CHOOSE_ANOTHER_FILE_ACTION,
+  DOWNLOAD_COMPILER_ACTION,
   OPEN_BINARY_PATH_SETTING_ACTION,
   isStartFailure,
+  startFailureActions,
   startFailureCause,
   startFailureReason,
   startFailureWords,
@@ -122,6 +126,46 @@ describe('start-failure: the warning an operation answers with while no server r
   it('names the start or the restart as the status bar names it in the same standing', () => {
     assert.strictEqual(notRunningWarning(null, 'starting').start, 'Restart');
     assert.deepStrictEqual(notRunningWarning(null, 'starting').actions, ['Show output', 'Open binary path setting', 'Restart']);
+  });
+});
+
+describe('start-failure: the ways forward a failure to start offers', () => {
+  // (b) and (d): a path naming nothing — set by the reader or looked up on PATH —
+  // has no compiler behind it to replace, so getting one is offered beside
+  // choosing another file and opening the setting.
+  it('offers to download the compiler, to choose another file and to open the setting, where the path names nothing', () => {
+    for (const binaryPath of [BINARY, 'aggrega']) {
+      assert.deepStrictEqual(
+        startFailureActions({ reason: startFailed('ENOENT'), binaryPath }),
+        ['Download the compiler', 'Choose another file', 'Open binary path setting'],
+      );
+    }
+    assert.strictEqual(DOWNLOAD_COMPILER_ACTION, 'Download the compiler');
+    assert.strictEqual(CHOOSE_ANOTHER_FILE_ACTION, 'Choose another file');
+  });
+
+  // (a): a file is there, so it is the reader's, and an offer to download beside
+  // it would read as an offer to replace it.
+  it('offers the setting alone where a file is there and every other failure', () => {
+    assert.deepStrictEqual(
+      startFailureActions({ reason: startFailed('EACCES'), binaryPath: BINARY }),
+      ['Open binary path setting'],
+    );
+    assert.deepStrictEqual(
+      startFailureActions({ reason: new Error('initialize timeout'), binaryPath: BINARY }),
+      ['Open binary path setting'],
+    );
+  });
+
+  // The welcome page's compiler step offers the download in the same words, so a
+  // reader told about it in one place finds it by the same name in the other.
+  it('names the download as the welcome page\'s compiler step does, and runs the same command', () => {
+    const compiler = STEP_CONTENT.find((step) => step.id === 'compiler');
+    assert.ok(compiler, 'the welcome page has no compiler step');
+    const download = compiler.actions.find((action) => action.label === DOWNLOAD_COMPILER_ACTION);
+    assert.ok(download, `the compiler step offers no "${DOWNLOAD_COMPILER_ACTION}"`);
+    assert.strictEqual(download.command, DOWNLOAD_COMPILER_COMMAND);
+    assert.strictEqual(DOWNLOAD_COMPILER_COMMAND, 'aggrega.getStarted.downloadCompiler');
   });
 });
 

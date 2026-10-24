@@ -53,6 +53,7 @@ import { panelActionLabel } from './operation-groups';
 import { SELECT_RELEASE_COMMAND } from './release-selection';
 import { REGISTRY_ADD_COMMAND } from './registry-configure';
 import { SELECTOR_ROW_LABELS } from './selector-levels';
+import { DOWNLOAD_COMPILER_ACTION } from './start-failure';
 
 // WELCOME_SHOW_SETTING is the preference that decides whether the panel opens
 // by itself. It is the reader's own, like every other preference here, and it is
@@ -443,6 +444,10 @@ export const CREATE_WORKSPACE_COMMAND = 'aggrega.getStarted.createWorkspace';
 export const CHOOSE_WORKSPACE_COMMAND = 'aggrega.getStarted.chooseWorkspace';
 export const USE_COMPILER_ON_PATH_COMMAND = 'aggrega.getStarted.useCompilerOnPath';
 export const LOCATE_COMPILER_COMMAND = 'aggrega.getStarted.locateCompiler';
+// DOWNLOAD_COMPILER_COMMAND downloads a compiler from a published release. The
+// notification of a compiler that was not found runs it too, so a reader offered
+// the download in either place gets the same flow.
+export const DOWNLOAD_COMPILER_COMMAND = 'aggrega.getStarted.downloadCompiler';
 export const DRAFT_RELEASE_COMMAND = 'aggrega.getStarted.draftRelease';
 export const SEED_REGISTRY_COMMAND = 'aggrega.getStarted.seedRegistry';
 export const SEED_NAMED_REGISTRY_COMMAND = 'aggrega.getStarted.seedNamedRegistry';
@@ -650,10 +655,15 @@ export const STEP_CONTENT: readonly StepContent[] = [
         paragraph:
           '**Use the compiler on my PATH** restores the plain name — the path for someone who installed the compiler after opening the editor. **Point at a compiler I have** selects a build you keep elsewhere.',
       },
+      {
+        paragraph:
+          `**${DOWNLOAD_COMPILER_ACTION}** fetches the newest published release this extension works with, built for the machine the editor runs its extensions on — the remote machine, in a window opened on one. It proposes the folder Aggrega's install scripts use, \`~/.local/bin\` on Linux and macOS and \`%LOCALAPPDATA%\\Programs\\aggrega\` on Windows, which you can change; it shows the version and asks you to confirm before anything is downloaded, checks the file against the release's published checksums, and then sets \`aggrega.server.binaryPath\` to it. It never replaces a compiler you put somewhere yourself, and it never upgrades on its own.`,
+      },
     ],
     actions: [
       { label: 'Use the compiler on my PATH', command: USE_COMPILER_ON_PATH_COMMAND },
       { label: 'Point at a compiler I have', command: LOCATE_COMPILER_COMMAND },
+      { label: DOWNLOAD_COMPILER_ACTION, command: DOWNLOAD_COMPILER_COMMAND },
     ],
   },
   {

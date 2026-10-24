@@ -11,7 +11,14 @@ import {
 } from './daemon-status';
 import { SHOW_OUTPUT_ACTION } from './operation-outcome';
 import { binaryPathSettingPress } from './settings';
-import { OPEN_BINARY_PATH_SETTING_ACTION, StartFailure } from './start-failure';
+import { DOWNLOAD_COMPILER_COMMAND, LOCATE_COMPILER_COMMAND } from './get-started-steps';
+import {
+  CHOOSE_ANOTHER_FILE_ACTION,
+  DOWNLOAD_COMPILER_ACTION,
+  OPEN_BINARY_PATH_SETTING_ACTION,
+  StartFailure,
+  startFailureActions,
+} from './start-failure';
 
 // notifyStoppedResponding surfaces the bounded-crash-recovery
 // stop-state notification. The user recovers through the command that starts
@@ -30,14 +37,22 @@ export function notifyStoppedResponding(restartTitle: string | null): void {
 // in the same words; startFailedMessage says what is wrong after them. It offers
 // the setting naming the compiler, which is what to change when the path is the
 // fault, and the output, which carries the server's own account when it is not.
+//
+// Where the path names nothing it also offers to download a compiler and to
+// choose another file, each through the command the welcome page's compiler step
+// runs for the same act, so the two surfaces cannot come to do it differently.
 export function notifyDaemonStartupFailed(failure: StartFailure, showOutput: () => void): void {
   void vscode.window.showErrorMessage(
     startFailedMessage(failure),
-    OPEN_BINARY_PATH_SETTING_ACTION,
+    ...startFailureActions(failure),
     SHOW_OUTPUT_ACTION,
   ).then((choice) => {
     if (choice === OPEN_BINARY_PATH_SETTING_ACTION) {
       openBinaryPathSetting();
+    } else if (choice === DOWNLOAD_COMPILER_ACTION) {
+      void vscode.commands.executeCommand(DOWNLOAD_COMPILER_COMMAND);
+    } else if (choice === CHOOSE_ANOTHER_FILE_ACTION) {
+      void vscode.commands.executeCommand(LOCATE_COMPILER_COMMAND);
     } else if (choice === SHOW_OUTPUT_ACTION) {
       showOutput();
     }

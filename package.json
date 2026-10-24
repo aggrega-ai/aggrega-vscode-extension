@@ -11,6 +11,9 @@
   },
   "icon": "media/listing-icon.png",
   "aggregaCompatibility": ">=0.1.0",
+  "extensionKind": [
+    "workspace"
+  ],
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -80,6 +83,10 @@
         },
         {
           "command": "aggrega.getStarted.locateCompiler",
+          "when": "false"
+        },
+        {
+          "command": "aggrega.getStarted.downloadCompiler",
           "when": "false"
         },
         {
@@ -267,6 +274,10 @@
       {
         "command": "aggrega.getStarted.locateCompiler",
         "title": "Aggrega: Point at a compiler I have"
+      },
+      {
+        "command": "aggrega.getStarted.downloadCompiler",
+        "title": "Aggrega: Download the compiler"
       },
       {
         "command": "aggrega.getStarted.draftRelease",

@@ -56,7 +56,7 @@ export const COMPILER_READING = 'Compiler';
 // WAYS_THROUGH are the controls each step draws, in the order the page lists them.
 export const WAYS_THROUGH: Readonly<Record<StepId, readonly string[]>> = {
   workspace: ['Create a workspace configuration', 'Use a folder that already has one'],
-  compiler: ['Use the compiler on my PATH', 'Point at a compiler I have'],
+  compiler: ['Use the compiler on my PATH', 'Point at a compiler I have', 'Download the compiler'],
   release: ['Draft a Release', 'Choose a Release I already have'],
   registry: ['Seed the official hub', 'Seed a registry I name', 'Add a registry to what I have'],
 };

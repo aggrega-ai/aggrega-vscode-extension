@@ -1084,9 +1084,10 @@ describe('the two last entries are wired to the editor and to nothing else', () 
       'the two memories are named for an answer somewhere other than activation and the two routes that add',
     );
     // The global store is reached by the configuration panel for its own
-    // presentation and, for answers, only where the two memories are named.
+    // presentation, by the welcome page for the record of the compilers the
+    // extension downloaded, and, for answers, only where the two memories are named.
     assert.deepStrictEqual(
-      tokenModules('globalState'), [['config-view.ts', 2], ['extension.ts', 1]],
+      tokenModules('globalState'), [['config-view.ts', 2], ['extension.ts', 1], ['get-started.ts', 1]],
       'the editor\'s global store is reached from somewhere new',
     );
     assert.ok(functionBody(EXTENSION, 'function answerStores(').includes('global: context.globalState'));

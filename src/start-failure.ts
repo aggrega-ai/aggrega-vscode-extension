@@ -21,6 +21,15 @@ export const BINARY_PATH_SETTING = 'aggrega.server.binaryPath';
 // setting, wherever a failure to start the compiler is reported with one.
 export const OPEN_BINARY_PATH_SETTING_ACTION = 'Open binary path setting';
 
+// DOWNLOAD_COMPILER_ACTION is the button that downloads a compiler from a
+// published release. The welcome page's compiler step carries the same words, so
+// a reader told here that nothing was found meets the same offer there.
+export const DOWNLOAD_COMPILER_ACTION = 'Download the compiler';
+
+// CHOOSE_ANOTHER_FILE_ACTION is the button that points the setting at a compiler
+// file the reader picks.
+export const CHOOSE_ANOTHER_FILE_ACTION = 'Choose another file';
+
 // StartFailure is a failed attempt to start the compiler: what the attempt
 // failed with, and the path it tried to start. The path is kept beside the
 // failure rather than read from the settings when the failure is reported,
@@ -93,6 +102,22 @@ export function startFailureReason(failure: StartFailure): string {
     return `${withoutClosingStop(words)}. ${BINARY_PATH_SETTING} names the compiler it runs, ${failure.binaryPath}.`;
   }
   return `${words}. Set ${BINARY_PATH_SETTING} to the aggrega binary.`;
+}
+
+// startFailureActions is what a notification of a failure to start offers, in
+// the order it offers it.
+//
+// 🔴 ONLY A PATH NAMING NOTHING IS OFFERED A DOWNLOAD. There is then no compiler
+// to replace, so getting one and choosing another file are both ways forward. A
+// path naming a file that cannot be run names a file the reader put there, and
+// a download offered beside it would read as an offer to replace it, which the
+// extension never does — so that failure, like every other, offers the setting
+// alone.
+export function startFailureActions(failure: StartFailure): string[] {
+  if (startFailureCause(failure.reason) === 'notFound') {
+    return [DOWNLOAD_COMPILER_ACTION, CHOOSE_ANOTHER_FILE_ACTION, OPEN_BINARY_PATH_SETTING_ACTION];
+  }
+  return [OPEN_BINARY_PATH_SETTING_ACTION];
 }
 
 // withoutClosingStop drops the one full stop a runtime's text may already end

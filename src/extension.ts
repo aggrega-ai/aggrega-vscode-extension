@@ -1099,6 +1099,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     serverListing,
     readVersions: readRunningVersions,
     readServerStanding: languageServerReading,
+    // A downloaded compiler is run once with `version -o json` before anything
+    // uses it, through the same seam every other version reading takes.
+    runVersion: spawnForCompat,
+    compatibilityRange: declaredCompatibility,
     output: outputChannel,
   });
   refreshGetStarted = welcome.refresh;
@@ -2379,11 +2383,9 @@ function restoreStatusBar(): void {
 // the operator.
 async function runCompatibilityCheck(): Promise<void> {
   const settings = getSettings();
-  const ext = vscode.extensions.getExtension(EXTENSION_ID);
-  const compatibilityRange = (ext?.packageJSON as { aggregaCompatibility?: string } | undefined)?.aggregaCompatibility;
   const result = await checkDaemonVersion({
     binaryPath: settings.binaryPath,
-    compatibilityRange,
+    compatibilityRange: declaredCompatibility(),
     spawn: spawnForCompat,
   });
   switch (result.kind) {
@@ -2403,6 +2405,15 @@ async function runCompatibilityCheck(): Promise<void> {
       outputChannel?.appendLine(`Aggrega version check failed: ${result.err.message}`);
       return;
   }
+}
+
+// declaredCompatibility reads the range of compiler versions the installed
+// manifest declares this extension works with. It is the one read of that field:
+// the compatibility check compares the compiler in use against it, and a
+// download offers only releases inside it.
+function declaredCompatibility(): string | undefined {
+  const ext = vscode.extensions.getExtension(EXTENSION_ID);
+  return (ext?.packageJSON as { aggregaCompatibility?: string } | undefined)?.aggregaCompatibility;
 }
 
 // readRunningVersions reports what this extension and the compiler in use say

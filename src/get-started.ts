@@ -2,10 +2,25 @@
 // Copyright 2026 Cognitio S.r.l.
 
 import * as fs from 'fs/promises';
+import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
 
 import { reportOutcome } from './cli-operation';
+import { PUBLISHED_RELEASES, installedFileName, targetWords } from './compiler-download';
+import {
+  CompilerMemory,
+  DownloadPrompts,
+  HostFacts,
+  compilerSituation,
+  downloadCompiler,
+  namesAPath,
+  noteNewerRelease,
+  samePath,
+  situationLine,
+} from './compiler-provision';
+import { RESTART_COMMAND } from './daemon-status';
+import { SpawnFn, readDaemonVersion } from './version-check';
 import { describeError } from './error-surfaces';
 import { makeNonce } from './html';
 import { panelControlCommand } from './panel-control';
@@ -33,6 +48,7 @@ import {
   CREATE_WORKSPACE_COMMAND,
   DISMISSED_CONFIRMATION,
   DISMISS_COMMAND,
+  DOWNLOAD_COMPILER_COMMAND,
   DRAFT_RELEASE_COMMAND,
   GetStartedFacts,
   LOCATE_COMPILER_COMMAND,
@@ -218,6 +234,14 @@ export interface GetStartedDeps extends RendersOnReady {
   // are held by the surface that starts the server; it answers at once, so the
   // line is drawn from the position it names rather than from one read earlier.
   readServerStanding(): ServerReading;
+  // runVersion runs a compiler with arguments and answers with what it printed.
+  // It is the seam every reading of a compiler's version goes through, handed in
+  // so this module starts no process of its own.
+  runVersion: SpawnFn;
+  // compatibilityRange is the range of compiler versions this extension works
+  // with, as the installed manifest declares it, which is what a download offers
+  // from.
+  compatibilityRange(): string | undefined;
   output: vscode.OutputChannel;
 }
 
@@ -267,6 +291,11 @@ export function activateGetStarted(
   // than stacking tabs, and closing it clears this so a later refresh has
   // nothing to draw into.
   let panel: vscode.WebviewPanel | null = null;
+
+  // Where this extension downloaded a compiler on this machine, and which newer
+  // versions it has already mentioned — its own record, held in its own storage
+  // rather than in a setting.
+  const memory = compilerMemory(context.globalState, os.hostname());
 
   // pagesLeftBehind answers with the tabs the editor holds a welcome page in that
   // this extension did not draw — every such tab, while it has drawn none.
@@ -588,6 +617,7 @@ export function activateGetStarted(
     vscode.commands.registerCommand(CHOOSE_WORKSPACE_COMMAND, () => chooseWorkspace(deps, refresh)),
     vscode.commands.registerCommand(USE_COMPILER_ON_PATH_COMMAND, () => useCompilerOnPath(deps, refresh)),
     vscode.commands.registerCommand(LOCATE_COMPILER_COMMAND, () => locateCompiler(deps, refresh)),
+    vscode.commands.registerCommand(DOWNLOAD_COMPILER_COMMAND, () => downloadCompilerHere(deps, refresh, memory)),
     vscode.commands.registerCommand(DRAFT_RELEASE_COMMAND, () => draftRelease()),
     vscode.commands.registerCommand(SEED_REGISTRY_COMMAND, () => seedRegistry(deps, refresh, null)),
     vscode.commands.registerCommand(SEED_NAMED_REGISTRY_COMMAND, () => seedNamedRegistry(deps, refresh)),
@@ -613,6 +643,10 @@ export function activateGetStarted(
       }
       settled = true;
       void settle();
+      // The compiler's own standing is read once per window, at the same
+      // settling point, because that is when the setting the reader named has
+      // been read and nothing has yet moved it.
+      void readCompilerStanding(deps, memory);
     },
     followLifecycle,
   };
@@ -1053,6 +1087,138 @@ async function reattachIfSilent(deps: GetStartedDeps, refresh: () => void): Prom
     await deps.reanchor();
   }
   refresh();
+}
+
+// DOWNLOADED_INTO_KEY and MENTIONED_KEY are where the extension keeps its own
+// record of the compilers it downloaded and the versions it has mentioned. Each
+// is suffixed with the name of the machine the extension runs on, because that
+// storage can be shared by windows working on different machines, and a path
+// remembered on one says nothing about the same path on another.
+const DOWNLOADED_INTO_KEY = 'aggrega.compiler.downloadedInto';
+const MENTIONED_KEY = 'aggrega.compiler.mentionedVersions';
+
+// compilerMemory reads and writes that record. Anything stored there that is not
+// a list of strings reads as an empty list, which is the direction that replaces
+// nothing.
+function compilerMemory(store: vscode.Memento, machine: string): CompilerMemory {
+  const downloadedKey = `${DOWNLOADED_INTO_KEY}:${machine}`;
+  const mentionedKey = `${MENTIONED_KEY}:${machine}`;
+  const list = (key: string): string[] => {
+    const stored = store.get<unknown>(key);
+    return Array.isArray(stored) ? stored.filter((entry): entry is string => typeof entry === 'string') : [];
+  };
+  const add = (key: string, value: string): Thenable<void> =>
+    store.update(key, [...list(key).filter((entry) => entry !== value), value]);
+  return {
+    downloadedInto: () => list(downloadedKey),
+    rememberDownload: (file) => add(downloadedKey, file),
+    mentioned: () => list(mentionedKey),
+    rememberMention: (version) => add(mentionedKey, version),
+  };
+}
+
+// hostFacts reads the machine this extension runs on — the machine the
+// workspace is on, which in a window opened on a remote machine is that machine.
+function hostFacts(): HostFacts {
+  return {
+    platform: process.platform,
+    arch: process.arch,
+    home: os.homedir(),
+    env: { PATH: process.env.PATH, PATHEXT: process.env.PATHEXT, LOCALAPPDATA: process.env.LOCALAPPDATA },
+  };
+}
+
+// downloadPrompts is every question a download puts to the reader, in the
+// editor's own dialogs.
+//
+// The folder is asked for in an input box holding the proposed folder, so
+// keeping it is one key and changing it is editing a path, and the version being
+// downloaded is in its title. The confirmation is modal because it is consent to
+// write a file and change a setting, which a notification that can be missed
+// should not stand in for.
+function downloadPrompts(): DownloadPrompts {
+  return {
+    askFolder: (proposed, version, target) => vscode.window.showInputBox({
+      title: `Aggrega: download aggrega ${version} for ${targetWords(target)}`,
+      prompt: `The folder to save the compiler in, as ${installedFileName(target)}. Keep the proposed folder or change it.`,
+      value: proposed,
+      ignoreFocusOut: true,
+      validateInput: (value) => (path.isAbsolute(value.trim()) ? undefined : 'Name the folder by its full path.'),
+    }),
+    confirm: async (question, go) =>
+      (await vscode.window.showInformationMessage(question, { modal: true }, go)) === go,
+    withProgress: (title, work) => vscode.window.withProgress(
+      { location: vscode.ProgressLocation.Notification, title, cancellable: true },
+      (_progress, token) => {
+        const stop = new AbortController();
+        const listening = token.onCancellationRequested(() => stop.abort());
+        return work(stop.signal).finally(() => listening.dispose());
+      },
+    ),
+    inform: (message) => void vscode.window.showInformationMessage(message),
+    warn: (message) => void vscode.window.showWarningMessage(message),
+  };
+}
+
+// downloadCompilerHere downloads a compiler where the reader agrees to, points
+// the setting at it, and brings the language server onto it.
+//
+// 🔴 WHERE THE SETTING ALREADY NAMED THE FILE THAT WAS REPLACED, WRITING IT
+// CHANGES NOTHING, SO NOTHING WATCHING THE SETTING RESTARTS THE SERVER. A
+// language server running the replaced file is then restarted here, so the
+// compiler the reader just agreed to is the one answering.
+async function downloadCompilerHere(
+  deps: GetStartedDeps,
+  refresh: () => void,
+  memory: CompilerMemory,
+): Promise<void> {
+  const before = deps.getBinaryPath();
+  const outcome = await downloadCompiler({
+    source: PUBLISHED_RELEASES,
+    host: hostFacts(),
+    compatibilityRange: deps.compatibilityRange(),
+    configuredPath: before,
+    memory,
+    runVersion: deps.runVersion,
+    writeBinaryPath,
+    prompts: downloadPrompts(),
+  });
+  if (outcome.kind !== 'installed') { return; }
+  if (namesAPath(before) && samePath(before, outcome.path, process.platform) && deps.isCompilerAnswering()) {
+    await vscode.commands.executeCommand(RESTART_COMMAND);
+    refresh();
+    return;
+  }
+  await reattachIfSilent(deps, refresh);
+}
+
+// readCompilerStanding writes down which compiler a plain name found on PATH,
+// with its version, and says once per version when a newer release exists for a
+// compiler the extension may replace. Neither changes anything, and a failure of
+// either is a line in the output channel rather than an interruption.
+async function readCompilerStanding(deps: GetStartedDeps, memory: CompilerMemory): Promise<void> {
+  const host = hostFacts();
+  const configured = deps.getBinaryPath();
+  try {
+    const situation = await compilerSituation(configured, host);
+    if (situation.kind === 'onPath') {
+      const reading = await readDaemonVersion({ binaryPath: situation.path, spawn: deps.runVersion });
+      const line = situationLine(situation, reading.kind === 'reported' ? reading.version : null);
+      if (line !== null) { deps.output.appendLine(line); }
+    }
+    await noteNewerRelease({
+      source: PUBLISHED_RELEASES,
+      host,
+      compatibilityRange: deps.compatibilityRange(),
+      configuredPath: configured,
+      memory,
+      runVersion: deps.runVersion,
+      inform: (message) => void vscode.window.showInformationMessage(message),
+      log: (line) => deps.output.appendLine(line),
+    });
+  } catch (err) {
+    deps.output.appendLine(`Aggrega: could not read which compiler is in use: ${describeError(err)}`);
+  }
 }
 
 // draftRelease opens the one place a document is drafted from, with the kind
