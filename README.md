@@ -5,10 +5,49 @@ Language support for Aggrega YAML — validation, navigation, hover, and complet
 ## Prerequisites
 
 - Visual Studio Code 1.85 or newer, on the desktop. The extension works by starting the `aggrega` program and provides no version a browser can run in its place, so it does not run in editors that run entirely in a web browser, such as vscode.dev and github.dev.
-- `aggrega` binary on `PATH`, or its absolute path set in the `aggrega.server.binaryPath` setting.
+- The `aggrega` compiler, on the machine your workspace is on. The extension runs the one the `aggrega.server.binaryPath` setting names: a path is used as written, and a plain name — the default, `aggrega` — is looked up on `PATH`. Where it finds none, the extension offers to download one for you; see [Getting the compiler](#getting-the-compiler).
 - A folder Aggrega recognises as a workspace root, at or above the folder you open. Aggrega reads one file at your project root — `.aggrega-config.yaml`, carrying a `workspace:` block — and climbs from the opened folder to find it. Marking the root with a `workspace:` block is the explicit choice and the one to prefer; a project that has never declared one can still be recognised by other markers, which Aggrega's own configuration reference covers along with everything else configuration can do in a larger project.
 
 You do not have to arrange any of that by hand: see [The welcome page](#the-welcome-page).
+
+## Getting the compiler
+
+**The extension runs the compiler `aggrega.server.binaryPath` names, and finds one before it offers to
+get one.** A path in the setting is used as written. A plain name — the default is `aggrega` — is looked up on your `PATH`, and the Aggrega
+output channel says which file that found and the version it reports.
+
+**Where it finds none, it offers to download one** — from the welcome page's compiler step, whose
+**Download the compiler** sits beside **Use the compiler on my PATH** and **Point at a compiler I
+have**, and from the notification that the language server could not start because nothing is at
+the path. Downloading:
+
+- **offers the newest published release this extension works with**, built for the operating system
+  and processor of the machine your workspace is on — in a window opened on a remote machine, a
+  container or WSL, that machine. Releases carry binaries for Linux and macOS on 64-bit x86 and 64-bit
+  ARM, and for Windows on 64-bit x86; on any other machine the download is refused, naming it;
+- **proposes the folder Aggrega's install scripts use** — `~/.local/bin` on Linux and macOS,
+  `%LOCALAPPDATA%\Programs\aggrega` on Windows — where the compiler is saved as `aggrega`, or
+  `aggrega.exe` on Windows, and lets you change it; the version is in the question's title;
+- **asks you to confirm** the version and the file before anything is downloaded, then shows progress
+  you can stop;
+- **checks the file against the release's `SHA256SUMS`**, deleting a download that does not match and
+  naming it, makes it executable, and runs it once with `aggrega version -o json`. Only a file that
+  passes all three is put in place, and only then is `aggrega.server.binaryPath` set to it, in your own
+  settings.
+
+Downloads go through the proxy your editor uses for extensions, as its `http.proxy` and
+`http.proxyStrictSSL` settings configure it. Where the release list or a file cannot be read — you are
+offline, GitHub is limiting requests from your address, or the request is refused — nothing is
+downloaded, the setting is left as it is, and one sentence says why.
+
+**It replaces only a compiler it is entitled to replace:** one in that shared folder, or one it
+downloaded itself, which it remembers on that machine in its own storage rather than in a setting.
+Asked to download over a compiler you put anywhere else, it says that it never replaces one and offers
+the shared folder instead.
+
+**It never upgrades on its own.** For a compiler it may replace, it reads the release list when a
+window opens and says, once for each version, that a newer release is available; it asks nothing about
+a compiler you pointed it at yourself.
 
 ## The welcome page
 
@@ -26,7 +65,7 @@ to read about the product rather than only a checklist.
 
 **Each step offers more than one way through, and one of them is always "I already have this."** You
 can create a workspace configuration or point the editor at a folder that already carries one; use
-the compiler on your `PATH` or select a build you have somewhere else; draft a Release or choose one
+the compiler on your `PATH`, select a build you have somewhere else, or download one; draft a Release or choose one
 of yours; seed the official hub, name your own registry, or add one to a configuration you already
 have. Nothing here is a dead end that hands you a file dialog and leaves the step still to do.
 
@@ -253,7 +292,11 @@ names nothing, the notification reads **Aggrega language server failed to start:
 ⟨path⟩ was not found.**; where it names a file that cannot be run, it reads **… ⟨path⟩ is not an
 executable file.** Both go on to say to set `aggrega.server.binaryPath` to the aggrega binary, and
 carry **Open binary path setting**, which opens the settings screen on that one setting, and **Show
-output**. Any other failure to start gives the reason it was given, after the same opening, and then
+output**. Where the path names nothing, the notification also carries **Download the compiler** and
+**Choose another file** ahead of those two, because there is then no compiler to replace: the first
+downloads one as [Getting the compiler](#getting-the-compiler) describes, and the second asks for a
+compiler file you have and points the setting at it. A file that is there and cannot be run is one you
+put there, so that notification offers no download. Any other failure to start gives the reason it was given, after the same opening, and then
 names the compiler that was run and the setting that names it. The Aggrega output channel carries the
 same account.
 

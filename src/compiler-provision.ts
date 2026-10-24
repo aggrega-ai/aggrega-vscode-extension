@@ -223,6 +223,86 @@ export function keptSentence(reason: string): string {
   return `Aggrega: no compiler was downloaded and ${BINARY_PATH_SETTING} was left as it is, because ${reason}.`;
 }
 
+// OfferedVersions is the versions a reader may be offered, newest first and
+// never none, or the reason there are none to offer.
+export type OfferedVersions =
+  | { kind: 'offered'; versions: [string, ...string[]] }
+  | { kind: 'kept'; reason: string };
+
+// offeredVersions reads the release list, while the reader can watch and stop
+// it, and keeps the releases this extension works with that carry a binary for
+// the target. Every way a compiler is downloaded offers its versions from here,
+// so the releases one surface offers and another refuses cannot differ.
+export async function offeredVersions(
+  source: ReleaseSource,
+  compatibilityRange: string | undefined,
+  target: ReleaseTarget,
+  prompts: Pick<DownloadPrompts, 'withProgress'>,
+): Promise<OfferedVersions> {
+  let versions: string[];
+  try {
+    const releases = await prompts.withProgress(
+      'Aggrega: reading the list of compiler releases',
+      (signal) => listReleases(source, signal),
+    );
+    versions = compatibleVersions(releases, compatibilityRange, target);
+  } catch (err) {
+    return { kind: 'kept', reason: describeError(err) };
+  }
+  const [newest, ...older] = versions;
+  if (newest === undefined) {
+    return {
+      kind: 'kept',
+      reason: `no published release ${compatibilityRange ? `within ${compatibilityRange}, the versions this extension works with, ` : ''}carries a compiler for ${targetWords(target)}`,
+    };
+  }
+  return { kind: 'offered', versions: [newest, ...older] };
+}
+
+// Destination is where a download may go: the file, the reader declining the
+// one way on that was offered, or the reason it may go nowhere.
+export type Destination =
+  | { kind: 'to'; file: string }
+  | { kind: 'declined' }
+  | { kind: 'kept'; reason: string };
+
+// replaceableDestination settles where a version may be downloaded, given the
+// file the reader asked for: that file where nothing is there or the extension
+// may replace what is, and otherwise the shared location — offered, never
+// taken unasked. Every way a compiler is downloaded or replaced asks this, so
+// the rule that decides what may be replaced has one home.
+//
+// 🔴 A FILE THE READER PUT THERE IS NOT REPLACED, AND THE WAY ON IS OFFERED
+// RATHER THAN TAKEN. Downloading into the shared location instead changes which
+// compiler the setting names, which is the reader's to agree to.
+export async function replaceableDestination(
+  wanted: string,
+  version: string,
+  shared: string | null,
+  memory: Pick<CompilerMemory, 'downloadedInto'>,
+  platform: string,
+  prompts: Pick<DownloadPrompts, 'confirm'>,
+): Promise<Destination> {
+  if (await isFolder(wanted)) {
+    return { kind: 'kept', reason: `${wanted} is a folder, so the compiler cannot be saved under that name` };
+  }
+  if (!(await exists(wanted)) || mayReplace(wanted, shared, memory, platform)) {
+    return { kind: 'to', file: wanted };
+  }
+  if (shared === null) {
+    return { kind: 'kept', reason: `${wanted} is a compiler you chose, which the extension never replaces` };
+  }
+  const instead = await prompts.confirm(
+    `Aggrega: ${wanted} is a compiler you chose, and the extension never replaces one. Download aggrega ${version} into the shared location, ${shared}, instead?`,
+    SHARED_INSTEAD_GO,
+  );
+  if (!instead) { return { kind: 'declined' }; }
+  if (await isFolder(shared)) {
+    return { kind: 'kept', reason: `${shared} is a folder, so the compiler cannot be saved under that name` };
+  }
+  return { kind: 'to', file: shared };
+}
+
 // downloadCompiler offers the newest release this extension works with, asks
 // where to put it — proposing the shared location, or the folder of a compiler
 // it already downloaded — confirms, downloads, and points the setting at it.
@@ -243,22 +323,9 @@ export async function downloadCompiler(deps: DownloadDeps): Promise<DownloadOutc
   const target = reading.target;
   const shared = sharedLocation(target, host);
 
-  let versions: string[];
-  try {
-    const releases = await prompts.withProgress(
-      'Aggrega: reading the list of compiler releases',
-      (signal) => listReleases(deps.source, signal),
-    );
-    versions = compatibleVersions(releases, deps.compatibilityRange, target);
-  } catch (err) {
-    return kept(describeError(err));
-  }
-  const version = versions[0];
-  if (version === undefined) {
-    return kept(
-      `no published release ${deps.compatibilityRange ? `within ${deps.compatibilityRange}, the versions this extension works with, ` : ''}carries a compiler for ${targetWords(target)}`,
-    );
-  }
+  const offered = await offeredVersions(deps.source, deps.compatibilityRange, target, prompts);
+  if (offered.kind === 'kept') { return kept(offered.reason); }
+  const version = offered.versions[0];
 
   const ownConfigured = namesAPath(deps.configuredPath)
     && mayReplace(path.resolve(deps.configuredPath), shared, deps.memory, host.platform);
@@ -271,27 +338,17 @@ export async function downloadCompiler(deps: DownloadDeps): Promise<DownloadOutc
     return kept(`${folder.trim()} is not a full path to a folder`);
   }
 
-  let destination = path.join(folder.trim(), installedFileName(target));
-  if (await isFolder(destination)) {
-    return kept(`${destination} is a folder, so the compiler cannot be saved under that name`);
-  }
-  if ((await exists(destination)) && !mayReplace(destination, shared, deps.memory, host.platform)) {
-    // 🔴 A FILE THE READER PUT THERE IS NOT REPLACED, AND THE WAY ON IS OFFERED
-    // RATHER THAN TAKEN. Downloading into the shared location instead changes
-    // which compiler the setting names, which is the reader's to agree to.
-    if (shared === null) {
-      return kept(`${destination} is a compiler you chose, which the extension never replaces`);
-    }
-    const instead = await prompts.confirm(
-      `Aggrega: ${destination} is a compiler you chose, and the extension never replaces one. Download aggrega ${version} into the shared location, ${shared}, instead?`,
-      SHARED_INSTEAD_GO,
-    );
-    if (!instead) { return { kind: 'declined' }; }
-    destination = shared;
-    if (await isFolder(destination)) {
-      return kept(`${destination} is a folder, so the compiler cannot be saved under that name`);
-    }
-  }
+  const settled = await replaceableDestination(
+    path.join(folder.trim(), installedFileName(target)),
+    version,
+    shared,
+    deps.memory,
+    host.platform,
+    prompts,
+  );
+  if (settled.kind === 'declined') { return { kind: 'declined' }; }
+  if (settled.kind === 'kept') { return kept(settled.reason); }
+  const destination = settled.file;
 
   const replacing = await exists(destination);
   const go = await prompts.confirm(
