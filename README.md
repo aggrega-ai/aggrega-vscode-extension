@@ -1,6 +1,10 @@
 # Aggrega VS Code extension
 
-Language support for Aggrega YAML — validation, navigation, hover, and completion backed by the `aggrega` daemon (`aggrega serve`).
+This repository holds the [Aggrega](https://aggrega.ai) extension for Visual Studio Code.
+
+It brings language support for Aggrega YAML into the editor — diagnostics as you edit, hover, completion, Go to Definition and Find References, backed by the `aggrega` daemon (`aggrega serve`) — with a welcome page that walks you through what it needs, panels that run the compiler's operations and list your catalog, registries and plugins, and an interactive topology graph of the Release you select.
+
+Install the "Aggrega" extension from the Visual Studio Marketplace or Open VSX. The [Aggrega documentation](https://aggrega.ai/docs/) covers installing the compiler and authoring with it.
 
 ## Prerequisites
 

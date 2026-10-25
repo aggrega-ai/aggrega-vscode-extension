@@ -121,7 +121,7 @@ export function isWelcomePageTab(viewType: string): boolean {
 // paraphrase.
 export const WELCOME_GREETING = 'Welcome to Aggrega!';
 export const WELCOME_DESCRIPTION =
-  'Aggrega is an open-source language, ecosystem, and compiler for defining and rendering enterprise architectures, featuring a standard library highly specialized for AI applications. It serves as a bridge between abstract developer intent (including cognitive AI frameworks like LangGraph or CrewAI) and secure, physical cloud-native reality.';
+  'Aggrega is an open-source compiler for AI-era architecture. Describe the components of an application and how they connect; Aggrega turns them, deterministically, into the deployment files that run it.';
 
 // StepId names one condition the extension needs before it can do the work it
 // is for.
