@@ -40,7 +40,14 @@ import { callArguments } from '../helpers/anchoring-census';
 // below is a property of the declared contributions, and only a parse can see
 // that.
 const MANIFEST = path.resolve(__dirname, '../../../package.json');
-const README = path.resolve(__dirname, '../../../README.md');
+
+// PRODUCT_EDITOR_PAGE is the documentation's guide to this extension — the
+// manual a reader is sent to from this repository's README. It sits outside
+// this repository, so it is reachable when the extension is checked out beside
+// the documentation and not when the extension is cloned alone; the assertions
+// that read it report themselves pending in the second case rather than
+// passing quietly.
+const PRODUCT_EDITOR_PAGE = path.resolve(__dirname, '../../../../aggrega-docs/authoring/editor.md');
 
 interface CommandEntry { command?: unknown; title?: unknown; enablement?: unknown }
 interface MenuEntry { command?: unknown; when?: unknown }
@@ -574,27 +581,37 @@ describe('the notification a start or a restart the reader asked for ends in', (
   });
 });
 
-describe('what the README teaches about the lifecycle indicator', () => {
-  // A surface the README does not describe is one a reader meets without
-  // having been told what it is, and the README already lists the commands and
-  // describes the status bar.
-  it('describes the standing the indicator exists to report', () => {
-    const readme = fs.readFileSync(README, 'utf8');
+describe('what the editor guide teaches about the lifecycle indicator', () => {
+  // A surface the editor guide does not describe is one a reader meets without
+  // having been told what it is, and the editor guide already lists the commands
+  // and describes the status bar.
+  it('describes the standing the indicator exists to report', function () {
+    if (!fs.existsSync(PRODUCT_EDITOR_PAGE)) {
+      // Checked out without the documentation beside it. Reported as pending
+      // rather than passed: a silent skip would read as the guide holding.
+      this.skip();
+      return;
+    }
+    const guide = fs.readFileSync(PRODUCT_EDITOR_PAGE, 'utf8');
     assert.ok(
-      readme.includes('not running'),
+      guide.includes('not running'),
       'a reader who meets a red indicator has been told nothing about what it means',
     );
   });
 
   // The title is read from the manifest rather than written here, so a rename
   // that stops at the manifest fails: a reader who finds a command in the
-  // README and then searches the palette for that name would find nothing.
-  it('teaches the command that starts a language server under its declared title', () => {
-    const readme = fs.readFileSync(README, 'utf8');
+  // editor guide and then searches the palette for that name would find nothing.
+  it('teaches the command that starts a language server under its declared title', function () {
+    if (!fs.existsSync(PRODUCT_EDITOR_PAGE)) {
+      this.skip();
+      return;
+    }
+    const guide = fs.readFileSync(PRODUCT_EDITOR_PAGE, 'utf8');
     const title = String(declared(RESTART_COMMAND)?.title);
     assert.ok(
-      readme.includes(`**${title}**`),
-      `the README does not name ${RESTART_COMMAND} as the palette shows it (${title})`,
+      guide.includes(`**${title}**`),
+      `the editor guide does not name ${RESTART_COMMAND} as the palette shows it (${title})`,
     );
   });
 });

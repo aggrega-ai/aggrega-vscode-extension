@@ -88,7 +88,6 @@ import {
 // below is a property of the declared contributions, and only a parse can see
 // that.
 const MANIFEST = path.resolve(__dirname, '../../../package.json');
-const README = path.resolve(__dirname, '../../../README.md');
 const EXTENSION_ROOT = path.resolve(__dirname, '../../..');
 
 // PRODUCT_README is the product documentation's own account of what Aggrega is,
@@ -98,6 +97,13 @@ const EXTENSION_ROOT = path.resolve(__dirname, '../../..');
 // when the extension is cloned alone; the assertion that uses it says which of
 // those happened rather than passing quietly either way.
 const PRODUCT_README = path.resolve(__dirname, '../../../../aggrega-docs/README.md');
+
+// PRODUCT_EDITOR_PAGE is the documentation's guide to this extension — the
+// manual a reader is sent to from this repository's README. It sits outside
+// this repository for the same reason, so the assertions that read it report
+// themselves pending when the documentation is not checked out beside the
+// extension rather than passing quietly.
+const PRODUCT_EDITOR_PAGE = path.resolve(__dirname, '../../../../aggrega-docs/authoring/editor.md');
 
 // PRODUCT_CONFIGURATION_PAGE is the product's own account of how configuration
 // is layered, and it is the ORACLE the panel's configuration wording is checked
@@ -2717,23 +2723,33 @@ describe('the welcome panel', () => {
     });
   });
 
-  describe('the preference the README teaches', () => {
-    it('names the get-started preference', () => {
-      const readme = fs.readFileSync(README, 'utf8');
+  describe('the preference the editor guide teaches', () => {
+    it('names the get-started preference', function () {
+      if (!fs.existsSync(PRODUCT_EDITOR_PAGE)) {
+        // Checked out without the documentation beside it. Reported as pending
+        // rather than passed: a silent skip would read as the guide holding.
+        this.skip();
+        return;
+      }
+      const guide = fs.readFileSync(PRODUCT_EDITOR_PAGE, 'utf8');
       assert.ok(
-        readme.includes(WELCOME_SHOW_SETTING),
-        'a preference the README does not name is one a reader has no way to find out about',
+        guide.includes(WELCOME_SHOW_SETTING),
+        'a preference the editor guide does not name is one a reader has no way to find out about',
       );
     });
 
     // The panel is a page of its own rather than one inside the editor's own
-    // welcome page, so a README sentence teaching it as a walkthrough there is
-    // false. This is the assertion that fails on one.
-    it('does not teach the panel as a page inside the editor\'s welcome', () => {
-      const readme = fs.readFileSync(README, 'utf8');
+    // welcome page, so an editor-guide sentence teaching it as a walkthrough
+    // there is false. This is the assertion that fails on one.
+    it('does not teach the panel as a page inside the editor\'s welcome', function () {
+      if (!fs.existsSync(PRODUCT_EDITOR_PAGE)) {
+        this.skip();
+        return;
+      }
+      const guide = fs.readFileSync(PRODUCT_EDITOR_PAGE, 'utf8');
       assert.ok(
-        !/walkthrough/i.test(readme),
-        'the README still teaches the welcome as one of the editor\'s walkthroughs, which is the surface it was moved out of',
+        !/walkthrough/i.test(guide),
+        'the editor guide still teaches the welcome as one of the editor\'s walkthroughs, which is the surface it was moved out of',
       );
     });
   });

@@ -16,7 +16,14 @@ import {
 // over the file answers a question about the text; what is being asserted here
 // is a property of the declared properties, and only a parse can see that.
 const MANIFEST = path.resolve(__dirname, '../../../package.json');
-const README = path.resolve(__dirname, '../../../README.md');
+
+// PRODUCT_EDITOR_PAGE is the documentation's guide to this extension — the
+// manual a reader is sent to from this repository's README. It sits outside
+// this repository, so it is reachable when the extension is checked out beside
+// the documentation and not when the extension is cloned alone; the assertions
+// that read it report themselves pending in the second case rather than
+// passing quietly.
+const PRODUCT_EDITOR_PAGE = path.resolve(__dirname, '../../../../aggrega-docs/authoring/editor.md');
 
 interface ConfigProperty { scope?: unknown }
 interface MenuEntry { command?: unknown; when?: unknown; group?: unknown }
@@ -127,38 +134,48 @@ describe('one settings surface, holding only user preferences', () => {
   });
 
   // The settings page a reader is sent to is the editor's, generated from the
-  // manifest, so it cannot go stale. The README's table is written by hand and
-  // therefore can — it had fallen four settings behind the manifest, silently,
+  // manifest, so it cannot go stale. The editor guide's table is written by hand
+  // and therefore can — it had fallen four settings behind the manifest, silently,
   // because nothing compared the two. This is that comparison. It is a weaker
   // check than it looks: it sees whether a setting is named, never whether what
   // is said about it is still true, and only a reader can judge that.
-  describe('the settings the README teaches', () => {
+  describe('the settings the editor guide teaches', () => {
     function documentedSettings(): string[] {
-      const readme = fs.readFileSync(README, 'utf8');
-      const afterHeading = readme.split('## Settings')[1];
-      assert.ok(afterHeading, 'the README has no Settings section to compare against');
+      const guide = fs.readFileSync(PRODUCT_EDITOR_PAGE, 'utf8');
+      const afterHeading = guide.split('## Settings')[1];
+      assert.ok(afterHeading, 'the editor guide has no Settings section to compare against');
       const table = afterHeading.split('\n## ')[0];
       return [...table.matchAll(/^\|\s*`(aggrega\.[^`]+)`/gm)].map((m) => m[1]);
     }
 
-    it('names every setting the manifest contributes', () => {
+    it('names every setting the manifest contributes', function () {
+      if (!fs.existsSync(PRODUCT_EDITOR_PAGE)) {
+        // Checked out without the documentation beside it. Reported as pending
+        // rather than passed: a silent skip would read as the guide holding.
+        this.skip();
+        return;
+      }
       const declared = Object.keys(manifest().properties);
       const documented = documentedSettings();
       const missing = declared.filter((key) => !documented.includes(key));
       assert.deepStrictEqual(
         missing,
         [],
-        `these settings exist and the README does not mention them, so a reader has no way to find out they are there: ${missing.join(', ')}`,
+        `these settings exist and the editor guide does not mention them, so a reader has no way to find out they are there: ${missing.join(', ')}`,
       );
     });
 
-    it('names no setting the manifest does not contribute', () => {
+    it('names no setting the manifest does not contribute', function () {
+      if (!fs.existsSync(PRODUCT_EDITOR_PAGE)) {
+        this.skip();
+        return;
+      }
       const declared = Object.keys(manifest().properties);
       const stranded = documentedSettings().filter((key) => !declared.includes(key));
       assert.deepStrictEqual(
         stranded,
         [],
-        `the README documents settings that do not exist, so a reader setting one gets no effect and no error: ${stranded.join(', ')}`,
+        `the editor guide documents settings that do not exist, so a reader setting one gets no effect and no error: ${stranded.join(', ')}`,
       );
     });
   });
