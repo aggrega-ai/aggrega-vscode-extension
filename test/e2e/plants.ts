@@ -2064,7 +2064,7 @@ export const PLANTS: readonly Plant[] = [
   },
   {
     name: 'workspace-step-respells-its-row', scenario: 'welcome-page-empty-folder', checks: ['welcome-page.workspace-step-names-the-rows-it-points-at'], moves: 'red', target: 'extension',
-    file: 'out/src/get-started-steps.js', find: 'The **${selector_levels_1.SELECTOR_ROW_LABELS.workspace}** row at the top of the Commands panel', replace: 'The **Workspace** row at the top of the Commands panel',
+    file: 'out/src/get-started-steps.js', find: 'The **${selector_levels_1.SELECTOR_ROW_LABELS.workspace} (${selector_levels_1.SELECTOR_ROW_DRAWN_LABELS.workspace})** row at the top of the Commands panel', replace: 'The **Aggrega workspace (Workspace)** row at the top of the Commands panel',
     says: 'the workspace step names the row that says which folder was anchored in a spelling of its own, while the panel draws the row by its label',
   },
   {

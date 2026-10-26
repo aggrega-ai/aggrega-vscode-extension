@@ -52,7 +52,7 @@
 import { panelActionLabel } from './operation-groups';
 import { SELECT_RELEASE_COMMAND } from './release-selection';
 import { REGISTRY_ADD_COMMAND } from './registry-configure';
-import { SELECTOR_ROW_LABELS } from './selector-levels';
+import { SELECTOR_ROW_DRAWN_LABELS, SELECTOR_ROW_LABELS } from './selector-levels';
 import { DOWNLOAD_COMPILER_ACTION } from './start-failure';
 
 // WELCOME_SHOW_SETTING is the preference that decides whether the panel opens
@@ -602,9 +602,12 @@ export const STEP_CONTENT: readonly StepContent[] = [
         paragraph:
           'Between the two files, your project\'s file wins. Marking the root with a `workspace:` block is the explicit choice and the one to prefer; a project that has never declared one can still be recognised by other markers, so a folder can be a workspace root without carrying that file at all.',
       },
+      // The row is named in full and then as the panel draws it, shortened: the
+      // full name is the one every other sentence teaches, and the drawn one is
+      // what a reader sent to the panel has to find there.
       {
         paragraph:
-          `Because discovery climbs rather than descends, the root may legitimately sit *above* the folder you opened. The **${SELECTOR_ROW_LABELS.workspace}** row at the top of the Commands panel always names the folder that was actually anchored, so when it differs from what you opened you can see why.`,
+          `Because discovery climbs rather than descends, the root may legitimately sit *above* the folder you opened. The **${SELECTOR_ROW_LABELS.workspace} (${SELECTOR_ROW_DRAWN_LABELS.workspace})** row at the top of the Commands panel always names the folder that was actually anchored, so when it differs from what you opened you can see why.`,
       },
       {
         paragraph:

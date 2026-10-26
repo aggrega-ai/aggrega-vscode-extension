@@ -313,13 +313,16 @@ export async function welcomeEmptyFolderChecks(ctx: SuiteContext, opts: { regist
 
   // ---- the workspace step's words ------------------------------------------------------
   await c.run('welcome-page.workspace-step-names-the-rows-it-points-at', {
-    expected: 'every row of the Commands panel the workspace step\'s explanation names, in bold before the word "row", is one of the rows the panel draws, by the label it draws',
+    expected: 'every row of the Commands panel the workspace step\'s explanation names, in bold before the word "row", is one of the rows the panel draws, by the label it draws — on its own, or in parentheses after the row\'s full name',
     plant: 'in the scratch copy, out/src/get-started-steps.js with the row the workspace step names spelled in the step\'s own words, the panel\'s label left as it is',
   }, async () => {
     const doc = await welcomePage(ctx);
     const named = await doc.evaluate<string[]>(`[...document.querySelectorAll('section.step[data-step="workspace"] .step-prose strong')].filter((s) => /^\\s*row\\b/.test((s.nextSibling && s.nextSibling.textContent) || '')).map((s) => (s.textContent || '').trim())`);
     const labels = (await waitRows(ctx, 'the Commands panel\'s rows', (r) => r.length >= 3, 10000)).map((r) => r.label);
-    const stray = named.filter((n) => !labels.includes(n));
+    // A row whose drawn label is shortened is named in full with the drawn label
+    // after it in parentheses, so it is the parenthesised part a reader looks for.
+    const lookedFor = (n: string): string => /^\S.* \(([^()]+)\)$/.exec(n)?.[1] ?? n;
+    const stray = named.filter((n) => !labels.includes(lookedFor(n)));
     return { passed: named.length > 0 && stray.length === 0, seen: `the step names the rows ${JSON.stringify(named)}; the panel draws the rows ${JSON.stringify(labels)}${stray.length > 0 ? `; no row is labelled ${JSON.stringify(stray)}` : ''}` };
   });
 

@@ -41,7 +41,7 @@ import {
 import { escapeHtml } from '../../src/html';
 import { extractServerInitMetadata } from '../../src/init-metadata';
 import { REGISTRY_ADD_COMMAND } from '../../src/registry-configure';
-import { SELECTOR_ROW_LABELS } from '../../src/selector-levels';
+import { SELECTOR_ROW_DRAWN_LABELS, SELECTOR_ROW_KEYS, SELECTOR_ROW_LABELS } from '../../src/selector-levels';
 import { functionBody } from '../helpers/anchoring-census';
 import {
   WIRE_CONTRACT,
@@ -2888,16 +2888,21 @@ describe('the welcome page sends a reader to a control by the words it draws', (
 
   // 🔴 A ROW THE PAGE SENDS A READER TO IS A ROW THE COMMANDS PANEL DRAWS. Every
   // span the steps set in bold immediately before the word "row" is read off the
-  // composed content and required to be one of the labels the panel draws its
-  // rows with, so a step spelling a row its own way — a "Workspace" row, where the
-  // panel draws "Aggrega workspace" — is refused here rather than met by a reader
-  // looking for a row that is not there.
+  // composed content and required to name a row by the label the panel draws it
+  // with: where that label is the level's full name, the label itself; where the
+  // panel draws it shortened, the full name followed by the drawn label in
+  // parentheses. So a step spelling a row its own way — a "Workspace" row, or an
+  // "Aggrega workspace" row where the panel draws "Agg. worksp." — is refused
+  // here rather than met by a reader looking for a row that is not there.
   it('names every Commands panel row by the label the panel draws it with', () => {
     const everyStep = STEP_CONTENT.flatMap((step) => step.detail)
       .flatMap((block) => ('paragraph' in block ? [block.paragraph] : [...block.bullets]))
       .join('\n');
     const named = [...everyStep.matchAll(/\*\*([^*]+)\*\* row\b/g)].map((m) => m[1]);
-    const drawn = Object.values(SELECTOR_ROW_LABELS);
+    const drawn = SELECTOR_ROW_KEYS.map((key) => SELECTOR_ROW_DRAWN_LABELS[key]);
+    const accepted = SELECTOR_ROW_KEYS.map((key) => (SELECTOR_ROW_DRAWN_LABELS[key] === SELECTOR_ROW_LABELS[key]
+      ? SELECTOR_ROW_DRAWN_LABELS[key]
+      : `${SELECTOR_ROW_LABELS[key]} (${SELECTOR_ROW_DRAWN_LABELS[key]})`));
     // The refusal below is satisfied by an empty list, so the census is first
     // required to have read the row the Release step points a reader at.
     assert.ok(
@@ -2905,9 +2910,9 @@ describe('the welcome page sends a reader to a control by the words it draws', (
       `the census read the rows ${JSON.stringify(named)} and not the Release step's, so the refusal below proves nothing`,
     );
     assert.deepStrictEqual(
-      named.filter((n) => !drawn.includes(n)),
+      named.filter((n) => !accepted.includes(n)),
       [],
-      `the steps name a row the Commands panel does not draw; it draws ${JSON.stringify(drawn)}`,
+      `the steps name a row the Commands panel does not draw; it draws ${JSON.stringify(drawn)}, so a row is named as one of ${JSON.stringify(accepted)}`,
     );
   });
 });
