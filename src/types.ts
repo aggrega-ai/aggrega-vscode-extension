@@ -55,6 +55,15 @@ export type DaemonLocation = wire.Location;
 
 // Request param shapes for the aggrega/* methods.
 
+// CallerParams is a request's params as a call site composes them: the published
+// shape less workspaceRoot. The published shape requires the workspace on every
+// request that acts on one, and this client supplies it in one place
+// (Daemon.withWorkspaceRoot) for every request it sends, so no call site names
+// it. Projecting the field away here keeps that decision in that one place: a
+// call site obliged to supply it would be a second home for which workspace a
+// request is about.
+export type CallerParams<P> = Omit<P, 'workspaceRoot'>;
+
 // ValidateParams is the request shape for aggrega/validate.
 //
 // release names the Release to validate against, as a path relative to the
@@ -69,22 +78,22 @@ export type DaemonLocation = wire.Location;
 // that has a selected Release sends it: the narrower answer reports none of the
 // semantic findings, and it does so without raising an error, so a caller that
 // silently omitted the field would present a shorter list as a clean verdict.
-export type ValidateParams = wire.ValidateParams;
+export type ValidateParams = CallerParams<wire.ValidateParams>;
 
 // granularity selects the daemon's cache-eviction scope. When omitted (or set
 // to "workspace"), the daemon drops the workspace-level resolved-catalog cache
 // alongside the per-file parse + diagnostics caches. The "file" value drops
 // only the per-file caches; "entity" is reserved at the daemon and currently
 // falls through to workspace behavior.
-export type InvalidateParams = wire.InvalidateParams;
-export type DiagnosticsParams = wire.DiagnosticsParams;
-export type ResolveParams = wire.ResolveParams;
-export type FindReferencesParams = wire.FindReferencesParams;
-export type FindImplementationsParams = wire.FindImplementationsParams;
-export type HoverParams = wire.HoverParams;
-export type CompletionParams = wire.CompletionParams;
-export type CatalogIndexParams = wire.CatalogIndexParams;
-export type EntityDefinitionParams = wire.EntityDefinitionParams;
+export type InvalidateParams = CallerParams<wire.InvalidateParams>;
+export type DiagnosticsParams = CallerParams<wire.DiagnosticsParams>;
+export type ResolveParams = CallerParams<wire.ResolveParams>;
+export type FindReferencesParams = CallerParams<wire.FindReferencesParams>;
+export type FindImplementationsParams = CallerParams<wire.FindImplementationsParams>;
+export type HoverParams = CallerParams<wire.HoverParams>;
+export type CompletionParams = CallerParams<wire.CompletionParams>;
+export type CatalogIndexParams = CallerParams<wire.CatalogIndexParams>;
+export type EntityDefinitionParams = CallerParams<wire.EntityDefinitionParams>;
 
 // JSON-RPC 2.0 framing types.
 export type JsonRpcRequest = wire.Request;
@@ -263,7 +272,7 @@ export type ReleaseCandidatesResponse = wire.ReleaseCandidatesResult;
 // for, as a path relative to the workspace root, and unredacted, which asks for
 // the graph as compiled. Absent or false, the answer withholds every value the
 // graph's own markings name.
-export type IrGraphParams = wire.IrGraphParams;
+export type IrGraphParams = CallerParams<wire.IrGraphParams>;
 
 // IrGraphResponse is the aggrega/irGraph result: the resolved graph a Release
 // compiles to, under graph, each value its markings name withheld unless the
@@ -338,7 +347,7 @@ export type ActiveReleaseResponse = wire.ActiveReleaseResult;
 // The language server writes the marker, holding it and the directory it sits in
 // to the workspace, and answers with what aggrega/activeRelease answers once it
 // is written.
-export type SetActiveReleaseParams = wire.SetActiveReleaseParams;
+export type SetActiveReleaseParams = CallerParams<wire.SetActiveReleaseParams>;
 
 // ScaffoldEntityResponse is the aggrega/scaffoldEntity result: the kind the
 // skeleton was derived for, and the skeleton itself as YAML text.
