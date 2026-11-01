@@ -23,19 +23,19 @@ name: Package and publish
 # in that commit.
 #
 # 🔴 A MANUAL RUN IS ALWAYS A DRY RUN, AND IT USES NO VERSION. Started by hand from
-# any branch, it builds and uploads the package, then signs in to each
-# marketplace and runs its verify mode, whatever DRY_RUN reads: no publish step
-# runs on a manual run. It needs no tag, so no version's tag is spent on it:
+# any branch, it builds and uploads the package, then runs each marketplace's
+# verify mode, whatever DRY_RUN reads: no publish step runs on a manual run. It
+# needs no tag, so no version's tag is spent on it:
 #
 #   gh workflow run package-and-publish.yml --repo aggrega-ai/aggrega-vscode-extension --ref <branch>
 #
-# The run uses this file as <branch> holds it. What it proves depends on what the
-# managed identity trusts: its Marketplace sign-in succeeds only when one of the
-# identity's federated credentials names the run's subject, which for a manual
-# run is its branch (repo:aggrega-ai/aggrega-vscode-extension:ref:refs/heads/<branch>).
-# On a branch no credential names, the Marketplace job stops at the Azure sign-in
-# and checks nothing; the package and the Open VSX check run either way, since
-# neither signs in to Azure.
+# The run uses this file as <branch> holds it. The managed identity trusts
+# release tags only, so with the identity configured a manual run does not sign
+# in to the Visual Studio Marketplace: the Marketplace job skips the Azure
+# sign-in, the member id lookup and the sign-in check, says so in its log, and
+# leaves that check to a release tag's run. With VSCE_PAT configured instead, a
+# manual run checks that token, which no federated credential governs. The
+# package and the Open VSX check run either way, since neither signs in to Azure.
 #
 # Settings, by name:
 #   secrets   SUBMODULE_APP_CLIENT_ID    the organization App that reads the
@@ -205,7 +205,8 @@ jobs:
     # sign-in goes through, and it is discarded after the job, so no sign-in
     # outlives it.
     #
-    # A pushed release tag, or a manual run, which is always a dry run.
+    # A pushed release tag, or a manual run, which is always a dry run and, with
+    # the managed identity configured, does not sign in (see the top of this file).
     needs: package
     if: (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
@@ -218,13 +219,14 @@ jobs:
     steps:
       - name: Choose how to sign in
         id: sign-in
-        # Each value is only whether a secret is set; no secret's value reaches
-        # this step.
+        # Each HAS_ value is only whether a secret is set; no secret's value
+        # reaches this step.
         env:
           HAS_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID != '' }}
           HAS_TENANT_ID: ${{ secrets.AZURE_TENANT_ID != '' }}
           HAS_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID != '' }}
           HAS_TOKEN: ${{ secrets.VSCE_PAT != '' }}
+          EVENT: ${{ github.event_name }}
         run: |
           set -euo pipefail
           set_count=0
@@ -233,7 +235,11 @@ jobs:
           done
           if [ "$set_count" -eq 3 ]; then
             echo "identity=true" >> "$GITHUB_OUTPUT"
-            echo "signing in with the managed identity AZURE_CLIENT_ID names"
+            if [ "$EVENT" = workflow_dispatch ]; then
+              echo "not signing in to the Visual Studio Marketplace: the managed identity AZURE_CLIENT_ID names trusts release tags only, so a release tag's run checks the sign-in"
+            else
+              echo "signing in with the managed identity AZURE_CLIENT_ID names"
+            fi
           elif [ "$set_count" -gt 0 ]; then
             echo "::error::AZURE_CLIENT_ID, AZURE_TENANT_ID and AZURE_SUBSCRIPTION_ID are only partly set; set all three to sign in with the managed identity, or none of them to sign in with VSCE_PAT" >&2
             exit 1
@@ -302,7 +308,9 @@ jobs:
           echo "package: ${files[0]}"
 
       - name: Sign in to Azure as the managed identity
-        if: ${{ steps.sign-in.outputs.identity == 'true' }}
+        # Not on a manual run: the identity trusts release tags only and would
+        # refuse the run's branch.
+        if: ${{ steps.sign-in.outputs.identity == 'true' && github.event_name != 'workflow_dispatch' }}
         uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -318,8 +326,9 @@ jobs:
         # sign-in asks for), and prints its id alone, never the rest of the
         # profile, so the id can be added to the publisher, as the sign-in check
         # below needs. A failed lookup does not stop the job: the sign-in check
-        # runs whatever this step finds.
-        if: ${{ (env.DRY_RUN != 'false' || github.event_name == 'workflow_dispatch') && steps.sign-in.outputs.identity == 'true' }}
+        # runs whatever this step finds. Not on a manual run, which does not sign
+        # in as the identity.
+        if: ${{ env.DRY_RUN != 'false' && github.event_name != 'workflow_dispatch' && steps.sign-in.outputs.identity == 'true' }}
         continue-on-error: true
         timeout-minutes: 3
         run: |
@@ -328,7 +337,9 @@ jobs:
           az rest -u https://app.vssps.visualstudio.com/_apis/profile/profiles/me --resource 499b84ac-1321-427f-aa17-267ca6975798 --query id -o tsv
 
       - name: Check the sign-in (dry run)
-        if: ${{ env.DRY_RUN != 'false' || github.event_name == 'workflow_dispatch' }}
+        # A manual run checks VSCE_PAT's token, but not the managed identity,
+        # which it does not sign in as.
+        if: ${{ (env.DRY_RUN != 'false' || github.event_name == 'workflow_dispatch') && (github.event_name != 'workflow_dispatch' || steps.sign-in.outputs.identity != 'true') }}
         # 🔴 BOUNDED, BECAUSE THE ENTRA ID SIGN-IN WAITS MINUTES BEFORE IT REFUSES.
         # With no usable sign-in it tries the managed-identity endpoint of an Azure
         # machine, which does not answer here, and gives up only after several
