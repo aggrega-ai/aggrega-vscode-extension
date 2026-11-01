@@ -349,8 +349,15 @@ export type ActiveReleaseResponse = wire.ActiveReleaseResult;
 // is written.
 export type SetActiveReleaseParams = CallerParams<wire.SetActiveReleaseParams>;
 
-// ScaffoldEntityResponse is the aggrega/scaffoldEntity result: the kind the
-// skeleton was derived for, and the skeleton itself as YAML text.
+// ScaffoldEntityResponse is the aggrega/scaffoldEntity result for the drafting
+// form this client sends — a kind and a name: the kind the skeleton was derived
+// for, and the skeleton itself as YAML text.
+//
+// The published result carries the method's other forms too — the runnable
+// examples listed, or one written into a new directory — and leaves every field
+// of a form not asked for absent, so its two drafting fields are optional there.
+// This client asks only for a draft, whose answer always carries both, and the
+// projection below says so rather than having every reader test for them.
 //
 // kind is echoed rather than left for the caller to remember, so a client with
 // several drafting requests outstanding attributes an answer from the answer
@@ -360,7 +367,7 @@ export type SetActiveReleaseParams = CallerParams<wire.SetActiveReleaseParams>;
 // created and no path is chosen: where the text goes, and whether it goes
 // anywhere at all, is this client's decision — which is why it lands in an
 // unsaved buffer the author reads, edits or discards.
-export type ScaffoldEntityResponse = wire.ScaffoldEntityResult;
+export type ScaffoldEntityResponse = wire.ScaffoldEntityResult & { kind: string; skeleton: string };
 
 // --- the cache maintenance results ---------------------------------------
 
