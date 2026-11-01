@@ -3,24 +3,39 @@ name: Package and publish
 # Builds the extension's installable package (a .vsix) and publishes that one
 # file to the Visual Studio Marketplace and to Open VSX.
 #
-# The package job runs on every push and pull request to main and on every
-# release tag. It builds the package once, with scripts/vsix.js, and uploads it
-# as this run's artifact `vsix`. `node scripts/vsix.js --help` is the contract of
-# every step below that runs the script.
+# The package job runs on every push and pull request to main, on every release
+# tag and on every manual run. It builds the package once, with scripts/vsix.js,
+# and uploads it as this run's artifact `vsix`. `node scripts/vsix.js --help` is
+# the contract of every step below that runs the script.
 #
-# 🔴 ONLY A RELEASE TAG REACHES THE PUBLISH JOBS, AND DRY_RUN DECIDES WHAT IT DOES.
-# A listing on either marketplace is public from the moment it is published. The
-# two publish jobs run only on a pushed release tag, v followed by package.json's
+# 🔴 ONLY A PUSHED RELEASE TAG CAN PUBLISH, AND DRY_RUN DECIDES WHETHER IT DOES.
+# A listing on either marketplace is public from the moment it is published. A
+# publish step runs only on a pushed release tag, v followed by package.json's
 # version (v0.1.0 for 0.1.0) on a commit of main; the package job refuses any
 # other tag before it builds, so neither publish job starts. No branch push and
-# no pull request reaches them, and there is no manual run. DRY_RUN, under env
-# below, is the one switch: unless it reads false, a tag's run signs in to each
-# marketplace, checks that sign-in with the marketplace's verify mode and
-# publishes nothing. Set to false, a tag's run uploads the very file the package
-# job of the same run built — never a second build, and never the working folder,
-# which each marketplace's own publish command packages and uploads when it is
-# handed no file. A tag runs this file as the commit it names holds it, so the
-# switch a tag obeys is the one in that commit.
+# no pull request reaches the publish jobs. DRY_RUN, under env below, is the one
+# switch: unless it reads false, a tag's run signs in to each marketplace, checks
+# that sign-in with the marketplace's verify mode and publishes nothing. Set to
+# false, a tag's run uploads the very file the package job of the same run built
+# — never a second build, and never the working folder, which each marketplace's
+# own publish command packages and uploads when it is handed no file. A tag runs
+# this file as the commit it names holds it, so the switch a tag obeys is the one
+# in that commit.
+#
+# 🔴 A MANUAL RUN IS ALWAYS A DRY RUN, AND IT USES NO VERSION. Started by hand from
+# any branch, it builds and uploads the package, then signs in to each
+# marketplace and runs its verify mode, whatever DRY_RUN reads: no publish step
+# runs on a manual run. It needs no tag, so no version's tag is spent on it:
+#
+#   gh workflow run package-and-publish.yml --repo aggrega-ai/aggrega-vscode-extension --ref <branch>
+#
+# The run uses this file as <branch> holds it. What it proves depends on what the
+# managed identity trusts: its Marketplace sign-in succeeds only when one of the
+# identity's federated credentials names the run's subject, which for a manual
+# run is its branch (repo:aggrega-ai/aggrega-vscode-extension:ref:refs/heads/<branch>).
+# On a branch no credential names, the Marketplace job stops at the Azure sign-in
+# and checks nothing; the package and the Open VSX check run either way, since
+# neither signs in to Azure.
 #
 # Settings, by name:
 #   secrets   SUBMODULE_APP_CLIENT_ID    the organization App that reads the
@@ -42,6 +57,8 @@ on:
       - "v[0-9]+.[0-9]+.[0-9]+"
   pull_request:
     branches: [main]
+  # A manual run: always a dry run, whatever DRY_RUN reads (see above).
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -49,7 +66,8 @@ permissions:
 env:
   # 🔴 THE ONE SWITCH BETWEEN A DRY RUN AND A REAL PUBLISH. Anything but false —
   # this line removed included — is a dry run. Set it to false, commit, and tag
-  # that commit to publish; nothing else in this file changes.
+  # that commit to publish; nothing else in this file changes. A manual run is
+  # a dry run whatever this line says.
   DRY_RUN: true
 
 concurrency:
@@ -124,7 +142,7 @@ jobs:
           node-version: '24.21.0'
 
       - name: Refuse a tag that is not a release of this version on main
-        # A tag is the only run that reaches the publish jobs, so it must name a
+        # A pushed tag is the only run that can publish, so it must name a
         # release of this extension: v followed by package.json's version, on a
         # commit of main. Anything else stops here, before the package is built,
         # so neither publish job starts and nothing signs in.
@@ -186,8 +204,10 @@ jobs:
     # A hosted runner, whatever the package job uses: it carries the Azure CLI the
     # sign-in goes through, and it is discarded after the job, so no sign-in
     # outlives it.
+    #
+    # A pushed release tag, or a manual run, which is always a dry run.
     needs: package
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    if: (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -299,7 +319,7 @@ jobs:
         # profile, so the id can be added to the publisher, as the sign-in check
         # below needs. A failed lookup does not stop the job: the sign-in check
         # runs whatever this step finds.
-        if: ${{ env.DRY_RUN != 'false' && steps.sign-in.outputs.identity == 'true' }}
+        if: ${{ (env.DRY_RUN != 'false' || github.event_name == 'workflow_dispatch') && steps.sign-in.outputs.identity == 'true' }}
         continue-on-error: true
         timeout-minutes: 3
         run: |
@@ -308,7 +328,7 @@ jobs:
           az rest -u https://app.vssps.visualstudio.com/_apis/profile/profiles/me --resource 499b84ac-1321-427f-aa17-267ca6975798 --query id -o tsv
 
       - name: Check the sign-in (dry run)
-        if: ${{ env.DRY_RUN != 'false' }}
+        if: ${{ env.DRY_RUN != 'false' || github.event_name == 'workflow_dispatch' }}
         # 🔴 BOUNDED, BECAUSE THE ENTRA ID SIGN-IN WAITS MINUTES BEFORE IT REFUSES.
         # With no usable sign-in it tries the managed-identity endpoint of an Azure
         # machine, which does not answer here, and gives up only after several
@@ -323,7 +343,9 @@ jobs:
         run: node scripts/vsix.js verify-marketplace
 
       - name: Publish the package
-        if: ${{ env.DRY_RUN == 'false' && startsWith(github.ref, 'refs/tags/') }}
+        # A pushed tag only: a manual run, even one started on a tag, never
+        # publishes.
+        if: ${{ github.event_name == 'push' && env.DRY_RUN == 'false' && startsWith(github.ref, 'refs/tags/') }}
         timeout-minutes: 10
         working-directory: aggrega-vscode-extension
         env:
@@ -341,8 +363,10 @@ jobs:
     # registered for token-free publishing. This job cannot ask for an OpenID
     # Connect token, and the script refuses unless OVSX_PAT holds an access token,
     # so a publish here always signs in with OVSX_PAT.
+    #
+    # A pushed release tag, or a manual run, which is always a dry run.
     needs: package
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    if: (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -405,7 +429,7 @@ jobs:
           echo "package: ${files[0]}"
 
       - name: Check the token and the namespace (dry run)
-        if: ${{ env.DRY_RUN != 'false' }}
+        if: ${{ env.DRY_RUN != 'false' || github.event_name == 'workflow_dispatch' }}
         timeout-minutes: 5
         working-directory: aggrega-vscode-extension
         env:
@@ -413,7 +437,9 @@ jobs:
         run: node scripts/vsix.js verify-open-vsx
 
       - name: Publish the package
-        if: ${{ env.DRY_RUN == 'false' && startsWith(github.ref, 'refs/tags/') }}
+        # A pushed tag only: a manual run, even one started on a tag, never
+        # publishes.
+        if: ${{ github.event_name == 'push' && env.DRY_RUN == 'false' && startsWith(github.ref, 'refs/tags/') }}
         timeout-minutes: 10
         working-directory: aggrega-vscode-extension
         env:
