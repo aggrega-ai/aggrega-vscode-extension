@@ -251,6 +251,10 @@ export function hostLines(host: IndexedHost): readonly string[] {
     headline += `, ${countOf(skipped.length, 'repository', 'repositories')}`
       + ' could not be read';
   }
+  // The reads asked again are stated on every row, zero included: a walk whose
+  // retries all succeeded lists no repository above, so this count is the only
+  // sign of how close it came to leaving one out.
+  headline += `, ${countOf(host.readsRetried, 'read retried', 'reads retried')}`;
   lines.push(headline);
   // The markers line says which of two things happened rather than showing a
   // count that could mean either: a run with no trust basis did not look, and a

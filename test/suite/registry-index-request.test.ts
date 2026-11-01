@@ -83,6 +83,7 @@ function host(over: Partial<IndexedHost>): IndexedHost {
     deprecationsRecorded: 0,
     skipped: [],
     deprecations: [],
+    readsRetried: 0,
     ...over,
   };
 }
@@ -246,7 +247,7 @@ describe('what one index build puts on the channel', () => {
     assert.deepStrictEqual(
       hostLines(host({ host: 'mid.example.test', indexed: 5, deprecationsExamined: false })),
       [
-        '  mid.example.test: 5 entities',
+        '  mid.example.test: 5 entities, 0 reads retried',
         '    deprecation markers not examined: signature verification is disabled for this'
         + ' registry',
       ],
@@ -254,7 +255,7 @@ describe('what one index build puts on the channel', () => {
     assert.deepStrictEqual(
       hostLines(host({ host: 'mid.example.test', indexed: 5 })),
       [
-        '  mid.example.test: 5 entities',
+        '  mid.example.test: 5 entities, 0 reads retried',
         '    0 deprecation markers recorded',
       ],
     );
@@ -293,9 +294,9 @@ describe('what one index build puts on the channel', () => {
     // of the destination are both the claim, and a membership test passes on any
     // order and on a list missing the destination entirely.
     assert.deepStrictEqual(indexBuildLines(WALKED), [
-      '  hub.example.test: 40 entities',
+      '  hub.example.test: 40 entities, 0 reads retried',
       '    1 deprecation marker recorded',
-      '  mid.example.test: 2 entities',
+      '  mid.example.test: 2 entities, 0 reads retried',
       '    0 deprecation markers recorded',
       '  index written to /work/project/.aggrega/index',
     ]);
@@ -342,12 +343,36 @@ describe('what one index build puts on the channel', () => {
         ],
       })),
       [
-        '  hub.example.test: 7 entities, 2 repositories could not be read',
+        '  hub.example.test: 7 entities, 2 repositories could not be read, 0 reads retried',
         '    1 deprecation marker recorded',
         '    skipped component/core/legacy: no conforming version',
         '    skipped plugin/core/old: manifest could not be read',
         '    deprecation component/core/db:1.0.0: recorded as warning',
       ],
+    );
+  });
+
+  it('states the reads the walk asked again on the registry row, beside the unreadable count', () => {
+    // 🔴 A WALK WHOSE RETRIES ALL SUCCEEDED LISTS NO REPOSITORY, so the count is the
+    // only sign of how close it came to leaving one out — and it is stated at zero
+    // too, so a row saying nothing is never read as none. The singular is its own
+    // row, since one read is the count a single passing failure produces.
+    assert.deepStrictEqual(
+      hostLines(host({ host: 'hub.example.test', indexed: 40, readsRetried: 3 }))[0],
+      '  hub.example.test: 40 entities, 3 reads retried',
+    );
+    assert.deepStrictEqual(
+      hostLines(host({ host: 'hub.example.test', indexed: 40, readsRetried: 1 }))[0],
+      '  hub.example.test: 40 entities, 1 read retried',
+    );
+    assert.deepStrictEqual(
+      hostLines(host({
+        host: 'hub.example.test',
+        indexed: 39,
+        readsRetried: 4,
+        skipped: [{ repo: 'component/core/web', reason: 'the registry answered 503 Service Unavailable: …' }],
+      }))[0],
+      '  hub.example.test: 39 entities, 1 repository could not be read, 4 reads retried',
     );
   });
 });
