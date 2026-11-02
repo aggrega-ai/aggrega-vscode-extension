@@ -106,11 +106,18 @@ async function searchFor(ctx: SuiteContext, query: string): Promise<QuickInput |
   await waitQuickInput(ctx.d, 'the palette showing the query', (q) => q.title === SEARCH_TITLE && q.rows.some((r) => r.label === 'Query' && r.description.includes(query)));
   const mark = (await toasts(ctx.d)).length;
   await pickQuickInputRow(ctx.d, 'Search');
-  const answer = await Promise.race([
-    waitQuickInput(ctx.d, 'the match list', (q) => /match\(es\)/.test(q.placeholder), 30000).catch(() => null),
-    waitToast(ctx.d, 'the search answering', mark, (t) => t.message.startsWith('Aggrega:'), 30000).then(() => null, () => null),
-  ]);
-  return answer;
+  // 🔴 ONE WAIT READS BOTH ENDINGS, RATHER THAN A RACE OF TWO. A wait goes on
+  // reading until its own cap whether or not anything still awaits it, so the
+  // side of a race that lost would keep reading this window long after the search
+  // ended — past this scenario's teardown — and its expiry would be reported
+  // against whichever check is running when the cap comes round.
+  const answer = await until('the match list or the search answering', 30000, async () => {
+    const q = await quickInput(ctx.d);
+    if (q !== null && /match\(es\)/.test(q.placeholder)) { return { list: q, ended: true }; }
+    const told = (await toastsSince(ctx.d, mark)).some((t) => t.message.startsWith('Aggrega:'));
+    return { list: null, ended: told };
+  }, (v) => v.ended).catch(() => ({ list: null, ended: false }));
+  return answer.list;
 }
 
 // ---- registrations --------------------------------------------------------------
@@ -419,8 +426,25 @@ const INDEX_BUILD_INCOMPLETE = 'The index build did not complete: ';
 
 // IndexHost and IndexAnswer are the part of the server's answer to an index
 // build these checks read.
-interface IndexHost { host: string; indexed: number; error?: string; unreachable?: boolean }
+interface IndexHost { host: string; indexed: number; readsRetried?: number; skipped?: unknown[] | null; error?: string; unreachable?: boolean }
 interface IndexAnswer { hosts: IndexHost[]; failed: string[] }
+
+// countOf words a count the way a registry's row on the channel does: the
+// singular for one, the plural otherwise.
+const countOf = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`;
+
+// indexedRow is the row the channel carries for a registry the answer reports
+// indexed, held as the words a reader is to meet and filled from that answer: how
+// many entities it indexed, how many repositories could not be read where any
+// could not, and how many reads were asked again — stated on every row, zero
+// included, since a walk whose retries all succeeded names no repository and that
+// count is the only sign of how close it came to leaving one out.
+function indexedRow(h: IndexHost): string {
+  const skipped = (h.skipped ?? []).length;
+  return `  ${h.host}: ${countOf(h.indexed, 'entity', 'entities')}`
+    + (skipped > 0 ? `, ${countOf(skipped, 'repository', 'repositories')} could not be read` : '')
+    + `, ${countOf(h.readsRetried ?? 0, 'read retried', 'reads retried')}`;
+}
 
 // configurePair registers the stub's two registries in the global configuration,
 // beside the two the scenario registered as it was prepared, with the compiler's
@@ -705,7 +729,7 @@ export async function registryChecks(ctx: SuiteContext, registry: ScratchRegistr
   });
 
   await c.run('registries-panel.update-index-reports-the-registry-beside-it-indexed', {
-    expected: `in that build, the channel carries "  ${stubs.wellBehaved}: <n> entity" ("entities" where <n> is not one), <n> being the count the server's own answer to the same request gives for ${stubs.wellBehaved}, at least one; and the ending, whose parentheses after "could not be indexed" name ${stubs.repeating}, does not name ${stubs.wellBehaved} there`,
+    expected: `in that build, the channel carries "  ${stubs.wellBehaved}: <n> entity, <r> reads retried" ("entities" where <n> is not one, "read" where <r> is one), <n> being the count the server's own answer to the same request gives for ${stubs.wellBehaved}, at least one, and <r> the reads that answer says were asked again, zero included; and the ending, whose parentheses after "could not be indexed" name ${stubs.repeating}, does not name ${stubs.wellBehaved} there`,
     plant: 'in the scratch copy, out/src/registry-index-request.js made to name every registry walked as not indexed',
   }, async () => {
     const run0 = pressed;
@@ -715,14 +739,15 @@ export async function registryChecks(ctx: SuiteContext, registry: ScratchRegistr
     const channel = await ctx.out.waitFor('the index build writing its ending', run0.outMark, (t) => endingOf(t) !== null, 30000);
     const ending = endingOf(channel) ?? '';
     const lines = runLines(channel);
-    const hostLine = `  ${stubs.wellBehaved}: ${good.indexed} ${good.indexed === 1 ? 'entity' : 'entities'}`;
+    need(typeof good.readsRetried === 'number', `the server's own answer to the same request gives ${stubs.wellBehaved} no count of reads asked again: ${answerRaw}`);
+    const hostLine = indexedRow(good);
     const named = notIndexedIn(ending);
     // The reading of the ending's parentheses is shown to fire on the registry it
     // must name before its silence on the one beside it is believed.
     const readsTheList = named.includes(stubs.repeating);
     return {
       passed: lines.includes(hostLine) && readsTheList && !named.includes(stubs.wellBehaved),
-      seen: `the channel's run: ${JSON.stringify(lines)}; its ending "${ending}"; named as not indexed ${JSON.stringify(named)}; the server's own answer gives ${stubs.wellBehaved} ${good.indexed} indexed`,
+      seen: `the channel's run: ${JSON.stringify(lines)}; its ending "${ending}"; named as not indexed ${JSON.stringify(named)}; the server's own answer gives ${stubs.wellBehaved} ${good.indexed} indexed and ${good.readsRetried} read(s) retried, so its row reads ${JSON.stringify(hostLine)}`,
     };
   });
 

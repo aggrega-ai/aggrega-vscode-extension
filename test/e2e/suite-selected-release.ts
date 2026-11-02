@@ -387,12 +387,25 @@ export async function selectedReleaseChecks(ctx: SuiteContext, reference: string
   // The Catalog row's correctness check on the volume, read as the command line
   // the channel shows and the line the check closes on, against the compiler run
   // with the same path and the same Release over the reference copy.
+  //
+  // 🔴 THE ROW PRESSED IS ONE THE PANEL DREW FROM THE SELECTED RELEASE'S LIST, SO
+  // IT IS PRESSED ONLY ONCE THE PANEL HEADS ITS COMPONENTS AS THAT LIST DOES. A
+  // move of the selection has the panel read its list again, and the editor hands
+  // a row's command the row by a handle composed from the labels above it — the
+  // kind heading's included, which carries the count — so a row drawn from the
+  // list read before the move, pressed after the new one has been read, reaches
+  // the command as no row at all, and the press runs nothing.
   const rowCheckReading = async (release: Terms): Promise<Reading> => {
     const args = ['validate', SIZED_VOLUME.file, ...(release === null ? [] : ['--release', release])];
     const cli = await runCompiler(bin, args, { cwd: reference, home: ctx.home, boundMs: 120000, log: ctx.cliLog });
     const want = cli.status === 0 ? `${CHECK} checked ${SIZED_VOLUME.file}.` : `${CHECK} did not complete: the compiler exited with status ${cli.status}: ${cli.stderr.trim()}`;
+    const index = await answer('aggrega/catalogIndex', named({}, release)) as Partial<CatalogIndexDoc>;
+    const heading = `${COMPONENTS} (${(index.entities ?? []).filter((e) => e.kind === COMPONENTS).length})`;
     await closeAllEditors(ctx);
     await run(ctx, 'aggrega.workspaceCatalog.focus');
+    // A panel that never reads the selected Release's list fails the check here,
+    // in the wait's own words: the row it would press is not that Release's.
+    await until(`the Catalog panel heading its Components "${heading}", as the language server's own index in ${termsName(release)}'s terms does`, 20000, () => treeRows(ctx.d, 'Catalog'), (v) => (v ?? []).some((r) => r.label === heading));
     const menu = await rowMenu(ctx.d, 'Catalog', SIZED_VOLUME.name);
     need(menu.reached && menu.items.includes(validateItem), `the "${SIZED_VOLUME.name}" row's context menu offers no "${validateItem}" to press: ${describeRowMenu(menu)}`);
     const mark = ctx.out.mark();

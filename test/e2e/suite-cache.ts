@@ -31,7 +31,6 @@ export const CACHE_CHECKS = [
   'cache.sizes-are-written-in-the-units-a-cap-is-read-in',
   'cache.dismissed-cap-prompt-runs-nothing',
   'cache.unreadable-cap-comes-back-in-the-compilers-words',
-  'cache.a-size-the-report-shows-is-accepted-as-the-cap',
   'cache.trim-to-a-cap-trims-or-says-it-was-within',
   'cache.trim-that-removes-with-nothing-held-open-says-nothing-of-it',
   'cache.prune-ends-in-what-it-removed-and-kept',
@@ -39,6 +38,7 @@ export const CACHE_CHECKS = [
   'cache.declined-clear-sends-nothing-and-says-so',
   'cache.clear-completes-and-says-what-it-emptied',
   'cache.clear-with-nothing-held-open-says-nothing-of-it',
+  'cache.a-size-the-report-shows-is-accepted-as-the-cap',
   'cache.each-removal-confirms-first-naming-the-caches-it-reaches',
   'cache.operations-write-no-dollar-line-and-draw-no-progress-or-cancel',
   'cache.operations-reach-only-this-scenarios-caches',
@@ -366,20 +366,6 @@ export async function cacheChecks(ctx: SuiteContext, referenceFolder: string): P
     return { passed: all, seen: seen.join('; ') };
   });
 
-  await c.run('cache.a-size-the-report-shows-is-accepted-as-the-cap', {
-    expected: 'the report\'s total size, typed exactly as the report prints it into the size cap prompt and confirmed, is accepted: the trim ends in a sentence of what it did — it removed entries, or the cache was already within the cap — and not in a refusal',
-    plant: 'in the scratch copy, out/src/operations.js with the report\'s total size printed with its unit spelled out',
-  }, async () => {
-    need(totalSize !== '', 'the report printed no total size to type');
-    const toastMark = (await toasts(ctx.d)).length;
-    await openCache('evict');
-    await trimInput(totalSize);
-    await confirmation('evict', ASKED.evict.button);
-    const told = await ending('the trim\'s notification', toastMark, (t) => t.message.startsWith('The trim '));
-    const accepted = told !== null && (TRIM_WITHIN.test(told.message) || TRIM_REMOVED.test(told.message));
-    return { passed: accepted, seen: `typed ${JSON.stringify(totalSize)}; ${told === null ? 'no notification' : `"${told.message}" (${told.severity})`}` };
-  });
-
   await c.run('cache.trim-to-a-cap-trims-or-says-it-was-within', {
     expected: 'evict answered "512MiB" and confirmed ends in a notification that it trimmed — "The trim removed <n> entries and reclaimed <size>." — or "The trim removed nothing: the cache held <size>, already within the <cap> cap."; the channel carries the same sentence',
     plant: 'in the scratch copy, out/src/operations.js with a trim already within its cap ending without what the cache held or what the cap was',
@@ -509,6 +495,28 @@ export async function cacheChecks(ctx: SuiteContext, referenceFolder: string): P
     expected: `the wipe above ends in exactly "The cache wipe emptied <n> caches and reclaimed <size>. They repopulate on the next build." with nothing after it, and every channel line between "${CLEAR_OPENING}" and that ending is one the wipe writes for a cache it emptied, how far it reached and the workspace — none of them about files left in place, which on this host no wipe leaves`,
     plant: 'in the scratch copy, out/src/operations.js with the wipe\'s ending counting one file more left in place because another process has it open than its answer names',
   }, async () => plainEnding('wipe', clearReading, CLEAR_OPENING, CLEAR_ENDING_EXACT, CLEAR_LINES));
+
+  // 🔴 THIS TRIM COMES AFTER THE WIPE, NOT BESIDE THE OTHER TRIMS, BECAUSE IT MAY
+  // REMOVE EVERYTHING. The report prints a size to one decimal place, so the
+  // total typed back as the cap can be a few bytes under what the store holds,
+  // and the trim then removes leaves oldest first until it fits — which, where
+  // one leaf alone is larger than that cap, is every leaf. Taken before the trim
+  // that must remove one leaf and the wipe that must empty what is left, it would
+  // leave both with no compiled module to act on. Whichever of its two endings it
+  // reaches here, the size it is given is the one the report printed.
+  await c.run('cache.a-size-the-report-shows-is-accepted-as-the-cap', {
+    expected: 'the report\'s total size, typed exactly as the report prints it into the size cap prompt and confirmed, is accepted: the trim ends in a sentence of what it did — it removed entries, or the cache was already within the cap — and not in a refusal',
+    plant: 'in the scratch copy, out/src/operations.js with the report\'s total size printed with its unit spelled out',
+  }, async () => {
+    need(totalSize !== '', 'the report printed no total size to type');
+    const toastMark = (await toasts(ctx.d)).length;
+    await openCache('evict');
+    await trimInput(totalSize);
+    await confirmation('evict', ASKED.evict.button);
+    const told = await ending('the trim\'s notification', toastMark, (t) => t.message.startsWith('The trim '));
+    const accepted = told !== null && (TRIM_WITHIN.test(told.message) || TRIM_REMOVED.test(told.message));
+    return { passed: accepted, seen: `typed ${JSON.stringify(totalSize)}; ${told === null ? 'no notification' : `"${told.message}" (${told.severity})`}` };
+  });
 
   await c.run('cache.each-removal-confirms-first-naming-the-caches-it-reaches', {
     expected: `each of prune, evict and clear draws its confirmation before anything reaches the channel or the store, and each names what it reaches: prune "${ASKED.prune.message}" naming this workspace's caches and those every project on this machine shares, with "${ASKED.prune.button}"; evict "${ASKED.evict.message}" with the detail "${ASKED.evict.detail}" and "${ASKED.evict.button}"; clear "${ASKED.clear.message}" with the detail "${ASKED.clear.detail}" and "${ASKED.clear.button}"; status draws none`,
