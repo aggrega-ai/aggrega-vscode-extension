@@ -167,24 +167,61 @@ jobs:
           fi
           echo "release tag $TAG: package.json's version $version, on a commit of main"
 
+      - name: Make this run's package directory
+        # 🔴 A DIRECTORY NO EARLIER RUN HAS USED. A self-hosted runner can keep
+        # what an earlier job left under its temporary directory, and the
+        # packager refuses a work directory that is not empty and an output
+        # directory already holding the .vsix it is about to write. So each run
+        # makes a new directory of its own there, holding the build's work
+        # directory (work/) and the one .vsix (out/), and the last step of this
+        # job removes it.
+        id: package-dir
+        run: |
+          set -euo pipefail
+          dir="$(mktemp -d "$RUNNER_TEMP/vsix.XXXXXXXXXX")"
+          echo "dir=$dir" >> "$GITHUB_OUTPUT"
+          echo "this run's package directory: $dir"
+
       - name: Build the package
-        # Builds from the checkouts' commits in a work directory outside them, and
-        # writes the one .vsix into $RUNNER_TEMP/vsix.
+        # Builds from the checkouts' commits in this run's work directory,
+        # outside them, and writes the one .vsix into this run's out/.
+        env:
+          PACKAGE_DIR: ${{ steps.package-dir.outputs.dir }}
         run: |
           set -euo pipefail
           node aggrega-vscode-extension/scripts/vsix.js package \
             --source aggrega-vscode-extension \
             --abi aggrega-abi \
             --cli aggrega-cli \
-            --work "$RUNNER_TEMP/vsix-work" \
-            --out "$RUNNER_TEMP/vsix"
+            --work "$PACKAGE_DIR/work" \
+            --out "$PACKAGE_DIR/out"
 
       - name: Upload the package
         uses: actions/upload-artifact@v4
         with:
           name: vsix
-          path: ${{ runner.temp }}/vsix/*.vsix
+          path: ${{ steps.package-dir.outputs.dir }}/out/*.vsix
           if-no-files-found: error
+
+      - name: Remove this run's package directory
+        # Whatever the job's outcome, once the directory exists. Owner write
+        # permission is restored first, so no read-only entry the build left
+        # stands in the way. A removal that still fails warns rather than
+        # failing the job: the build and the upload have already given the
+        # job its verdict, and no later run reads this directory, since each
+        # makes its own.
+        if: ${{ always() && steps.package-dir.outputs.dir != '' }}
+        env:
+          PACKAGE_DIR: ${{ steps.package-dir.outputs.dir }}
+        run: |
+          set -uo pipefail
+          chmod -R u+w -- "$PACKAGE_DIR" || true
+          rm -rf -- "$PACKAGE_DIR" || true
+          if [ -e "$PACKAGE_DIR" ]; then
+            echo "::warning::could not remove this run's package directory $PACKAGE_DIR; no later run reads it, so remove it by hand"
+          else
+            echo "removed this run's package directory: $PACKAGE_DIR"
+          fi
 
   publish-marketplace:
     # Publishes to the Visual Studio Marketplace, or on a dry run checks that the
