@@ -1170,13 +1170,25 @@ export async function storefrontChecks(ctx: SuiteContext, referenceFolder: strin
     };
   });
 
+  // Put the configuration back and let the server read it. The check below needs a
+  // state holding its own fault alone: with the listing of the missing catalog
+  // directory left in place, that refusal — which the graph above has already
+  // answered for the Release — would be the dependency failure it reads, not the one
+  // it rewrites the Manifest to raise. The restart starts a session that has
+  // answered no graph for the Release.
+  fs.writeFileSync(config, original);
+  await closeAllEditors(ctx);
+  const beforeRestore = await theServer(ctx).catch(() => null);
+  await send(ctx, RESTART_COMMAND);
+  if (beforeRestore) { await theServer(ctx, 30000, beforeRestore.pid).catch(() => undefined); }
+  await waitStatus(ctx.d, RUNNING, 60000).catch(() => undefined);
+
   // A failing dependency resolution is reported on the Release's own document and
-  // on no YAML file that is not an Aggrega document. Its state is one edit more:
-  // the Manifest's Feature mapping rewritten on disk to name an entity no catalog
-  // holds, which fails the selected Release's dependencies. The Manifest is put
-  // back, and the workflow file removed, whatever the check does, so the
-  // configuration's restore below and every check after it read the folder as it
-  // was.
+  // on no YAML file that is not an Aggrega document. Its state is the folder as it
+  // was found, with one edit: the Manifest's Feature mapping rewritten on disk to
+  // name an entity no catalog holds, which fails the selected Release's
+  // dependencies. The Manifest is put back, and the workflow file removed, whatever
+  // the check does, so every check after it reads the folder as it was.
   const manifest = path.join(ctx.folder, 'manifest-compose.yaml');
   const workflow = path.join(ctx.folder, '.github', 'workflows', 'ci.yml');
   const workflowDir = path.join(ctx.folder, '.github');
@@ -1247,14 +1259,6 @@ export async function storefrontChecks(ctx: SuiteContext, referenceFolder: strin
       fs.rmSync(workflowDir, { recursive: true, force: true });
     }
   });
-
-  // Put the configuration back and let the server read it.
-  fs.writeFileSync(config, original);
-  await closeAllEditors(ctx);
-  const beforeRestore = await theServer(ctx).catch(() => null);
-  await send(ctx, RESTART_COMMAND);
-  if (beforeRestore) { await theServer(ctx, 30000, beforeRestore.pid).catch(() => undefined); }
-  await waitStatus(ctx.d, RUNNING, 60000).catch(() => undefined);
 
   const missing = path.join(ctx.s.root.dir, 'no-such-compiler', 'aggrega');
   const userSettings = path.join(ctx.s.root.userData, 'User', 'settings.json');
