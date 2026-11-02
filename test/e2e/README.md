@@ -47,11 +47,15 @@ its own under your home directory, which invoking `node` directly does not.
 Each run writes `suite.json` beside a plain summary, `suite.txt`, in a directory
 of its own under the scratch directory. The report is headed with the
 extension's build stamp, the compiler's version and commit, the editor's version
-and the catalog's commit, and gives each check one of four outcomes:
+and the catalog's commit, and gives each check one of five outcomes:
 
 - **passed** or **failed**, with what was seen against what was expected;
-- **not run**, with the reason: a precondition that could not be built or
-  reached. A check not run is never counted as passed;
+- **not run**, with the reason: a precondition this run could not build or
+  reach. A check not run is never counted as passed, and it fails the run;
+- **cannot run here**, with the reason its declaration states: a check whose
+  state no run can build, declared as such before any run. It is never counted
+  as passed and it does not fail the run; the summary lists every such check in
+  a section of its own;
 - **for a person**, where the question is a judgement: the check stops at the
   state to judge and leaves a capture and the drawn text for someone to look at.
 
@@ -433,8 +437,9 @@ and of the language server, what it found newer than the run's start in the
 places outside the scratch directory a run could write to (another program on the
 machine may have written there too, so the report lists what it found rather
 than attributing it), and whether any process the run started is still alive. The runner
-exits 0 when every check passed, 1 when one failed or was not run, and 2 when it
-refused to start.
+exits 0 when no check failed or was not run, every fixture was built and no
+process the run started is still alive — a check that cannot run here or is left
+for a person fails nothing — 1 otherwise, and 2 when it refused to start.
 
 Other commands and options:
 

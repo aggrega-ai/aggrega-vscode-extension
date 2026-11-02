@@ -304,6 +304,44 @@ export function placeOwnCatalogs(docsCheckoutParent: string, dest: string, catal
   };
 }
 
+// SECOND_AGGREGATE is the Aggregate a copy placed by placeOwnCatalogs gains for
+// the check that moves the selection between two Releases and reads which one the
+// graph is drawn from: every Release of the example deploys the one Aggregate, so
+// each node of every Release's graph names the same document and two drawings
+// cannot be told apart by it. The copy gains a copy of that Aggregate differing
+// only in its name, under another file, and `release` is pointed at it by that
+// name; the Components, their values and every other Release are left as they
+// were.
+export const SECOND_AGGREGATE = { release: 'release-helm-chart.yaml', from: 'aggregate.yaml', file: 'aggregate-chart.yaml', was: 'aggregate', name: 'aggregate-chart' } as const;
+
+// placeSecondAggregate writes SECOND_AGGREGATE into a copy placed by
+// placeOwnCatalogs, refusing where the copy already holds its file, where the
+// Aggregate it copies does not carry its name once, or where the Release does not
+// name that Aggregate once; and reads both documents back.
+export function placeSecondAggregate(folder: string): FixtureProof {
+  const a = SECOND_AGGREGATE;
+  const fixture = `second Aggregate in ${path.basename(folder)}`;
+  const target = path.join(folder, a.file);
+  const release = path.join(folder, a.release);
+  const named = { as: `\nmetadata:\n  name: ${a.was}\n`, to: `\nmetadata:\n  name: ${a.name}\n` };
+  const pointer = { as: `\n  aggregate: ${a.was}\n`, to: `\n  aggregate: ${a.name}\n` };
+  const source = fs.readFileSync(path.join(folder, a.from), 'utf8');
+  const releaseText = fs.readFileSync(release, 'utf8');
+  const refusals = [
+    fs.existsSync(target) ? `the copy already holds ${a.file}` : '',
+    occurrences(source, named.as) !== 1 ? `${a.from} does not carry "name: ${a.was}" under metadata once` : '',
+    occurrences(releaseText, pointer.as) !== 1 ? `${a.release} does not name the Aggregate ${a.was} once` : '',
+  ].filter((r) => r !== '');
+  if (refusals.length > 0) { throw new FixtureError(fixture, refusals.join('; ')); }
+  const written = { aggregate: source.replace(named.as, named.to), release: releaseText.replace(pointer.as, pointer.to) };
+  fs.writeFileSync(target, written.aggregate);
+  fs.writeFileSync(release, written.release);
+  if (fs.readFileSync(target, 'utf8') !== written.aggregate || fs.readFileSync(release, 'utf8') !== written.release) {
+    throw new FixtureError(fixture, `${a.file} or ${a.release} does not read back as written`);
+  }
+  return { fixture, built: true, proof: `${a.file} is ${a.from} with metadata.name ${a.name}, and ${a.release} deploys it by that name rather than ${a.was}; both read back as written` };
+}
+
 // The two entities the copy gains for the checks that read a request answered in
 // the selected Release's terms, beside the example's own. Every variant of the
 // example declares the same Component names, and the variants of the Component

@@ -49,6 +49,14 @@ export interface CliRun {
   elapsedMs: number;
 }
 
+// endingOf words how one invocation ended and after how long: its exit status,
+// or the signal that ended it — the one a run killed at its bound gets is SIGKILL —
+// or, where it could not be started, that it has neither.
+export function endingOf(run: CliRun): string {
+  const how = run.status !== null ? `exit ${run.status}` : run.signal !== null ? `ended by ${run.signal}` : 'ended with no exit status and no signal';
+  return `${how} after ${run.elapsedMs} ms`;
+}
+
 // runCompiler runs the compiler once, bounded, in `cwd`, and records the
 // invocation in `log`. It never throws for a non-zero exit: what the compiler
 // said is the result, and the caller decides what it means.
@@ -68,7 +76,7 @@ export function runCompiler(
     child.on('close', (status, signal) => {
       clearTimeout(timer);
       const run: CliRun = { args, cwd: opts.cwd, status, signal, stdout, stderr, elapsedMs: Date.now() - t0 };
-      fs.appendFileSync(opts.log, `$ aggrega ${args.join(' ')}   (cwd: ${opts.cwd})\n${stdout}${stderr}-- exit ${status ?? signal} in ${run.elapsedMs} ms\n\n`);
+      fs.appendFileSync(opts.log, `$ aggrega ${args.join(' ')}   (cwd: ${opts.cwd})\n${stdout}${stderr}-- ${endingOf(run)}\n\n`);
       resolve(run);
     });
     child.on('error', (err) => {

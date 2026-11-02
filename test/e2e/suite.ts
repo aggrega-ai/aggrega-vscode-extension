@@ -4,12 +4,12 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-import { CheckResult, Checks, EnoughReported, sealDeclarations, tally } from './checks';
+import { CheckResult, Checks, EnoughReported, sealDeclarations, suitePassed, tally } from './checks';
 import { makeScratchHome, ScratchHome } from './cli';
 import { createScenarioRoot, ScenarioRoot } from './editor';
 import {
-  copyLockfile, FixtureError, FixtureProof, MYSQL_CATALOG_LINE, MYSQL_EXAMPLE, placeDocsExample, placeEmptyBeneathWorkspace, placeFolder, placeOwnCatalogs, placeSelectionReadings,
-  placeUnanchored, placeWorkspaceAbove, proveMissing, proveUnreachable, readTree, Tree, UNREACHABLE_HOST, writeLockfile,
+  copyLockfile, FixtureError, FixtureProof, MYSQL_CATALOG_LINE, MYSQL_EXAMPLE, placeDocsExample, placeEmptyBeneathWorkspace, placeFolder, placeOwnCatalogs, placeSecondAggregate,
+  placeSelectionReadings, placeUnanchored, placeWorkspaceAbove, proveMissing, proveUnreachable, readTree, Tree, UNREACHABLE_HOST, writeLockfile,
 } from './fixtures';
 import { Inputs, REPO_ROOT } from './inputs';
 import { placeLayouts, POSTGRES_EXAMPLE, proveNothingAbove } from './layouts';
@@ -266,7 +266,7 @@ function plans(inputs: Inputs): ScenarioPlan[] {
         const docs = path.resolve(REPO_ROOT, '..');
         const layout = placeOwnCatalogs(docs, path.join(root.dir, 'workspace', 'mariadb-adminer'), inputs.catalog.dir);
         const reference = placeOwnCatalogs(docs, path.join(root.dir, 'reference', 'mariadb-adminer'), inputs.catalog.dir);
-        const fixtures = [layout.proof, reference.proof];
+        const fixtures = [layout.proof, placeSecondAggregate(layout.folder), reference.proof, placeSecondAggregate(reference.folder)];
         for (const release of OFFLINE_RELEASES) {
           fixtures.push(await writeLockfile(bin, layout.folder, release, home, log), copyLockfile(layout.folder, reference.folder, release));
         }
@@ -936,6 +936,8 @@ function line(r: CheckResult): string[] {
     out.push(`      seen: ${r.seen}`);
   } else if (r.verdict === 'not run') {
     out.push(`      not run: ${r.reason ?? ''}`);
+  } else if (r.verdict === 'cannot run here') {
+    out.push(`      cannot run here: ${r.reason ?? ''}`);
   } else if (r.verdict === 'for a person') {
     out.push(`      question: ${r.forPerson?.question ?? ''}`, `      capture: ${r.forPerson?.screenshot ?? 'none'}`, `      drawn: ${clip(r.forPerson?.drawnText ?? '', 400)}`);
   } else {
@@ -1001,7 +1003,8 @@ export async function runSuite(opts: { inputs: Inputs; runDir: string; driverNam
     if (s.ranOutOutsideChecks.length > 0) { summary.push(ranOutLine('  outside the checks, ', s.ranOutOutsideChecks)); }
     for (const r of s.results) { summary.push(...line(r)); }
   }
-  summary.push('', `checks: ${t.passed} passed, ${t.failed} failed, ${t['not run']} not run, ${t['for a person']} for a person; not run is not counted as passed`, `wall clock ${Date.now() - t0} ms`);
+  summary.push(...cannotRunHereSection(results));
+  summary.push('', `checks: ${t.passed} passed, ${t.failed} failed, ${t['not run']} not run, ${t['cannot run here']} cannot run here, ${t['for a person']} for a person; neither not run nor cannot run here is counted as passed; not run fails the suite, and cannot run here does not`, `wall clock ${Date.now() - t0} ms`);
   if (plant !== null && outcomes !== null) {
     const failed = results.filter((r) => r.verdict === 'failed').map((r) => r.name);
     summary.push(
@@ -1013,6 +1016,19 @@ export async function runSuite(opts: { inputs: Inputs; runDir: string; driverNam
   fs.writeFileSync(path.join(opts.runDir, 'suite.checks.json'), `${JSON.stringify(results, null, 2)}\n`);
   const allPassed = outcomes !== null
     ? outcomes.every((o) => o.moved) && fixturesFailed.length === 0
-    : t.failed === 0 && t['not run'] === 0 && fixturesFailed.length === 0;
+    : suitePassed(results, fixturesFailed.length);
   return { data, summary, allPassed };
+}
+
+// cannotRunHereSection lists, apart from the scenarios' own lines, every check
+// that cannot run here, with the reason its declaration states, so the checks a
+// passing suite still did not run are read in one place.
+export function cannotRunHereSection(results: readonly CheckResult[]): string[] {
+  const unreached = results.filter((r) => r.verdict === 'cannot run here');
+  if (unreached.length === 0) { return []; }
+  return [
+    '',
+    `cannot run here: ${unreached.length} — each needs a state no run can build, as it was declared before any run; none is counted as passed and none fails the suite; where you can build the state, walk it by hand`,
+    ...unreached.flatMap((r) => [`  ${r.scenario} / ${r.name}`, `      cannot run here: ${r.reason ?? ''}`]),
+  ];
 }

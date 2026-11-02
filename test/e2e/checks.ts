@@ -5,14 +5,27 @@ import { RanOut, ranOutMark, ranOutSince, WaitExpired } from './workbench';
 
 // A check, and what it reports.
 //
-// 🔴 FOUR OUTCOMES, AND "NOT RUN" IS NEVER COUNTED AS PASSED. A check passes or
-// fails on what it saw against what was expected; it is not run where its
-// precondition could not be built or reached, and it says which; and where the
-// judgement is a person's, the check stops at that state and leaves a capture and
-// the drawn text for them, neither passing nor failing it. A check skipped and a
-// check that worked are the same shape in a summary and opposite in truth.
+// 🔴 FIVE OUTCOMES, AND NEITHER "NOT RUN" NOR "CANNOT RUN HERE" IS EVER COUNTED AS
+// PASSED. A check passes or fails on what it saw against what was expected; it is
+// not run where this run could not build or reach its precondition, and it says
+// which; it cannot run here where it was declared, before any run, as needing a
+// state no run can build, and it carries the reason that declaration states; and
+// where the judgement is a person's, the check stops at that state and leaves a
+// capture and the drawn text for them, neither passing nor failing it. A check
+// skipped and a check that worked are the same shape in a summary and opposite in
+// truth.
+//
+// "Not run" fails the suite: something this run should have built did not hold.
+// "Cannot run here" does not: no run could do better, so counting it would keep
+// every run red and hide the next real failure behind it. It is a verdict of its
+// own rather than "not run" with a mark, so every reader that sorts by verdict —
+// the summary's count, a red run's list of what failed or was not run — keeps it
+// apart without having to know of the mark.
 
-export type Verdict = 'passed' | 'failed' | 'not run' | 'for a person';
+export type Verdict = 'passed' | 'failed' | 'not run' | 'cannot run here' | 'for a person';
+
+// VERDICTS is every verdict, in the order a summary counts them.
+export const VERDICTS: readonly Verdict[] = ['passed', 'failed', 'not run', 'cannot run here', 'for a person'];
 
 // CheckMeta is what a check states before it runs: what it expects, and in
 // words the one edit to the scratch copy of the extension or of a fixture that
@@ -41,11 +54,12 @@ export interface CheckResult extends CheckMeta {
 // A check the suite stops short of deciding is declared once, at module load, so
 // that `run.js checklist` lists every one of them without launching anything:
 // a Judgement, which a run brings to its state and leaves for a person with what
-// it captured; and an Unreachable, whose state no run can build, reported not run
-// in every run with the reason it states. Checks.forPerson and Checks.notRun take
-// nothing else, and neither kind can be made but by its declare, so a judgement
-// written inline at a check cannot compile and one declared inside a running
-// scenario stops it: every such check a scenario reaches is in the list.
+// it captured; and an Unreachable, whose state no run can build, reported as one
+// that cannot run here in every run, with the reason it states. Checks.forPerson
+// and Checks.notRun take nothing else, and neither kind can be made but by its
+// declare, so a judgement written inline at a check cannot compile and one
+// declared inside a running scenario stops it: every such check a scenario
+// reaches is in the list.
 const declared: (Judgement | Unreachable)[] = [];
 let sealed = false;
 
@@ -158,13 +172,17 @@ export class Checks {
     return this.keep(withRanOut(r, mark));
   }
 
+  // notRun reports a declared Unreachable as a check that cannot run here, with
+  // the reason its declaration states. It is the one way that verdict is made.
   notRun(u: Unreachable): CheckResult {
-    return this.keep({ scenario: this.scenario, name: u.name, expected: u.expected, plant: u.plant, verdict: 'not run', seen: '', reason: u.reason, elapsedMs: 0 });
+    return this.keep({ scenario: this.scenario, name: u.name, expected: u.expected, plant: u.plant, verdict: 'cannot run here', seen: '', reason: u.reason, elapsedMs: 0 });
   }
 
   // reportUnrun reports as not run a check the scenario names that never
   // reported. It ends nothing: it is how a scenario that has already ended
-  // accounts for the rest of its checks.
+  // accounts for the rest of its checks. A declared Unreachable the scenario
+  // stopped before is reported not run like any other: the run stopped, which is
+  // this run's failure whatever the check could have done.
   reportUnrun(name: string, reason: string): void {
     this.results.push({ scenario: this.scenario, name, expected: '', plant: '', verdict: 'not run', seen: '', reason, elapsedMs: 0 });
   }
@@ -190,8 +208,19 @@ export class Checks {
 }
 
 // tally counts results by verdict.
-export function tally(results: CheckResult[]): Record<Verdict, number> {
-  const t: Record<Verdict, number> = { 'passed': 0, 'failed': 0, 'not run': 0, 'for a person': 0 };
-  for (const r of results) { t[r.verdict]++; }
+export function tally(results: readonly { verdict: string }[]): Record<Verdict, number> {
+  const t = Object.fromEntries(VERDICTS.map((v) => [v, 0])) as Record<Verdict, number>;
+  for (const r of results) {
+    if ((VERDICTS as readonly string[]).includes(r.verdict)) { t[r.verdict as Verdict]++; }
+  }
   return t;
+}
+
+// suitePassed is the suite's verdict over its results and the fixtures it could
+// not build: no check failed and none was left not run, and every fixture was
+// built. A check that cannot run here, or that is left for a person, neither
+// passes nor fails it.
+export function suitePassed(results: readonly { verdict: string }[], fixturesFailed: number): boolean {
+  const t = tally(results);
+  return t.failed === 0 && t['not run'] === 0 && fixturesFailed === 0;
 }

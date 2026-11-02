@@ -5,7 +5,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { NeedleResult, runNeedles } from './calibration';
-import { declaredChecks, Judgement } from './checks';
+import { declaredChecks, Judgement, VERDICTS } from './checks';
 import { containmentSummary, ContainmentStart, markStart, placesFor, readContainment } from './containment';
 import { markRunnerEnvironment } from './editor';
 import { DOCS_EXAMPLE, MYSQL_EXAMPLE, OWN_CATALOGS_EXAMPLE } from './fixtures';
@@ -69,10 +69,13 @@ import { runSuite, SCENARIO_CHECKS } from './suite';
 //                            they have reported, and report whether they moved
 //                            the way the plant says
 //
-// Exit status: 0 when every reading passed (for a plant run: when every check
-// the plant was made for moved the way it says; for compare: when the two
-// reports agree; for checklist: when every check it lists is one a scenario
-// runs), 1 otherwise, 2 when the run was refused before it launched anything.
+// Exit status: 0 when every reading passed (for suite: when no check failed or
+// was not run, every fixture was built and no process it started outlived it, a
+// check that cannot run here or is left for a person failing nothing; for a plant
+// run: when every check the plant was made for moved the way it says; for
+// compare: when the two reports agree; for checklist: when every check it lists
+// is one a scenario runs), 1 otherwise, 2 when the run was refused before it
+// launched anything.
 
 const DRIVERS = ['playwright-devtools', 'playwright-electron'];
 
@@ -355,7 +358,7 @@ function commandChecklist(): number {
         judged.push(`  ${scenario} / ${name}`, `      expected: ${d.expected}`, `      question: ${d.question}`);
       } else {
         unreachedCount++;
-        unreached.push(`  ${scenario} / ${name}`, `      expected: ${d.expected}`, `      not run: ${d.reason}`);
+        unreached.push(`  ${scenario} / ${name}`, `      expected: ${d.expected}`, `      cannot run here: ${d.reason}`);
       }
     }
   }
@@ -364,7 +367,7 @@ function commandChecklist(): number {
     'checklist: what the suite leaves to a person, read from the checks\' declarations; nothing is launched',
     `left for a person: ${judgedCount} — a run brings the editor to each state and leaves it there, with what it captured, for a person to judge`,
     ...judged,
-    `never run: ${unreachedCount} — no run can build the state each needs, so every run reports it not run, with this reason; where you can build the state, walk it by hand`,
+    `cannot run here: ${unreachedCount} — no run can build the state each needs, so every run reports it as one that cannot run here, with this reason, and does not fail on it; where you can build the state, walk it by hand`,
     ...unreached,
   ];
   if (stray.length > 0) { lines.push(`declared but run by no scenario: ${stray.join(', ')}`); }
@@ -401,7 +404,7 @@ function commandCompare(opts: Options): number {
   const differ = all.filter((k) => va.get(k) !== vb.get(k));
   for (const k of differ) { lines.push(`  ${k}: ${va.get(k) ?? 'absent'} | ${vb.get(k) ?? 'absent'} — DIFFERS`); }
   const count = (m: Map<string, string>, v: string): number => [...m.values()].filter((x) => x === v).length;
-  const tally = (m: Map<string, string>): string => ['passed', 'failed', 'not run', 'for a person'].map((v) => `${count(m, v)} ${v}`).join(', ');
+  const tally = (m: Map<string, string>): string => VERDICTS.map((v) => `${count(m, v)} ${v}`).join(', ');
   lines.push(`checks compared: ${all.length}; ${differ.length === 0 ? 'every verdict the same' : `${differ.length} verdict(s) differ`}; first ${tally(va)}; second ${tally(vb)}`);
   lines.push(`inputs: ${headerDiffers.length === 0 ? 'the same header in both' : `the headers differ in ${headerDiffers.join(', ')}`}`);
   process.stdout.write(`${lines.join('\n')}\n`);

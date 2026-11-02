@@ -21,8 +21,9 @@ rather than a walk. To reach one again, run its scenario alone with `suite --onl
 ## The checks the suite never runs
 
 The same listing ends with the checks whose state no run can build, each with the reason, and a
-run reports each of them as **not run**. Where you can build the state a check names, walk it by
-hand and judge it by the check's expectation.
+run reports each of them as **cannot run here**, in a section of its own, without failing on it.
+Where you can build the state a check names, walk it by hand and judge it by the check's
+expectation.
 
 ## What no check reaches
 

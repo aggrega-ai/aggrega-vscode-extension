@@ -11,7 +11,7 @@ import { REMOVAL_SUBJECT } from '../../src/plugin-removal';
 import { CONFIGURED_GROUP_LABEL, EMBEDDED_GROUP_LABEL, PluginListDoc, pluginRemovalConfigTarget, rowForPlugin } from '../../src/plugins-run';
 import { shortUri } from '../../src/uri-display';
 import { need } from './checks';
-import { runCompiler } from './cli';
+import { endingOf, runCompiler } from './cli';
 import { containerViews, PANEL_ORDER, restoring } from './commands-panel';
 import { EDITOR_CANCEL } from './levels';
 import { closeAllEditors, commandTitle, ready, run, send, SuiteContext } from './suite-context';
@@ -115,14 +115,18 @@ export async function configuredPluginsChecks(ctx: SuiteContext, opts: { referen
   // The compiler's own listing, asked outside the editor in a copy of the folder;
   // a path it names in that copy is read as the folder's own. A listing that does
   // not name what the folder declares fails each check built on it.
-  const listing = await runCompiler(bin, ['plugin', 'list', '-o', 'json'], { cwd: opts.reference, home: ctx.home, boundMs: 60000, log: ctx.cliLog });
+  // It is bounded as a cold pull or build is, at 180000 ms: the scenario's home
+  // starts with an empty compiled-module cache, so this listing may have to
+  // compile every guest built into the compiler before it can describe one, and on
+  // a loaded machine that takes far longer than it does alone.
+  const listing = await runCompiler(bin, ['plugin', 'list', '-o', 'json'], { cwd: opts.reference, home: ctx.home, boundMs: 180000, log: ctx.cliLog });
   let doc: PluginListDoc = {};
   try { doc = JSON.parse(listing.stdout.split(opts.reference).join(ctx.folder)) as PluginListDoc; } catch { doc = {}; }
   const configured = doc.configured ?? [];
   const described = configured.find((e) => e.type !== undefined && e.error === undefined);
   const undescribed = configured.find((e) => e.type === undefined && e.error !== undefined);
   const embedded = (doc.embedded ?? [])[0];
-  const unlisted = (what: string): string => `the compiler's own listing outside the editor does not name ${what}: exit ${listing.status}, ${listing.stdout.slice(0, 300)}`;
+  const unlisted = (what: string): string => `the compiler's own listing outside the editor does not name ${what}: ${endingOf(listing)}, ${listing.stdout.slice(0, 300)}`;
 
   // ---- where the removal is offered, and where it is not ----
   let describedRow: RowMenu | null = null;

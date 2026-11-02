@@ -6,7 +6,7 @@ import * as path from 'path';
 
 import { need } from './checks';
 import { runCompiler } from './cli';
-import { MAPPED_RELEASES, readTree, sameTree, Tree, UNMAPPED_COPY_OF, UNMAPPED_RELEASE, WORKSPACE_CATALOG_DIR } from './fixtures';
+import { MAPPED_RELEASES, readTree, sameTree, SECOND_AGGREGATE, Tree, UNMAPPED_COPY_OF, UNMAPPED_RELEASE, WORKSPACE_CATALOG_DIR } from './fixtures';
 import { referenceAnswer } from './reference';
 import { capture, ready, SuiteContext } from './suite-context';
 import {
@@ -44,11 +44,12 @@ const SELF_CONTAINED_RELEASES = MAPPED_RELEASES.filter((r) => r !== MANAGED_CHAR
 export const OFFLINE_RELEASES: readonly string[] = [...SELF_CONTAINED_RELEASES, UNMAPPED_RELEASE];
 
 // The two Releases the graph check moves the selection between, and the node it
-// reads. Their graphs are drawn from different Aggregates, which each node's
-// hover names on its last line; the check takes which Aggregate each is from the
-// language server's own graph of that Release rather than from here.
+// reads. Their graphs are drawn from different Aggregates — GRAPH_TO deploys the
+// second one the copy gains (SECOND_AGGREGATE) — which each node's hover names on
+// its last line; the check takes which Aggregate each is from the language
+// server's own graph of that Release rather than from here.
 const GRAPH_FROM = 'release-compose.yaml';
-const GRAPH_TO = 'release-helm-chart.yaml';
+const GRAPH_TO = SECOND_AGGREGATE.release;
 const GRAPH_NODE = 'db';
 
 // GraphPanel is one graph panel's document as drawn: how much its canvas holds,
