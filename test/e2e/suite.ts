@@ -8,7 +8,7 @@ import { CheckResult, Checks, EnoughReported, sealDeclarations, suitePassed, tal
 import { makeScratchHome, ScratchHome } from './cli';
 import { createScenarioRoot, ScenarioRoot } from './editor';
 import {
-  copyLockfile, FixtureError, FixtureProof, MYSQL_CATALOG_LINE, MYSQL_EXAMPLE, placeDocsExample, placeEmptyBeneathWorkspace, placeFolder, placeOwnCatalogs, placeSecondAggregate,
+  copyLockfile, FixtureError, FixtureProof, MYSQL_EXAMPLE, placeDocsExample, placeEmptyBeneathWorkspace, placeFolder, placeOwnCatalogs, placeSecondAggregate,
   placeSelectionReadings, placeUnanchored, placeWorkspaceAbove, proveMissing, proveUnreachable, readTree, Tree, UNREACHABLE_HOST, writeLockfile,
 } from './fixtures';
 import { Inputs, REPO_ROOT } from './inputs';
@@ -495,7 +495,7 @@ function plans(inputs: Inputs): ScenarioPlan[] {
       checks: WATCH_AND_STOP_CHECKS,
       prepare: async (root, _home, log) => {
         const docs = path.resolve(REPO_ROOT, '..');
-        const layout = placeDocsExample(docs, MYSQL_EXAMPLE, path.join(root.dir, 'workspace', 'mysql-innodb-cluster'), inputs.catalog.dir, MYSQL_CATALOG_LINE);
+        const layout = placeDocsExample(docs, MYSQL_EXAMPLE, path.join(root.dir, 'workspace', 'mysql-innodb-cluster'), inputs.catalog.dir);
         // The lockfile is written from a home of its own, so the scenario's own
         // compiled-module store starts empty and the editor's first build compiles
         // the providers it renders with: long enough to be stopped part-way.
@@ -530,10 +530,8 @@ function plans(inputs: Inputs): ScenarioPlan[] {
       prepare: async (root) => {
         const docs = path.resolve(REPO_ROOT, '..');
         const parent = path.join(root.dir, 'workspace');
-        // Both examples name the standard library by the same line beside the
-        // documentation checkout.
-        const mysql = placeDocsExample(docs, MYSQL_EXAMPLE, path.join(parent, 'mysql-innodb-cluster'), inputs.catalog.dir, MYSQL_CATALOG_LINE);
-        const postgres = placeDocsExample(docs, POSTGRES_EXAMPLE, path.join(parent, 'postgres-init-config'), inputs.catalog.dir, MYSQL_CATALOG_LINE);
+        const mysql = placeDocsExample(docs, MYSQL_EXAMPLE, path.join(parent, 'mysql-innodb-cluster'), inputs.catalog.dir);
+        const postgres = placeDocsExample(docs, POSTGRES_EXAMPLE, path.join(parent, 'postgres-init-config'), inputs.catalog.dir);
         return { folder: mysql.folder, fixtures: [mysql.proof, postgres.proof, proveNothingAbove(parent, true)], extra: { postgres: postgres.folder } };
       },
       body: (ctx, p) => twoWorkspacesChecks(ctx, p.extra?.postgres as string),
@@ -712,7 +710,7 @@ function plans(inputs: Inputs): ScenarioPlan[] {
       checks: NO_RELEASE_CHECKS,
       prepare: async (root) => {
         const docs = path.resolve(REPO_ROOT, '..');
-        const layout = placeDocsExample(docs, MYSQL_EXAMPLE, path.join(root.dir, 'workspace', 'mysql-innodb-cluster'), inputs.catalog.dir, MYSQL_CATALOG_LINE);
+        const layout = placeDocsExample(docs, MYSQL_EXAMPLE, path.join(root.dir, 'workspace', 'mysql-innodb-cluster'), inputs.catalog.dir);
         return { folder: layout.folder, fixtures: [layout.proof, proveNothingAbove(layout.folder)], extra: { releases: layout.releases } };
       },
       body: (ctx, p) => noReleaseChecks(ctx, p.extra?.releases as string[]),
@@ -787,8 +785,8 @@ function plans(inputs: Inputs): ScenarioPlan[] {
       checks: INSPECTION_BY_NAME_CHECKS,
       prepare: async (root) => {
         const docs = path.resolve(REPO_ROOT, '..');
-        const layout = placeDocsExample(docs, MYSQL_EXAMPLE, path.join(root.dir, 'workspace', 'mysql-innodb-cluster'), inputs.catalog.dir, MYSQL_CATALOG_LINE);
-        const reference = placeDocsExample(docs, MYSQL_EXAMPLE, path.join(root.dir, 'reference', 'mysql-innodb-cluster'), inputs.catalog.dir, MYSQL_CATALOG_LINE);
+        const layout = placeDocsExample(docs, MYSQL_EXAMPLE, path.join(root.dir, 'workspace', 'mysql-innodb-cluster'), inputs.catalog.dir);
+        const reference = placeDocsExample(docs, MYSQL_EXAMPLE, path.join(root.dir, 'reference', 'mysql-innodb-cluster'), inputs.catalog.dir);
         return { folder: layout.folder, fixtures: [layout.proof, reference.proof, proveNothingAbove(layout.folder)], extra: { reference: reference.folder } };
       },
       body: (ctx, p) => inspectionByNameChecks(ctx, p.extra?.reference as string),

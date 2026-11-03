@@ -414,10 +414,13 @@ export function placeSelectionReadings(folder: string): FixtureProof {
 }
 
 // MYSQL_EXAMPLE is the documentation example with two Releases and no default,
-// by its path under the documentation checkout, and the line its configuration
-// names the standard library with, by its place beside that checkout.
+// by its path under the documentation checkout.
 export const MYSQL_EXAMPLE = path.join('aggrega-docs', 'language-reference', 'examples', 'mysql-innodb-cluster');
-export const MYSQL_CATALOG_LINE = '../../../../aggrega-hub/aggrega-catalog';
+
+// EMPTY_WORKSPACE is the line a documentation example that authors no entities
+// of its own marks its root with: it lists no catalog directory, and reads the
+// standard library from its default registry.
+const EMPTY_WORKSPACE = 'workspace: {}\n';
 
 // DocsExample is a documentation example copied from the sibling checkout, with
 // the Releases it holds.
@@ -429,13 +432,15 @@ export interface DocsExample {
 
 // placeDocsExample copies a documentation example from the sibling checkout,
 // which it reads and never writes, as a fresh checkout holds it: its own build
-// output, caches and Release lockfiles are left behind. The one line of its
-// configuration naming the standard library by its place beside the
-// documentation checkout (`catalogLine`, as written in the example) is written
-// as the catalog input instead, and the copy is refused where that line does not
-// stand there exactly once — so the copy never reads a catalog other than the one
-// the report names.
-export function placeDocsExample(docsCheckoutParent: string, example: string, dest: string, catalog: string, catalogLine: string): DocsExample {
+// output, caches and Release lockfiles are left behind. The example lists no
+// catalog directory and reads the standard library from its default registry,
+// for which a scratch home holds no credential, so the copy supplies the catalog
+// input itself: its root line, EMPTY_WORKSPACE, becomes a workspace listing that
+// input as its one catalog directory. The copy is refused where that line does
+// not stand there exactly once or the example already lists catalog directories,
+// and read back naming the input exactly once — so the copy never reads a
+// catalog other than the one the report names.
+export function placeDocsExample(docsCheckoutParent: string, example: string, dest: string, catalog: string): DocsExample {
   const fixture = `${path.basename(example)} example`;
   const source = path.join(docsCheckoutParent, example);
   if (!fs.existsSync(source)) { throw new FixtureError(fixture, `the documentation example is not at ${source}`); }
@@ -443,20 +448,20 @@ export function placeDocsExample(docsCheckoutParent: string, example: string, de
   const files = copyTree(source, dest, skip);
   const config = path.join(dest, FIXTURE_CONFIG);
   const text = fs.readFileSync(config, 'utf8');
-  const line = `    - ${catalogLine}\n`;
-  if (occurrences(text, line) !== 1) {
-    throw new FixtureError(fixture, `${FIXTURE_CONFIG} does not list "${catalogLine}" as a catalog directory once`);
+  if (occurrences(text, EMPTY_WORKSPACE) !== 1 || text.includes('catalog_dirs')) {
+    throw new FixtureError(fixture, `${FIXTURE_CONFIG} does not mark its root with "${EMPTY_WORKSPACE.trim()}" once and list no catalog directory`);
   }
-  fs.writeFileSync(config, text.replace(line, `    - ${catalog}\n`));
+  const listed = `    - ${catalog}\n`;
+  fs.writeFileSync(config, text.replace(EMPTY_WORKSPACE, `workspace:\n  catalog_dirs:\n${listed}`));
   const readBack = fs.readFileSync(config, 'utf8');
   const releases = files.filter((f) => /^release[^/]*\.ya?ml$/.test(f)).sort();
-  if (!readBack.includes(`    - ${catalog}\n`) || readBack.includes(catalogLine) || releases.length === 0) {
-    throw new FixtureError(fixture, `the copy did not read back as written: the catalog input ${readBack.includes(`    - ${catalog}\n`) ? 'named' : 'not named'}, the relative line ${readBack.includes(catalogLine) ? 'still there' : 'gone'}, ${releases.length} Releases`);
+  if (occurrences(readBack, listed) !== 1 || occurrences(readBack, '\n  catalog_dirs:\n') !== 1 || readBack.includes(EMPTY_WORKSPACE) || releases.length === 0) {
+    throw new FixtureError(fixture, `the copy did not read back as written: the catalog input named ${occurrences(readBack, listed)} times, the empty workspace line ${readBack.includes(EMPTY_WORKSPACE) ? 'still there' : 'gone'}, ${releases.length} Releases`);
   }
   return {
     folder: dest,
     releases,
-    proof: { fixture, built: true, proof: `${files.length} files of ${example} copied to ${dest}, with no dist/, .aggrega/, .trace/ or lockfile; ${FIXTURE_CONFIG} names ${catalog} where the example names ${catalogLine}; Releases ${releases.join(', ')}`, evidence: { files } },
+    proof: { fixture, built: true, proof: `${files.length} files of ${example} copied to ${dest}, with no dist/, .aggrega/, .trace/ or lockfile; ${FIXTURE_CONFIG} lists ${catalog} once as its catalog directory where the example lists none; Releases ${releases.join(', ')}`, evidence: { files } },
   };
 }
 
