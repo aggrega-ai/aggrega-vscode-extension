@@ -46,7 +46,8 @@ what each scenario checks are in [`test/e2e/README.md`](test/e2e/README.md).
 
 ## License
 
-Apache-2.0.
+The Aggrega extension for VS Code is released under the Apache License, Version 2.0; the full text is in the
+`LICENSE` file.
 
 The Codicon icon set ships under `media/vendor/` so that the panels this
 extension draws itself can show the editor's own icons — a document the editor
