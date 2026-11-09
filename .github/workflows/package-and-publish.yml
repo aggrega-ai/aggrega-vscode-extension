@@ -3,10 +3,11 @@ name: Package and publish
 # Builds the extension's installable package (a .vsix) and publishes that one
 # file to the Visual Studio Marketplace and to Open VSX.
 #
-# The package job runs on every push and pull request to main, on every release
-# tag and on every manual run. It builds the package once, with scripts/vsix.js,
-# and uploads it as this run's artifact `vsix`. `node scripts/vsix.js --help` is
-# the contract of every step below that runs the script.
+# The package job runs on every push and pull request to main or dev, on every
+# release tag and on every manual run. It builds the package once, with
+# scripts/vsix.js, and uploads it as this run's artifact `vsix`. `node
+# scripts/vsix.js --help` is the contract of every step below that runs the
+# script.
 #
 # 🔴 ONLY A PUSHED RELEASE TAG CAN PUBLISH, AND DRY_RUN DECIDES WHETHER IT DOES.
 # A listing on either marketplace is public from the moment it is published. A
@@ -51,12 +52,12 @@ name: Package and publish
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
     # A release tag: vMAJOR.MINOR.PATCH, with no pre-release suffix.
     tags:
       - "v[0-9]+.[0-9]+.[0-9]+"
   pull_request:
-    branches: [main]
+    branches: [main, dev]
   # A manual run: always a dry run, whatever DRY_RUN reads (see above).
   workflow_dispatch:
 
@@ -69,6 +70,11 @@ env:
   # that commit to publish; nothing else in this file changes. A manual run is
   # a dry run whatever this line says.
   DRY_RUN: true
+  # The branch every sibling checkout reads. The siblings follow the branch
+  # under test: a run on dev, or a pull request into it, reads their dev; every
+  # other run, a release tag's included, reads their main. The kits' pdk.yml in
+  # aggrega-pdk keeps the same value, so a change here is made there too.
+  SIBLING_REF: ${{ (github.ref_name == 'dev' || github.base_ref == 'dev') && 'dev' || 'main' }}
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
@@ -113,6 +119,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: aggrega-ai/aggrega-abi
+          ref: ${{ env.SIBLING_REF }}
           path: aggrega-abi
           fetch-depth: 0
           fetch-tags: true
@@ -123,6 +130,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: aggrega-ai/aggrega-cli
+          ref: ${{ env.SIBLING_REF }}
           path: aggrega-cli
           fetch-depth: 0
           fetch-tags: true
@@ -309,6 +317,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: aggrega-ai/aggrega-abi
+          ref: ${{ env.SIBLING_REF }}
           path: aggrega-abi
           token: ${{ steps.app-token.outputs.token }}
           persist-credentials: false
@@ -441,6 +450,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: aggrega-ai/aggrega-abi
+          ref: ${{ env.SIBLING_REF }}
           path: aggrega-abi
           token: ${{ steps.app-token.outputs.token }}
           persist-credentials: false
