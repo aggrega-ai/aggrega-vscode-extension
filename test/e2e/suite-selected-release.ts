@@ -105,7 +105,7 @@ const CHECK = 'The check';
 // written beside the folder, outside the workspace.
 const LINK = path.join('components', 'linked-feature.yaml');
 const BEHIND_THE_LINK = { name: 'local/reached-through-a-link', file: 'feature-outside-the-workspace.yaml' };
-const BEHIND_THE_LINK_DOCUMENT = `apiVersion: aggrega.ai/v1alpha1
+const BEHIND_THE_LINK_DOCUMENT = `apiVersion: aggrega.ai/v1beta1
 kind: Feature
 metadata:
   name: ${BEHIND_THE_LINK.name}
@@ -177,7 +177,7 @@ const KEPT_OUTSIDE = 'Kept outside the workspace, behind a link no operation may
 // the folder, outside the workspace.
 const CATALOG_LINK = path.join('catalog-compose', 'linked-catalog-feature.yaml');
 const BEHIND_THE_CATALOG_LINK = { name: 'local/reached-through-a-catalog-link', file: 'feature-outside-the-catalog.yaml' };
-const BEHIND_THE_CATALOG_LINK_DOCUMENT = `apiVersion: aggrega.ai/v1alpha1
+const BEHIND_THE_CATALOG_LINK_DOCUMENT = `apiVersion: aggrega.ai/v1beta1
 kind: Feature
 metadata:
   name: ${BEHIND_THE_CATALOG_LINK.name}

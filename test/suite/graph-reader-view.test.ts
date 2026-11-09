@@ -45,7 +45,7 @@ const LEGEND = { left: 8, top: 200, width: 300, height: 392 };
 // A third node, so a refresh can carry a topology that genuinely differs rather
 // than the same one twice.
 const GROWN_GRAPH = {
-  apiVersion: 'aggrega.ai/v1alpha1',
+  apiVersion: 'aggrega.ai/v1beta1',
   kind: 'IRGraph',
   spec: {
     nodes: {
@@ -181,7 +181,7 @@ function chainOf(count: number): Record<string, unknown> {
       });
     }
   }
-  return { apiVersion: 'aggrega.ai/v1alpha1', kind: 'IRGraph', spec: { nodes, edges } };
+  return { apiVersion: 'aggrega.ai/v1beta1', kind: 'IRGraph', spec: { nodes, edges } };
 }
 
 // panAndZoom moves the drawing the way a reader does, through the renderer's

@@ -122,7 +122,7 @@ const MEASURED_DOCUMENT: CatalogIndexDoc = {
     {
       kind: 'Aggregate',
       name: 'storefront',
-      apiVersion: 'aggrega.ai/v1alpha1',
+      apiVersion: 'aggrega.ai/v1beta1',
       description: 'The storefront application',
       labels: {},
       file: 'aggregate.yaml',
@@ -131,7 +131,7 @@ const MEASURED_DOCUMENT: CatalogIndexDoc = {
     {
       kind: 'Component',
       name: 'cache',
-      apiVersion: 'aggrega.ai/v1alpha1',
+      apiVersion: 'aggrega.ai/v1beta1',
       description: '',
       labels: {},
       file: 'components/cache.yaml',
@@ -140,7 +140,7 @@ const MEASURED_DOCUMENT: CatalogIndexDoc = {
     {
       kind: 'Component',
       name: 'web',
-      apiVersion: 'aggrega.ai/v1alpha1',
+      apiVersion: 'aggrega.ai/v1beta1',
       description: 'The public web tier',
       labels: {
         'component.aggrega.ai/category': 'compute',
@@ -152,7 +152,7 @@ const MEASURED_DOCUMENT: CatalogIndexDoc = {
     {
       kind: 'Feature',
       name: 'tls',
-      apiVersion: 'aggrega.ai/v1alpha1',
+      apiVersion: 'aggrega.ai/v1beta1',
       description: 'Terminates TLS at the edge',
       labels: { 'feature.aggrega.ai/scope': 'edge' },
       file: 'features/tls.yaml',
@@ -161,7 +161,7 @@ const MEASURED_DOCUMENT: CatalogIndexDoc = {
     {
       kind: 'Recipe',
       name: 'web-helm',
-      apiVersion: 'aggrega.ai/v1alpha1',
+      apiVersion: 'aggrega.ai/v1beta1',
       description: '',
       labels: {},
       file: 'recipes/web-helm.yaml',
@@ -197,7 +197,7 @@ const MEASURED_TWO_ORIGIN_DOCUMENT: CatalogIndexDoc = {
     {
       kind: 'Component',
       name: 'web',
-      apiVersion: 'aggrega.ai/v1alpha1',
+      apiVersion: 'aggrega.ai/v1beta1',
       description: 'The public web tier',
       labels: {
         'component.aggrega.ai/category': 'compute',
@@ -209,7 +209,7 @@ const MEASURED_TWO_ORIGIN_DOCUMENT: CatalogIndexDoc = {
     {
       kind: 'Feature',
       name: 'core/apply-untrusted-label',
-      apiVersion: 'aggrega.ai/v1alpha1',
+      apiVersion: 'aggrega.ai/v1beta1',
       description: '',
       labels: {},
       file: '',
@@ -218,7 +218,7 @@ const MEASURED_TWO_ORIGIN_DOCUMENT: CatalogIndexDoc = {
     {
       kind: 'Feature',
       name: 'core/referenced-secret',
-      apiVersion: 'aggrega.ai/v1alpha1',
+      apiVersion: 'aggrega.ai/v1beta1',
       description: 'A credential that materializes as a referenceable secret resource and publishes that resource\'s identity for consumers to point at.',
       labels: { 'feature.aggrega.ai/kind': 'secret' },
       file: '',
@@ -256,7 +256,7 @@ describe('workspaceCatalogNodes', () => {
       [
         'kind: Component',
         'name: web',
-        'apiVersion: aggrega.ai/v1alpha1',
+        'apiVersion: aggrega.ai/v1beta1',
         'description: The public web tier',
         'label: component.aggrega.ai/category=compute',
         'label: tier=frontend',
@@ -280,7 +280,7 @@ describe('workspaceCatalogNodes', () => {
       [
         'kind: Component',
         'name: cache',
-        'apiVersion: aggrega.ai/v1alpha1',
+        'apiVersion: aggrega.ai/v1beta1',
         'file: components/cache.yaml',
       ].join('\n'),
     );
@@ -521,7 +521,7 @@ describe('workspaceCatalogNodes', () => {
     assert.deepStrictEqual(web.tooltip.split('\n'), [
       'kind: Component',
       'name: web',
-      'apiVersion: aggrega.ai/v1alpha1',
+      'apiVersion: aggrega.ai/v1beta1',
       'description: The public web tier',
       'label: component.aggrega.ai/category=compute',
       'label: tier=frontend',
@@ -531,7 +531,7 @@ describe('workspaceCatalogNodes', () => {
     assert.deepStrictEqual(bare.tooltip.split('\n'), [
       'kind: Feature',
       'name: core/apply-untrusted-label',
-      'apiVersion: aggrega.ai/v1alpha1',
+      'apiVersion: aggrega.ai/v1beta1',
       'from a configured catalog directory',
     ]);
     // The empty path contributes no named-but-empty line, the same way an
@@ -763,7 +763,7 @@ describe('rowForEntity', () => {
     const row = rowForEntity(WORKSPACE_ROOT, {
       kind: 'Manifest',
       name: 'platform',
-      apiVersion: 'aggrega.ai/v1alpha1',
+      apiVersion: 'aggrega.ai/v1beta1',
       description: 'The platform manifest',
       labels: { env: 'prod' },
       file: 'manifest.yaml',
@@ -777,7 +777,7 @@ describe('rowForEntity', () => {
     assert.deepStrictEqual(row.tooltip.split('\n'), [
       'kind: Manifest',
       'name: platform',
-      'apiVersion: aggrega.ai/v1alpha1',
+      'apiVersion: aggrega.ai/v1beta1',
       'description: The platform manifest',
       'label: env=prod',
       'file: manifest.yaml',
@@ -808,7 +808,7 @@ describe('rowForEntity', () => {
     const shared = {
       kind: 'Feature',
       name: 'core/retry-policy',
-      apiVersion: 'aggrega.ai/v1alpha1',
+      apiVersion: 'aggrega.ai/v1beta1',
       description: '',
       labels: {},
       file: '',
@@ -831,7 +831,7 @@ describe('rowForEntity', () => {
     const row = rowForEntity(WORKSPACE_ROOT, {
       kind: 'Feature',
       name: 'tls',
-      apiVersion: 'aggrega.ai/v1alpha1',
+      apiVersion: 'aggrega.ai/v1beta1',
       description: '',
       labels: {},
       file: 'features/tls.yaml',

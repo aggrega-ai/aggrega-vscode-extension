@@ -171,7 +171,7 @@ const CACHE_MAPPED = 'core/datastore/memcached:1.0.0: compose/storefront-cache:1
 const UNDECLARED_SLOT = 'passwordd';
 const CACHE_WORKLOAD_KEY = '  workload: |';
 const CACHE_RECIPE_HEAD = [
-  'apiVersion: aggrega.ai/v1alpha1',
+  'apiVersion: aggrega.ai/v1beta1',
   'kind: Recipe',
   'metadata:',
   '  name: storefront-cache',
@@ -185,7 +185,7 @@ const CACHE_RECIPE_HEAD = [
   '    port: "{{ .infra.port }}"',
   '    protocol: "memcached"',
   CACHE_WORKLOAD_KEY,
-  '    apiVersion: aggrega.ai/v1alpha1',
+  '    apiVersion: aggrega.ai/v1beta1',
   '    kind: Workload',
   '    containers:',
   '      main:',

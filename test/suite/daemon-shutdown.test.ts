@@ -219,7 +219,7 @@ describe('Daemon cooperative shutdown under load', function () {
   // budget.
   function generateLargeAggregate(componentCount: number): string {
     const lines: string[] = [
-      'apiVersion: aggrega.ai/v1alpha1',
+      'apiVersion: aggrega.ai/v1beta1',
       'kind: Aggregate',
       'metadata:',
       '  name: under-load-test',
@@ -238,7 +238,7 @@ describe('Daemon cooperative shutdown under load', function () {
   }
 
   const SMALL_CONTENT =
-    'apiVersion: aggrega.ai/v1alpha1\n' +
+    'apiVersion: aggrega.ai/v1beta1\n' +
     'kind: Aggregate\n' +
     'metadata:\n' +
     '  name: small\n' +
@@ -370,7 +370,7 @@ describe('Daemon cooperative shutdown under load', function () {
     fs.writeFileSync(
       path.join(root, 'release.yaml'),
       [
-        'apiVersion: aggrega.ai/v1alpha1',
+        'apiVersion: aggrega.ai/v1beta1',
         'kind: Release',
         'metadata:',
         '  name: under-load-tier4-release',
@@ -385,7 +385,7 @@ describe('Daemon cooperative shutdown under load', function () {
     fs.writeFileSync(
       path.join(root, 'manifest.yaml'),
       [
-        'apiVersion: aggrega.ai/v1alpha1',
+        'apiVersion: aggrega.ai/v1beta1',
         'kind: Manifest',
         'metadata:',
         '  name: under-load-tier4-manifest',
@@ -399,7 +399,7 @@ describe('Daemon cooperative shutdown under load', function () {
     fs.writeFileSync(
       path.join(catalogDir, 'web.yaml'),
       [
-        'apiVersion: aggrega.ai/v1alpha1',
+        'apiVersion: aggrega.ai/v1beta1',
         'kind: Component',
         'metadata:',
         '  name: example/web',
@@ -414,7 +414,7 @@ describe('Daemon cooperative shutdown under load', function () {
       ].join('\n'),
     );
     const lines: string[] = [
-      'apiVersion: aggrega.ai/v1alpha1',
+      'apiVersion: aggrega.ai/v1beta1',
       'kind: Aggregate',
       'metadata:',
       '  name: under-load-tier4',

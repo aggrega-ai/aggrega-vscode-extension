@@ -363,7 +363,7 @@ export const SIZED_VOLUME = { name: 'local/datastore/sized-volume', file: path.j
 export const CHART_ONLY = { name: 'local/datastore/chart-only', file: path.join('catalog-helm-chart', 'component', 'chart-only.yaml') };
 export const SIZING_LIBRARY = 'DbSizing';
 
-const SIZED_VOLUME_DOCUMENT = `apiVersion: aggrega.ai/v1alpha1
+const SIZED_VOLUME_DOCUMENT = `apiVersion: aggrega.ai/v1beta1
 kind: Component
 metadata:
   name: ${SIZED_VOLUME.name}
@@ -378,7 +378,7 @@ spec:
         $ref: "${SIZING_LIBRARY}#/schemas/Storage"
 `;
 
-const CHART_ONLY_DOCUMENT = `apiVersion: aggrega.ai/v1alpha1
+const CHART_ONLY_DOCUMENT = `apiVersion: aggrega.ai/v1beta1
 kind: Component
 metadata:
   name: ${CHART_ONLY.name}

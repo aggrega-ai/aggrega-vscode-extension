@@ -51,7 +51,7 @@ function credentialEntry(): Record<string, unknown> {
 // carries, so what is redacted below is shaped like the real payload.
 function irGraph(mapping: Record<string, Record<string, unknown>>): Record<string, unknown> {
   return {
-    apiVersion: 'aggrega.ai/v1alpha1',
+    apiVersion: 'aggrega.ai/v1beta1',
     kind: 'IR',
     metadata: { name: 'probe' },
     spec: {

@@ -185,7 +185,7 @@ const ONE_ENTITY: CatalogIndexDoc = {
   entities: [{
     kind: 'Component',
     name: 'api-server',
-    apiVersion: 'aggrega.ai/v1alpha1',
+    apiVersion: 'aggrega.ai/v1beta1',
     description: '',
     labels: {},
     file: 'catalog/components/api-server.yaml',

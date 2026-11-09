@@ -100,7 +100,7 @@ const model = loadModel();
 // carries, so the fixtures below are shaped like the real payload.
 function irGraph(mapping: Record<string, Record<string, unknown>>): unknown {
   return {
-    apiVersion: 'aggrega.ai/v1alpha1',
+    apiVersion: 'aggrega.ai/v1beta1',
     kind: 'IRGraph',
     spec: { nodes: {}, edges: [], feature_values_mapping: mapping },
   };
@@ -608,7 +608,7 @@ describe('AggregaAttachments — an attachment written on a connection', () => {
   // envelope the graph answer carries.
   function compiled(bucket: Record<string, unknown>, edges: unknown[] = EDGES): unknown {
     return {
-      apiVersion: 'aggrega.ai/v1alpha1',
+      apiVersion: 'aggrega.ai/v1beta1',
       kind: 'IR',
       metadata: { aggregate_name: 'connection-site-app' },
       spec: {

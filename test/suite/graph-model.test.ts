@@ -168,7 +168,7 @@ function irGraph(
   edges: Record<string, unknown>[] = [],
 ): unknown {
   return {
-    apiVersion: 'aggrega.ai/v1alpha1',
+    apiVersion: 'aggrega.ai/v1beta1',
     kind: 'IRGraph',
     spec: { nodes, edges },
   };

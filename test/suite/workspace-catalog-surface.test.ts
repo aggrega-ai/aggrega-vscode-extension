@@ -86,7 +86,7 @@ function everyRow(): { name: string; node: WorkspaceCatalogNode }[] {
       ? { origin: ENTITY_ORIGIN_WORKSPACE, file: 'catalog/components/api-server.yaml' }
       : { origin: ENTITY_ORIGIN_CATALOG, file: '' };
     const entity = {
-      kind: 'Component', name: 'core/compute/api-server', apiVersion: 'aggrega.ai/v1alpha1',
+      kind: 'Component', name: 'core/compute/api-server', apiVersion: 'aggrega.ai/v1beta1',
       description: '', labels: {}, ...at,
     };
     for (const acceptance of [null, ...[0, 1, 2, 3, 4, 5, 6, 7].map((bits) => ({

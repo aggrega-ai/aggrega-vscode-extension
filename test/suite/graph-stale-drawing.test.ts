@@ -31,7 +31,7 @@ const LINE = `The topology of ${RELEASE} could not be drawn: ${REFUSAL}`;
 // after the transform and before the canvas is touched, which is what makes it
 // the third route rather than a fourth defect.
 const UNDRAWABLE_GRAPH = {
-  apiVersion: 'aggrega.ai/v1alpha1',
+  apiVersion: 'aggrega.ai/v1beta1',
   kind: 'IRGraph',
   spec: {
     nodes: { api: { component: 'core/service', resolved_version: '1.0.0' } },

@@ -31,7 +31,7 @@ const UNDRAWN = 'no-such-node';
 // The two-node topology with its second node gone, so a redraw can take a drawn
 // node away while the first stays selected.
 const WITHOUT_DB = {
-  apiVersion: 'aggrega.ai/v1alpha1',
+  apiVersion: 'aggrega.ai/v1beta1',
   kind: 'IRGraph',
   spec: {
     nodes: { api: { component: 'core/service', resolved_version: '1.0.0' } },

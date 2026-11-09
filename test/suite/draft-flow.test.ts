@@ -245,7 +245,7 @@ function depsAnswering(answer: unknown, drafted: { kind: string; name: string }[
     entityKinds: async (): Promise<unknown> => answer,
     scaffoldEntity: async (kind: string, name: string): Promise<unknown> => {
       drafted.push({ kind, name });
-      return { kind, skeleton: 'apiVersion: aggrega.ai/v1alpha1\n' };
+      return { kind, skeleton: 'apiVersion: aggrega.ai/v1beta1\n' };
     },
     output: { appendLine: (): void => {} },
   };
@@ -390,7 +390,7 @@ describe('the one drafting flow, entered three ways', () => {
 
     assert.deepStrictEqual(
       asked.documents,
-      [{ content: 'apiVersion: aggrega.ai/v1alpha1\n', language: 'yaml' }],
+      [{ content: 'apiVersion: aggrega.ai/v1beta1\n', language: 'yaml' }],
       'the draft the compiler returned was not put in front of the reader',
     );
   });

@@ -340,7 +340,7 @@ export function loadGraphWebview(): GraphWebview {
 // A topology with two nodes and the edge between them, in the envelope the
 // compiler's graph answer carries.
 export const DRAWABLE_GRAPH = {
-  apiVersion: 'aggrega.ai/v1alpha1',
+  apiVersion: 'aggrega.ai/v1beta1',
   kind: 'IRGraph',
   spec: {
     nodes: {

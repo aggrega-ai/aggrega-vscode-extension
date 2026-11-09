@@ -43,7 +43,7 @@ export function writeCalibrationFolder(dir: string, catalog: string): { folder: 
   // A Component missing two required metadata fields and carrying a key its
   // schema does not declare, so the server has three things to report.
   fs.writeFileSync(faulty, [
-    'apiVersion: aggrega.ai/v1alpha1',
+    'apiVersion: aggrega.ai/v1beta1',
     'kind: Component',
     'metadata:',
     '  name: calibration-component',

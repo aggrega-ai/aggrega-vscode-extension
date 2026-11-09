@@ -275,7 +275,7 @@ describe('the documents the command is offered in', () => {
       ['Recipe', 'conn-sink-recipe', 'catalog/recipes/sink.yaml'],
       ['Release', 'connection-site-release', 'release.yaml'],
     ].map(([kind, name, file]) => ({
-      kind, name, apiVersion: 'aggrega.ai/v1alpha1', description: '', labels: {}, file, origin: 'workspace',
+      kind, name, apiVersion: 'aggrega.ai/v1beta1', description: '', labels: {}, file, origin: 'workspace',
     })),
     unreadLinkedDirs: [],
     unreadLinkedFiles: [],
@@ -288,7 +288,7 @@ describe('the documents the command is offered in', () => {
   it('offers it in no document for an entity resolved from a catalog directory, which reports none', () => {
     const fromCatalog: CatalogIndexDoc = {
       ...index,
-      entities: [{ kind: 'Aggregate', name: 'shared', apiVersion: 'aggrega.ai/v1alpha1', description: '', labels: {}, file: '', origin: 'catalog' }],
+      entities: [{ kind: 'Aggregate', name: 'shared', apiVersion: 'aggrega.ai/v1beta1', description: '', labels: {}, file: '', origin: 'catalog' }],
     };
     assert.deepStrictEqual(connectionDocumentFiles(fromCatalog), []);
   });
@@ -297,8 +297,8 @@ describe('the documents the command is offered in', () => {
     const twice: CatalogIndexDoc = {
       ...index,
       entities: [
-        { kind: 'Release', name: 'a', apiVersion: 'aggrega.ai/v1alpha1', description: '', labels: {}, file: 'releases.yaml', origin: 'workspace' },
-        { kind: 'Release', name: 'b', apiVersion: 'aggrega.ai/v1alpha1', description: '', labels: {}, file: 'releases.yaml', origin: 'workspace' },
+        { kind: 'Release', name: 'a', apiVersion: 'aggrega.ai/v1beta1', description: '', labels: {}, file: 'releases.yaml', origin: 'workspace' },
+        { kind: 'Release', name: 'b', apiVersion: 'aggrega.ai/v1beta1', description: '', labels: {}, file: 'releases.yaml', origin: 'workspace' },
       ],
     };
     assert.deepStrictEqual(connectionDocumentFiles(twice), ['releases.yaml']);
