@@ -699,16 +699,20 @@ export interface CacheConfirmation {
 // emptying them affects every project on the machine, not only this one. The
 // names are the compiler's own, as they appear in its cache listing, so a
 // reader who runs the report sees the same words back.
+//
+// The cli-plugin cache is among them: it holds the bytes of the cli plugins added
+// where no workspace was found, and a prune removes the ones no plugins.cli entry
+// of the configuration pins.
 const THIS_MACHINE_CACHES =
-  'the compiled-module cache and the plugin-describe cache, which every project on this machine shares';
+  'the compiled-module cache, the plugin-describe cache and the cli-plugin cache, which every project on this machine shares';
 
 // EVERY_MACHINE_CACHE names every cache that is not this workspace's, the
 // docs-bundle cache among them: the documentation for one registry and version
 // is the same bytes whichever workspace reads it, so it is kept once per
 // machine. A wipe empties it; a prune never removes from it, which is why the
-// prune names the two above and not this list.
+// prune names the three above and not this list.
 const EVERY_MACHINE_CACHE =
-  'the compiled-module cache, the plugin-describe cache and the docs-bundle cache, which every project on this machine shares';
+  'the compiled-module cache, the plugin-describe cache, the docs-bundle cache and the cli-plugin cache, which every project on this machine shares';
 
 // THE_COMPILED_MODULE_CACHE names the single store a trim addresses, in the
 // compiler's own words. It is machine-wide without qualification: every project
@@ -727,8 +731,8 @@ const THIS_WORKSPACE_CACHES =
 //
 // Two of the three removals reach both scopes: clear empties this workspace's
 // caches and every shared one, and prune reclaims unreferenced entries from
-// this workspace's caches, from the shared plugin-describe cache, and from the
-// shared compiled-module cache by reference. The trim reaches one — its subject
+// this workspace's caches, from the shared plugin-describe and cli-plugin caches,
+// and from the shared compiled-module cache by reference. The trim reaches one — its subject
 // is the compiled-module store alone — so it names one.
 export function cacheConfirmation(operation: CacheOperation): CacheConfirmation | null {
   switch (operation) {

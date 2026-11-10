@@ -864,6 +864,10 @@ describe('a destructive cache operation names its scope before it runs', () => {
       assert.match(scope, /this machine/i, 'the machine-wide scope must be named');
       assert.match(scope, /compiled-module cache/, 'the shared cache is named as the compiler names it');
       assert.match(scope, /plugin-describe cache/, 'the shared cache is named as the compiler names it');
+      // The cli plugins added where no workspace was found are kept in a store
+      // shared by every project too; a prune removes the ones no pin names and a
+      // wipe empties it, so both confirmations name it.
+      assert.match(scope, /cli-plugin cache/, 'the shared cache is named as the compiler names it');
     });
   }
 
@@ -882,6 +886,7 @@ describe('a destructive cache operation names its scope before it runs', () => {
       /plugin-describe cache/,
       'the trim does not reach the plugin-describe cache, so it must not claim to',
     );
+    assert.doesNotMatch(scope, /cli-plugin cache/, 'the trim does not reach the cli-plugin cache, so it must not claim to');
     assert.match(
       scope,
       /Nothing under this workspace/,
