@@ -637,6 +637,23 @@ describe('a retraction reaches the reader in the ending, not in a channel', () =
     );
   });
 
+  it('says a version the search term named is retracted, and pinned because it was named', () => {
+    // Naming a version is the override, so the compiler pins it and carries no
+    // advisory — there was no substitution. What it carries instead is withdrawn,
+    // and dropping it would pin a retracted version with nothing said.
+    const namedRetracted: PluginAddResult = {
+      ...ATTACHED,
+      identity: 'linter/publishing-conventions:2.0.0',
+      withdrawn: true,
+    };
+    assert.strictEqual(
+      terminalLine(ATTACHMENT_SUBJECT, { kind: 'ok', detail: attachmentDetail(namedRetracted) }),
+      'The attachment added linter/publishing-conventions:2.0.0 as a linter plugin in '
+      + "/work/project/aggrega.yaml, this project's own configuration file."
+      + ' The version named is retracted; it was pinned because it was named.',
+    );
+  });
+
   it('leaves the ending untouched when the compiler reported no retraction', () => {
     // The control. Without it the assertions above pass on a surface that appends
     // something to every attachment ever made, which would teach a reader to read
@@ -899,6 +916,7 @@ const WHOLE_ANSWER: PluginAddResult = {
       lastUpdated: '2026-09-11T08:00:00Z',
     },
   },
+  withdrawn: true,
 };
 
 describe('the answer shape carries every field the compiler sends', () => {
@@ -907,7 +925,7 @@ describe('the answer shape carries every field the compiler sends', () => {
     // fails twice over: the fixture above stops compiling, and this stops passing.
     assert.deepStrictEqual(
       Object.keys(WHOLE_ANSWER).sort(),
-      ['capability', 'content', 'identity', 'reference', 'retraction', 'scope', 'type', 'uri', 'written'],
+      ['capability', 'content', 'identity', 'reference', 'retraction', 'scope', 'type', 'uri', 'withdrawn', 'written'],
     );
     assert.deepStrictEqual(
       Object.keys(WHOLE_ANSWER.retraction ?? {}).sort(),

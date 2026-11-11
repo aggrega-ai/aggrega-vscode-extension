@@ -114,7 +114,8 @@ export type PluginAddParams = Required<Pick<wire.PluginAddParams, 'type' | 'quer
 //
 // retraction is what the compiler's withdrawal screen concluded about the
 // version that was pinned, and is absent whenever it concluded nothing — which
-// is every ordinary attachment.
+// is every ordinary attachment. withdrawn is present only when the search term
+// named the version that was pinned and that version is retracted.
 //
 // 🔴 The shape is not declared here at all. Declaring it member by member, so
 // that what this surface drives would be what the wire has, would carry members
@@ -284,7 +285,7 @@ function article(word: string): string {
 // absent value would read as a plugin called undefined.
 export function attachmentDetail(result: PluginAddResult): string {
   const where = `${result.scope.configFile}, ${reachPhrase(result.scope)}.`;
-  const note = retractionNote(result.retraction);
+  const note = withdrawnNote(result.withdrawn) + retractionNote(result.retraction);
   if (result.uri) {
     return `bound capability ${result.capability} to ${result.uri} in ${where}${note}`;
   }
@@ -292,6 +293,23 @@ export function attachmentDetail(result: PluginAddResult): string {
     return `added ${result.identity} as ${article(result.type)} ${result.type} plugin in ${where}${note}`;
   }
   return `added ${article(result.type)} ${result.type} plugin in ${where}${note}`;
+}
+
+// WITHDRAWN_PIN_NOTE is what an attachment that pinned a retracted version by
+// name ends in.
+//
+// The search term named that version, and naming a version is the override: the
+// compiler pins it all the same and says so, rather than passing over the version
+// asked for. So this says the same two things the command line says — the version
+// is retracted, and it was pinned because it was named — where the reader is
+// already looking.
+const WITHDRAWN_PIN_NOTE = ' The version named is retracted; it was pinned because it was named.';
+
+// withdrawnNote states that the version pinned was named and is retracted, or
+// nothing when the answer does not say so. The compiler sends the flag only when
+// it is true, so its absence is every ordinary attachment.
+export function withdrawnNote(withdrawn?: boolean): string {
+  return withdrawn ? WITHDRAWN_PIN_NOTE : '';
 }
 
 // retractionNote states what the compiler's withdrawal screen concluded, or
