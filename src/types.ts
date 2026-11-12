@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Cognitio S.r.l.
+// Copyright 2026 Cognitio s.r.l.
 
 // The request and answer shapes of the compiler's language-server protocol are
 // published as a generated TypeScript binding, and this file consumes that

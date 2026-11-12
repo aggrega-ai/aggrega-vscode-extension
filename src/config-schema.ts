@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Cognitio S.r.l.
+// Copyright 2026 Cognitio s.r.l.
 
 // The configuration surface is GENERATED from the configuration schema, and this
 // module is the whole of that generation. It holds no list of settings, no

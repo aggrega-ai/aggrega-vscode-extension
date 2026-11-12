@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Cognitio S.r.l.
+// Copyright 2026 Cognitio s.r.l.
 
 // What the editor does when a language request — a hover, a completion, a
 // definition, or the references or implementations of what is under the cursor —

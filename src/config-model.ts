@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Cognitio S.r.l.
+// Copyright 2026 Cognitio s.r.l.
 
 // The surface a reader sees is the schema's declarations joined against what the
 // compiler resolved: each setting drawn from the schema, carrying the value in

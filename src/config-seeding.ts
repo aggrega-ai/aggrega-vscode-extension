@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Cognitio S.r.l.
+// Copyright 2026 Cognitio s.r.l.
 
 import type * as wire from '@aggrega-ai/aggrega-abi/dist/servewire_gen';
 import { AppliedWrite, endingInEffect } from './config-change-watch';

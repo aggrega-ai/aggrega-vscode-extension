@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Cognitio S.r.l.
+// Copyright 2026 Cognitio s.r.l.
 
 // This helper is the one home of reading a panel's stylesheet rule by rule, so
 // every spec asserting what a panel is drawn through reads a rule the same way.

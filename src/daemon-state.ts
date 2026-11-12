@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Cognitio S.r.l.
+// Copyright 2026 Cognitio s.r.l.
 
 // DaemonState is the lifecycle position of the Daemon subprocess.
 // Request dispatch consults state to decide whether to dispatch

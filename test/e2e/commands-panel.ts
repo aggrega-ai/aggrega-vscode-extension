@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Cognitio S.r.l.
+// Copyright 2026 Cognitio s.r.l.
 
 import { commandIdFor, commandsPanelOperations, ListPanelId } from '../../src/operation-groups';
 import { OPERATION_MENUS } from '../../src/operation-menus';

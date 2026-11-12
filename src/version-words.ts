@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Cognitio S.r.l.
+// Copyright 2026 Cognitio s.r.l.
 
 // The words a version reading is stated in, wherever the extension states one:
 // the welcome page's readings, and the notification a start or a restart of the

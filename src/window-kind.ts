@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Cognitio S.r.l.
+// Copyright 2026 Cognitio s.r.l.
 
 // This module is the one home of what the kind of window decides about adding a
 // folder to it: whether the add puts the window on a new workspace, and what the

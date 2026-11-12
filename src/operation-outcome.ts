@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Cognitio S.r.l.
+// Copyright 2026 Cognitio s.r.l.
 
 import { CANCELLED_BY_READER, isCancellation } from './cancellation';
 import { describeError } from './error-text';

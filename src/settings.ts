@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Cognitio S.r.l.
+// Copyright 2026 Cognitio s.r.l.
 
 import { DEFAULT_OPERATIONS_LAYOUT, OperationsLayout } from './operation-groups';
 import type { PanelActionPress } from './panel-actions';

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Cognitio S.r.l.
+// Copyright 2026 Cognitio s.r.l.
 
 import { ConvertedShape } from './diagnostics-shape';
 import { refusalDocument, refusalEntry } from './error-surfaces';

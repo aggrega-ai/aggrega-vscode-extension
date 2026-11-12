@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Cognitio S.r.l.
+// Copyright 2026 Cognitio s.r.l.
 //
 // The document-free half of the topology renderer: the transform from the
 // compiler's IR graph into an elk layout graph, which of its groupings a first

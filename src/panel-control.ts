@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Cognitio S.r.l.
+// Copyright 2026 Cognitio s.r.l.
 
 // Two of the extension's surfaces are documents it draws itself, and both run a
 // command when a control in them is pressed. What it MEANS to accept such a

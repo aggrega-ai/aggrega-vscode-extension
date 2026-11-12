@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Cognitio S.r.l.
+// Copyright 2026 Cognitio s.r.l.
 
 import { zeroBasedFromOneBased } from './diagnostics-shape';
 import { isJsonRpcError } from './error-surfaces';

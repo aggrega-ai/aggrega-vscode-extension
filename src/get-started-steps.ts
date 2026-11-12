@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Cognitio S.r.l.
+// Copyright 2026 Cognitio s.r.l.
 
 // The welcome panel is the editor's answer to "I have installed this; what
 // now". It is a panel of Aggrega's own, in its own editor tab, and that is a

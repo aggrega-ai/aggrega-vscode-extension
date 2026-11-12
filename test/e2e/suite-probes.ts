@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Cognitio S.r.l.
+// Copyright 2026 Cognitio s.r.l.
 
 import { need } from './checks';
 import { boundaryTitle, contains, NONE_DECLARED, rect, shownDrawing, subsystemTitle } from './graph-drawing';

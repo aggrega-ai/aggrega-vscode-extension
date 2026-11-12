@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Cognitio S.r.l.
+// Copyright 2026 Cognitio s.r.l.
 
 // Pure helper for scheduling a daemon restart after a configurable
 // grace window. Extracted from extension.ts so the timer logic is

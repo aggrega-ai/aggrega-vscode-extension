@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Cognitio S.r.l.
+// Copyright 2026 Cognitio s.r.l.
 
 // The extension draws two of its own documents — the welcome tab and the
 // Commands panel — and both need the same two pieces to compose one: a way to

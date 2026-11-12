@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Cognitio S.r.l.
+// Copyright 2026 Cognitio s.r.l.
 //
 // Webview renderer for the Aggrega IR topology graph. Receives the serialized
 // IRGraph from the extension, lays it out with elkjs (each node inside its

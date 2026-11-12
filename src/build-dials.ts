@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Cognitio S.r.l.
+// Copyright 2026 Cognitio s.r.l.
 
 // This module is the one description of the adjustments a build offers before
 // it runs, and of what each of the two build requests composes.

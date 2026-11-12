@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Cognitio S.r.l.
+// Copyright 2026 Cognitio s.r.l.
 
 // Some settings are shared across every project on the machine by nature, and
 // writing one into a single project's file either does nothing or is not what the

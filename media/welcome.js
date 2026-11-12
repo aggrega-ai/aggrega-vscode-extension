@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Cognitio S.r.l.
+// Copyright 2026 Cognitio s.r.l.
 
 // The welcome panel's script. It swaps in the fragments the extension composed,
 // opens and closes a section, and forwards a press; it composes no markup of its

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Cognitio S.r.l.
+// Copyright 2026 Cognitio s.r.l.
 //
 // The document-free half of the attachments panel: the transform from the
 // compiler's IR into the rows the panel draws for one selected node or one

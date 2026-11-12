@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Cognitio S.r.l.
+// Copyright 2026 Cognitio s.r.l.
 
 // This module is the one home for what it means to stop an operation the reader
 // started. It depends on no editor type, so the daemon client and the

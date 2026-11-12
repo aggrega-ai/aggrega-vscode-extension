@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Cognitio S.r.l.
+// Copyright 2026 Cognitio s.r.l.
 
 import { NO_RELEASE_SELECTED_CONTROL_REASON } from './release-selection';
 import { CatalogIndexEntity } from './workspace-catalog-run';

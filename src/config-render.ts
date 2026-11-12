@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Cognitio S.r.l.
+// Copyright 2026 Cognitio s.r.l.
 
 // This module composes the configuration panel's document and holds no editor
 // type, so what a reader is shown is assertable without an extension host: every

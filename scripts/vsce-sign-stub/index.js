@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Cognitio S.r.l.
+// Copyright 2026 Cognitio s.r.l.
 
 // Stands in for @vscode/vsce-sign, which the packager (@vscode/vsce) and the Open VSX client
 // (ovsx, through its own copy of the packager) depend on. The packager calls that package only

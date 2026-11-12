@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Cognitio S.r.l.
+// Copyright 2026 Cognitio s.r.l.
 
 import { SWITCH_ANCHOR_COMMAND } from '../../src/anchor-picker';
 import { CHOOSE_PROJECT_FOLDER_COMMAND } from '../../src/project-folder';

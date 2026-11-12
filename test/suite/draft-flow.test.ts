@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Cognitio S.r.l.
+// Copyright 2026 Cognitio s.r.l.
 //
 // One flow drafts every document, and a control that exists for one kind reaches
 // it with that kind already settled rather than growing a flow of its own.

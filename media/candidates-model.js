@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Cognitio S.r.l.
+// Copyright 2026 Cognitio s.r.l.
 //
 // The document-free half of the candidate palette: the transform from the
 // language server's answer about what may attach into the rows the panel draws

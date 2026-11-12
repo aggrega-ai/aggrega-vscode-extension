@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Cognitio S.r.l.
+// Copyright 2026 Cognitio s.r.l.
 
 // What a control will accept is read off the schema declaration it was generated
 // from, so a value the schema refuses cannot be composed on this side.

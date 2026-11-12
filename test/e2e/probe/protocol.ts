@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Cognitio S.r.l.
+// Copyright 2026 Cognitio s.r.l.
 
 // What the runner and the probe must agree on, in one place both of them load.
 // It holds no editor type, so the runner can load it outside the editor.

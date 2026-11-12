@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Cognitio S.r.l.
+// Copyright 2026 Cognitio s.r.l.
 
 // The one sentence every surface says about the links leading out of the
 // workspace that the language server did not read. Each surface names what it

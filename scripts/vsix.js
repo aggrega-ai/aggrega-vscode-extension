@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Cognitio S.r.l.
+// Copyright 2026 Cognitio s.r.l.
 
 // Builds the extension's installable package (a .vsix) and publishes a built one
 // to the Visual Studio Marketplace and to Open VSX. `node scripts/vsix.js --help`
