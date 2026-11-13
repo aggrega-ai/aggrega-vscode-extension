@@ -147,7 +147,7 @@ async function pressBuild(ctx: SuiteContext, release: string): Promise<EditorBui
   const start = lines.findIndex((l) => l === `Build of ${release}.`);
   const end = lines.findIndex((l) => l.startsWith('Build completed: '));
   const closing = end !== -1 ? lines[end] : lines.find((l) => l.startsWith('The build did not complete')) ?? '';
-  const m = /^Build completed: (\d+) files written to (.+)\/$/.exec(closing);
+  const m = /^Build completed: (\d+) files? written to (.+)\/$/.exec(closing);
   const count = m ? Number(m[1]) : null;
   // The files are the last lines of the report, one per file, before its closing
   // line.

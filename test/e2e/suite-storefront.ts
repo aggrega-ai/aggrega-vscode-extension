@@ -1026,11 +1026,11 @@ export async function storefrontChecks(ctx: SuiteContext, referenceFolder: strin
     const start = lines.findIndex((l) => l === `Build of ${RELEASE}.`);
     const end = lines.findIndex((l) => l.startsWith('Build completed: '));
     need(end !== -1, `the build did not complete: ${lines.find((l) => l.startsWith('The build')) ?? ''}`);
-    const m = /^Build completed: (\d+) files written to (.+)\/$/.exec(lines[end]);
+    const m = /^Build completed: (\d+) files? written to (.+)\/$/.exec(lines[end]);
     const files = lines.slice(start + 1, end).filter((l) => l.startsWith('  ')).map((l) => l.trim()).filter((l) => !l.includes(': '));
     const dir = m ? m[2] : '';
     const onDisk = files.filter((f) => fs.existsSync(path.join(dir, f)));
-    const cliShape = /^Build completed: (\d+) files written to /.exec(cliSummary);
+    const cliShape = /^Build completed: (\d+) files? written to /.exec(cliSummary);
     const t = await waitToast(ctx.d, 'the build\'s notification', toastMark, (x) => x.message.startsWith('Aggrega: built'), 30000);
     const wantToast = `Aggrega: built ${RELEASE} — ${m?.[1]} file(s) written to ${dir}/.`;
     const passed = start !== -1 && m !== null && Number(m[1]) === files.length && onDisk.length === files.length && files.length > 0 &&

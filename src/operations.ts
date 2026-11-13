@@ -943,7 +943,7 @@ async function runBuild(deps: OperationDeps, dials: readonly string[]): Promise<
   // in the same words: the two surfaces perform one operation, so a reader who
   // has seen one report should not have to work out that the other is the same.
   out.appendLine(
-    `Build completed: ${files.length} files written to ${result.outputDirectory}/`,
+    `Build completed: ${countOf(files.length, 'file', 'files')} written to ${result.outputDirectory}/`,
   );
   void vscode.window.showInformationMessage(
     `Aggrega: built ${release} — ${files.length} file(s) written to ${result.outputDirectory}/.`,
