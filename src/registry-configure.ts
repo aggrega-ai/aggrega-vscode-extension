@@ -10,6 +10,7 @@ import {
   reachPhrase,
 } from './config-write-scope';
 import { refusalCondition } from './error-surfaces';
+import * as l10n from './l10n';
 import { OperationOutcome, outcomeOf } from './operation-outcome';
 import { PinnedByHand, registrationSentence } from './registration-outcome';
 import { withSubject } from './operation-groups';
@@ -54,9 +55,9 @@ import { withSubject } from './operation-groups';
 // on the same pair of files, and one wording for both would leave a reader
 // working out which direction they were choosing for.
 export const REGISTRATION_DESTINATION_PROMPT =
-  'Aggrega: which configuration file should the registry be written to?';
+  l10n.t('Aggrega: which configuration file should the registry be written to?');
 export const REMOVAL_DESTINATION_PROMPT =
-  'Aggrega: which configuration file should the entry be removed from?';
+  l10n.t('Aggrega: which configuration file should the entry be removed from?');
 
 // removalConsentDetail is what the confirmation says a removal will reach.
 //
@@ -70,12 +71,16 @@ export const REMOVAL_DESTINATION_PROMPT =
 // them. The consequence is this operation's own: a registry entry is what a
 // project resolves through, so which projects stop resolving through it is the
 // fact that decides whether a reader wants this at all.
+//
+// Each destination's consequence is a whole sentence of its own; the file fills
+// its placeholder in config-write-scope.ts's words, the one home for them, as a
+// phrase carrying its own article.
 export function removalConsentDetail(destination: ConfigWriteDestination): string {
-  const consequence = destination === 'global'
-    ? 'every project resolving through it is affected'
-    : 'no other project on this machine is affected';
-  return `The entry is removed from ${reachOfDestination(destination)}, so ${consequence}. `
-    + 'Which registry is the default is left unchanged.';
+  const reach = reachOfDestination(destination);
+  const removed = destination === 'global'
+    ? l10n.t('The entry is removed from {0}, so every project resolving through it is affected.', reach)
+    : l10n.t('The entry is removed from {0}, so no other project on this machine is affected.', reach);
+  return `${removed} ${l10n.t('Which registry is the default is left unchanged.')}`;
 }
 
 // --- the request and answer shapes ---------------------------------------
@@ -190,9 +195,9 @@ export const REGISTRY_ADD_COMMAND = 'aggrega.registries.add';
 
 // The three operations in the reader's terms, used for the sentence every ending
 // produces. One spelling each, so a completion and a failure name the same thing.
-export const REGISTRATION_SUBJECT = 'The registration';
-export const REGISTRY_REMOVAL_SUBJECT = 'The removal';
-export const CREDENTIAL_REMOVAL_SUBJECT = 'The credential removal';
+export const REGISTRATION_SUBJECT = l10n.t('The registration');
+export const REGISTRY_REMOVAL_SUBJECT = l10n.t('The removal');
+export const CREDENTIAL_REMOVAL_SUBJECT = l10n.t('The credential removal');
 
 // --- a trust policy pinned by hand ---------------------------------------
 
@@ -223,10 +228,10 @@ export interface TrustByHandChoice {
 }
 
 export const TRUST_BY_HAND_CHOICES: readonly TrustByHandChoice[] = [
-  { label: 'Keyless identities', description: 'each written identity=issuer', identities: true, key: false },
-  { label: 'A public key', description: 'a public-key file, read and pinned in the entry', identities: false, key: true },
-  { label: 'Keyless identities and a public key', description: 'the identities first, then the key', identities: true, key: true },
-  { label: 'Neither', description: 'leave it as it stands', identities: false, key: false },
+  { label: l10n.t('Keyless identities'), description: l10n.t('each written identity=issuer'), identities: true, key: false },
+  { label: l10n.t('A public key'), description: l10n.t('a public-key file, read and pinned in the entry'), identities: false, key: true },
+  { label: l10n.t('Keyless identities and a public key'), description: l10n.t('the identities first, then the key'), identities: true, key: true },
+  { label: l10n.t('Neither'), description: l10n.t('leave it as it stands'), identities: false, key: false },
 ];
 
 // trustByHandTitle and TRUST_BY_HAND_PLACEHOLDER are how the question is put.
@@ -235,20 +240,20 @@ export const TRUST_BY_HAND_CHOICES: readonly TrustByHandChoice[] = [
 // policy — because the ending in front of the reader has already said which it
 // was.
 export function trustByHandTitle(host: string): string {
-  return `Aggrega: pin a signature trust policy for ${host} by hand?`;
+  return l10n.t('Aggrega: pin a signature trust policy for {0} by hand?', host);
 }
 export const TRUST_BY_HAND_PLACEHOLDER =
-  'The registry\'s own policy was not taken. Choose what to pin, or press Escape to pin nothing.';
+  l10n.t('The registry\'s own policy was not taken. Choose what to pin, or press Escape to pin nothing.');
 
 // The prompt that asks for the identities, one at a time. An empty answer ends
 // the list, and dismissing any prompt pins nothing at all.
 export function identityPromptTitle(host: string): string {
-  return `Aggrega: a keyless identity to trust for ${host}`;
+  return l10n.t('Aggrega: a keyless identity to trust for {0}', host);
 }
 export const IDENTITY_PROMPT_FIRST =
-  'Written identity=issuer. Press Enter with nothing typed to pin none; Escape pins nothing at all.';
+  l10n.t('Written identity=issuer. Press Enter with nothing typed to pin none; Escape pins nothing at all.');
 export const IDENTITY_PROMPT_NEXT =
-  'Another, written identity=issuer. Press Enter with nothing typed when there are no more.';
+  l10n.t('Another, written identity=issuer. Press Enter with nothing typed when there are no more.');
 export const IDENTITY_PLACEHOLDER = 'dev@example.com=https://accounts.google.com';
 
 // The dialog that asks for the key file. A file dialog rather than a typed path,
@@ -256,9 +261,9 @@ export const IDENTITY_PLACEHOLDER = 'dev@example.com=https://accounts.google.com
 // against the directory the language server was started in, which a reader of
 // this surface cannot see.
 export function keyDialogTitle(host: string): string {
-  return `Aggrega: a public key to trust for ${host}`;
+  return l10n.t('Aggrega: a public key to trust for {0}', host);
 }
-export const KEY_DIALOG_BUTTON = 'Pin this key';
+export const KEY_DIALOG_BUTTON = l10n.t('Pin this key');
 
 // OFFLINE_REGISTRATION_WITHOUT_TRUST_POLICY is the code of the compiler's refusal
 // to register a registry other than the official hub while the workspace is
@@ -329,7 +334,7 @@ export function addRequest(
   destination: ConfigWriteDestination,
   byHand: TrustByHand | null = null,
 ): RegistryAddParams {
-  const [, checked] = withSubject('registry add', host, 'the registry to register');
+  const [, checked] = withSubject('registry add', host, l10n.t('the registry to register'));
   const request: RegistryAddParams = { host: checked, ...configWriteOverrides(destination) };
   if (byHand !== null && byHand.identities.length > 0) {
     request.identities = [...byHand.identities];
@@ -346,7 +351,7 @@ export function removeRequest(
   host: string,
   destination: ConfigWriteDestination,
 ): RegistryRemoveParams {
-  const [, checked] = withSubject('registry remove', host, 'the registry to remove');
+  const [, checked] = withSubject('registry remove', host, l10n.t('the registry to remove'));
   return { registry: checked, ...configWriteOverrides(destination) };
 }
 
@@ -355,7 +360,7 @@ export function logoutRequest(host: string): LogoutParams {
   const [, checked] = withSubject(
     'logout',
     host,
-    'the registry whose stored credential to remove',
+    l10n.t('the registry whose stored credential to remove'),
   );
   return { registry: checked };
 }
@@ -498,10 +503,14 @@ export function registrationDetail(
 // It names the host the compiler resolved the token to and the file the removal
 // actually wrote, which is strictly more than the reader was told beforehand: the
 // confirmation predicted a file from the destination they chose, and this is the
-// same fact measured instead of predicted.
+// same fact measured instead of predicted. How far the file reaches fills a
+// placeholder in config-write-scope.ts's own words, a phrase standing alone after
+// the file.
 export function registryRemovalDetail(result: RegistryRemoveResult): string {
-  return `removed the registry ${result.host} from `
-    + `${result.scope.configFile}, ${reachPhrase(result.scope)}.`;
+  return l10n.t(
+    'removed the registry {0} from {1}, {2}.',
+    result.host, result.scope.configFile, reachPhrase(result.scope),
+  );
 }
 
 // credentialRemovalDetail is the sentence a completed credential removal ends in.
@@ -512,5 +521,5 @@ export function registryRemovalDetail(result: RegistryRemoveResult): string {
 // delegates to a keychain or a credential helper, so naming a location would
 // assert one the removal did not necessarily touch.
 export function credentialRemovalDetail(result: LogoutResult): string {
-  return `removed the stored credential for ${result.registry}.`;
+  return l10n.t('removed the stored credential for {0}.', result.registry);
 }

@@ -2,6 +2,7 @@
 // Copyright 2026 Cognitio s.r.l.
 
 import type * as wire from '@aggrega-ai/aggrega-abi/dist/servewire_gen';
+import * as l10n from './l10n';
 
 // This module is the one home of "which configuration file, and how far does it
 // reach" — both directions: the destination a request ASKS for, and the reach an
@@ -48,8 +49,11 @@ export type ConfigWriteDestination = 'global' | 'workspace';
 // They are phrases rather than sentences so a caller can place one after the
 // file it names, which is the order that reads: the reader is told which file
 // first and how far it reaches second.
-const MACHINE_WIDE_REACH = 'the global file shared by every project on this machine';
-const PROJECT_REACH = 'this project\'s own configuration file';
+//
+// Each is translated as a phrase standing alone, carrying its own article, since
+// every sentence that places one sets it off after the file's name.
+const MACHINE_WIDE_REACH = l10n.t('the global file shared by every project on this machine');
+const PROJECT_REACH = l10n.t('this project\'s own configuration file');
 
 // reachOfDestination says how far the file a destination names reaches.
 //

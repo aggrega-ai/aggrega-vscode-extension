@@ -20,6 +20,7 @@ import { terminalLine } from '../../src/operation-outcome';
 import { NO_ANCHORED_WORKSPACE_MESSAGE } from '../../src/workspace';
 import {
   EXTENSION_ROOT,
+  TEXT_LOOKUP,
   WIRE_CONTRACT,
   assertCensusInstrumentFires,
   launchFacilityCount,
@@ -836,11 +837,13 @@ describe('the conventions check reaches the compiler without a launch', () => {
     // on the list, because there is no such statement to gather: the shapes come
     // from the published contract, which is a narrowing of what this module
     // reaches rather than a widening.
+    // The text lookup is admitted by name, for the reason TEXT_LOOKUP carries.
     assert.deepStrictEqual(
       valueImports('src/lint-run.ts'),
       [
         './cancellation',
         './diagnostics-shape',
+        TEXT_LOOKUP,
         './operation-groups',
         './operation-outcome',
         './workspace',

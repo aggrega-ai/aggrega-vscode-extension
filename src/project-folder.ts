@@ -3,7 +3,7 @@
 
 import { FolderLike } from './workspace';
 import { WorkspaceStateLike, rememberAnchorChoice } from './anchor-picker';
-import { SELECTOR_ROW_LABELS } from './selector-levels';
+import * as l10n from './l10n';
 import { distinguishingLabel } from './uri-display';
 import {
   WINDOW_RELOADS,
@@ -162,8 +162,8 @@ export function buildProjectFolderItems<F extends FolderLike>(
 // "this window" is the phrase the entries' second lines, the folder dialogs and
 // the messages below use for the folders open. They are not graded on how many
 // folders are open, because neither promises "another".
-export const OPEN_FOLDER_ENTRY_LABEL = 'Open folder…';
-export const ADD_FOLDER_ENTRY_LABEL = 'Add folder to this window…';
+export const OPEN_FOLDER_ENTRY_LABEL = l10n.t('Open folder…');
+export const ADD_FOLDER_ENTRY_LABEL = l10n.t('Add folder to this window…');
 
 // openFolderDetail is the open entry's second line: what taking it does to the
 // folders the window has, and what it costs.
@@ -175,15 +175,15 @@ export const ADD_FOLDER_ENTRY_LABEL = 'Add folder to this window…';
 // or remote.
 export function openFolderDetail(openCount: number): string {
   return openCount === 0
-    ? `Opens the folder you pick in this window. ${WINDOW_RELOADS}`
-    : `Opens the folder you pick in place of what this window has open. ${WINDOW_RELOADS}`;
+    ? `${l10n.t('Opens the folder you pick in this window.')} ${WINDOW_RELOADS}`
+    : `${l10n.t('Opens the folder you pick in place of what this window has open.')} ${WINDOW_RELOADS}`;
 }
 
 // ADD_FOLDER_DETAIL explains, on the add entry's second line, what taking it
 // does — that it reaches past the folders this window has, which is the one
 // thing choosing among them cannot do.
 export const ADD_FOLDER_DETAIL =
-  'Reaches a folder this window does not have open yet.';
+  l10n.t('Reaches a folder this window does not have open yet.');
 
 // addFolderDetail is the add entry's second line for this kind of window: what
 // taking it does, and what it costs where it costs something.
@@ -246,16 +246,16 @@ export const OPEN_FOLDER_DIALOG = {
   canSelectFiles: false,
   canSelectFolders: true,
   canSelectMany: false,
-  openLabel: 'Open',
-  title: 'Aggrega: select a folder to open in this window',
+  openLabel: l10n.t('Open'),
+  title: l10n.t('Aggrega: select a folder to open in this window'),
 } as const;
 
 export const ADD_FOLDER_DIALOG = {
   canSelectFiles: false,
   canSelectFolders: true,
   canSelectMany: false,
-  openLabel: 'Add',
-  title: 'Aggrega: select a folder to add to this window',
+  openLabel: l10n.t('Add'),
+  title: l10n.t('Aggrega: select a folder to add to this window'),
 } as const;
 
 // folderAlreadyOpenMessage is what a reader is told when the folder they picked
@@ -266,7 +266,7 @@ export const ADD_FOLDER_DIALOG = {
 // message about a folder here does — a message is read with none of the
 // chooser's side-by-side context around it.
 export function folderAlreadyOpenMessage(folderPath: string): string {
-  return `Aggrega: ${folderPath} is already open in this window.`;
+  return l10n.t('Aggrega: {0} is already open in this window.', folderPath);
 }
 
 // folderDeclinedMessage is what a reader is told when the editor refuses to add
@@ -278,7 +278,7 @@ export function folderAlreadyOpenMessage(folderPath: string): string {
 // from the Aggrega workspace row's chooser — and a reader meeting the same
 // refusal through either must be told the same thing.
 export function folderDeclinedMessage(folderPath: string): string {
-  return `Aggrega: the editor declined to add ${folderPath} to this workspace.`;
+  return l10n.t('Aggrega: the editor declined to add {0} to this workspace.', folderPath);
 }
 
 // folderNotOpenedMessage is what a reader is told when the editor refuses to
@@ -290,7 +290,7 @@ export function folderDeclinedMessage(folderPath: string): string {
 // on a window left exactly as it was. It names the full path for the reason
 // every message about a folder here does.
 export function folderNotOpenedMessage(folderPath: string): string {
-  return `Aggrega: the editor could not open ${folderPath}.`;
+  return l10n.t('Aggrega: the editor could not open {0}.', folderPath);
 }
 
 // FolderOpeningEditor is what opening a folder in the window needs the editor
@@ -596,10 +596,12 @@ export async function pickAndAddFolder<L extends { fsPath: string }>(
 // CHOOSE_PROJECT_FOLDER_INVITATION is the offer to change which folder the
 // editor works from, as the closing line of a hover.
 //
-// It names the level from the one place the three levels are named, so the row
-// and the chooser cannot come to call it two different things.
+// It names the level as the one place the three levels are named does, so the
+// row and the chooser cannot come to call it two different things: it spells
+// SELECTOR_ROW_LABELS.project (selector-levels.ts) inside its own message, since
+// the label is a noun after "which" there.
 export const CHOOSE_PROJECT_FOLDER_INVITATION =
-  `Click to choose which ${SELECTOR_ROW_LABELS.project} the editor works from.`;
+  l10n.t('Click to choose which Project folder the editor works from.');
 
 // SOLE_PROJECT_FOLDER_INVITATION is the closing line of the same hover where the
 // window has only one folder open.
@@ -610,14 +612,15 @@ export const CHOOSE_PROJECT_FOLDER_INVITATION =
 // this one, and adding one beside it — so that is what the line names, in the
 // words those entries use.
 export const SOLE_PROJECT_FOLDER_INVITATION =
-  'Click to open a folder or add one to this window.';
+  l10n.t('Click to open a folder or add one to this window.');
 
 // CHOOSE_PROJECT_FOLDER_PLACEHOLDER is the same offer as the chooser's own
 // placeholder. A placeholder is read inside the control it belongs to, so it
 // drops the instruction to click and takes the product prefix every quick-pick
-// in this extension carries.
+// in this extension carries. It spells SELECTOR_ROW_LABELS.project inside its own
+// message, as the invitation does.
 export const CHOOSE_PROJECT_FOLDER_PLACEHOLDER =
-  `Aggrega: choose which ${SELECTOR_ROW_LABELS.project} the editor works from`;
+  l10n.t('Aggrega: choose which Project folder the editor works from');
 
 // projectFolderSwitchMessage is what a reader is told when the folder the editor
 // works from has changed.
@@ -631,5 +634,5 @@ export const CHOOSE_PROJECT_FOLDER_PLACEHOLDER =
 // share a basename — the collision the chooser itself disambiguates — and a
 // message is read with none of the chooser's side-by-side context around it.
 export function projectFolderSwitchMessage(folderPath: string): string {
-  return `Aggrega: now working from ${folderPath}.`;
+  return l10n.t('Aggrega: now working from {0}.', folderPath);
 }

@@ -63,6 +63,7 @@ import {
 import { DiskChangeHandler, ON_DISK_PATTERN, createDiskChangeHandler, subscribeToWatcher } from './disk-change';
 import { clearClosedDocument } from './document-close';
 import { createDocumentValidations } from './document-validations';
+import * as l10n from './l10n';
 import { DIAGNOSTIC_SOURCE_FALLBACK } from './diagnostics-shape';
 import {
   DaemonErrorContext,
@@ -226,7 +227,6 @@ import {
   readSavedAnchor,
   rememberAnchorChoice,
 } from './anchor-picker';
-import { SELECTOR_ROW_LABELS } from './selector-levels';
 import { openWorkspaceRootInvocation } from './selector-rows';
 import { FoldersTold, tellWorkspaceAboveIfDue } from './workspace-above';
 import {
@@ -247,6 +247,10 @@ import {
 } from './project-folder';
 import { appendFolderToWindow, openFolderInWindow } from './window-folders';
 import { WindowKind } from './window-kind';
+
+// LANGUAGE_SERVER_NOT_RUNNING is what a request this module sends on a reader's
+// behalf rejects with while no language server is running to answer it.
+const LANGUAGE_SERVER_NOT_RUNNING = l10n.t('the Aggrega language server is not running');
 
 let daemon: Daemon | null = null;
 let outputChannel: vscode.OutputChannel | null = null;
@@ -461,9 +465,9 @@ function languageServerReading(): ServerReading {
 // offers the one way to select one. Written once here so every surface that
 // needs a selection says the same thing.
 function requireSelectedRelease(): void {
-  const action = 'Select a Release…';
+  const action = l10n.t('Select a Release…');
   void vscode.window.showInformationMessage(
-    'Aggrega: this operation acts on a Release, and none is selected.',
+    l10n.t('Aggrega: this operation acts on a Release, and none is selected.'),
     action,
   ).then(choice => {
     if (choice === action) {
@@ -539,7 +543,7 @@ async function requestGraphWithoutDrawing(release: string): Promise<void> {
     await answeredFor(release, client.request<unknown>('aggrega/irGraph', params));
   } catch (err) {
     outputChannel?.appendLine(
-      `the topology of ${release}, asked for to settle what its lockfile reports, was not built: ${describeError(err)}`,
+      l10n.t('the topology of {0}, asked for to settle what its lockfile reports, was not built: {1}', release, describeError(err)),
     );
   }
 }
@@ -862,7 +866,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // posted, so nothing here reads the setting again.
     requestIrGraph: async (request: IrGraphRequest, signal?: CancellationSignal) => {
       if (!daemon || daemon.getState() !== DaemonState.Running) {
-        throw new Error('the Aggrega language server is not running');
+        throw new Error(LANGUAGE_SERVER_NOT_RUNNING);
       }
       const result = await answeredFor(request.release, daemon.request<IrGraphResponse>(
         'aggrega/irGraph',
@@ -879,7 +883,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // alone is answered from the workspace's own directories.
     requestAttachCandidates: async (request: AttachCandidatesRequest) => {
       if (!daemon || daemon.getState() !== DaemonState.Running) {
-        throw new Error('the Aggrega language server is not running');
+        throw new Error(LANGUAGE_SERVER_NOT_RUNNING);
       }
       return await daemon.request<unknown>('aggrega/attachCandidates', request);
     },
@@ -897,7 +901,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // either here would agree until the document that mattered.
     requestAttachmentContainer: async (request: AttachmentContainerRequest) => {
       if (!daemon || daemon.getState() !== DaemonState.Running) {
-        throw new Error('the Aggrega language server is not running');
+        throw new Error(LANGUAGE_SERVER_NOT_RUNNING);
       }
       return await daemon.request<unknown>('aggrega/attachmentContainer', request);
     },
@@ -908,7 +912,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // unsaved change is already part of the answer.
     requestInsertionPoint: async (file: string, container: string[]) => {
       if (!daemon || daemon.getState() !== DaemonState.Running) {
-        throw new Error('the Aggrega language server is not running');
+        throw new Error(LANGUAGE_SERVER_NOT_RUNNING);
       }
       return await daemon.request<unknown>('aggrega/insertionPoint', { file, container });
     },
@@ -919,7 +923,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // editor last sent it, ahead of the bytes on disk.
     requestConnectionAtPosition: async (request: ConnectionAtPositionRequest) => {
       if (!daemon || daemon.getState() !== DaemonState.Running) {
-        throw new Error('the Aggrega language server is not running');
+        throw new Error(LANGUAGE_SERVER_NOT_RUNNING);
       }
       return await daemon.request<unknown>('aggrega/connectionAtPosition', request);
     },
@@ -1188,9 +1192,10 @@ async function reactivate(context: vscode.ExtensionContext): Promise<void> {
     // indistinguishable from one that was never remembered, and the reader
     // meets the difference at a moment they cannot connect to a previous
     // session.
+    // Spells SELECTOR_ROW_LABELS.workspace (selector-levels.ts) inside its own
+    // message, the label being a noun after "an" there.
     void vscode.window.showInformationMessage(
-      `Aggrega: ${savedAnchor} no longer marks an ${SELECTOR_ROW_LABELS.workspace} in this project, `
-      + `so the remembered choice was dropped.`,
+      l10n.t('Aggrega: {0} no longer marks an Aggrega workspace in this project, so the remembered choice was dropped.', savedAnchor),
     );
   }
 
@@ -1298,9 +1303,10 @@ async function settleProjectFolder(
   const saved = readSavedProjectFolder(context.workspaceState);
   if (saved !== null && !isSavedProjectFolderValid(saved, folders)) {
     await rememberProjectFolderChoice(context.workspaceState, null);
+    // Spells SELECTOR_ROW_LABELS.project (selector-levels.ts) inside its own
+    // message, the label being a noun after "the" there.
     void vscode.window.showInformationMessage(
-      `Aggrega: ${saved} is no longer open in this window, `
-      + `so the remembered ${SELECTOR_ROW_LABELS.project} was dropped.`,
+      l10n.t('Aggrega: {0} is no longer open in this window, so the remembered Project folder was dropped.', saved),
     );
   }
   const inForce = projectFolderInForce(
@@ -1420,7 +1426,7 @@ async function notifyMultipleAnchors(count: number): Promise<void> {
   pendingToastShown = true;
   const action = CHOOSE_ANCHOR_ACTION;
   const choice = await vscode.window.showInformationMessage(
-    `Aggrega: ${anchorsAvailableSentence(count)} Choose one to start the language server.`,
+    `${l10n.t('Aggrega: {0}', anchorsAvailableSentence(count))} ${l10n.t('Choose one to start the language server.')}`,
     action,
   );
   pendingToastShown = false;
@@ -1687,7 +1693,7 @@ function registerSelectReleaseCommand(context: vscode.ExtensionContext): void {
       if (!chosen) { return; }
       // Nothing is restarted. The selection travels on the next request, so the
       // change is in force immediately.
-      outputChannel?.appendLine(`selected Release: ${chosen}`);
+      outputChannel?.appendLine(l10n.t('selected Release: {0}', chosen));
       // A choice that moved the selection has already had the open documents
       // validated again by the follower of its moves. Choosing the Release already
       // selected moves nothing, and is still the reader asking for the open
@@ -1936,7 +1942,7 @@ export async function deactivate(): Promise<void> {
 async function validateActiveDocument(): Promise<void> {
   const editor = vscode.window.activeTextEditor;
   if (!editor || editor.document.languageId !== 'yaml') {
-    void vscode.window.showInformationMessage('Aggrega: open a YAML file to validate.');
+    void vscode.window.showInformationMessage(l10n.t('Aggrega: open a YAML file to validate.'));
     return;
   }
   const client = daemon;
@@ -1948,7 +1954,7 @@ async function validateActiveDocument(): Promise<void> {
   const name = path.basename(doc.uri.fsPath);
   try {
     const response = await withCancellableProgress(
-      `Aggrega: validating ${name}`,
+      l10n.t('Aggrega: validating {0}', name),
       (signal) => client.request<ValidateResponse>(
         'aggrega/validate',
         validateParamsFor(doc),
@@ -1959,12 +1965,12 @@ async function validateActiveDocument(): Promise<void> {
     if (diagnosticCollections) {
       publishDiagnostics(diagnosticCollections, doc.uri, findings);
     }
-    const report = countReport(`Aggrega: validated ${name}`, findings.length, 'Problems panel');
+    const report = countReport(l10n.t('Aggrega: validated {0}', name), findings.length, 'Problems panel');
     outputChannel?.appendLine(report);
     void vscode.window.showInformationMessage(report);
   } catch (err) {
     const outcome = outcomeOf(err);
-    const line = terminalLine('The validation', outcome);
+    const line = terminalLine(l10n.t('The validation'), outcome);
     outputChannel?.appendLine(line);
     if (outcome.kind === 'cancelled') {
       void vscode.window.showInformationMessage(line);
@@ -2014,7 +2020,7 @@ function validateDocument(doc: vscode.TextDocument): Promise<void> {
       if (ctx && isJsonRpcError(err) && handleDaemonError(err, ctx) !== 'unrecognised') {
         return;
       }
-      outputChannel?.appendLine(`validate failed: ${describeError(err)}`);
+      outputChannel?.appendLine(l10n.t('validate failed: {0}', describeError(err)));
     },
   );
 }
@@ -2172,7 +2178,7 @@ function registerFileWatcher(context: vscode.ExtensionContext): DiskChangeHandle
       const client = daemon;
       if (!client) { return Promise.resolve(); }
       return client.request<unknown>('aggrega/invalidate', { file }).then(() => undefined, err => {
-        outputChannel?.appendLine(`invalidate failed: ${describeError(err)}`);
+        outputChannel?.appendLine(l10n.t('invalidate failed: {0}', describeError(err)));
       });
     },
     // The file granularity drops that one file's entries and keeps the
@@ -2182,7 +2188,7 @@ function registerFileWatcher(context: vscode.ExtensionContext): DiskChangeHandle
       const client = daemon;
       if (!client) { return Promise.resolve(); }
       return client.request<unknown>('aggrega/invalidate', { file, granularity: 'file' }).then(() => undefined, err => {
-        outputChannel?.appendLine(`invalidate (didClose) failed: ${describeError(err)}`);
+        outputChannel?.appendLine(l10n.t('invalidate (didClose) failed: {0}', describeError(err)));
       });
     },
     redraw,
@@ -2367,7 +2373,7 @@ function scheduleBinaryPathRestart(): void {
   }
   pendingRestartRemaining = graceSeconds;
   updateStatusBarForPendingRestart();
-  outputChannel?.appendLine(`binary path changed; restarting in ${graceSeconds}s`);
+  outputChannel?.appendLine(l10n.t('binary path changed; restarting in {0}s', graceSeconds));
   pendingRestart = scheduleBinaryRestart({
     graceSeconds,
     timer: {
@@ -2384,7 +2390,7 @@ function scheduleBinaryPathRestart(): void {
       pendingRestart = null;
       pendingRestartRemaining = 0;
       restoreStatusBar();
-      outputChannel?.appendLine('binary path restart cancelled');
+      outputChannel?.appendLine(l10n.t('binary path restart cancelled'));
     },
     onComplete: () => {
       pendingRestart = null;
@@ -2403,7 +2409,7 @@ function updateStatusBarForPendingRestart(): void {
   if (!baseStatusBarText) {
     baseStatusBarText = statusBarItem.text;
   }
-  statusBarItem.text = `Aggrega: restarting in ${pendingRestartRemaining}s`;
+  statusBarItem.text = l10n.t('Aggrega: restarting in {0}s', pendingRestartRemaining);
 }
 
 function restoreStatusBar(): void {
@@ -2426,19 +2432,19 @@ async function runCompatibilityCheck(): Promise<void> {
   });
   switch (result.kind) {
     case 'match':
-      outputChannel?.appendLine(`Aggrega daemon version ${result.version} matches the declared compatibility range.`);
+      outputChannel?.appendLine(l10n.t('Aggrega daemon version {0} matches the declared compatibility range.', result.version));
       return;
     case 'mismatch':
       void vscode.window.showWarningMessage(
-        `Aggrega daemon version ${result.version} is outside the extension's declared compatibility range (${result.range}). Behavior may be unstable; consider upgrading the daemon or downgrading the extension.`,
+        l10n.t("Aggrega daemon version {0} is outside the extension's declared compatibility range ({1}). Behavior may be unstable; consider upgrading the daemon or downgrading the extension.", result.version, result.range),
       );
-      outputChannel?.appendLine(`Aggrega daemon version ${result.version} outside compatibility range ${result.range}.`);
+      outputChannel?.appendLine(l10n.t('Aggrega daemon version {0} outside compatibility range {1}.', result.version, result.range));
       return;
     case 'skipped':
-      outputChannel?.appendLine(`Aggrega version check skipped: ${result.reason}`);
+      outputChannel?.appendLine(l10n.t('Aggrega version check skipped: {0}', result.reason));
       return;
     case 'error':
-      outputChannel?.appendLine(`Aggrega version check failed: ${result.err.message}`);
+      outputChannel?.appendLine(l10n.t('Aggrega version check failed: {0}', result.err.message));
       return;
   }
 }
@@ -2490,7 +2496,7 @@ async function readRunningVersions(): Promise<VersionStandings> {
   }
   const reading = await readDaemonVersion({ binaryPath: running, spawn: spawnForCompat });
   if (reading.kind === 'unreadable') {
-    outputChannel?.appendLine(`Aggrega compiler version could not be read: ${reading.err.message}`);
+    outputChannel?.appendLine(l10n.t('Aggrega compiler version could not be read: {0}', reading.err.message));
     return { extension: extensionVersion, compiler: null };
   }
   return { extension: extensionVersion, compiler: reading.version };
@@ -2514,41 +2520,49 @@ function spawnForCompat(binaryPath: string, args: string[]): Promise<string> {
 // can adjust the timer without waiting for it to expire.
 function registerStatusBarMenu(context: vscode.ExtensionContext): void {
   context.subscriptions.push(vscode.commands.registerCommand(STATUS_BAR_MENU_COMMAND, async () => {
+    // The menu dispatches on the label the reader picked, so each label is read
+    // once here and both the entry and the dispatch use that one value.
+    const restartNow = l10n.t('Restart now');
+    const cancelRestart = l10n.t('Cancel restart');
+    const restartServer = RESTART_SERVER_ACTION;
+    const viewOutput = l10n.t('View output');
+    const revealRoot = l10n.t('Reveal workspace root');
+    const showServerLog = l10n.t('Show server log');
     const items: vscode.QuickPickItem[] = [];
     if (pendingRestart) {
-      items.push({ label: 'Restart now', description: 'Run the pending restart immediately' });
-      items.push({ label: 'Cancel restart', description: `Abort the pending restart (${pendingRestartRemaining}s remaining)` });
+      items.push({ label: restartNow, description: l10n.t('Run the pending restart immediately') });
+      items.push({ label: cancelRestart, description: l10n.t('Abort the pending restart ({0}s remaining)', pendingRestartRemaining) });
     }
     items.push(
-      { label: 'Restart server', description: 'Restart the Aggrega language server' },
+      { label: restartServer, description: l10n.t('Restart the Aggrega language server') },
       {
         label: BUILD_ON_INSPECT_MENU_LABEL,
         description: buildOnInspectMenuDescription(getSettings().buildOnInspect),
       },
-      { label: 'View output', description: 'Open the Aggrega output channel' },
-      { label: 'Reveal workspace root', description: workspaceRootForCommands ?? 'Workspace not yet known' },
-      { label: 'Show server log', description: 'Focus the daemon log' },
+      { label: viewOutput, description: l10n.t('Open the Aggrega output channel') },
+      { label: revealRoot, description: workspaceRootForCommands ?? l10n.t('Workspace not yet known') },
+      { label: showServerLog, description: l10n.t('Focus the daemon log') },
     );
-    const choice = await vscode.window.showQuickPick(items, { placeHolder: 'Aggrega: choose an action' });
+    const choice = await vscode.window.showQuickPick(items, { placeHolder: l10n.t('Aggrega: choose an action') });
     if (!choice) { return; }
     switch (choice.label) {
-      case 'Restart now':
+      case restartNow:
         pendingRestart?.restartNow();
         return;
-      case 'Cancel restart':
+      case cancelRestart:
         pendingRestart?.cancel();
         return;
-      case 'Restart server':
+      case restartServer:
         void vscode.commands.executeCommand(RESTART_COMMAND);
         return;
       case BUILD_ON_INSPECT_MENU_LABEL:
         await toggleBuildOnInspect();
         return;
-      case 'View output':
-      case 'Show server log':
+      case viewOutput:
+      case showServerLog:
         outputChannel?.show();
         return;
-      case 'Reveal workspace root':
+      case revealRoot:
         if (workspaceRootForCommands) {
           void vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(workspaceRootForCommands));
         }
@@ -2574,7 +2588,7 @@ async function toggleBuildOnInspect(): Promise<void> {
     await cfg.update(BUILD_ON_INSPECT_KEY, next, vscode.ConfigurationTarget.Global);
   } catch (err) {
     void vscode.window.showErrorMessage(
-      `Aggrega: the setting could not be changed. ${describeError(err)}`,
+      `${l10n.t('Aggrega: the setting could not be changed.')} ${describeError(err)}`,
     );
     return;
   }
@@ -2657,7 +2671,7 @@ async function tryRequest<T>(method: RequestMethod, params: unknown, doc: vscode
         return null;
       }
     }
-    outputChannel?.appendLine(`${method} failed: ${describeError(err)}`);
+    outputChannel?.appendLine(l10n.t('{0} failed: {1}', method, describeError(err)));
     return null;
   }
 }
@@ -2778,7 +2792,7 @@ function buildErrorContext(uri: vscode.Uri, whoAsked: WhoAsked): DaemonErrorCont
 // the daemon's resolution this removes).
 async function requestReleaseCandidates(): Promise<ReleaseCandidatesResponse> {
   if (!daemon || daemon.getState() !== DaemonState.Running) {
-    throw new Error('the Aggrega daemon is not running');
+    throw new Error(l10n.t('the Aggrega daemon is not running'));
   }
   return await daemon.request<ReleaseCandidatesResponse>('aggrega/releaseCandidates', {});
 }
@@ -2796,7 +2810,7 @@ async function requestReleaseCandidates(): Promise<ReleaseCandidatesResponse> {
 // reports the answer as unknown rather than falling back to a local guess.
 async function requestActiveRelease(): Promise<ActiveReleaseResponse> {
   if (!daemon || daemon.getState() !== DaemonState.Running) {
-    throw new Error('the Aggrega daemon is not running');
+    throw new Error(l10n.t('the Aggrega daemon is not running'));
   }
   return await daemon.request<ActiveReleaseResponse>('aggrega/activeRelease', {});
 }
@@ -2814,7 +2828,7 @@ async function requestActiveRelease(): Promise<ActiveReleaseResponse> {
 // not written rather than reporting it recorded.
 async function requestSetActiveRelease(params: SetActiveReleaseParams): Promise<ActiveReleaseResponse> {
   if (!daemon || daemon.getState() !== DaemonState.Running) {
-    throw new Error('the Aggrega language server is not running');
+    throw new Error(LANGUAGE_SERVER_NOT_RUNNING);
   }
   return await daemon.request<ActiveReleaseResponse>('aggrega/setActiveRelease', params);
 }
@@ -2856,7 +2870,7 @@ async function requestBuildPreview(
   signal?: CancellationSignal,
 ): Promise<BuildPreviewResponse> {
   if (!daemon || daemon.getState() !== DaemonState.Running) {
-    throw new Error('the Aggrega language server is not running');
+    throw new Error(LANGUAGE_SERVER_NOT_RUNNING);
   }
   return await answeredFor(release, daemon.request<BuildPreviewResponse>(
     'aggrega/buildPreview',
@@ -2913,7 +2927,7 @@ async function requestBuild(
   signal?: CancellationSignal,
 ): Promise<BuildResponse> {
   if (!daemon || daemon.getState() !== DaemonState.Running) {
-    throw new Error('the Aggrega language server is not running');
+    throw new Error(LANGUAGE_SERVER_NOT_RUNNING);
   }
   return await answeredFor(release, daemon.request<BuildResponse>(
     'aggrega/build',
@@ -2947,7 +2961,7 @@ async function requestImport(
   signal?: CancellationSignal,
 ): Promise<ImportResult> {
   if (!daemon || daemon.getState() !== DaemonState.Running) {
-    throw new Error('the Aggrega language server is not running');
+    throw new Error(LANGUAGE_SERVER_NOT_RUNNING);
   }
   return await daemon.request<ImportResult>('aggrega/import', params, signal);
 }
@@ -2975,7 +2989,7 @@ async function requestCatalogIndex(signal?: CancellationSignal): Promise<Catalog
 // selection has moved.
 async function requestCatalogIndexWith(params: CatalogIndexParams, signal?: CancellationSignal): Promise<CatalogIndexDoc> {
   if (!daemon || daemon.getState() !== DaemonState.Running) {
-    throw new Error('the Aggrega language server is not running');
+    throw new Error(LANGUAGE_SERVER_NOT_RUNNING);
   }
   return await daemon.request<CatalogIndexDoc>('aggrega/catalogIndex', params, signal);
 }
@@ -3002,7 +3016,7 @@ async function readConnectionDocuments(): Promise<void> {
   try {
     files = connectionDocumentFiles(await requestCatalogIndex());
   } catch (err) {
-    outputChannel?.appendLine(`catalogIndex failed, so the attach at the cursor is offered in no document: ${describeError(err)}`);
+    outputChannel?.appendLine(l10n.t('catalogIndex failed, so the attach at the cursor is offered in no document: {0}', describeError(err)));
   }
   if (read !== connectionDocumentsRead) { return; }
   publishConnectionDocuments(files.map((file) => vscode.Uri.file(fromWorkspaceRelative(root, file)).fsPath));
@@ -3043,7 +3057,7 @@ function publishConnectionDocuments(paths: string[]): void {
 // state rather than presenting an empty draft.
 async function requestScaffoldEntity(kind: string, name: string): Promise<ScaffoldEntityResponse> {
   if (!daemon || daemon.getState() !== DaemonState.Running) {
-    throw new Error('the Aggrega language server is not running');
+    throw new Error(LANGUAGE_SERVER_NOT_RUNNING);
   }
   return await daemon.request<ScaffoldEntityResponse>('aggrega/scaffoldEntity', { kind, name });
 }
@@ -3059,7 +3073,7 @@ async function requestEntityDefinition(
   signal?: CancellationSignal,
 ): Promise<unknown> {
   if (!daemon || daemon.getState() !== DaemonState.Running) {
-    throw new Error('the Aggrega language server is not running');
+    throw new Error(LANGUAGE_SERVER_NOT_RUNNING);
   }
   return await daemon.request<unknown>('aggrega/entityDefinition', entityDefinitionParams(name, selectedRelease()), signal);
 }
@@ -3074,7 +3088,7 @@ async function requestEntityDefinition(
 // than presenting an empty report as a workspace that configures nothing.
 async function requestEffectiveConfiguration(): Promise<unknown> {
   if (!daemon || daemon.getState() !== DaemonState.Running) {
-    throw new Error('the Aggrega language server is not running');
+    throw new Error(LANGUAGE_SERVER_NOT_RUNNING);
   }
   return await daemon.request<unknown>('aggrega/effectiveConfiguration', {});
 }
@@ -3102,7 +3116,7 @@ async function requestEffectiveConfiguration(): Promise<unknown> {
 // than presenting an absent schema as a product that declares nothing.
 async function requestSchema(kind?: string): Promise<unknown> {
   if (!daemon || daemon.getState() !== DaemonState.Running) {
-    throw new Error('the Aggrega language server is not running');
+    throw new Error(LANGUAGE_SERVER_NOT_RUNNING);
   }
   return await daemon.request<unknown>(
     'aggrega/getSchema',
@@ -3120,7 +3134,7 @@ async function requestSchema(kind?: string): Promise<unknown> {
 // than presenting an unasked question as a machine that caches nothing.
 async function requestCacheStatus(): Promise<CacheStatusResponse> {
   if (!daemon || daemon.getState() !== DaemonState.Running) {
-    throw new Error('the Aggrega language server is not running');
+    throw new Error(LANGUAGE_SERVER_NOT_RUNNING);
   }
   return await daemon.request<CacheStatusResponse>('aggrega/cacheStatus', {});
 }
@@ -3134,7 +3148,7 @@ async function requestCacheStatus(): Promise<CacheStatusResponse> {
 // than presenting a reclamation that never ran as one that found nothing.
 async function requestCachePrune(): Promise<CachePruneResponse> {
   if (!daemon || daemon.getState() !== DaemonState.Running) {
-    throw new Error('the Aggrega language server is not running');
+    throw new Error(LANGUAGE_SERVER_NOT_RUNNING);
   }
   return await daemon.request<CachePruneResponse>('aggrega/cachePrune', {});
 }
@@ -3152,7 +3166,7 @@ async function requestCachePrune(): Promise<CachePruneResponse> {
 // than presenting a trim that never ran as a cache already within its cap.
 async function requestCacheEvict(maxSize: string): Promise<CacheEvictResponse> {
   if (!daemon || daemon.getState() !== DaemonState.Running) {
-    throw new Error('the Aggrega language server is not running');
+    throw new Error(LANGUAGE_SERVER_NOT_RUNNING);
   }
   return await daemon.request<CacheEvictResponse>('aggrega/cacheEvict', { maxSize });
 }
@@ -3169,7 +3183,7 @@ async function requestCacheEvict(maxSize: string): Promise<CacheEvictResponse> {
 // nothing.
 async function requestCacheClear(): Promise<CacheClearResponse> {
   if (!daemon || daemon.getState() !== DaemonState.Running) {
-    throw new Error('the Aggrega language server is not running');
+    throw new Error(LANGUAGE_SERVER_NOT_RUNNING);
   }
   return await daemon.request<CacheClearResponse>('aggrega/cacheClear', {});
 }
@@ -3198,7 +3212,7 @@ async function requestCacheClear(): Promise<CacheClearResponse> {
 // than presenting a seeding that never ran as one that found nothing to do.
 async function requestConfigInit(params: ConfigInitParams): Promise<AppliedWrite<ConfigInitResult>> {
   if (!daemon || daemon.getState() !== DaemonState.Running) {
-    throw new Error('the Aggrega language server is not running');
+    throw new Error(LANGUAGE_SERVER_NOT_RUNNING);
   }
   const client = daemon;
   return await configurationWatch.ownWrite(
@@ -3222,7 +3236,7 @@ async function requestConfigInit(params: ConfigInitParams): Promise<AppliedWrite
 // than presenting an unasked question as an empty answer.
 async function requestRegistryList(): Promise<RegistryListDoc> {
   if (!daemon || daemon.getState() !== DaemonState.Running) {
-    throw new Error('the Aggrega language server is not running');
+    throw new Error(LANGUAGE_SERVER_NOT_RUNNING);
   }
   return await daemon.request<RegistryListDoc>('aggrega/registryList', {});
 }
@@ -3259,7 +3273,7 @@ async function requestRegistryList(): Promise<RegistryListDoc> {
 // than presenting a registration that never ran as one that changed nothing.
 async function requestRegistryAdd(params: RegistryAddParams): Promise<AppliedWrite<RegistryAddResult>> {
   if (!daemon || daemon.getState() !== DaemonState.Running) {
-    throw new Error('the Aggrega language server is not running');
+    throw new Error(LANGUAGE_SERVER_NOT_RUNNING);
   }
   const client = daemon;
   return await configurationWatch.ownWrite(
@@ -3284,7 +3298,7 @@ async function requestRegistryRemove(
   params: RegistryRemoveParams,
 ): Promise<AppliedWrite<RegistryRemoveResult>> {
   if (!daemon || daemon.getState() !== DaemonState.Running) {
-    throw new Error('the Aggrega language server is not running');
+    throw new Error(LANGUAGE_SERVER_NOT_RUNNING);
   }
   const client = daemon;
   return await configurationWatch.ownWrite(
@@ -3310,7 +3324,7 @@ async function requestRegistryRemove(
 // than presenting a removal that never ran as one that found nothing.
 async function requestLogout(params: LogoutParams): Promise<LogoutResult> {
   if (!daemon || daemon.getState() !== DaemonState.Running) {
-    throw new Error('the Aggrega language server is not running');
+    throw new Error(LANGUAGE_SERVER_NOT_RUNNING);
   }
   return await daemon.request<LogoutResult>('aggrega/logout', params);
 }
@@ -3332,7 +3346,7 @@ async function requestLogout(params: LogoutParams): Promise<LogoutResult> {
 // than presenting a search that never ran as one that found nothing.
 async function requestRegistrySearch(params: RegistrySearchParams): Promise<SearchDoc> {
   if (!daemon || daemon.getState() !== DaemonState.Running) {
-    throw new Error('the Aggrega language server is not running');
+    throw new Error(LANGUAGE_SERVER_NOT_RUNNING);
   }
   return await daemon.request<SearchDoc>('aggrega/search', params);
 }
@@ -3364,7 +3378,7 @@ async function requestLint(
   signal?: CancellationSignal,
 ): Promise<LintAnswer> {
   if (!daemon || daemon.getState() !== DaemonState.Running) {
-    throw new Error('the Aggrega language server is not running');
+    throw new Error(LANGUAGE_SERVER_NOT_RUNNING);
   }
   return await daemon.request<LintAnswer>('aggrega/lint', lintRequestParams(subject), signal);
 }
@@ -3395,7 +3409,7 @@ async function requestPluginAdd(
   signal?: CancellationSignal,
 ): Promise<AppliedWrite<PluginAddResult>> {
   if (!daemon || daemon.getState() !== DaemonState.Running) {
-    throw new Error('the Aggrega language server is not running');
+    throw new Error(LANGUAGE_SERVER_NOT_RUNNING);
   }
   const client = daemon;
   return await configurationWatch.ownWrite(
@@ -3425,7 +3439,7 @@ async function requestPluginAdd(
 // than presenting a removal that never ran as one that found nothing to remove.
 async function requestPluginRemove(params: PluginRemoveParams): Promise<AppliedWrite<PluginRemoveResult>> {
   if (!daemon || daemon.getState() !== DaemonState.Running) {
-    throw new Error('the Aggrega language server is not running');
+    throw new Error(LANGUAGE_SERVER_NOT_RUNNING);
   }
   const client = daemon;
   return await configurationWatch.ownWrite(
@@ -3468,7 +3482,7 @@ async function requestPublishEntity(
   signal?: CancellationSignal,
 ): Promise<PublishEntityResult> {
   if (!daemon || daemon.getState() !== DaemonState.Running) {
-    throw new Error('the Aggrega language server is not running');
+    throw new Error(LANGUAGE_SERVER_NOT_RUNNING);
   }
   return await daemon.request<PublishEntityResult>('aggrega/publishEntity', params, signal);
 }
@@ -3478,7 +3492,7 @@ async function requestSignArtifacts(
   signal?: CancellationSignal,
 ): Promise<SignArtifactsResult> {
   if (!daemon || daemon.getState() !== DaemonState.Running) {
-    throw new Error('the Aggrega language server is not running');
+    throw new Error(LANGUAGE_SERVER_NOT_RUNNING);
   }
   return await daemon.request<SignArtifactsResult>('aggrega/signArtifacts', params, signal);
 }
@@ -3488,7 +3502,7 @@ async function requestDeprecateArtifact(
   signal?: CancellationSignal,
 ): Promise<DeprecateArtifactResult> {
   if (!daemon || daemon.getState() !== DaemonState.Running) {
-    throw new Error('the Aggrega language server is not running');
+    throw new Error(LANGUAGE_SERVER_NOT_RUNNING);
   }
   return await daemon.request<DeprecateArtifactResult>(
     'aggrega/deprecateArtifact', params, signal,
@@ -3524,7 +3538,7 @@ async function requestRegistryUpdate(
   signal?: CancellationSignal,
 ): Promise<RegistryUpdateResult> {
   if (!daemon || daemon.getState() !== DaemonState.Running) {
-    throw new Error('the Aggrega language server is not running');
+    throw new Error(LANGUAGE_SERVER_NOT_RUNNING);
   }
   return await daemon.request<RegistryUpdateResult>('aggrega/registryUpdate', params, signal);
 }
@@ -3542,6 +3556,6 @@ async function handleCacheMiss<T>(method: RequestMethod, params: unknown, doc: v
     // document-only seed would repopulate them from the narrower answer.
     validate: () => client.request<void>('aggrega/validate', validateParamsFor(doc)),
     retry: () => client.request<T>(method, params),
-    failed: (err) => outputChannel?.appendLine(`cache-miss retry failed: ${describeError(err)}`),
+    failed: (err) => outputChannel?.appendLine(l10n.t('cache-miss retry failed: {0}', describeError(err))),
   });
 }

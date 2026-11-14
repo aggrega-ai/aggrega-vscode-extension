@@ -5,6 +5,7 @@ import type * as wire from '@aggrega-ai/aggrega-abi/dist/servewire_gen';
 import { CancellationSignal } from './cancellation';
 import { AppliedWrite, endingInEffect } from './config-change-watch';
 import { reachPhrase } from './config-write-scope';
+import * as l10n from './l10n';
 import { OperationOutcome, outcomeOf } from './operation-outcome';
 import { withSubject } from './operation-groups';
 import { PLUGIN_TYPE_GOVERNANCE, PLUGIN_TYPE_PROVIDER, PluginAttachment } from './plugins-run';
@@ -49,7 +50,7 @@ import { PLUGIN_TYPE_GOVERNANCE, PLUGIN_TYPE_PROVIDER, PluginAttachment } from '
 // ATTACHMENT_SUBJECT is the operation in the reader's terms, used for the
 // sentence every ending produces. One spelling, so a completion and a failure
 // name the same thing.
-export const ATTACHMENT_SUBJECT = 'The attachment';
+export const ATTACHMENT_SUBJECT = l10n.t('The attachment');
 
 // attachmentProgressTitle is what the indicator reads while the work runs.
 //
@@ -58,7 +59,7 @@ export const ATTACHMENT_SUBJECT = 'The attachment';
 // registry, and the write that follows is local. It names the type too, since a
 // reader who chose one is watching for that one.
 export function attachmentProgressTitle(type: string): string {
-  return `Aggrega: searching the registry for a ${type} plugin`;
+  return l10n.t('Aggrega: searching the registry for a {0} plugin', type);
 }
 
 // --- the request and answer shapes ---------------------------------------
@@ -197,30 +198,30 @@ export interface PluginAttachmentDeps {
 // answers invoke nothing when any of them is dismissed — and it is the one that
 // holds if a later binding is written more loosely.
 export function attachmentRequest(attachment: PluginAttachment): PluginAddParams {
-  const [, type] = withSubject('plugin add', attachment.type, "the plugin's type");
+  const [, type] = withSubject('plugin add', attachment.type, l10n.t("the plugin's type"));
   const [, query] = withSubject(
     'plugin add',
     attachment.query,
-    'a name to search the registry for',
+    l10n.t('a name to search the registry for'),
   );
 
   const capability = (attachment.capability ?? '').trim();
   const role = (attachment.role ?? '').trim();
   if (type === PLUGIN_TYPE_PROVIDER && capability === '') {
     throw new Error(
-      'aggrega plugin add: the provider type takes the capability the binding serves, and none was given',
+      l10n.t('aggrega plugin add: the provider type takes the capability the binding serves, and none was given'),
     );
   }
   if (type !== PLUGIN_TYPE_PROVIDER && capability !== '') {
-    throw new Error('aggrega plugin add: a capability applies only to the provider type');
+    throw new Error(l10n.t('aggrega plugin add: a capability applies only to the provider type'));
   }
   if (type === PLUGIN_TYPE_GOVERNANCE && role === '') {
     throw new Error(
-      'aggrega plugin add: the governance type takes the role the attachment is bound at, and none was given',
+      l10n.t('aggrega plugin add: the governance type takes the role the attachment is bound at, and none was given'),
     );
   }
   if (type !== PLUGIN_TYPE_GOVERNANCE && role !== '') {
-    throw new Error('aggrega plugin add: a role applies only to the governance type');
+    throw new Error(l10n.t('aggrega plugin add: a role applies only to the governance type'));
   }
 
   const params: PluginAddParams = { type, query };
@@ -277,7 +278,10 @@ function article(word: string): string {
 // finished. Each of the two shapes uses the words the command line uses for the
 // same fact, so a reader who has seen one surface's account of an attachment
 // recognises the other's — plus how far the written file reaches, which the
-// command line names the path for and leaves the reader to judge.
+// command line names the path for and leaves the reader to judge. Because they
+// repeat the command line's words, those shapes are not looked up: they read as
+// the command line reads, in every language, and only the reach phrase and the
+// notes after them are this surface's own words.
 //
 // The last branch is reached by an answer that filled neither identity nor
 // artifact identity, which no type this surface offers produces. It says what is
@@ -303,7 +307,7 @@ export function attachmentDetail(result: PluginAddResult): string {
 // asked for. So this says the same two things the command line says — the version
 // is retracted, and it was pinned because it was named — where the reader is
 // already looking.
-const WITHDRAWN_PIN_NOTE = ' The version named is retracted; it was pinned because it was named.';
+const WITHDRAWN_PIN_NOTE = ` ${l10n.t('The version named is retracted; it was pinned because it was named.')}`;
 
 // withdrawnNote states that the version pinned was named and is retracted, or
 // nothing when the answer does not say so. The compiler sends the flag only when
@@ -343,16 +347,15 @@ export function retractionNote(retraction?: PluginRetraction): string {
   // so a check that looked at those first would find none and say nothing at all —
   // which reads exactly like an attachment that screened cleanly.
   if (retraction.unscreened) {
-    return ` Published versions were not screened for retraction: ${retraction.unscreened}.${source}`;
+    return ` ${l10n.t('Published versions were not screened for retraction: {0}.', retraction.unscreened)}${source}`;
   }
   const excluded = retraction.excluded ?? [];
   if (excluded.length === 0) {
     return '';
   }
-  const named = excluded
-    .map((x) => (x.reason ? `${x.version} (${x.reason})` : x.version))
-    .join(', ');
-  return ` Retracted and not selected: ${named}.${source}`;
+  const named = l10n.series(excluded
+    .map((x) => (x.reason ? l10n.t('{0} ({1})', x.version, x.reason) : x.version)));
+  return ` ${l10n.t('Retracted and not selected: {0}.', named)}${source}`;
 }
 
 // provenanceNote names where the withdrawal records came from, and when they were
@@ -372,7 +375,7 @@ function provenanceNote(provenance?: PluginRetractionProvenance): string {
     return '';
   }
   if (provenance.lastUpdated) {
-    return ` Withdrawal records from ${provenance.source}, last updated ${provenance.lastUpdated}.`;
+    return ` ${l10n.t('Withdrawal records from {0}, last updated {1}.', provenance.source, provenance.lastUpdated)}`;
   }
-  return ` Withdrawal records from ${provenance.source}.`;
+  return ` ${l10n.t('Withdrawal records from {0}.', provenance.source)}`;
 }

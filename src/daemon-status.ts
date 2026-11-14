@@ -19,6 +19,7 @@
 
 import type * as vscode from 'vscode';
 import { DaemonState } from './daemon-state';
+import * as l10n from './l10n';
 import { SHOW_OUTPUT_ACTION } from './operation-outcome';
 import type { PanelActionPress } from './panel-actions';
 import { COMPILER_ANSWERABLE_CONTEXT_KEY } from './readiness';
@@ -43,7 +44,7 @@ export const TOGGLE_BUILD_ON_INSPECT_COMMAND = 'aggrega.server.toggleBuildOnInsp
 // the server reads at start, or a configuration file changed since it started.
 // Pressing it runs RESTART_COMMAND. One label, so the same act reads the same
 // wherever it is offered.
-export const RESTART_SERVER_ACTION = 'Restart server';
+export const RESTART_SERVER_ACTION = l10n.t('Restart server');
 
 // commandTitle reads the name one command is listed under in the editor's command
 // palette, from the manifest the editor loaded, or null where that manifest
@@ -82,8 +83,8 @@ export function commandTitle(manifest: unknown, command: string): string | null 
 // written here: a name the manifest does not declare sends a reader looking for
 // a command that is not there.
 export function stoppedRespondingMessage(restartTitle: string | null): string {
-  const stopped = 'Aggrega language server has stopped responding.';
-  return restartTitle === null ? stopped : `${stopped} Run "${restartTitle}" to recover.`;
+  const stopped = l10n.t('Aggrega language server has stopped responding.');
+  return restartTitle === null ? stopped : `${stopped} ${l10n.t('Run "{0}" to recover.', restartTitle)}`;
 }
 
 // ServerInPlaceAct is what a reader asked for that put a language server in
@@ -100,8 +101,15 @@ export type ServerInPlaceAct = 'started' | 'restarted';
 // fact, and the two differ when that file is replaced while the process runs
 // on. Where the answer carries no version the sentence says it was not
 // reported, in the words every other version reading uses for an absence.
+//
+// Each act is a whole message of its own, since the act is the sentence's verb.
 export function serverInPlaceMessage(act: ServerInPlaceAct, version: string | null | undefined): string {
-  return `Aggrega language server ${act}, ${versionPhrase(version)}.`;
+  switch (act) {
+    case 'started':
+      return l10n.t('Aggrega language server started, {0}.', versionPhrase(version));
+    case 'restarted':
+      return l10n.t('Aggrega language server restarted, {0}.', versionPhrase(version));
+  }
 }
 
 // enablementClause is the exact condition string a gated command carries in the
@@ -234,9 +242,9 @@ export function daemonReading(
 // running" in one place and something else in another has to work out whether
 // the two are the same state.
 export const DAEMON_STANDING_WORDS: Record<DaemonStanding, string> = {
-  running: 'running',
-  starting: 'starting',
-  notRunning: 'not running',
+  running: l10n.t('running'),
+  starting: l10n.t('starting'),
+  notRunning: l10n.t('not running'),
 };
 
 // DAEMON_READING_WORDS is what each of the welcome page's four readings is
@@ -244,7 +252,7 @@ export const DAEMON_STANDING_WORDS: Record<DaemonStanding, string> = {
 // notification raised for a failed start already uses.
 export const DAEMON_READING_WORDS: Record<DaemonReading, string> = {
   ...DAEMON_STANDING_WORDS,
-  failedToStart: 'failed to start',
+  failedToStart: l10n.t('failed to start'),
 };
 
 // DAEMON_STANDING_ICON is the glyph beside each standing on the indicator.
@@ -254,8 +262,11 @@ const DAEMON_STANDING_ICON: Record<DaemonStanding, string> = {
   notRunning: '$(error)',
 };
 
+// standingLabel is the indicator's text for one standing: the icon, then the
+// standing's words after the product's name and a colon, where they stand as a
+// label of their own.
 function standingLabel(standing: DaemonStanding): string {
-  return `${DAEMON_STANDING_ICON[standing]} Aggrega: ${DAEMON_STANDING_WORDS[standing]}`;
+  return `${DAEMON_STANDING_ICON[standing]} ${l10n.t('Aggrega: {0}', DAEMON_STANDING_WORDS[standing])}`;
 }
 
 // DAEMON_STANDING_LABEL is what the indicator reads, per standing. The icon
@@ -284,14 +295,14 @@ export type DaemonStandingAction = 'start' | 'restart';
 
 // DAEMON_ACTION_LABEL names each action as the reader sees it offered.
 export const DAEMON_ACTION_LABEL: Record<DaemonStandingAction, string> = {
-  start: 'Start',
-  restart: 'Restart',
+  start: l10n.t('Start'),
+  restart: l10n.t('Restart'),
 };
 
 // DAEMON_ACTION_DETAIL says what each action does, beside its name.
 export const DAEMON_ACTION_DETAIL: Record<DaemonStandingAction, string> = {
-  start: 'Start the Aggrega language server',
-  restart: 'Stop the Aggrega language server and start a fresh one',
+  start: l10n.t('Start the Aggrega language server'),
+  restart: l10n.t('Stop the Aggrega language server and start a fresh one'),
 };
 
 // startServerPress is what a row offering to start the language server runs:
@@ -303,13 +314,16 @@ export function startServerPress(): PanelActionPress {
 // startFailedMessage is what a reader is told when the language server could not
 // be started: the failed-start reading in the words every surface uses for it,
 // then what is wrong and what to do about it.
+//
+// It spells DAEMON_READING_WORDS.failedToStart inside its own message, where the
+// words are the sentence's predicate.
 export function startFailedMessage(failure: StartFailure): string {
-  return `Aggrega language server ${DAEMON_READING_WORDS.failedToStart}: ${startFailureReason(failure)}`;
+  return l10n.t('Aggrega language server failed to start: {0}', startFailureReason(failure));
 }
 
 // NOT_RUNNING_WARNING is what an operation that asks the language server a
 // question answers with while it is not running and nothing has said why.
-export const NOT_RUNNING_WARNING = 'Aggrega: the language server is not running.';
+export const NOT_RUNNING_WARNING = l10n.t('Aggrega: the language server is not running.');
 
 // NotRunningWarning is that answer as it is raised: the sentence, the buttons
 // beside it in the order they are drawn, and which of them is the start or
@@ -335,7 +349,7 @@ export function notRunningWarning(
 ): NotRunningWarning {
   const message = lastFailure === null
     ? NOT_RUNNING_WARNING
-    : `${NOT_RUNNING_WARNING} Its last start failed: ${startFailureReason(lastFailure)}`;
+    : `${NOT_RUNNING_WARNING} ${l10n.t('Its last start failed: {0}', startFailureReason(lastFailure))}`;
   const start = DAEMON_ACTION_LABEL[daemonStandingAction(standing)];
   return { message, actions: [SHOW_OUTPUT_ACTION, OPEN_BINARY_PATH_SETTING_ACTION, start], start };
 }
@@ -346,7 +360,7 @@ export function notRunningWarning(
 // pointer passes over, and restarting a language server on a stray click is a
 // surprise; naming the act first is also what tells a reader which of the two
 // they are about to do.
-export const DAEMON_ACTION_PLACEHOLDER = 'Aggrega: the language server';
+export const DAEMON_ACTION_PLACEHOLDER = l10n.t('Aggrega: the language server');
 
 // DaemonStatusItemLike is the slice of the editor's status-bar item the
 // indicator drives. Its field types mirror the editor item's own, so a real
@@ -441,12 +455,12 @@ export function daemonStandingTooltip(
 ): string {
   switch (standing) {
     case 'running':
-      return 'The Aggrega language server is running. Click to restart it.';
+      return l10n.t('The Aggrega language server is running. Click to restart it.');
     case 'starting':
-      return 'The Aggrega language server is starting. It answers what is asked of it once it is up.';
+      return l10n.t('The Aggrega language server is starting. It answers what is asked of it once it is up.');
     case 'notRunning':
       return workspaceAnchored
-        ? 'The Aggrega language server is not running, so the operations that ask it a question are unavailable. Click to start it.'
-        : 'No folder in this window is one Aggrega recognises as a workspace, so there is nothing for the language server to attach to. Click to look again.';
+        ? l10n.t('The Aggrega language server is not running, so the operations that ask it a question are unavailable. Click to start it.')
+        : l10n.t('No folder in this window is one Aggrega recognises as a workspace, so there is nothing for the language server to attach to. Click to look again.');
   }
 }

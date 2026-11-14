@@ -2,6 +2,7 @@
 // Copyright 2026 Cognitio s.r.l.
 
 import { describeError } from './error-text';
+import * as l10n from './l10n';
 import { withSubject } from './operation-groups';
 import type { PanelActionPress } from './panel-actions';
 import { binaryPathSettingPress } from './settings';
@@ -64,8 +65,8 @@ const READINESS_READY = 'ready';
 // EMBEDDED_GROUP_LABEL and CONFIGURED_GROUP_LABEL name the two groups in the
 // product's own terms: the guests compiled into the binary, and the attachments
 // the workspace configuration binds.
-export const EMBEDDED_GROUP_LABEL = 'Embedded';
-export const CONFIGURED_GROUP_LABEL = 'Configured';
+export const EMBEDDED_GROUP_LABEL = l10n.t('Embedded');
+export const CONFIGURED_GROUP_LABEL = l10n.t('Configured');
 
 // FAILURE_LABEL points at the channel carrying the product's own message, for a
 // listing the compiler ran and could not produce. The row stays one short line
@@ -73,11 +74,7 @@ export const CONFIGURED_GROUP_LABEL = 'Configured';
 // the reader through the channel and through this row's detail. A compiler that
 // could not be started at all is not such a failure: its row says what is wrong
 // with the path instead — see listingNotStartedNode.
-export const FAILURE_LABEL = 'plugin list failed — see the Aggrega output channel.';
-
-// LISTING_NOT_STARTED_OPENING heads the row drawn when the listing's command
-// could not be started, ahead of what is wrong.
-export const LISTING_NOT_STARTED_OPENING = 'The plugin list could not run';
+export const FAILURE_LABEL = l10n.t('plugin list failed — see the Aggrega output channel.');
 
 // listingNotStartedNode is the row for a listing whose command could not be
 // started — the compiler not at the path the setting names, or not runnable
@@ -86,11 +83,15 @@ export const LISTING_NOT_STARTED_OPENING = 'The plugin list could not run';
 // running; the path is, and the row says what is wrong with it in the words
 // every failure to start the compiler is reported in, with the remedy on its
 // hover and the setting a press away.
+//
+// The row and the channel line below open with the same words, ahead of what is
+// wrong; each writes them inside a whole message of its own, with what is wrong
+// filling the placeholder after the colon.
 export function listingNotStartedNode(failure: StartFailure): PluginNode {
   return {
     kind: 'message',
-    label: `${LISTING_NOT_STARTED_OPENING}: ${startFailureWords(failure)}.`,
-    detail: `${listingNotStartedLine(failure)} Click to open that setting.`,
+    label: l10n.t('The plugin list could not run: {0}.', startFailureWords(failure)),
+    detail: `${listingNotStartedLine(failure)} ${l10n.t('Click to open that setting.')}`,
     press: binaryPathSettingPress(),
   };
 }
@@ -98,7 +99,7 @@ export function listingNotStartedNode(failure: StartFailure): PluginNode {
 // listingNotStartedLine is the same account as one line for the output channel:
 // what is wrong and what to do about it.
 export function listingNotStartedLine(failure: StartFailure): string {
-  return `${LISTING_NOT_STARTED_OPENING}: ${startFailureReason(failure)}`;
+  return l10n.t('The plugin list could not run: {0}', startFailureReason(failure));
 }
 
 // isNoteworthyReadiness reports whether a readiness value is one a reader
@@ -172,19 +173,19 @@ export function rowForPlugin(entry: PluginEntry): PluginRow {
   );
 
   const lines = [entry.uri];
-  if (entry.type) { lines.push(`type: ${entry.type}`); }
-  if (entry.version) { lines.push(`version: ${entry.version}`); }
-  if (entry.commit) { lines.push(`commit: ${entry.commit}`); }
-  if (entry.readiness) { lines.push(`readiness: ${entry.readiness}`); }
+  if (entry.type) { lines.push(l10n.t('type: {0}', entry.type)); }
+  if (entry.version) { lines.push(l10n.t('version: {0}', entry.version)); }
+  if (entry.commit) { lines.push(l10n.t('commit: {0}', entry.commit)); }
+  if (entry.readiness) { lines.push(l10n.t('readiness: {0}', entry.readiness)); }
   // origin names the configuration key the attachment came from, or carries the
   // pin a CLI-extension attachment was installed with. Either way it is the
   // product's string, shown as it arrived.
-  if (entry.origin) { lines.push(`origin: ${entry.origin}`); }
-  if (entry.capabilities?.length) { lines.push(`capabilities: ${entry.capabilities.join(', ')}`); }
-  if (entry.inputKinds?.length) { lines.push(`input kinds: ${entry.inputKinds.join(', ')}`); }
-  if (entry.boundary) { lines.push(`boundary: ${entry.boundary}`); }
-  if (entry.exports?.length) { lines.push(`exports: ${entry.exports.join(', ')}`); }
-  if (entry.error) { lines.push(`error: ${entry.error}`); }
+  if (entry.origin) { lines.push(l10n.t('origin: {0}', entry.origin)); }
+  if (entry.capabilities?.length) { lines.push(l10n.t('capabilities: {0}', l10n.series(entry.capabilities))); }
+  if (entry.inputKinds?.length) { lines.push(l10n.t('input kinds: {0}', l10n.series(entry.inputKinds))); }
+  if (entry.boundary) { lines.push(l10n.t('boundary: {0}', entry.boundary)); }
+  if (entry.exports?.length) { lines.push(l10n.t('exports: {0}', l10n.series(entry.exports))); }
+  if (entry.error) { lines.push(l10n.t('error: {0}', entry.error)); }
 
   return {
     reference: entry.uri,
@@ -377,10 +378,12 @@ export function pluginRemovalSubject(node: PluginNode): PluginRemovalSubject | n
 // than explained afterwards. The default is left to stand rather than forced by
 // a flag: which file a removal targets is the operator's setting to make, and
 // pinning it here would decide it for them.
+//
+// Each is translated as a phrase standing alone, carrying its own article.
 export function pluginRemovalConfigTarget(type: string): string {
   return type === PLUGIN_TYPE_CLI
-    ? 'the global configuration shared across every workspace on this machine'
-    : "this project's workspace configuration";
+    ? l10n.t('the global configuration shared across every workspace on this machine')
+    : l10n.t("this project's workspace configuration");
 }
 
 // PluginAttachment is the answers an attachment is composed from: the type to
@@ -431,8 +434,8 @@ export const GEN_CATALOG_SCOPES: ReadonlyArray<{
   value: GenCatalogSelection['kind'];
   label: string;
 }> = [
-  { value: 'embedded', label: 'Every plugin built into the compiler' },
-  { value: 'artifact', label: 'One plugin artifact on this machine' },
+  { value: 'embedded', label: l10n.t('Every plugin built into the compiler') },
+  { value: 'artifact', label: l10n.t('One plugin artifact on this machine') },
 ];
 
 // genCatalogScope reports the scope a value names, or null where it names none.
@@ -455,12 +458,12 @@ export function pluginGenCatalogArgs(
   const [, output] = withSubject(
     'plugin gen-catalog',
     outputDir,
-    'the directory to write the entities under',
+    l10n.t('the directory to write the entities under'),
   );
   const [, overlay] = withSubject(
     'plugin gen-catalog',
     overlayPath,
-    'the authored overlay to merge',
+    l10n.t('the authored overlay to merge'),
   );
 
   const args = ['plugin', 'gen-catalog'];
@@ -470,7 +473,7 @@ export function pluginGenCatalogArgs(
     const [, artifact] = withSubject(
       'plugin gen-catalog',
       selection.artifactPath,
-      'the path of the artifact to generate from',
+      l10n.t('the path of the artifact to generate from'),
     );
     args.push('--plugin', artifact);
   }

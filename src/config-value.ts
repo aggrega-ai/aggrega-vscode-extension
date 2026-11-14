@@ -16,6 +16,7 @@
 // directly rather than through a rendered document.
 
 import { ConfigControl } from './config-schema';
+import * as l10n from './l10n';
 
 // ConfigValueVerdict is what a control makes of a reader's text.
 //
@@ -51,7 +52,7 @@ export function readConfigValue(control: ConfigControl, raw: string): ConfigValu
       // appearing to work.
       return {
         accepted: false,
-        reason: `${label(control)} is not a single value this surface composes.`,
+        reason: l10n.t('{0} is not a single value this surface composes.', label(control)),
       };
   }
 }
@@ -61,7 +62,7 @@ function readToggle(raw: string): ConfigValueVerdict {
   const text = raw.trim().toLowerCase();
   if (text === 'true') { return { accepted: true, value: true }; }
   if (text === 'false') { return { accepted: true, value: false }; }
-  return { accepted: false, reason: `${raw} is not true or false.` };
+  return { accepted: false, reason: l10n.t('{0} is not true or false.', raw) };
 }
 
 // readNumber accepts a whole number inside the declared bounds.
@@ -72,21 +73,21 @@ function readToggle(raw: string): ConfigValueVerdict {
 // than a default chosen here.
 function readNumber(control: ConfigControl, raw: string): ConfigValueVerdict {
   const text = raw.trim();
-  if (text.length === 0) { return { accepted: false, reason: `${label(control)} needs a number.` }; }
+  if (text.length === 0) { return { accepted: false, reason: l10n.t('{0} needs a number.', label(control)) }; }
   // The pattern is deliberately stricter than the language's own parse, which
   // accepts leading text and hexadecimal and would let "12abc" through as 12.
   if (!/^-?\d+$/.test(text)) {
-    return { accepted: false, reason: `${raw} is not a whole number.` };
+    return { accepted: false, reason: l10n.t('{0} is not a whole number.', raw) };
   }
   const value = Number(text);
   if (!Number.isSafeInteger(value)) {
-    return { accepted: false, reason: `${raw} is too large to be written exactly.` };
+    return { accepted: false, reason: l10n.t('{0} is too large to be written exactly.', raw) };
   }
   if (control.minimum !== undefined && value < control.minimum) {
-    return { accepted: false, reason: `${value} is below the smallest value ${label(control)} takes, ${control.minimum}.` };
+    return { accepted: false, reason: l10n.t('{0} is below the smallest value {1} takes, {2}.', value, label(control), control.minimum) };
   }
   if (control.maximum !== undefined && value > control.maximum) {
-    return { accepted: false, reason: `${value} is above the largest value ${label(control)} takes, ${control.maximum}.` };
+    return { accepted: false, reason: l10n.t('{0} is above the largest value {1} takes, {2}.', value, label(control), control.maximum) };
   }
   return { accepted: true, value };
 }
@@ -101,7 +102,7 @@ function readChoice(control: ConfigControl, raw: string): ConfigValueVerdict {
   if (choices.includes(raw)) { return { accepted: true, value: raw }; }
   return {
     accepted: false,
-    reason: `${raw} is not one of the values ${label(control)} takes: ${choices.join(', ')}.`,
+    reason: l10n.t('{0} is not one of the values {1} takes: {2}.', raw, label(control), l10n.series(choices)),
   };
 }
 

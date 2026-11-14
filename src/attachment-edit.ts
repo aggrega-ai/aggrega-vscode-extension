@@ -3,6 +3,7 @@
 
 import type * as wire from '@aggrega-ai/aggrega-abi/dist/servewire_gen';
 import { describeError } from './error-surfaces';
+import * as l10n from './l10n';
 import { convertPosition } from './translator';
 import { LspPosition, ServerEncoding } from './types';
 
@@ -208,10 +209,10 @@ export function instanceNameFor(featureName: string): string | null {
 export function nameAttachment(site: AttachmentSite, featureName: string): AttachmentName {
   const instanceName = instanceNameFor(featureName);
   if (instanceName === null) {
-    return { refusal: `${featureName} has no name an attachment can be written under.` };
+    return { refusal: l10n.t('{0} has no name an attachment can be written under.', featureName) };
   }
   if (site.attached.indexOf(instanceName) >= 0) {
-    return { refusal: `${site.nodeId} already carries an attachment named ${instanceName}.` };
+    return { refusal: l10n.t('{0} already carries an attachment named {1}.', site.nodeId, instanceName) };
   }
   return { instanceName };
 }
@@ -283,12 +284,13 @@ export function connectionContainerRequest(
   };
 }
 
-// connectionWords names one connection in a sentence, in the order the
-// compiler's own refusals name it — the alias, the socket, the node — for the
-// caller to open with an article.
-export function connectionWords(source: string, connection: ConnectionAddress): string {
-  return `connection ${connection.alias} through socket ${connection.socket} of ${source}`;
-}
+// 🔴 EVERY SENTENCE NAMING A CONNECTION NAMES IT IN THE ORDER THE COMPILER'S OWN
+// REFUSALS DO — the alias, the socket, the node: "the connection {alias} through
+// socket {socket} of {node}". Each sentence writes those words inside its own
+// message rather than taking them as one placeholder, because the connection is a
+// noun after a preposition or an article there, and a translation has to give it
+// the case the sentence needs. The localization spec holds every message naming a
+// connection to that form.
 
 // fillSlot reports the name an attachment filling one slot of a connection is
 // written under — the slot's own name — or the reason it cannot be written.
@@ -304,11 +306,12 @@ export function connectionWords(source: string, connection: ConnectionAddress): 
 // answered for this connection, and the build judges what is written.
 export function fillSlot(site: ConnectionSite, slot: string): AttachmentName {
   if (!INSTANCE_NAME_PATTERN.test(text(slot))) {
-    return { refusal: `The slot ${slot} is not a name an attachment can be written under.` };
+    return { refusal: l10n.t('The slot {0} is not a name an attachment can be written under.', slot) };
   }
   if (site.filled.indexOf(slot) >= 0) {
     return {
-      refusal: `The slot ${slot} of the ${connectionWords(site.source, site)} is already filled.`,
+      refusal: l10n.t('The slot {0} of the connection {1} through socket {2} of {3} is already filled.',
+        slot, site.alias, site.socket, site.source),
     };
   }
   return { instanceName: slot };
@@ -318,7 +321,8 @@ export function fillSlot(site: ConnectionSite, slot: string): AttachmentName {
 // table of the drawn graph does not hold — said as a node's is, since nothing
 // can be attached to a connection the graph does not draw.
 export function connectionNotDrawn(source: string, connection: ConnectionAddress): string {
-  return `The ${connectionWords(source, connection)} is not on the graph this panel drew.`;
+  return l10n.t('The connection {0} through socket {1} of {2} is not on the graph this panel drew.',
+    connection.alias, connection.socket, source);
 }
 
 // ConnectionSites looks one connection of the drawn graph up by the names a
@@ -553,18 +557,17 @@ export function composeInsertionText(insertion: Insertion, entryLines: string[])
 // rather than assumed from what the container is called.
 export function refusesEntryShape(insertion: Insertion): string {
   if (insertion.entryShape === ENTRY_SHAPE_SEQUENCE) {
-    return 'the attachments in this document are written as a list, which this cannot add to.';
+    return l10n.t('the attachments in this document are written as a list, which this cannot add to.');
   }
   return '';
 }
 
-// ATTACH_REFUSAL_PREFIX opens the sentence a refused attach reports, so a
-// clause is introduced the same way wherever the refusal came from.
-const ATTACH_REFUSAL_PREFIX = 'Cannot attach: ';
-
-// attachRefusal is the sentence reported for a clause this side holds.
+// attachRefusal is the sentence reported for a clause this side holds. Its one
+// message opens every refused attach, so a clause is introduced the same way
+// wherever the refusal came from; the clause stands after its colon, in the
+// compiler's words or in a message of its own.
 export function attachRefusal(clause: string): string {
-  return ATTACH_REFUSAL_PREFIX + clause;
+  return l10n.t('Cannot attach: {0}', clause);
 }
 
 // attachFailureLine is the sentence reported for a request the compiler or the

@@ -17,6 +17,7 @@ import {
   DownloadPrompts,
   HostFacts,
   compilerSituation,
+  downloadingTitle,
   keptSentence,
   namesAPath,
   offeredVersions,
@@ -25,6 +26,7 @@ import {
   sharedLocation,
 } from './compiler-provision';
 import { describeError } from './error-text';
+import * as l10n from './l10n';
 import { BINARY_PATH_SETTING } from './start-failure';
 import { SpawnFn, readDaemonVersion } from './version-check';
 
@@ -48,7 +50,7 @@ import { SpawnFn, readDaemonVersion } from './version-check';
 export const SELECT_COMPILER_VERSION_COMMAND = 'aggrega.compiler.selectVersion';
 
 // SWITCH_GO is the button the warning carries.
-export const SWITCH_GO = 'Download and switch';
+export const SWITCH_GO = l10n.t('Download and switch');
 
 // VersionPrompts is every question the change puts to the reader.
 export interface VersionPrompts extends Pick<DownloadPrompts, 'confirm' | 'withProgress' | 'inform' | 'warn'> {
@@ -94,15 +96,15 @@ export type VersionOutcome =
 // it is the newest, that it is the one in use, both, or nothing.
 export function versionDescription(version: string, current: string | null, newest: boolean): string {
   const words: string[] = [];
-  if (newest) { words.push('newest'); }
-  if (sameVersion(version, current)) { words.push('in use'); }
-  return words.join(', ');
+  if (newest) { words.push(l10n.t('newest')); }
+  if (sameVersion(version, current)) { words.push(l10n.t('in use')); }
+  return l10n.series(words);
 }
 
 // versionWarning is the question put before a version is changed. It names what
 // the change reaches, because the compiler is installed once per machine.
 export function versionWarning(version: string, destination: string): string {
-  return `Aggrega: switch to aggrega ${version}? The compiler at ${destination} is the one every workspace on this machine uses, so the version changes for all of them, and a Release whose lockfile another version wrote may need its lockfile regenerated with Pull.`;
+  return l10n.t('Aggrega: switch to aggrega {0}? The compiler at {1} is the one every workspace on this machine uses, so the version changes for all of them, and a Release whose lockfile another version wrote may need its lockfile regenerated with Pull.', version, destination);
 }
 
 // candidateFor is the file a new version is downloaded into, beside the one it
@@ -155,13 +157,13 @@ export async function selectCompilerVersion(deps: VersionDeps): Promise<VersionO
   const version = await prompts.pickVersion(offered.versions, currentVersion);
   if (version === undefined) { return { kind: 'declined' }; }
   if (current !== null && currentVersion !== null && sameVersion(version, currentVersion)) {
-    prompts.inform(`Aggrega: the compiler at ${current} is already aggrega ${currentVersion}.`);
+    prompts.inform(l10n.t('Aggrega: the compiler at {0} is already aggrega {1}.', current, currentVersion));
     return { kind: 'unchanged', version: currentVersion };
   }
 
   const wanted = current ?? shared;
   if (wanted === null) {
-    return kept('LOCALAPPDATA is not set, so there is no shared location to download into');
+    return kept(l10n.t('LOCALAPPDATA is not set, so there is no shared location to download into'));
   }
   const settled = await replaceableDestination(wanted, version, shared, deps.memory, host.platform, prompts);
   if (settled.kind === 'declined') { return { kind: 'declined' }; }
@@ -176,7 +178,7 @@ export async function selectCompilerVersion(deps: VersionDeps): Promise<VersionO
   let outcome: InstallOutcome;
   try {
     outcome = await prompts.withProgress(
-      `Aggrega: downloading aggrega ${version}`,
+      downloadingTitle(version),
       (signal) => installRelease({
         source: deps.source,
         target,
@@ -195,7 +197,7 @@ export async function selectCompilerVersion(deps: VersionDeps): Promise<VersionO
   if (start.kind === 'failed') {
     await fsp.rm(candidate, { force: true });
     await deps.restoreServer();
-    const sentence = `Aggrega: aggrega ${version} did not start the language server (${start.reason}), so it was deleted and ${BINARY_PATH_SETTING} was left as it is.`;
+    const sentence = l10n.t('Aggrega: aggrega {0} did not start the language server ({1}), so it was deleted and {2} was left as it is.', version, start.reason, BINARY_PATH_SETTING);
     prompts.warn(sentence);
     return { kind: 'kept', sentence };
   }
@@ -205,7 +207,7 @@ export async function selectCompilerVersion(deps: VersionDeps): Promise<VersionO
   } catch (err) {
     await fsp.rm(candidate, { force: true });
     if (start.kind === 'started') { await deps.restoreServer(); }
-    return kept(`the downloaded aggrega ${version} could not be put in place at ${destination} (${describeError(err)}), so it was deleted`);
+    return kept(l10n.t('the downloaded aggrega {0} could not be put in place at {1} ({2}), so it was deleted', version, destination, describeError(err)));
   }
 
   // Where the setting already names the file that was replaced, writing it moves
@@ -218,11 +220,18 @@ export async function selectCompilerVersion(deps: VersionDeps): Promise<VersionO
   } else if (start.kind === 'started') {
     await deps.restoreServer();
   }
-  const named = settingMoves ? `, and ${BINARY_PATH_SETTING} names it` : '';
-  prompts.inform(
-    start.kind === 'started'
-      ? `Aggrega: the compiler at ${destination} is now aggrega ${outcome.version}${named}; the language server started on it before it replaced the earlier one.`
-      : `Aggrega: the compiler at ${destination} is now aggrega ${outcome.version}${named}. No language server runs in this window, so it was checked by asking it for its version rather than by starting one.`,
-  );
+  // Whether the setting moved and whether a server started each change the
+  // sentence, so each pairing is a whole message of its own.
+  let switched: string;
+  if (start.kind === 'started') {
+    switched = settingMoves
+      ? l10n.t('Aggrega: the compiler at {0} is now aggrega {1}, and {2} names it; the language server started on it before it replaced the earlier one.', destination, outcome.version, BINARY_PATH_SETTING)
+      : l10n.t('Aggrega: the compiler at {0} is now aggrega {1}; the language server started on it before it replaced the earlier one.', destination, outcome.version);
+  } else {
+    switched = settingMoves
+      ? l10n.t('Aggrega: the compiler at {0} is now aggrega {1}, and {2} names it. No language server runs in this window, so it was checked by asking it for its version rather than by starting one.', destination, outcome.version, BINARY_PATH_SETTING)
+      : l10n.t('Aggrega: the compiler at {0} is now aggrega {1}. No language server runs in this window, so it was checked by asking it for its version rather than by starting one.', destination, outcome.version);
+  }
+  prompts.inform(switched);
   return { kind: 'switched', path: destination, version: outcome.version, started: start.kind === 'started' };
 }

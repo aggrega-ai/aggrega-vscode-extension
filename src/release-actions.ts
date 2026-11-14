@@ -9,6 +9,7 @@ import { RecordsActiveRelease, recordActiveRelease } from './active-release-mark
 import type { ConfigurationWriter } from './config-change-watch';
 import { ServerListing, configurationOpening } from './configuration-leading-out';
 import { describeError } from './error-text';
+import * as l10n from './l10n';
 import { CONFIG_FILENAME } from './workspace';
 
 // CONFIG_TEMPLATE is what openAuthoringReleaseConfig writes when the
@@ -77,7 +78,7 @@ export async function openAuthoringReleaseConfig(
     } catch (err) {
       const reason = describeError(err);
       void vscode.window.showErrorMessage(
-        `Aggrega: could not create ${CONFIG_FILENAME}: ${reason}`,
+        l10n.t('Aggrega: could not create {0}: {1}', CONFIG_FILENAME, reason),
       );
       return;
     }
@@ -95,7 +96,7 @@ export async function openAuthoringReleaseConfig(
   } catch (err) {
     const reason = describeError(err);
     void vscode.window.showErrorMessage(
-      `Aggrega: could not open ${CONFIG_FILENAME}: ${reason}`,
+      l10n.t('Aggrega: could not open {0}: {1}', CONFIG_FILENAME, reason),
     );
     return;
   }

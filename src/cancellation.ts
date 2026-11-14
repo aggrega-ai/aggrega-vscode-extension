@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cognitio s.r.l.
 
+import * as l10n from './l10n';
+
 // This module is the one home for what it means to stop an operation the reader
 // started. It depends on no editor type, so the daemon client and the
 // subprocess runner both reach it without either of them importing the editor,
 // and the rule that a stopped operation is reported as stopped is asserted
-// without an extension host.
+// without an extension host. Its one import is the text lookup, which answers
+// the English itself where there is no editor.
 
 // CancellationSignal is the shape this extension asks a caller for when an
 // operation can be stopped.
@@ -34,7 +37,16 @@ export interface CancellationSignal {
 // pressed cancel and is then told something went wrong learns that the button
 // broke it. Every surface that reports an outcome routes a stopped operation
 // through here, so none of them can word it as a failure.
-export const CANCELLED_BY_READER = 'stopped at your request';
+export const CANCELLED_BY_READER = l10n.t('stopped at your request');
+
+// stoppedSentence is the sentence a stopped operation ends in: the operation in
+// the reader's terms, then CANCELLED_BY_READER, joined by a message of its own
+// that closes the sentence — so a translation joins the two as its language does.
+// It is the one composition of that sentence, for the message a stop carries and
+// for the line an ending writes alike.
+export function stoppedSentence(what: string): string {
+  return l10n.t('{0} {1}.', what, CANCELLED_BY_READER);
+}
 
 // OperationCancelled is what a stopped operation rejects with.
 //
@@ -48,7 +60,9 @@ export class OperationCancelled extends Error {
   readonly what: string;
 
   constructor(what: string) {
-    super(`${what} ${CANCELLED_BY_READER}.`);
+    // The same sentence the ending of an operation writes, so the message a stop
+    // carries reads as the line it ends in.
+    super(stoppedSentence(what));
     this.name = 'OperationCancelled';
     this.what = what;
     // Restoring the prototype is required for instanceof to hold across the

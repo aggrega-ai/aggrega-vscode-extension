@@ -350,7 +350,7 @@ export interface ImportReport {
 // asks for a source invokes nothing when it is dismissed — and it is the one that
 // holds if a later binding is written more loosely.
 export function importRequest(choices: ImportChoices): ImportParams {
-  const [, source] = withSubject('import', choices.source, 'the source to import');
+  const [, source] = withSubject('import', choices.source, l10n.t('the source to import'));
   const params: ImportParams = { source };
   const outputDir = chosenText(choices.outputDir);
   if (outputDir !== undefined) { params.outputDir = outputDir; }

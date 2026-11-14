@@ -7,6 +7,7 @@ import {
   OperationId,
 } from './operation-groups';
 import { BUILD_DIALS } from './build-dials';
+import * as l10n from './l10n';
 
 // This module is the one description of which controls answer a press by
 // offering a choice BESIDE THEMSELVES, and what each of those choices holds.
@@ -114,22 +115,22 @@ export type OperationMenu =
 // CACHE_MENU_LABEL and the rest name what each menu is choosing. Each is a
 // noun phrase rather than a sentence, because it is announced immediately after
 // the control's own name.
-const CACHE_MENU_LABEL = 'Cache operation';
-const INSPECT_MENU_LABEL = 'Entity to inspect';
-const PUBLISH_MENU_LABEL = 'Entity to publish';
+const CACHE_MENU_LABEL = l10n.t('Cache operation');
+const INSPECT_MENU_LABEL = l10n.t('Entity to inspect');
+const PUBLISH_MENU_LABEL = l10n.t('Entity to publish');
 
 // BUILD_DIALS_MENU_LABEL names what the options beside the Build button are. It
 // says they apply to the next build rather than naming them a mode, because
 // they are not alternatives to a build — pressing Build runs a build either
 // way, and these decide what that one build also does.
-const BUILD_DIALS_MENU_LABEL = 'Options for the next build';
+const BUILD_DIALS_MENU_LABEL = l10n.t('Options for the next build');
 
 // READING_THE_INDEX is what the two menus offering the workspace's own entities
 // say while the language server is answering. It is one sentence for both
 // because it describes the same read — the workspace's own entity index — and
 // two wordings for one wait would tell a reader the two controls do different
 // work.
-const READING_THE_INDEX = 'Reading the workspace entity index…';
+const READING_THE_INDEX = l10n.t('Reading the workspace entity index…');
 
 // OPERATION_MENUS is the whole set, keyed by the control whose press opens it.
 // A control absent from this map answers a press by running, or by opening a

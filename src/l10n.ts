@@ -87,6 +87,9 @@ import type * as vscode from 'vscode';
 //   as its language needs, a label and a colon included. Word a subject and a
 //   predicate each to stand on its own after that joining: never let a
 //   predicate's words depend on agreeing with the subject it follows.
+// - Names or pieces a sentence runs together are joined by series below — "a, b,
+//   c" — or by list where the last pair takes a word — "a, b and c" — never by a
+//   separator written outside a message.
 // - Markdown, code spans and a webview's markup stay intact inside a message, so
 //   a translation carries them as they are.
 // - A converted message's English is byte-identical to what the code wrote before,
@@ -124,6 +127,34 @@ function editorLookup(): EditorLookup | null {
 export function t(message: string, ...args: MessageArgument[]): string {
   const editor = editorLookup();
   return editor === null ? format(message, args) : editor.t(message, ...args);
+}
+
+// l10n is this module's own lookup under the name every other module calls it by.
+//
+// 🔴 THE BUNDLE IS COLLECTED FROM CALLS SPELLED `l10n.t(...)`, so a message this
+// module writes itself is written through this name; called as a bare t, it
+// would be a message no bundle lists and no translation could reach.
+const l10n = { t };
+
+// series joins items with a comma between each and no word before the last: "a",
+// "a, b", "a, b, c". The comma is a message of its own, so a translation joins
+// the items with its own — the ideographic comma, say — and it is the one comma a
+// sentence's run of names is joined by.
+export function series(items: readonly string[]): string {
+  if (items.length === 0) {
+    return '';
+  }
+  return items.reduce((joined, item) => l10n.t('{0}, {1}', joined, item));
+}
+
+// list joins items as a sentence runs them together: "a", "a and b", "a, b and
+// c" — the series of all but the last, then the word before the last as a
+// message of its own, so a translation joins a list as its language does.
+export function list(items: readonly string[]): string {
+  if (items.length <= 1) {
+    return items[0] ?? '';
+  }
+  return l10n.t('{0} and {1}', series(items.slice(0, -1)), items[items.length - 1]);
 }
 
 // PLACEHOLDER is how the editor finds a placeholder in a message: anything between

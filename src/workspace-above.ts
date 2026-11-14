@@ -2,6 +2,7 @@
 // Copyright 2026 Cognitio s.r.l.
 
 import { WorkspaceStateLike } from './anchor-picker';
+import * as l10n from './l10n';
 import { SELECTOR_ROW_LABELS } from './selector-levels';
 import { compareWorkspaceWithFolder } from './workspace';
 
@@ -42,7 +43,7 @@ import { compareWorkspaceWithFolder } from './workspace';
 // this and nothing else, and "warning" would tell them there is something to
 // know without telling them what it is.
 export const WORKSPACE_ABOVE_HEADLINE =
-  'Aggrega is using a workspace from outside the folder you opened.';
+  l10n.t('Aggrega is using a workspace from outside the folder you opened.');
 
 // WorkspacePathsAccount is the two paths, each on a line of its own behind its
 // label: what the dialogue says beneath the headline, and what the row's hover
@@ -96,8 +97,8 @@ export function workspacePathsAccount(
 ): WorkspacePathsAccount | null {
   if (!compareWorkspaceWithFolder(anchoredRoot, openedFolder).differs) { return null; }
   return {
-    workspace: `${SELECTOR_ROW_LABELS.workspace}: ${anchoredRoot}`,
-    project: `${SELECTOR_ROW_LABELS.project}: ${openedFolder}`,
+    workspace: l10n.t('{0}: {1}', SELECTOR_ROW_LABELS.workspace, anchoredRoot as string),
+    project: l10n.t('{0}: {1}', SELECTOR_ROW_LABELS.project, openedFolder as string),
   };
 }
 
@@ -164,9 +165,9 @@ export function workspaceAboveNotice(
     message: WORKSPACE_ABOVE_HEADLINE,
     detail: `${account.workspace}\n${account.project}`,
     actions: [
-      { title: 'Open workspace (reloads the window)', choice: 'open' },
-      { title: 'Continue here', isCloseAffordance: true, choice: 'continue' },
-      { title: 'Don\'t show again for this folder', choice: 'silence' },
+      { title: l10n.t('Open workspace (reloads the window)'), choice: 'open' },
+      { title: l10n.t('Continue here'), isCloseAffordance: true, choice: 'continue' },
+      { title: l10n.t('Don\'t show again for this folder'), choice: 'silence' },
     ],
   };
 }

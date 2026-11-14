@@ -43,6 +43,7 @@ import {
   RegistryListDoc,
   registrySubject,
 } from './registries-run';
+import * as l10n from './l10n';
 import { panelActionItem, panelMessageItem } from './panel-action-item';
 import { RegistriesPanelNode, registriesPanelNodes } from './panel-actions';
 import { RendersOnReady } from './readiness';
@@ -230,8 +231,8 @@ async function buildIndex(deps: RegistriesDeps, registry?: string): Promise<void
   out.appendLine(indexBuildOpeningLine(registry));
 
   const title = registry
-    ? `Aggrega: updating the searchable index for ${registry}`
-    : 'Aggrega: updating the searchable index';
+    ? l10n.t('Aggrega: updating the searchable index for {0}', registry)
+    : l10n.t('Aggrega: updating the searchable index');
   const report = await withCancellableProgress(
     title,
     (signal) => runIndexBuild(deps, registry, signal),
@@ -289,8 +290,8 @@ export function activateRegistriesView(
     // stands is what the command line leaves when given neither.
     vscode.commands.registerCommand(REGISTRY_ADD_COMMAND, async () => {
       const host = await vscode.window.showInputBox({
-        title: 'Aggrega: add a registry',
-        prompt: 'Host of the registry to register, such as hub.aggrega.ai',
+        title: l10n.t('Aggrega: add a registry'),
+        prompt: l10n.t('Host of the registry to register, such as hub.aggrega.ai'),
         ignoreFocusOut: true,
       });
       if (!host) { return; }
@@ -353,12 +354,13 @@ export function activateRegistriesView(
       (node?: RegistriesPanelNode) => runOnRow(node, async (host) => {
         const destination = await askWriteDestination(REMOVAL_DESTINATION_PROMPT);
         if (!destination) { return; }
+        const remove = l10n.t('Remove');
         const consented = await vscode.window.showWarningMessage(
-          `Remove the registry ${host} and its trust policy?`,
+          l10n.t('Remove the registry {0} and its trust policy?', host),
           { modal: true, detail: removalConsentDetail(destination) },
-          'Remove',
+          remove,
         );
-        if (consented !== 'Remove') { return; }
+        if (consented !== remove) { return; }
         const outcome = await runRegistryRemove(deps, host, destination);
         registries.refresh();
         await reportOutcome(deps, REGISTRY_REMOVAL_SUBJECT, outcome, true);
@@ -373,16 +375,16 @@ export function activateRegistriesView(
     vscode.commands.registerCommand(
       'aggrega.registries.logout',
       (node?: RegistriesPanelNode) => runOnRow(node, async (host) => {
+        const remove = l10n.t('Remove');
         const consented = await vscode.window.showWarningMessage(
-          `Remove the stored credential for ${host}?`,
+          l10n.t('Remove the stored credential for {0}?', host),
           {
             modal: true,
-            detail: 'The credential is deleted from the shared credential store, which every '
-              + 'command reading it uses. The registry entry itself is left in place.',
+            detail: l10n.t('The credential is deleted from the shared credential store, which every command reading it uses. The registry entry itself is left in place.'),
           },
-          'Remove',
+          remove,
         );
-        if (consented !== 'Remove') { return; }
+        if (consented !== remove) { return; }
         const outcome = await runLogout(deps, host);
         registries.refresh();
         await reportOutcome(deps, CREDENTIAL_REMOVAL_SUBJECT, outcome, true);

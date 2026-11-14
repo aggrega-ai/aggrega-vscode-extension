@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cognitio s.r.l.
 
+import * as l10n from './l10n';
+
 // The three levels the editor works within, named once.
 //
 // They sit apart from the module that draws them as rows because the names are
@@ -35,9 +37,12 @@ export type SelectorRowKey = (typeof SELECTOR_ROW_KEYS)[number];
 // has open, so a row labelled with the bare word names two different things at
 // once — which is the confusion these rows exist to remove rather than one to
 // inherit.
+//
+// The last is the entity's own name, which stays as authored in every language,
+// so it is not looked up.
 export const SELECTOR_ROW_LABELS: Record<SelectorRowKey, string> = {
-  project: 'Project folder',
-  workspace: 'Aggrega workspace',
+  project: l10n.t('Project folder'),
+  workspace: l10n.t('Aggrega workspace'),
   release: 'Release',
 };
 
@@ -55,7 +60,7 @@ export const SELECTOR_ROW_LABELS: Record<SelectorRowKey, string> = {
 // SELECTOR_ROW_LABELS above.
 export const SELECTOR_ROW_DRAWN_LABELS: Record<SelectorRowKey, string> = {
   project: SELECTOR_ROW_LABELS.project,
-  workspace: 'Agg. worksp.',
+  workspace: l10n.t('Agg. worksp.'),
   release: SELECTOR_ROW_LABELS.release,
 };
 
@@ -70,6 +75,17 @@ export const SELECTOR_ROW_DRAWN_LABELS: Record<SelectorRowKey, string> = {
 // than on an invitation to choose between folders. The Aggrega workspace and
 // Release rows do not say it, so their hovers stay short enough to read, and
 // their choosers list what there is.
+//
+// Each level is its own whole message, spelling SELECTOR_ROW_LABELS[key] rather
+// than taking it as a placeholder: the name is a noun after "one" there, so a
+// translation has to give it the article and case the sentence needs.
 export function soleCandidateNote(key: SelectorRowKey): string {
-  return `Only one ${SELECTOR_ROW_LABELS[key]} is available, so there are no others to choose between.`;
+  switch (key) {
+    case 'project':
+      return l10n.t('Only one Project folder is available, so there are no others to choose between.');
+    case 'workspace':
+      return l10n.t('Only one Aggrega workspace is available, so there are no others to choose between.');
+    case 'release':
+      return l10n.t('Only one Release is available, so there are no others to choose between.');
+  }
 }

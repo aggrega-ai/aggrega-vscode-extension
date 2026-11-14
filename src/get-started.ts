@@ -30,6 +30,7 @@ import { RESTART_COMMAND } from './daemon-status';
 import { SpawnFn, readDaemonVersion } from './version-check';
 import { describeError } from './error-surfaces';
 import { makeNonce } from './html';
+import * as l10n from './l10n';
 import { panelControlCommand } from './panel-control';
 import { RendersOnReady } from './readiness';
 import { RegistryListDoc } from './registries-run';
@@ -675,11 +676,11 @@ function closePagesLeftBehind(tabs: readonly vscode.Tab[], output: vscode.Output
   vscode.window.tabGroups.close(tabs, true).then(
     (closed) => {
       if (!closed) {
-        output.appendLine('get started: the editor kept open a welcome page drawn before the extensions restarted');
+        output.appendLine(l10n.t('get started: the editor kept open a welcome page drawn before the extensions restarted'));
       }
     },
     (err: unknown) => {
-      output.appendLine(`get started: could not close a welcome page drawn before the extensions restarted: ${describeError(err)}`);
+      output.appendLine(l10n.t('get started: could not close a welcome page drawn before the extensions restarted: {0}', describeError(err)));
     },
   );
 }
@@ -697,7 +698,7 @@ function runPanelControl(message: unknown, output: vscode.OutputChannel): void {
   const press = panelControlCommand(
     message,
     panelControlCommands(),
-    'get started',
+    l10n.t('get started'),
     output,
   );
   if (press === null) { return; }
@@ -796,7 +797,7 @@ async function offerableFolders(deps: GetStartedDeps): Promise<number | null> {
     return (await anchoredDirectories()).length;
   } catch (err) {
     deps.output.appendLine(
-      `get started: could not look for folders Aggrega recognises: ${describeError(err)}`,
+      l10n.t('get started: could not look for folders Aggrega recognises: {0}', describeError(err)),
     );
     return null;
   }
@@ -824,7 +825,7 @@ async function configuredRegistries(
     return (doc.registries ?? []).map((entry) => entry.host);
   } catch (err) {
     deps.output.appendLine(
-      `get started: could not read the configured registries: ${describeError(err)}`,
+      l10n.t('get started: could not read the configured registries: {0}', describeError(err)),
     );
     return null;
   }
@@ -862,7 +863,7 @@ async function bringBack(openPanel: () => Promise<void>): Promise<void> {
     // panel is on top of it. Where the editor declines, the reader is told the
     // panel is back rather than left to wonder whether anything happened.
     void vscode.window.showInformationMessage(
-      `Aggrega: the welcome page is back; it will open on startup. ${describeError(err)}`,
+      l10n.t('Aggrega: the welcome page is back; it will open on startup. {0}', describeError(err)),
     );
   }
 }
@@ -898,7 +899,7 @@ async function createWorkspace(deps: GetStartedDeps, refresh: () => void): Promi
   const folder = vscode.workspace.workspaceFolders?.[0];
   if (!folder) {
     void vscode.window.showInformationMessage(
-      'Aggrega: no folder is open, so there is nowhere to write a workspace configuration. Open a folder first.',
+      l10n.t('Aggrega: no folder is open, so there is nowhere to write a workspace configuration. Open a folder first.'),
     );
     return;
   }
@@ -920,7 +921,7 @@ async function createWorkspace(deps: GetStartedDeps, refresh: () => void): Promi
     } catch (err) {
       if (!isAlreadyExists(err)) {
         void vscode.window.showErrorMessage(
-          `Aggrega: could not create ${CONFIG_FILENAME}: ${describeError(err)}`,
+          l10n.t('Aggrega: could not create {0}: {1}', CONFIG_FILENAME, describeError(err)),
         );
         return false;
       }
@@ -954,8 +955,8 @@ async function createWorkspace(deps: GetStartedDeps, refresh: () => void): Promi
   await vscode.window.showTextDocument(doc);
   void vscode.window.showInformationMessage(
     created
-      ? endingInEffect(`Aggrega: ${CONFIG_FILENAME} created; this folder is now the workspace root.`, inEffect)
-      : `Aggrega: ${CONFIG_FILENAME} already exists here, so it was opened rather than replaced.`,
+      ? endingInEffect(l10n.t('Aggrega: {0} created; this folder is now the workspace root.', CONFIG_FILENAME), inEffect)
+      : l10n.t('Aggrega: {0} already exists here, so it was opened rather than replaced.', CONFIG_FILENAME),
   );
 }
 
@@ -972,7 +973,7 @@ async function chooseWorkspace(deps: GetStartedDeps, refresh: () => void): Promi
   const candidates = await anchoredDirectories();
   if (candidates.length === 0) {
     void vscode.window.showInformationMessage(
-      'Aggrega: no folder in this workspace carries anything Aggrega recognises as a workspace root, so there is none to choose. Create a workspace configuration instead.',
+      l10n.t('Aggrega: no folder in this workspace carries anything Aggrega recognises as a workspace root, so there is none to choose. Create a workspace configuration instead.'),
     );
     return;
   }
@@ -992,7 +993,7 @@ async function chooseWorkspace(deps: GetStartedDeps, refresh: () => void): Promi
     anchorPath: c.anchorPath,
   }));
   const choice = await vscode.window.showQuickPick(items, {
-    placeHolder: 'Aggrega: choose the folder to work in',
+    placeHolder: l10n.t('Aggrega: choose the folder to work in'),
     matchOnDescription: true,
     matchOnDetail: true,
   });
@@ -1076,8 +1077,8 @@ async function locateCompiler(deps: GetStartedDeps, refresh: () => void): Promis
     canSelectFiles: true,
     canSelectFolders: false,
     canSelectMany: false,
-    openLabel: 'Use this compiler',
-    title: 'Aggrega: select the aggrega binary',
+    openLabel: l10n.t('Use this compiler'),
+    title: l10n.t('Aggrega: select the aggrega binary'),
   });
   const chosen = picked?.[0];
   if (!chosen) { return; }
@@ -1154,11 +1155,11 @@ function hostFacts(): HostFacts {
 function downloadPrompts(): DownloadPrompts {
   return {
     askFolder: (proposed, version, target) => vscode.window.showInputBox({
-      title: `Aggrega: download aggrega ${version} for ${targetWords(target)}`,
-      prompt: `The folder to save the compiler in, as ${installedFileName(target)}. Keep the proposed folder or change it.`,
+      title: l10n.t('Aggrega: download aggrega {0} for {1}', version, targetWords(target)),
+      prompt: l10n.t('The folder to save the compiler in, as {0}. Keep the proposed folder or change it.', installedFileName(target)),
       value: proposed,
       ignoreFocusOut: true,
-      validateInput: (value) => (path.isAbsolute(value.trim()) ? undefined : 'Name the folder by its full path.'),
+      validateInput: (value) => (path.isAbsolute(value.trim()) ? undefined : l10n.t('Name the folder by its full path.')),
     }),
     confirm: async (question, go) =>
       (await vscode.window.showInformationMessage(question, { modal: true }, go)) === go,
@@ -1219,8 +1220,8 @@ function versionPrompts(): VersionPrompts {
           description: versionDescription(version, current, at === 0),
         })),
         {
-          title: 'Aggrega: choose the compiler version',
-          placeHolder: 'The version every workspace on this machine runs',
+          title: l10n.t('Aggrega: choose the compiler version'),
+          placeHolder: l10n.t('The version every workspace on this machine runs'),
           ignoreFocusOut: true,
         },
       );
@@ -1276,7 +1277,7 @@ async function readCompilerStanding(deps: GetStartedDeps, memory: CompilerMemory
       log: (line) => deps.output.appendLine(line),
     });
   } catch (err) {
-    deps.output.appendLine(`Aggrega: could not read which compiler is in use: ${describeError(err)}`);
+    deps.output.appendLine(l10n.t('Aggrega: could not read which compiler is in use: {0}', describeError(err)));
   }
 }
 
@@ -1345,11 +1346,11 @@ async function seedRegistry(
 // air-gapped or private hub.
 async function seedNamedRegistry(deps: GetStartedDeps, refresh: () => void): Promise<void> {
   const host = await vscode.window.showInputBox({
-    title: 'Aggrega: seed a registry',
-    prompt: 'The registry host to register, with its signature trust policy.',
+    title: l10n.t('Aggrega: seed a registry'),
+    prompt: l10n.t('The registry host to register, with its signature trust policy.'),
     placeHolder: 'registry.example.com',
     validateInput: (value) =>
-      value.trim().length === 0 ? 'Name a registry host.' : undefined,
+      value.trim().length === 0 ? l10n.t('Name a registry host.') : undefined,
   });
   if (host === undefined) { return; }
   await seedRegistry(deps, refresh, host.trim());

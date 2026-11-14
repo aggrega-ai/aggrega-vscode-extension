@@ -3,6 +3,7 @@
 
 import type * as wire from '@aggrega-ai/aggrega-abi/dist/servewire_gen';
 import { CancellationSignal } from './cancellation';
+import * as l10n from './l10n';
 import { OperationOutcome, outcomeOf } from './operation-outcome';
 import { withSubject } from './operation-groups';
 
@@ -202,13 +203,13 @@ export interface PublicationReport {
 
 // publishEntityRequest composes the publication of one workspace entity.
 export function publishEntityRequest(entityPath: string): PublishEntityParams {
-  const [, checked] = withSubject('push', entityPath, 'the path of the entity to publish');
+  const [, checked] = withSubject('push', entityPath, l10n.t('the path of the entity to publish'));
   return { entity: checked };
 }
 
 // signArtifactsRequest composes the signature of one already-published artifact.
 export function signArtifactsRequest(reference: string): SignArtifactsParams {
-  const [, checked] = withSubject('sign', reference, 'a reference to the artifact to sign');
+  const [, checked] = withSubject('sign', reference, l10n.t('a reference to the artifact to sign'));
   return { references: [checked] };
 }
 
@@ -225,15 +226,15 @@ export function deprecateArtifactRequest(
   reason: string,
 ): DeprecateArtifactParams {
   const [, checkedRef] = withSubject(
-    'deprecate', reference, 'a reference to the artifact to deprecate',
+    'deprecate', reference, l10n.t('a reference to the artifact to deprecate'),
   );
   const trimmedSeverity = severity.trim();
   if (trimmedSeverity === '') {
-    throw new Error('a deprecation takes a severity, and none was given');
+    throw new Error(l10n.t('a deprecation takes a severity, and none was given'));
   }
   const trimmedReason = reason.trim();
   if (trimmedReason === '') {
-    throw new Error('a deprecation takes a reason, and none was given');
+    throw new Error(l10n.t('a deprecation takes a reason, and none was given'));
   }
   return { reference: checkedRef, severity: trimmedSeverity, reason: trimmedReason };
 }
@@ -243,9 +244,9 @@ export function deprecateArtifactRequest(
 // PUBLICATION_SUBJECT, SIGNATURE_SUBJECT and WITHDRAWAL_SUBJECT name each
 // operation in the reader's terms. One spelling each, so a completion and a
 // failure name the same thing.
-export const PUBLICATION_SUBJECT = 'The publication';
-export const SIGNATURE_SUBJECT = 'The signature';
-export const WITHDRAWAL_SUBJECT = 'The deprecation';
+export const PUBLICATION_SUBJECT = l10n.t('The publication');
+export const SIGNATURE_SUBJECT = l10n.t('The signature');
+export const WITHDRAWAL_SUBJECT = l10n.t('The deprecation');
 
 // publicationOpeningLine is what the channel says a publication is about to do.
 //
@@ -254,21 +255,28 @@ export const WITHDRAWAL_SUBJECT = 'The deprecation';
 // tell one publication from another. The leading blank line separates this run
 // from the last, the way every operation that writes here does.
 export function publicationOpeningLine(entityPath: string): string {
-  return `\nPublication of ${entityPath}.`;
+  return `\n${l10n.t('Publication of {0}.', entityPath)}`;
 }
 
-// signatureOpeningLine and withdrawalOpeningLine do the same for the two
-// operations addressed by reference.
+// publishingTitle is what the progress of a publication says while it runs,
+// whichever panel started it.
+export function publishingTitle(subject: string): string {
+  return l10n.t('Aggrega: publishing {0}', subject);
+}
+
+// signatureOpeningLine and withdrawalOpeningLine do what publicationOpeningLine
+// does, for the two operations addressed by reference.
 export function signatureOpeningLine(reference: string): string {
-  return `\nSignature of ${reference}.`;
+  return `\n${l10n.t('Signature of {0}.', reference)}`;
 }
 
 export function withdrawalOpeningLine(reference: string): string {
-  return `\nWithdrawal of ${reference}.`;
+  return `\n${l10n.t('Withdrawal of {0}.', reference)}`;
 }
 
 // publicationLines is everything one publication puts on the channel, in the
-// command line's own words for the same facts.
+// command line's own words for the same facts — which is why they stay
+// untranslated.
 //
 // The compiler prints `Push complete: <reference>:<tag> (<digest>)` followed by
 // the kind, the media type and the size, and its dry run prints the same
@@ -303,7 +311,8 @@ export function publicationLines(result: PublishEntityResult): readonly string[]
 }
 
 // signatureLines lists each reference the batch signed with the digest its
-// signature commits to, in the command line's own form for the same fact.
+// signature commits to, in the command line's own form for the same fact, so
+// it stays untranslated as the publication's lines do.
 //
 // The label is read off the reach: a batch that attached nothing found every
 // reference already signed, and one reference alone that reached past this
@@ -333,14 +342,19 @@ function attachedMarkers(result: DeprecateArtifactResult): readonly DeprecationM
 // The command line prints no status line for a withdrawal at all, so these are
 // facts a reader had no way to see before. They are the marker's identity: a
 // marker is addressed by nothing else, so a withdrawal reported without its
-// digest names nothing a reader could go and look at.
+// digest names nothing a reader could go and look at. The severity is the
+// compiler's own word and fills its placeholder untranslated.
 export function withdrawalLines(result: DeprecateArtifactResult): readonly string[] {
   return attachedMarkers(result).map(
-    (m) => `  marker attached: ${m.reference} — ${m.severity}, issued ${m.issuedOn} (${m.digest})`,
+    (m) => `  ${l10n.t('marker attached: {0} — {1}, issued {2} ({3})', m.reference, m.severity, m.issuedOn, m.digest)}`,
   );
 }
 
 // --- how each one ends ----------------------------------------------------
+
+// NOTHING_LEFT_THIS_MACHINE is the sentence an operation that attached nothing
+// anywhere ends with.
+const NOTHING_LEFT_THIS_MACHINE = l10n.t('Nothing left this machine.');
 
 // reachPhrase says where a publication landed, from the answer's own reach.
 //
@@ -351,23 +365,17 @@ export function withdrawalLines(result: DeprecateArtifactResult): readonly strin
 // says so: where it addressed a registry and found everything already there,
 // the sentence names that registry and says nothing new reached it, rather than
 // claiming a landing that did not happen.
+//
+// It is a whole sentence of its own, so it follows the ending's first sentence
+// after a space rather than being joined into it.
 function reachPhrase(reach: PublicationReach): string {
-  const registries = registryList(reach.registries);
+  const registries = l10n.list(reach.registries);
   if (registries === '') {
-    return 'Nothing left this machine.';
+    return NOTHING_LEFT_THIS_MACHINE;
   }
   return reach.beyondThisMachine
-    ? `Anyone resolving from ${registries} now sees it.`
-    : `Nothing new was attached at ${registries}.`;
-}
-
-// registryList joins hosts the way a sentence lists them: one alone, two with
-// "and", more with commas and a closing "and".
-function registryList(hosts: readonly string[]): string {
-  if (hosts.length <= 1) {
-    return hosts[0] ?? '';
-  }
-  return `${hosts.slice(0, -1).join(', ')} and ${hosts[hosts.length - 1]}`;
+    ? l10n.t('Anyone resolving from {0} now sees it.', registries)
+    : l10n.t('Nothing new was attached at {0}.', registries);
 }
 
 // publicationOutcome is the sentence a publication ends in.
@@ -381,12 +389,15 @@ function registryList(hosts: readonly string[]): string {
 // All of it is strictly more than an exit status says: a publication, a
 // re-publication of identical bytes, and a dry run all exit zero, so an exit
 // status alone cannot tell a reader which of the three happened.
+//
+// Each shape of the first sentence is a whole message of its own; the reach
+// follows it as a sentence of its own.
 export function publicationOutcome(result: PublishEntityResult): OperationOutcome {
   if (result.dryRun) {
     return {
       kind: 'ok',
-      detail: `reported ${result.reference}:${result.tag} (${result.digest}) without publishing it.`
-        + ' Nothing left this machine.',
+      detail: `${l10n.t('reported {0}:{1} ({2}) without publishing it.', result.reference, result.tag, result.digest)}`
+        + ` ${NOTHING_LEFT_THIS_MACHINE}`,
     };
   }
   if (result.alreadyPublished) {
@@ -395,21 +406,20 @@ export function publicationOutcome(result: PublishEntityResult): OperationOutcom
     // whether it attached a signature; a reach that is true without one can only
     // be the date. A reach that is false attached nothing, and the reach phrase
     // says so.
-    const attached = result.signed
-      ? ' and attached a signature'
-      : result.reach.beyondThisMachine ? ' and attached the publication date it lacked' : '';
-    return {
-      kind: 'ok',
-      detail: `found ${result.reference}:${result.tag} already published as ${result.digest},`
-        + ` uploaded no content${attached}. ${reachPhrase(result.reach)}`,
-    };
+    let found: string;
+    if (result.signed) {
+      found = l10n.t('found {0}:{1} already published as {2}, uploaded no content and attached a signature.', result.reference, result.tag, result.digest);
+    } else if (result.reach.beyondThisMachine) {
+      found = l10n.t('found {0}:{1} already published as {2}, uploaded no content and attached the publication date it lacked.', result.reference, result.tag, result.digest);
+    } else {
+      found = l10n.t('found {0}:{1} already published as {2}, uploaded no content.', result.reference, result.tag, result.digest);
+    }
+    return { kind: 'ok', detail: `${found} ${reachPhrase(result.reach)}` };
   }
-  const signature = result.signed ? ', signed' : '';
-  return {
-    kind: 'ok',
-    detail: `published ${result.reference}:${result.tag} as ${result.digest}${signature}.`
-      + ` ${reachPhrase(result.reach)}`,
-  };
+  const published = result.signed
+    ? l10n.t('published {0}:{1} as {2}, signed.', result.reference, result.tag, result.digest)
+    : l10n.t('published {0}:{1} as {2}.', result.reference, result.tag, result.digest);
+  return { kind: 'ok', detail: `${published} ${reachPhrase(result.reach)}` };
 }
 
 // signatureOutcome is the sentence a signing batch ends in.
@@ -421,22 +431,22 @@ export function publicationOutcome(result: PublishEntityResult): OperationOutcom
 export function signatureOutcome(result: SignArtifactsResult): OperationOutcome {
   const signed = signedArtifacts(result);
   if (signed.length === 0) {
-    return { kind: 'ok', detail: 'signed nothing. Nothing left this machine.' };
+    return { kind: 'ok', detail: `${l10n.t('signed nothing.')} ${NOTHING_LEFT_THIS_MACHINE}` };
   }
   // A batch reports a reference it found already signed among those it signed,
   // and its reach is false exactly when it attached nothing at all — so a false
   // reach means every reference listed already carried a signature that verifies.
   if (!result.reach.beyondThisMachine) {
-    const subject = signed.length === 1
-      ? `found ${signed[0].reference} already signed, committing to ${signed[0].digest}`
-      : `found all ${signed.length} references already signed`;
-    return { kind: 'ok', detail: `${subject}. ${reachPhrase(result.reach)}` };
+    const found = signed.length === 1
+      ? l10n.t('found {0} already signed, committing to {1}.', signed[0].reference, signed[0].digest)
+      : l10n.t('found all {0} references already signed.', signed.length);
+    return { kind: 'ok', detail: `${found} ${reachPhrase(result.reach)}` };
   }
   if (signed.length === 1) {
     const only = signed[0];
     return {
       kind: 'ok',
-      detail: `attached a signature to ${only.reference}, committing to ${only.digest}.`
+      detail: `${l10n.t('attached a signature to {0}, committing to {1}.', only.reference, only.digest)}`
         + ` ${reachPhrase(result.reach)}`,
     };
   }
@@ -444,7 +454,7 @@ export function signatureOutcome(result: SignArtifactsResult): OperationOutcome 
   // sentence counts the references rather than the signatures attached.
   return {
     kind: 'ok',
-    detail: `signed ${signed.length} references. ${reachPhrase(result.reach)}`,
+    detail: `${l10n.t('signed {0} references.', signed.length)} ${reachPhrase(result.reach)}`,
   };
 }
 
@@ -457,19 +467,19 @@ export function signatureOutcome(result: SignArtifactsResult): OperationOutcome 
 export function withdrawalOutcome(result: DeprecateArtifactResult): OperationOutcome {
   const marked = attachedMarkers(result);
   if (marked.length === 0) {
-    return { kind: 'ok', detail: 'attached no marker. Nothing left this machine.' };
+    return { kind: 'ok', detail: `${l10n.t('attached no marker.')} ${NOTHING_LEFT_THIS_MACHINE}` };
   }
   if (marked.length === 1) {
     const only = marked[0];
     return {
       kind: 'ok',
-      detail: `marked ${only.reference} deprecated at ${only.severity}, as ${only.digest}.`
+      detail: `${l10n.t('marked {0} deprecated at {1}, as {2}.', only.reference, only.severity, only.digest)}`
         + ` ${reachPhrase(result.reach)}`,
     };
   }
   return {
     kind: 'ok',
-    detail: `attached ${marked.length} markers. ${reachPhrase(result.reach)}`,
+    detail: `${l10n.t('attached {0} markers.', marked.length)} ${reachPhrase(result.reach)}`,
   };
 }
 

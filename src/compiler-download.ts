@@ -10,6 +10,7 @@ import * as path from 'path';
 import * as semver from 'semver';
 
 import { describeError } from './error-text';
+import * as l10n from './l10n';
 import { SpawnFn, readDaemonVersion } from './version-check';
 
 // This module gets a compiler from a published release: it names the machine the
@@ -70,6 +71,8 @@ export type TargetReading =
   | { kind: 'supported'; target: ReleaseTarget }
   | { kind: 'unsupported'; sentence: string };
 
+// The operating systems and processors are named by their makers' own names, so
+// neither list is translated.
 const OS_WORDS: Record<ReleaseOs, string> = { linux: 'Linux', darwin: 'macOS', windows: 'Windows' };
 const ARCH_WORDS: Record<ReleaseArch, string> = { amd64: '64-bit x86', arm64: '64-bit ARM' };
 
@@ -84,14 +87,16 @@ export function releaseTarget(platform: string, arch: string): TargetReading {
   const os: ReleaseOs | null =
     platform === 'linux' ? 'linux' : platform === 'darwin' ? 'darwin' : platform === 'win32' ? 'windows' : null;
   const releaseArch: ReleaseArch | null = arch === 'x64' ? 'amd64' : arch === 'arm64' ? 'arm64' : null;
-  const offered = 'releases carry binaries for Linux and macOS on 64-bit x86 and 64-bit ARM, and for Windows on 64-bit x86';
   if (os === null) {
-    return { kind: 'unsupported', sentence: `no release carries an aggrega binary for the operating system ${platform}; ${offered}` };
+    return {
+      kind: 'unsupported',
+      sentence: l10n.t('no release carries an aggrega binary for the operating system {0}; releases carry binaries for Linux and macOS on 64-bit x86 and 64-bit ARM, and for Windows on 64-bit x86', platform),
+    };
   }
   if (releaseArch === null || (os === 'windows' && releaseArch !== 'amd64')) {
     return {
       kind: 'unsupported',
-      sentence: `no release carries an aggrega binary for ${OS_WORDS[os]} on the processor ${arch}; ${offered}`,
+      sentence: l10n.t('no release carries an aggrega binary for {0} on the processor {1}; releases carry binaries for Linux and macOS on 64-bit x86 and 64-bit ARM, and for Windows on 64-bit x86', OS_WORDS[os], arch),
     };
   }
   return { kind: 'supported', target: { os, arch: releaseArch } };
@@ -99,7 +104,7 @@ export function releaseTarget(platform: string, arch: string): TargetReading {
 
 // targetWords names a target the way a reader names it.
 export function targetWords(target: ReleaseTarget): string {
-  return `${OS_WORDS[target.os]} on ${ARCH_WORDS[target.arch]}`;
+  return l10n.t('{0} on {1}', OS_WORDS[target.os], ARCH_WORDS[target.arch]);
 }
 
 // releaseFileName is the default binary one release carries for one target.
@@ -154,12 +159,12 @@ function open(
     try {
       parsed = new URL(url);
     } catch {
-      reject(new ReleaseFetchError(`${url} is not an address`));
+      reject(new ReleaseFetchError(l10n.t('{0} is not an address', url)));
       return;
     }
     const transport = parsed.protocol === 'https:' ? https : parsed.protocol === 'http:' ? http : null;
     if (transport === null) {
-      reject(new ReleaseFetchError(`${url} is not an http or https address`));
+      reject(new ReleaseFetchError(l10n.t('{0} is not an http or https address', url)));
       return;
     }
     const request = transport.get(parsed, { headers: { ...REQUEST_HEADERS, ...headers }, signal }, (response) => {
@@ -168,7 +173,7 @@ function open(
       if (status >= 300 && status < 400 && location) {
         response.resume();
         if (redirectsLeft === 0) {
-          reject(new ReleaseFetchError(`${url} redirected more than ${REDIRECTS_FOLLOWED} times`));
+          reject(new ReleaseFetchError(l10n.t('{0} redirected more than {1} times', url, REDIRECTS_FOLLOWED)));
           return;
         }
         open(new URL(location, parsed).toString(), headers, signal, redirectsLeft - 1).then(resolve, reject);
@@ -182,7 +187,7 @@ function open(
       resolve(response);
     });
     request.setTimeout(IDLE_LIMIT_MS, () => {
-      request.destroy(new Error(`nothing arrived for ${IDLE_LIMIT_MS / 1000} seconds`));
+      request.destroy(new Error(l10n.t('nothing arrived for {0} seconds', IDLE_LIMIT_MS / 1000)));
     });
     request.on('error', (err) => reject(unreachable(url, err)));
   });
@@ -195,17 +200,20 @@ function refusalOf(url: string, response: http.IncomingMessage): ReleaseFetchErr
   const status = response.statusCode ?? 0;
   if (status === 429 || (status === 403 && response.headers['x-ratelimit-remaining'] === '0')) {
     return new ReleaseFetchError(
-      'GitHub is limiting how many requests this address may make for now, so try again later',
+      l10n.t('GitHub is limiting how many requests this address may make for now, so try again later'),
       true,
     );
   }
-  return new ReleaseFetchError(`${url} answered ${status}${response.statusMessage ? ` ${response.statusMessage}` : ''}`);
+  // The status's own words are the server's, and fill a placeholder as they came.
+  return new ReleaseFetchError(response.statusMessage
+    ? l10n.t('{0} answered {1} {2}', url, status, response.statusMessage)
+    : l10n.t('{0} answered {1}', url, status));
 }
 
 function unreachable(url: string, err: unknown): ReleaseFetchError {
   if (err instanceof ReleaseFetchError) { return err; }
-  if (isAbort(err)) { return new ReleaseFetchError('the download was stopped'); }
-  return new ReleaseFetchError(`${url} could not be reached: ${describeError(err)}`);
+  if (isAbort(err)) { return new ReleaseFetchError(l10n.t('the download was stopped')); }
+  return new ReleaseFetchError(l10n.t('{0} could not be reached: {1}', url, describeError(err)));
 }
 
 function isAbort(err: unknown): boolean {
@@ -239,7 +247,7 @@ async function fetchToFile(url: string, file: string, signal?: AbortSignal): Pro
       // A connection that ends before the whole body arrived ends the copy without
       // finishing it, so it is reported here rather than waited on.
       response.on('close', () => {
-        if (!response.complete) { reject(new Error('the connection closed before the whole file arrived')); }
+        if (!response.complete) { reject(new Error(l10n.t('the connection closed before the whole file arrived'))); }
       });
       out.on('error', reject);
       out.on('finish', () => resolve());
@@ -272,10 +280,10 @@ export async function listReleases(source: ReleaseSource, signal?: AbortSignal):
   try {
     parsed = JSON.parse(text);
   } catch {
-    throw new ReleaseFetchError(`what ${url} answered is not a list of releases`);
+    throw new ReleaseFetchError(l10n.t('what {0} answered is not a list of releases', url));
   }
   if (!Array.isArray(parsed)) {
-    throw new ReleaseFetchError(`what ${url} answered is not a list of releases`);
+    throw new ReleaseFetchError(l10n.t('what {0} answered is not a list of releases', url));
   }
   return parsed.flatMap((entry): PublishedRelease[] => {
     if (typeof entry !== 'object' || entry === null) { return []; }
@@ -372,14 +380,14 @@ export async function installRelease(request: InstallRequest): Promise<InstallOu
   }
   const expected = sums.get(asset);
   if (expected === undefined) {
-    return { kind: 'refused', reason: `the checksum list at ${sumsUrl} names no ${asset}` };
+    return { kind: 'refused', reason: l10n.t('the checksum list at {0} names no {1}', sumsUrl, asset) };
   }
 
   const dir = path.dirname(destination);
   try {
     await fsp.mkdir(dir, { recursive: true });
   } catch (err) {
-    return { kind: 'refused', reason: `the folder ${dir} could not be created: ${describeError(err)}` };
+    return { kind: 'refused', reason: l10n.t('the folder {0} could not be created: {1}', dir, describeError(err)) };
   }
   const staged = path.join(
     dir,
@@ -400,7 +408,7 @@ export async function installRelease(request: InstallRequest): Promise<InstallOu
     await discard();
     return {
       kind: 'refused',
-      reason: `the SHA-256 checksum of the downloaded ${asset} is ${actual}, but ${CHECKSUM_LIST} lists ${expected}, so the download was deleted`,
+      reason: l10n.t('the SHA-256 checksum of the downloaded {0} is {1}, but {2} lists {3}, so the download was deleted', asset, actual, CHECKSUM_LIST, expected),
     };
   }
 
@@ -409,7 +417,7 @@ export async function installRelease(request: InstallRequest): Promise<InstallOu
       await fsp.chmod(staged, 0o755);
     } catch (err) {
       await discard();
-      return { kind: 'refused', reason: `the downloaded ${asset} could not be made executable: ${describeError(err)}` };
+      return { kind: 'refused', reason: l10n.t('the downloaded {0} could not be made executable: {1}', asset, describeError(err)) };
     }
   }
 
@@ -420,14 +428,14 @@ export async function installRelease(request: InstallRequest): Promise<InstallOu
       kind: 'refused',
       // The runtime's report of a failed run carries what the program printed on
       // lines of its own; its first line is what fits inside one sentence.
-      reason: `the downloaded ${asset} did not answer \`version -o json\` (${describeError(reading.err).split('\n')[0].trim()}), so it was deleted`,
+      reason: l10n.t('the downloaded {0} did not answer `version -o json` ({1}), so it was deleted', asset, describeError(reading.err).split('\n')[0].trim()),
     };
   }
   if (semver.coerce(reading.version)?.version !== semver.coerce(version)?.version) {
     await discard();
     return {
       kind: 'refused',
-      reason: `the downloaded ${asset} reports version ${reading.version} rather than ${version}, so it was deleted`,
+      reason: l10n.t('the downloaded {0} reports version {1} rather than {2}, so it was deleted', asset, reading.version, version),
     };
   }
 
@@ -437,7 +445,7 @@ export async function installRelease(request: InstallRequest): Promise<InstallOu
     await discard();
     return {
       kind: 'refused',
-      reason: `the downloaded ${asset} could not be put in place at ${destination} (${describeError(err)}), so it was deleted`,
+      reason: l10n.t('the downloaded {0} could not be put in place at {1} ({2}), so it was deleted', asset, destination, describeError(err)),
     };
   }
   return { kind: 'installed', path: destination, version: reading.version };

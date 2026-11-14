@@ -2,6 +2,7 @@
 // Copyright 2026 Cognitio s.r.l.
 
 import { CancellationSignal, OperationCancelled } from './cancellation';
+import * as l10n from './l10n';
 
 // This module owns what it means to run the compiler as a subprocess and be
 // able to stop it. It depends on no editor type, so a test drives a real child
@@ -63,10 +64,20 @@ export interface CliExit {
 // writes as line endings rather than as text. A run that wrote nothing to its
 // error stream is reported by its status alone, since there is nothing of the
 // compiler's to carry and inventing a reason would be worse than naming none.
+//
+// Each shape is a whole message, the status a placeholder where it is known, so
+// a translation words a status nobody reported in its own way.
 export function exitRefusal(exit: CliExit): string {
-  const status = `the compiler exited with status ${exit.code ?? 'unknown'}`;
   const said = exit.stderr.replace(/^(?:[ \t]*\r?\n)+/, '').replace(/(?:\r?\n[ \t]*)+$/, '');
-  return said.trim() === '' ? `${status}.` : `${status}: ${said}`;
+  const silent = said.trim() === '';
+  if (exit.code === null) {
+    return silent
+      ? l10n.t('the compiler exited with status unknown.')
+      : l10n.t('the compiler exited with status unknown: {0}', said);
+  }
+  return silent
+    ? l10n.t('the compiler exited with status {0}.', exit.code)
+    : l10n.t('the compiler exited with status {0}: {1}', exit.code, said);
 }
 
 // runCliProcess starts the child, streams its output, and settles on how it

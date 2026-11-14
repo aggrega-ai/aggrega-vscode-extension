@@ -2,6 +2,7 @@
 // Copyright 2026 Cognitio s.r.l.
 
 import { describeError } from './error-text';
+import * as l10n from './l10n';
 import type { SetActiveReleaseParams } from './types';
 import { ACTIVE_RELEASE_MARKER_BASENAME, AGGREGA_DIR } from './workspace';
 
@@ -51,7 +52,7 @@ export async function recordActiveRelease(
   if (!selectedRelease) {
     return {
       failed: false,
-      message: 'Aggrega: no Release is selected, so there is none to set as this workspace default. Select one first.',
+      message: l10n.t('Aggrega: no Release is selected, so there is none to set as this workspace default. Select one first.'),
     };
   }
   try {
@@ -59,11 +60,16 @@ export async function recordActiveRelease(
   } catch (err) {
     return {
       failed: true,
-      message: `Aggrega: could not write ${AGGREGA_DIR}/${ACTIVE_RELEASE_MARKER_BASENAME}: ${describeError(err)}`,
+      message: l10n.t(
+        'Aggrega: could not write {0}/{1}: {2}',
+        AGGREGA_DIR,
+        ACTIVE_RELEASE_MARKER_BASENAME,
+        describeError(err),
+      ),
     };
   }
   return {
     failed: false,
-    message: `Aggrega: ${selectedRelease} is now this workspace's default Release.`,
+    message: l10n.t("Aggrega: {0} is now this workspace's default Release.", selectedRelease),
   };
 }

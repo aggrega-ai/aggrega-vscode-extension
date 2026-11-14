@@ -458,7 +458,7 @@ describe('the controls that pre-set the kind, and the one flow they reach', () =
       'the Release row\'s create control no longer runs the drafting command',
     );
     assert.ok(
-      /label: 'Draft a Release', command: DRAFT_RELEASE_COMMAND/.test(steps),
+      /label: DRAFT_RELEASE_LABEL, command: DRAFT_RELEASE_COMMAND/.test(steps),
       'the welcome page\'s Release button no longer runs the drafting command',
     );
   });

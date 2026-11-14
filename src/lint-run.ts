@@ -6,6 +6,7 @@ import * as path from 'node:path';
 import type * as wire from '@aggrega-ai/aggrega-abi/dist/servewire_gen';
 import { CancellationSignal } from './cancellation';
 import { ConvertedShape, shapeForDaemonDiagnostic } from './diagnostics-shape';
+import * as l10n from './l10n';
 import { withSubject } from './operation-groups';
 import { outcomeOf, terminalLine } from './operation-outcome';
 import { NO_ANCHORED_WORKSPACE_MESSAGE } from './workspace';
@@ -72,10 +73,23 @@ function passesOf(answer: LintAnswer): readonly LintPass[] | null {
 }
 
 // releasesNamed names the Releases one pass ran for, as the command line's own
-// heading for a pass names them.
+// heading for a pass names them. It is the heading's, so it is not translated;
+// a sentence of this surface's own that names the Releases writes "Release" or
+// "Releases" inside its own message instead, as releasesClause does.
 function releasesNamed(releases: readonly string[] | null): string {
   const named = releases ?? [];
   return `${named.length === 1 ? 'Release' : 'Releases'} ${named.join(', ')}`;
+}
+
+// releasesClause is the phrase a sentence of this surface's own names one pass's
+// Releases with — "for Release a.yaml", "for Releases a.yaml, b.yaml" — joined
+// to what stands before it by a message of its own, so a translation places the
+// Releases where its language puts them.
+function releasesClause(before: string, releases: readonly string[] | null): string {
+  const named = releases ?? [];
+  return named.length === 1
+    ? l10n.t('{0} for Release {1}', before, l10n.series(named))
+    : l10n.t('{0} for Releases {1}', before, l10n.series(named));
 }
 
 // passHeading is the line a pass opens with: its Releases and the directories
@@ -87,6 +101,7 @@ function releasesNamed(releases: readonly string[] | null): string {
 // across the language boundary, so it states the same wording and a parity spec
 // holds it to a line captured from the command line. The directories are spelled
 // as the answer spells them, which is the spelling the command line prints.
+// Being the command line's line, it is not translated.
 function passHeading(pass: LintPass): string {
   const one = (pass.releases ?? []).length === 1;
   const subject = `${releasesNamed(pass.releases)} ${one ? 'reads' : 'read'}`;
@@ -127,7 +142,7 @@ export const CATALOG_WIDE: LintSubject = { kind: 'catalog' };
 // addresses the whole catalog — so a subject dropped on the way would not fail,
 // it would silently ask the wider question.
 export function entityLintSubject(entityPath: string): LintSubject {
-  const [, checked] = withSubject('lint', entityPath, 'the path of the entity to check');
+  const [, checked] = withSubject('lint', entityPath, l10n.t('the path of the entity to check'));
   return { kind: 'entity', entityPath: checked };
 }
 
@@ -188,7 +203,11 @@ export function findingsByFile(
     addFindings(byFile, answer.files ?? [], workspaceRoot, '');
   } else {
     for (const pass of passes) {
-      addFindings(byFile, pass.files ?? [], workspaceRoot, ` (found for ${releasesNamed(pass.releases)})`);
+      const named = pass.releases ?? [];
+      const foundFor = named.length === 1
+        ? l10n.t('(found for Release {0})', l10n.series(named))
+        : l10n.t('(found for Releases {0})', l10n.series(named));
+      addFindings(byFile, pass.files ?? [], workspaceRoot, ` ${foundFor}`);
     }
   }
   return byFile;
@@ -251,7 +270,7 @@ export function unlocatableNote(answer: LintAnswer): string {
   if (dropped === 0) {
     return '';
   }
-  return `${dropped} finding(s) named no entity file, so they appear only in the Aggrega output channel.`;
+  return l10n.t('{0} finding(s) named no entity file, so they appear only in the Aggrega output channel.', dropped);
 }
 
 // --- what one answer does to the published set ----------------------------
@@ -383,7 +402,7 @@ function documentLines(groups: readonly LintFileFindings[], workspaceRoot: strin
   for (const group of groups) {
     const diagnostics = group.diagnostics ?? [];
     if (diagnostics.length === 0) { continue; }
-    lines.push(`${group.file ? absolutePathFor(workspaceRoot, group.file) : '(no entity file)'}:`);
+    lines.push(group.file ? `${absolutePathFor(workspaceRoot, group.file)}:` : l10n.t('(no entity file):'));
     for (const d of diagnostics) {
       lines.push(findingLine(d));
     }
@@ -469,30 +488,43 @@ export function summaryLine(answer: LintAnswer, workspaceRoot: string): string {
     ? [outcomeClause(answer, workspaceRoot)]
     : passes.map((pass) => ((pass.catalogDirs ?? []).length === 0
       ? passHeading(pass)
-      : `${outcomeClause(pass, workspaceRoot)} for ${releasesNamed(pass.releases)}`));
+      : releasesClause(outcomeClause(pass, workspaceRoot), pass.releases)));
   const seeProblems = passes === null
     ? (typeof answer.findings === 'number' && answer.findings > 0)
     : passes.some((pass) => pass.findings > 0);
-  return `Aggrega lint: ${clauses.join('; ')}${seeProblems ? ' — see the Problems panel' : ''}.${trailer}`;
+  const stated = clauses.join('; ');
+  const sentence = seeProblems
+    ? l10n.t('Aggrega lint: {0} — see the Problems panel.', stated)
+    : l10n.t('Aggrega lint: {0}.', stated);
+  return `${sentence}${trailer}`;
 }
 
 // outcomeClause states what one run, or one pass of it, found over what it
 // covered: the finding count, and the entity it was about or how many entities it
 // checked. It is the one wording of that clause, so a run checked once and a run
 // checked once per Release state their counts alike.
+//
+// Each pairing of what was found with what was covered is a whole message, so a
+// translation words the count and the scope together.
 function outcomeClause(
   counts: { entity?: string; checked?: number; findings?: number },
   workspaceRoot: string,
 ): string {
   const checked = counts.checked;
-  const scope = counts.entity
-    ? ` in ${absolutePathFor(workspaceRoot, counts.entity)}`
-    : (typeof checked === 'number' ? ` across ${checked} entities checked` : '');
   const found = counts.findings;
-  if (typeof found !== 'number') {
-    return `run complete${scope}`;
+  if (counts.entity) {
+    const entity = absolutePathFor(workspaceRoot, counts.entity);
+    if (typeof found !== 'number') { return l10n.t('run complete in {0}', entity); }
+    return found === 0 ? l10n.t('no findings in {0}', entity) : l10n.t('{0} finding(s) in {1}', found, entity);
   }
-  return found === 0 ? `no findings${scope}` : `${found} finding(s)${scope}`;
+  if (typeof checked === 'number') {
+    if (typeof found !== 'number') { return l10n.t('run complete across {0} entities checked', checked); }
+    return found === 0
+      ? l10n.t('no findings across {0} entities checked', checked)
+      : l10n.t('{0} finding(s) across {1} entities checked', found, checked);
+  }
+  if (typeof found !== 'number') { return l10n.t('run complete'); }
+  return found === 0 ? l10n.t('no findings') : l10n.t('{0} finding(s)', found);
 }
 
 // --- the run ---------------------------------------------------------------
@@ -539,7 +571,7 @@ export interface LintRunDeps {
 
 // LINT_SUBJECT is the check in the reader's terms, used for the sentence a
 // stopped run leaves behind. One spelling, so every ending names the same thing.
-export const LINT_SUBJECT = 'The lint';
+export const LINT_SUBJECT = l10n.t('The lint');
 
 // runLint asks for the publishing-conventions findings over one subject and
 // publishes them as navigable diagnostics.

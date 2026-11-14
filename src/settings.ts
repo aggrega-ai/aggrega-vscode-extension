@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cognitio s.r.l.
 
+import * as l10n from './l10n';
 import { DEFAULT_OPERATIONS_LAYOUT, OperationsLayout } from './operation-groups';
 import type { PanelActionPress } from './panel-actions';
 import { BINARY_PATH_SETTING, OPEN_BINARY_PATH_SETTING_ACTION } from './start-failure';
@@ -177,36 +178,41 @@ export function binaryPathSettingPress(): PanelActionPress {
   };
 }
 
-// BUILD_ON_INSPECT_STAGE names what the setting runs while a graph is inspected,
-// in the command line's own words for it: the flag's help calls it the
-// artifact-rendering stage, and says it adds the advisories a build raises while
-// rendering and none of the checks a build halts on. Every surface naming the
-// setting — the command's title, the menu entry, the confirmation and the
-// setting's description — names it the same way, so a reader meets one thing
-// under one name. The description also carries the help's qualifier, because a
-// reader who turns the setting on to see in the editor what a build would refuse
-// is told there that it does not.
-export const BUILD_ON_INSPECT_STAGE = 'the artifact-rendering stage';
-
 // BUILD_ON_INSPECT_MENU_LABEL is the toggle's entry in the quick-action menu. It
 // is the same in both states so the menu dispatches on one label; which way
 // selecting it would flip the setting is carried in the description beside it.
-export const BUILD_ON_INSPECT_MENU_LABEL = `Run ${BUILD_ON_INSPECT_STAGE} while inspecting`;
+//
+// It names what the setting runs while a graph is inspected in the command line's
+// own words for it: the flag's help calls it the artifact-rendering stage, and
+// says it adds the advisories a build raises while rendering and none of the
+// checks a build halts on. Every surface naming the setting — the command's
+// title, this entry, the confirmation and the setting's description — names it
+// the same way, so a reader meets one thing under one name. The description also
+// carries the help's qualifier, because a reader who turns the setting on to see
+// in the editor what a build would refuse is told there that it does not.
+//
+// The name is a noun inside each of those sentences, so each spells it in its own
+// message, where a translation gives it the article and case the sentence needs;
+// a change to the name is a change to every message spelling it, this one first.
+export const BUILD_ON_INSPECT_MENU_LABEL = l10n.t('Run the artifact-rendering stage while inspecting');
 
 // buildOnInspectMenuDescription reads the setting's current value and says what
 // selecting the entry does next. Phrased as the action rather than the state,
 // because a menu entry is chosen for what it will do.
 export function buildOnInspectMenuDescription(current: boolean): string {
-  return current ? 'Currently on — turn it off' : 'Currently off — turn it on';
+  return current ? l10n.t('Currently on — turn it off') : l10n.t('Currently off — turn it on');
 }
 
 // buildOnInspectConfirmation is the message shown once the toggle has written
 // the setting. It names the consequence a user cannot otherwise see: the flag is
 // read when the language server starts, so a server already running keeps its
 // previous behaviour until it restarts.
+//
+// Each sentence spells the stage BUILD_ON_INSPECT_MENU_LABEL names inside its own
+// message, the stage being its subject.
 export function buildOnInspectConfirmation(next: boolean): string {
   const outcome = next
-    ? "will run while inspecting a graph"
-    : "will not run while inspecting a graph";
-  return `Aggrega: ${BUILD_ON_INSPECT_STAGE} ${outcome}. The language server reads this setting when it starts, so restart it to apply the change.`;
+    ? l10n.t('Aggrega: the artifact-rendering stage will run while inspecting a graph.')
+    : l10n.t('Aggrega: the artifact-rendering stage will not run while inspecting a graph.');
+  return `${outcome} ${l10n.t('The language server reads this setting when it starts, so restart it to apply the change.')}`;
 }

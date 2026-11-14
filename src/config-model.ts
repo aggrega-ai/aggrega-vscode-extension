@@ -27,6 +27,7 @@ import {
   dottedPath,
 } from './config-schema';
 import { ConfigScope, configScope } from './config-scope';
+import * as l10n from './l10n';
 
 // DEFAULTS_SOURCE is the label the compiler attributes a setting to when no
 // configuration file, environment variable or flag sets it at all. It is
@@ -263,16 +264,19 @@ export function readEffectiveConfiguration(payload: unknown): EffectiveConfigura
 // The unattributed case names the gap in the reader's terms rather than leaving
 // the cell blank: a blank reads as a surface that failed to fill it, and this is
 // a surface reporting that the compiler's report does not cover this setting.
+//
+// Each sentence stands alone, carrying its own article, because the page sets it
+// after a label and a colon.
 export function describeProvenance(provenance: Provenance): string {
   switch (provenance.kind) {
     case 'file':
       return provenance.path;
     case 'environment':
-      return `the environment variable ${provenance.variable}`;
+      return l10n.t('the environment variable {0}', provenance.variable);
     case 'defaults':
-      return 'the built-in default, unchanged by any file';
+      return l10n.t('the built-in default, unchanged by any file');
     default:
-      return 'not reported — the configuration report does not cover this setting';
+      return l10n.t('not reported — the configuration report does not cover this setting');
   }
 }
 
@@ -292,11 +296,11 @@ export function sourceLabel(provenance: Provenance): string {
     case 'file':
       return provenance.path;
     case 'environment':
-      return `environment: ${provenance.variable}`;
+      return l10n.t('environment: {0}', provenance.variable);
     case 'defaults':
-      return 'built-in default';
+      return l10n.t('built-in default');
     default:
-      return 'not reported';
+      return l10n.t('not reported');
   }
 }
 

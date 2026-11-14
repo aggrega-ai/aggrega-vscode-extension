@@ -6,6 +6,7 @@ import * as path from 'path';
 import * as vm from 'vm';
 
 import { ConnectionPlacement, ConnectionSites, connectionSites } from './attachment-edit';
+import * as l10n from './l10n';
 import type { IrGraphParams } from './types';
 
 // The payload the topology view is given is built here, on this side of the
@@ -59,7 +60,7 @@ export function loadAttachmentsModel(extensionRoot: string): AttachmentsModel {
   if (!model || typeof model.redactGraph !== 'function'
     || typeof model.connectionAttachmentsFor !== 'function'
     || typeof model.connectionKey !== 'function') {
-    throw new Error(`${file} defines no attachment projection`);
+    throw new Error(l10n.t('{0} defines no attachment projection', file));
   }
   return model;
 }

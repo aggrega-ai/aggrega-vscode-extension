@@ -4,6 +4,7 @@
 import * as vscode from 'vscode';
 import { CliOperationDeps, reportOutcome, runCli } from './cli-operation';
 import { runCliJson } from './cli-json';
+import * as l10n from './l10n';
 import {
   ATTACHMENT_SUBJECT,
   PluginAttachmentDeps,
@@ -155,8 +156,8 @@ async function askForAttachment(chosenType?: string): Promise<
   { type: string; query: string; capability?: string; role?: string } | null
 > {
   const type = chosenType ?? await vscode.window.showQuickPick([...ATTACHABLE_PLUGIN_TYPES], {
-    title: 'Aggrega: add a plugin',
-    placeHolder: 'Which type of plugin to add',
+    title: l10n.t('Aggrega: add a plugin'),
+    placeHolder: l10n.t('Which type of plugin to add'),
     ignoreFocusOut: true,
   });
   if (!type) { return null; }
@@ -165,25 +166,23 @@ async function askForAttachment(chosenType?: string): Promise<
   let role: string | undefined;
   if (type === PLUGIN_TYPE_PROVIDER) {
     capability = await vscode.window.showInputBox({
-      title: 'Aggrega: add a provider plugin',
-      prompt: 'The capability this binding serves, such as helm or terraform.',
+      title: l10n.t('Aggrega: add a provider plugin'),
+      prompt: l10n.t('The capability this binding serves, such as helm or terraform.'),
       ignoreFocusOut: true,
     });
     if (!capability) { return null; }
   } else if (type === PLUGIN_TYPE_GOVERNANCE) {
     role = await vscode.window.showQuickPick([...GOVERNANCE_ROLES], {
-      title: 'Aggrega: add a governance plugin',
-      placeHolder: 'The role this attachment is bound at',
+      title: l10n.t('Aggrega: add a governance plugin'),
+      placeHolder: l10n.t('The role this attachment is bound at'),
       ignoreFocusOut: true,
     });
     if (!role) { return null; }
   }
 
   const query = await vscode.window.showInputBox({
-    title: 'Aggrega: add a plugin',
-    prompt: 'Name to search the configured registry for. It must resolve to exactly one '
-      + "plugin of that type. The attachment is written to this project's workspace "
-      + 'configuration.',
+    title: l10n.t('Aggrega: add a plugin'),
+    prompt: l10n.t("Name to search the configured registry for. It must resolve to exactly one plugin of that type. The attachment is written to this project's workspace configuration."),
     ignoreFocusOut: true,
   });
   if (!query) { return null; }
@@ -212,8 +211,8 @@ async function askForGeneration(chosenScope?: GenCatalogSelection['kind']): Prom
   const scope = chosenScope ?? await vscode.window.showQuickPick(
     GEN_CATALOG_SCOPES.map((entry) => ({ label: entry.label, value: entry.value })),
     {
-      title: 'Aggrega: generate Plugin entities',
-      placeHolder: 'Which plugins to generate an entity for',
+      title: l10n.t('Aggrega: generate Plugin entities'),
+      placeHolder: l10n.t('Which plugins to generate an entity for'),
       ignoreFocusOut: true,
     },
   ).then((picked) => picked?.value);
@@ -224,12 +223,12 @@ async function askForGeneration(chosenScope?: GenCatalogSelection['kind']): Prom
     selection = { kind: 'embedded' };
   } else {
     const artifact = await vscode.window.showOpenDialog({
-      title: 'Aggrega: the plugin artifact to generate from',
+      title: l10n.t('Aggrega: the plugin artifact to generate from'),
       canSelectFiles: true,
       canSelectFolders: false,
       canSelectMany: false,
-      filters: { 'Plugin artifact': ['wasm'] },
-      openLabel: 'Generate from this',
+      filters: { [l10n.t('Plugin artifact')]: ['wasm'] },
+      openLabel: l10n.t('Generate from this'),
     });
     if (!artifact?.length) { return null; }
     selection = { kind: 'artifact', artifactPath: artifact[0].fsPath };
@@ -238,21 +237,21 @@ async function askForGeneration(chosenScope?: GenCatalogSelection['kind']): Prom
   const forEmbedded = selection.kind === 'embedded';
   const overlay = await vscode.window.showOpenDialog({
     title: forEmbedded
-      ? 'Aggrega: the directory holding the authored overlays'
-      : 'Aggrega: the authored overlay for this plugin',
+      ? l10n.t('Aggrega: the directory holding the authored overlays')
+      : l10n.t('Aggrega: the authored overlay for this plugin'),
     canSelectFiles: !forEmbedded,
     canSelectFolders: forEmbedded,
     canSelectMany: false,
-    openLabel: 'Merge this overlay',
+    openLabel: l10n.t('Merge this overlay'),
   });
   if (!overlay?.length) { return null; }
 
   const output = await vscode.window.showOpenDialog({
-    title: 'Aggrega: the directory to write the entities under',
+    title: l10n.t('Aggrega: the directory to write the entities under'),
     canSelectFiles: false,
     canSelectFolders: true,
     canSelectMany: false,
-    openLabel: 'Write here',
+    openLabel: l10n.t('Write here'),
   });
   if (!output?.length) { return null; }
 
@@ -341,22 +340,21 @@ export function activatePluginsView(
       const named = typeof chosen === 'string' ? chosen : '';
       const request = await askForGeneration(genCatalogScope(named)?.value);
       if (!request) { return; }
+      const write = l10n.t('Write');
       const consented = await vscode.window.showWarningMessage(
-        `Write Plugin entities under ${request.outputDir}?`,
+        l10n.t('Write Plugin entities under {0}?', request.outputDir),
         {
           modal: true,
-          detail: 'Each entity is written at a path derived from its plugin’s type, name '
-            + 'and version, so an entity already there for that same plugin and version is '
-            + 'replaced. Nothing else under the directory is touched.',
+          detail: l10n.t('Each entity is written at a path derived from its plugin’s type, name and version, so an entity already there for that same plugin and version is replaced. Nothing else under the directory is touched.'),
         },
-        'Write',
+        write,
       );
-      if (consented !== 'Write') { return; }
+      if (consented !== write) { return; }
       await runCli(
         deps,
-        'The generation',
+        l10n.t('The generation'),
         pluginGenCatalogArgs(request.selection, request.outputDir, request.overlayPath),
-        { detail: `wrote the entities under ${request.outputDir}.` },
+        { detail: l10n.t('wrote the entities under {0}.', request.outputDir) },
       );
       // A generated Plugin entity can change what a configured attachment
       // resolves to, because the listing resolves an attachment through the
@@ -385,17 +383,16 @@ export function activatePluginsView(
     vscode.commands.registerCommand(
       'aggrega.plugins.remove',
       (node?: PluginsPanelNode) => runOnRow(node, async (subject) => {
+        const remove = l10n.t('Remove');
         const consented = await vscode.window.showWarningMessage(
-          `Remove the ${subject.type} plugin ${subject.reference}?`,
+          l10n.t('Remove the {0} plugin {1}?', subject.type, subject.reference),
           {
             modal: true,
-            detail: `The entry is removed from ${pluginRemovalConfigTarget(subject.type)}, so `
-              + 'this plugin no longer participates in a build reading it. The removal operates '
-              + 'on the configuration text alone, so nothing else on this machine is removed.',
+            detail: l10n.t('The entry is removed from {0}, so this plugin no longer participates in a build reading it. The removal operates on the configuration text alone, so nothing else on this machine is removed.', pluginRemovalConfigTarget(subject.type)),
           },
-          'Remove',
+          remove,
         );
-        if (consented !== 'Remove') { return; }
+        if (consented !== remove) { return; }
         const outcome = await runPluginRemoval(deps, subject.type, subject.reference);
         // The listing is re-read whatever the ending was. A removal that was
         // refused may still have changed what the workspace resolves, because the

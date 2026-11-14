@@ -21,9 +21,9 @@
 
 import { escapeHtml } from './html';
 import { ConfigControl, dottedPath } from './config-schema';
+import * as l10n from './l10n';
 import {
   DAEMON_ACTION_LABEL,
-  DAEMON_STANDING_WORDS,
   DaemonStanding,
   RESTART_COMMAND,
   daemonStandingAction,
@@ -42,7 +42,7 @@ import {
 } from './config-model';
 
 // PANEL_TITLE is what a reader's assistive technology announces for the document.
-const PANEL_TITLE = 'Aggrega configuration';
+const PANEL_TITLE = l10n.t('Aggrega configuration');
 
 // ConfigPresentation is which of the two shapes the settings are drawn in.
 //
@@ -77,10 +77,6 @@ export const PRESENTATION_TOGGLE_COMMAND = 'aggrega.config.togglePresentation';
 // and the guarantee above can therefore be checked rather than merely intended.
 export const PRESENTATION_MEMENTO_KEY = 'aggrega.config.presentation';
 
-// CONFIG_UNREAD_LEAD opens the notification a press of Show config ends in when
-// the configuration cannot be read.
-export const CONFIG_UNREAD_LEAD = 'The configuration surface could not be drawn';
-
 // ConfigUnreadAction is the one act that notification offers: the words on its
 // button and the command pressing the button runs.
 export interface ConfigUnreadAction {
@@ -111,16 +107,30 @@ export interface ConfigUnreadNotice {
 // offered nothing, because it answers once it is up. A refusal with the server
 // running is told in its own words with nothing offered, because a start is not
 // its answer.
+//
+// Every notice opens with the same words, and each is one whole message. The two
+// standings' notices spell the status bar's words for them — DAEMON_STANDING_WORDS
+// (daemon-status.ts) — inside their own messages rather than taking them as a
+// placeholder, because they complete the sentence's verb there and a translation
+// has to make them agree with it.
 export function configUnreadNotice(standing: DaemonStanding, err: unknown): ConfigUnreadNotice {
-  if (standing === 'running') {
-    return { message: `${CONFIG_UNREAD_LEAD}: ${describeError(err)}`, action: null };
+  switch (standing) {
+    case 'running':
+      return {
+        message: l10n.t('The configuration surface could not be drawn: {0}', describeError(err)),
+        action: null,
+      };
+    case 'starting':
+      return {
+        message: l10n.t('The configuration surface could not be drawn: the Aggrega language server is starting'),
+        action: null,
+      };
+    case 'notRunning':
+      return {
+        message: l10n.t('The configuration surface could not be drawn: the Aggrega language server is not running'),
+        action: { label: DAEMON_ACTION_LABEL[daemonStandingAction(standing)], command: RESTART_COMMAND },
+      };
   }
-  return {
-    message: `${CONFIG_UNREAD_LEAD}: the Aggrega language server is ${DAEMON_STANDING_WORDS[standing]}`,
-    action: standing === 'notRunning'
-      ? { label: DAEMON_ACTION_LABEL[daemonStandingAction(standing)], command: RESTART_COMMAND }
-      : null,
-  };
 }
 
 // configPanelBodyHtml draws the whole surface in the presentation asked for.
@@ -162,8 +172,8 @@ export function configPanelBodyHtml(
 // was.
 function presentationSwitchHtml(presentation: ConfigPresentation): string {
   const label = presentation === 'table'
-    ? 'Show each setting in full'
-    : 'Show every setting in one table';
+    ? l10n.t('Show each setting in full')
+    : l10n.t('Show every setting in one table');
   return `<p class="config-switch">`
     + `<a class="config-switch-control" href="command:${escapeHtml(PRESENTATION_TOGGLE_COMMAND)}">`
     + `${escapeHtml(label)}</a></p>`;
@@ -179,12 +189,12 @@ function presentationSwitchHtml(presentation: ConfigPresentation): string {
 function summaryHtml(model: ConfigPanelModel): string {
   const layers = model.layers.length > 0
     ? `<ul class="config-layers">${model.layers.map((l) => `<li><code>${escapeHtml(l)}</code></li>`).join('')}</ul>`
-    : '<p class="config-note">No configuration file contributed: every setting is at its built-in default.</p>';
+    : `<p class="config-note">${escapeHtml(l10n.t('No configuration file contributed: every setting is at its built-in default.'))}</p>`;
   const coverage = coverageSentence(model);
 
-  return `<section class="config-summary" aria-label="What this page reports">
-  <h2>Where these values come from</h2>
-  <p class="config-note">Files that contributed, lowest precedence first:</p>
+  return `<section class="config-summary" aria-label="${escapeHtml(l10n.t('What this page reports'))}">
+  <h2>${escapeHtml(l10n.t('Where these values come from'))}</h2>
+  <p class="config-note">${escapeHtml(l10n.t('Files that contributed, lowest precedence first:'))}</p>
   ${layers}
   ${coverage === null ? '' : `<p class="config-note">${escapeHtml(coverage)}</p>`}
 </section>`;
@@ -204,18 +214,12 @@ export function coverageSentence(model: ConfigPanelModel): string | null {
   const unattributed = rows.filter((row) => row.provenance.kind === 'unattributed');
   if (unattributed.length === 0) { return null; }
   if (unattributed.length === rows.length) {
-    return 'The configuration report attributes none of the settings shown here, so each is shown '
-      + 'with its declared default and no source.';
+    return l10n.t('The configuration report attributes none of the settings shown here, so each is shown with its declared default and no source.');
   }
-  const named = wordList(unattributed.map((row) => dottedPath(row.control.path)));
+  const named = l10n.list(unattributed.map((row) => dottedPath(row.control.path)));
   return unattributed.length === 1
-    ? `The configuration report carries no row for ${named}, so it is shown with its declared default and no source.`
-    : `The configuration report carries no row for ${named}, so each is shown with its declared default and no source.`;
-}
-
-// wordList joins names as a sentence lists them: "a", "a and b", "a, b and c".
-function wordList(names: string[]): string {
-  return names.length <= 1 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+    ? l10n.t('The configuration report carries no row for {0}, so it is shown with its declared default and no source.', named)
+    : l10n.t('The configuration report carries no row for {0}, so each is shown with its declared default and no source.', named);
 }
 
 // TABLE_COLUMNS are the table's labelled headings, in the order a reader reads
@@ -229,20 +233,20 @@ function wordList(names: string[]): string {
 // apart — whether the value is the declared default — is the mark the value
 // carries where it is not. The last column draws its heading like every other,
 // so a reader sees what the circle under it opens.
-const TABLE_COLUMNS = ['Setting', 'Name', 'Value', 'Takes', 'Source'];
-const LAST_COLUMN = 'Description';
+const TABLE_COLUMNS = [l10n.t('Setting'), l10n.t('Name'), l10n.t('Value'), l10n.t('Takes'), l10n.t('Source')];
+const LAST_COLUMN = l10n.t('Description');
 
 // VALUE_MARK is the mark beside a value that is not its declared default, and
 // TABLE_CAPTION the table's caption: what it lists, how it is arranged, and what
 // that mark means — said once, here, rather than on every marked row.
 const VALUE_MARK = '●';
-const TABLE_CAPTION = 'Every setting the configuration schema declares, beneath the group it belongs to. '
-  + `A value marked ${VALUE_MARK} is set in a file or the environment, or is not its declared default.`;
+const TABLE_CAPTION = `${l10n.t('Every setting the configuration schema declares, beneath the group it belongs to.')} `
+  + l10n.t('A value marked {0} is set in a file or the environment, or is not its declared default.', VALUE_MARK);
 
 // NONE is what a setting with no value in force says, rather than drawing
 // nothing: an empty cell reads as a surface that failed to fill it. An empty list
 // is a value, and is drawn as the `[]` the report gives.
-const NONE = 'none';
+const NONE = l10n.t('none');
 
 // COLUMN_GRIP_CLASS marks a labelled heading as the grip its column is resized
 // by. The stylesheet makes an element carrying it resizable by dragging, so the
@@ -253,7 +257,7 @@ export const COLUMN_GRIP_CLASS = 'config-column-grip';
 // GLOBAL is the word a setting that belongs to the machine rather than to one
 // project is marked with — on its row in the table, and opening its note in the
 // per-setting shape — so the two shapes call it the same.
-const GLOBAL = 'Global';
+const GLOBAL = l10n.t('Global');
 
 // configTableHtml draws every setting as one row of one table, beneath a heading
 // row for the group it belongs to.
@@ -380,26 +384,29 @@ function valueCellHtml(row: ConfigRow): string {
       return `${mark === null ? '' : markHtml(mark, row.control)}<span class="config-value-text">${value}</span>`;
     }
     case 'declared-default':
-      return `<span class="config-value-text">${breakableHtml(`${renderDefault(effective.value)} (declared default)`, VALUE_BREAKS)}</span>`;
+      return `<span class="config-value-text">${breakableHtml(l10n.t('{0} (declared default)', renderDefault(effective.value)), VALUE_BREAKS)}</span>`;
     default:
-      return `<span class="config-value-text"><span class="config-none">${escapeHtml(`${NONE} (no default declared)`)}</span></span>`;
+      // The word NONE holds is spelled in this message, beside what it says.
+      return `<span class="config-value-text"><span class="config-none">${escapeHtml(l10n.t('none (no default declared)'))}</span></span>`;
   }
 }
 
 // MARK_WORDS say why a value carries the mark.
 const MARK_WORDS: Readonly<Record<ValueMark, string>> = {
-  'file': 'Set in a file',
-  'environment': 'Set in the environment',
-  'not-the-default': 'Not its declared default',
+  'file': l10n.t('Set in a file'),
+  'environment': l10n.t('Set in the environment'),
+  'not-the-default': l10n.t('Not its declared default'),
 };
 
 // markHtml draws the mark beside a value, named in words for a reader who hovers
 // it and for one who hears it, together with the default the value replaces.
+//
+// The two clauses each stand on their own, so a message joins them.
 function markHtml(mark: ValueMark, control: ConfigControl): string {
   const declared = control.hasDefault
-    ? `its declared default is ${renderDefault(control.defaultValue)}`
-    : 'the schema declares no default';
-  const words = escapeHtml(`${MARK_WORDS[mark]}; ${declared}.`);
+    ? l10n.t('its declared default is {0}', renderDefault(control.defaultValue))
+    : l10n.t('the schema declares no default');
+  const words = escapeHtml(l10n.t('{0}; {1}.', MARK_WORDS[mark], declared));
   return `<span class="config-mark" role="img" aria-label="${words}" title="${words}">${VALUE_MARK}</span>`;
 }
 
@@ -419,7 +426,7 @@ function markHtml(mark: ValueMark, control: ConfigControl): string {
 function infoHtml(row: ConfigRow): string {
   const control = row.control;
   const described = escapeHtml(plainText(control.description));
-  const named = escapeHtml(`What ${dottedPath(control.path)} means`);
+  const named = escapeHtml(l10n.t('What {0} means', dottedPath(control.path)));
   return `<details class="config-info">`
     + `<summary aria-label="${named}" title="${described}">i</summary>`
     + `<p class="config-description">${codeHtml(control.description)}</p>`
@@ -453,10 +460,10 @@ function foldHtml(row: ConfigRow): string {
 // companion added, so neither does this: a split drawn here would be one the
 // compiler never reported.
 export function foldSentence(row: ConfigRow): string {
-  const named = wordList(row.companions.map((c) => dottedPath(c.path)));
-  const all = row.companions.length === 1 ? 'both' : 'each';
-  return `The configuration report gives this list and ${named} as one value, holding the entries of ${all} `
-    + `under one source; it does not say which of them ${named} added.`;
+  const named = l10n.list(row.companions.map((c) => dottedPath(c.path)));
+  return row.companions.length === 1
+    ? l10n.t('The configuration report gives this list and {0} as one value, holding the entries of both under one source; it does not say which of them {0} added.', named)
+    : l10n.t('The configuration report gives this list and {0} as one value, holding the entries of each under one source; it does not say which of them {0} added.', named);
 }
 
 // CodeSpan is one run of a schema sentence: words, or code the sentence writes
@@ -501,9 +508,9 @@ function sectionHtml(section: ConfigSectionRows, depth: number): string {
 }
 
 // REACH_RULE states, once, at the head of the per-setting shape, which settings
-// carry the Global marker and its note.
-const REACH_RULE = `A setting marked ${GLOBAL} belongs to this machine rather than to one project, `
-  + 'and the note on it says why.';
+// carry the Global marker and its note. It spells the word GLOBAL holds inside
+// its own message, as the marker it names.
+const REACH_RULE = l10n.t('A setting marked Global belongs to this machine rather than to one project, and the note on it says why.');
 
 // reachRuleHtml draws the rule for the Global marker where a setting on the page
 // carries it, and nothing where none does.
@@ -533,10 +540,10 @@ function rowHtml(row: ConfigRow): string {
     `<p class="config-shape">${escapeHtml(shapeSentence(control))}</p>`,
     `<p class="config-value">${escapeHtml(valueSentence(row))}</p>`,
     ...(row.companions.length > 0 ? [foldHtml(row)] : []),
-    `<p class="config-source">${escapeHtml(`Source: ${describeProvenance(row.provenance)}`)}</p>`,
+    `<p class="config-source">${escapeHtml(l10n.t('Source: {0}', describeProvenance(row.provenance)))}</p>`,
   ];
   if (row.scope.reach === 'machine') {
-    parts.push(`<p class="config-reach" role="note">${escapeHtml(`${GLOBAL}: ${row.scope.evidence}`)}</p>`);
+    parts.push(`<p class="config-reach" role="note">${escapeHtml(l10n.t('{0}: {1}', GLOBAL, row.scope.evidence))}</p>`);
   }
   parts.push('</dd>');
   return `<dl class="config-row">${parts.join('')}</dl>`;
@@ -555,11 +562,11 @@ export function valueSentence(row: ConfigRow): string {
   const effective = effectiveValue(row);
   switch (effective.kind) {
     case 'reported':
-      return `In force: ${effective.value === '' ? NONE : effective.value}`;
+      return l10n.t('In force: {0}', effective.value === '' ? NONE : effective.value);
     case 'declared-default':
-      return `Declared default: ${renderDefault(effective.value)}`;
+      return l10n.t('Declared default: {0}', renderDefault(effective.value));
     default:
-      return 'No value reported and no default declared.';
+      return l10n.t('No value reported and no default declared.');
   }
 }
 
@@ -577,27 +584,36 @@ export function valueSentence(row: ConfigRow): string {
 export function shapePhrase(control: ConfigControl): string {
   switch (control.kind) {
     case 'toggle':
-      return 'true or false';
+      return l10n.t('true or false');
     case 'number': {
-      const bounds: string[] = [];
-      if (control.minimum !== undefined) { bounds.push(`at least ${control.minimum}`); }
-      if (control.maximum !== undefined) { bounds.push(`at most ${control.maximum}`); }
-      return bounds.length > 0
-        ? `a whole number, ${bounds.join(' and ')}`
-        : 'a whole number';
+      const { minimum, maximum } = control;
+      if (minimum !== undefined && maximum !== undefined) {
+        return l10n.t('a whole number, at least {0} and at most {1}', minimum, maximum);
+      }
+      if (minimum !== undefined) { return l10n.t('a whole number, at least {0}', minimum); }
+      if (maximum !== undefined) { return l10n.t('a whole number, at most {0}', maximum); }
+      return l10n.t('a whole number');
     }
     case 'choice':
-      return `one of: ${(control.choices ?? []).join(', ')}`;
+      return l10n.t('one of: {0}', l10n.series(control.choices ?? []));
     case 'text':
-      return 'text';
+      return l10n.t('text');
     case 'text-list':
-      return 'a list of text entries, one per line';
-    case 'collection':
-      return `a list of entries, each carrying ${fieldList(control)}`;
-    case 'map':
-      return `named entries, each carrying ${fieldList(control)}`;
+      return l10n.t('a list of text entries, one per line');
+    case 'collection': {
+      const fields = fieldList(control);
+      return fields === null
+        ? l10n.t('a list of entries, each carrying no declared fields')
+        : l10n.t('a list of entries, each carrying {0}', fields);
+    }
+    case 'map': {
+      const fields = fieldList(control);
+      return fields === null
+        ? l10n.t('named entries, each carrying no declared fields')
+        : l10n.t('named entries, each carrying {0}', fields);
+    }
     default:
-      return 'a shape this page does not draw a control for';
+      return l10n.t('a shape this page does not draw a control for');
   }
 }
 
@@ -609,14 +625,16 @@ export function shapePhrase(control: ConfigControl): string {
 // reads as one sentence instead of two clauses.
 export function shapeSentence(control: ConfigControl): string {
   const phrase = shapePhrase(control);
-  return control.kind === 'choice' ? `Takes ${phrase}.` : `Takes: ${phrase}.`;
+  return control.kind === 'choice' ? l10n.t('Takes {0}.', phrase) : l10n.t('Takes: {0}.', phrase);
 }
 
-// fieldList names an entry's own fields, from the schema's declaration of them.
-function fieldList(control: ConfigControl): string {
+// fieldList names an entry's own fields, from the schema's declaration of them,
+// or answers null where it declares none — which the phrase above says in a
+// message of its own.
+function fieldList(control: ConfigControl): string | null {
   const names = (control.itemFields ?? []).map((f) => f.path[f.path.length - 1]);
-  if (names.length === 0) { return 'no declared fields'; }
-  return names.join(', ');
+  if (names.length === 0) { return null; }
+  return l10n.series(names);
 }
 
 // renderDefault spells a declared default without interpreting it.

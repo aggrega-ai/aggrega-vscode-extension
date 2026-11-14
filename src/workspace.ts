@@ -4,7 +4,7 @@
 import * as fs from 'fs/promises';
 import { loadAll } from 'js-yaml';
 import * as path from 'path';
-import { SELECTOR_ROW_LABELS } from './selector-levels';
+import * as l10n from './l10n';
 
 // CONFIG_FILENAME is the single canonical basename of the workspace
 // configuration file, shared across the extension (discovery here,
@@ -28,8 +28,13 @@ export const CONFIG_FILENAME = '.aggrega-config.yaml';
 // two lines, a tree row carries neither, and the reason a control gives carries
 // only the way out. Holding them apart is what lets each take what it needs
 // without any of them restating the other.
+//
+// Every sentence here spells SELECTOR_ROW_LABELS.workspace, and the ways out
+// SELECTOR_ROW_LABELS.project too (selector-levels.ts), inside its own message:
+// each label is a noun after an article there, so a translation gives it the
+// article and case its sentence needs.
 const NO_AGGREGA_WORKSPACE_STATE =
-  `no ${SELECTOR_ROW_LABELS.workspace} is available in this project`;
+  l10n.t('Aggrega: no Aggrega workspace is available in this project.');
 
 // The two ways out of that state, in the order a reader is likeliest to want
 // them: bring one into the window, or make one.
@@ -40,9 +45,10 @@ const NO_AGGREGA_WORKSPACE_STATE =
 // anchor; findAggregaWorkspaceAnchor below is the full set, and reciting it here
 // would trade a readable sentence for an inventory that goes stale whenever the
 // set moves.
-const NO_AGGREGA_WORKSPACE_WAYS_OUT =
-  `Open a ${SELECTOR_ROW_LABELS.project} holding ${CONFIG_FILENAME} or a Release file, `
-  + `or create an ${SELECTOR_ROW_LABELS.workspace}.`;
+const NO_AGGREGA_WORKSPACE_WAYS_OUT = l10n.t(
+  'Open a Project folder holding {0} or a Release file, or create an Aggrega workspace.',
+  CONFIG_FILENAME,
+);
 
 // NO_ANCHORED_WORKSPACE_MESSAGE is the one message every surface shows when
 // nothing is anchored. One state, one wording: a reader who meets this
@@ -50,7 +56,7 @@ const NO_AGGREGA_WORKSPACE_WAYS_OUT =
 // things about it, and a wording duplicated per call site drifts the moment
 // either copy is reworded.
 export const NO_ANCHORED_WORKSPACE_MESSAGE =
-  `Aggrega: ${NO_AGGREGA_WORKSPACE_STATE}. ${NO_AGGREGA_WORKSPACE_WAYS_OUT}`;
+  `${NO_AGGREGA_WORKSPACE_STATE} ${NO_AGGREGA_WORKSPACE_WAYS_OUT}`;
 
 // NO_ANCHORED_WORKSPACE_TREE_LABEL is the same state rendered as a tree row.
 //
@@ -60,7 +66,7 @@ export const NO_ANCHORED_WORKSPACE_MESSAGE =
 // state — a view that grows a row for this condition should find the wording
 // already written rather than invent another.
 export const NO_ANCHORED_WORKSPACE_TREE_LABEL =
-  `No ${SELECTOR_ROW_LABELS.workspace} available.`;
+  l10n.t('No Aggrega workspace available.');
 
 // NO_ANCHORED_WORKSPACE_CONTROL_REASON is the same state again, as the reason a
 // control that needs an anchored folder gives for being unavailable.
@@ -71,7 +77,7 @@ export const NO_ANCHORED_WORKSPACE_TREE_LABEL =
 // both the product prefix a notification needs and the account of the state a
 // row needs.
 export const NO_ANCHORED_WORKSPACE_CONTROL_REASON =
-  `Open or create an ${SELECTOR_ROW_LABELS.workspace} first.`;
+  l10n.t('Open or create an Aggrega workspace first.');
 
 // NO_ANCHORED_WORKSPACE_ROW_TOOLTIP is the same state again, as the hover of the
 // selector row that reports the level.
@@ -86,7 +92,7 @@ export const NO_ANCHORED_WORKSPACE_CONTROL_REASON =
 // line of their own, because a hover is read as a block and a notification as a
 // sentence.
 export const NO_ANCHORED_WORKSPACE_ROW_TOOLTIP =
-  `Aggrega: ${NO_AGGREGA_WORKSPACE_STATE}.\n${NO_AGGREGA_WORKSPACE_WAYS_OUT}`;
+  `${NO_AGGREGA_WORKSPACE_STATE}\n${NO_AGGREGA_WORKSPACE_WAYS_OUT}`;
 
 // AGGREGA_DIR and ACTIVE_RELEASE_MARKER_BASENAME name the workspace's
 // .aggrega/ directory and the active-release marker inside it. Both have their
@@ -130,6 +136,10 @@ const LOCKFILE_SUFFIXES = YAML_SUFFIXES.map((suffix) => `.lock${suffix}`);
 // The `workspace:` key is the whole marker; an empty mapping is a complete
 // answer, and the comment above it says what the file is for so the reader who
 // opens it afterwards is not looking at two bare words.
+//
+// The comment is not translated: it is written into a file the workspace keeps,
+// which everyone who works in that workspace reads whatever language their own
+// editor shows.
 export const WORKSPACE_ANCHOR_CONFIG =
   `# Aggrega reads this file to find the root of your workspace. The workspace\n` +
   `# key below is what marks this directory as that root; everything else in\n` +

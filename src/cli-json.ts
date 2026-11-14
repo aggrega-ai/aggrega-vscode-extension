@@ -3,6 +3,7 @@
 
 import { execFile } from 'child_process';
 import { CancellationSignal, OperationCancelled } from './cancellation';
+import * as l10n from './l10n';
 import { isStartFailure } from './start-failure';
 
 // CliJsonDeps is the slice of extension state a structured CLI capture needs:
@@ -57,7 +58,7 @@ export function messageForUnparsedOutput(args: string[], stdout: string, stderr:
   if (fromStdout) {
     return excerpt(fromStdout);
   }
-  return `\`aggrega ${args.join(' ')}\` produced no output.`;
+  return l10n.t('`aggrega {0}` produced no output.', args.join(' '));
 }
 
 // excerpt reduces a captured stream to one displayable line: the first

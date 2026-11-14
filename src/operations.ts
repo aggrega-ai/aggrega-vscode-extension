@@ -77,6 +77,7 @@ import {
   SignArtifactsResult,
   WITHDRAWAL_SUBJECT,
   publicationOpeningLine,
+  publishingTitle,
   runDeprecateArtifact as performDeprecateArtifact,
   runPublishEntity as performPublishEntity,
   runSignArtifacts as performSignArtifacts,
@@ -85,6 +86,7 @@ import {
 } from './publication-request';
 import { makeNonce } from './html';
 import { inspectEntity } from './inspection';
+import * as l10n from './l10n';
 import { outcomeOf } from './operation-outcome';
 import { openDocument } from './open-document';
 import {
@@ -461,6 +463,8 @@ class OperationsViewProvider implements vscode.WebviewViewProvider {
       codiconUri: this.resource(view.webview, 'vendor', 'codicon.css'),
       scriptUri: this.resource(view.webview, 'operations.js'),
       cspSource: view.webview.cspSource,
+      // The panel's words are in the editor's language, so the document says so.
+      language: vscode.env.language,
       ...this.body(),
     });
   }
@@ -569,7 +573,7 @@ class OperationsViewProvider implements vscode.WebviewViewProvider {
     if (named?.type === 'menu' && typeof named.command === 'string') {
       if (!this.offeredCommands().includes(named.command)) {
         this.deps.output.appendLine(
-          `commands: the panel asked to fill a menu for ${named.command}, which none of its controls offers.`,
+          l10n.t('{0}: the panel asked to fill a menu for {1}, which none of its controls offers.', 'commands', named.command),
         );
         return;
       }
@@ -861,10 +865,10 @@ async function runReleaseScoped(
   }
   await runWatchableCli(
     deps,
-    `Aggrega: pulling dependencies for ${release}`,
-    'The pull',
+    l10n.t('Aggrega: pulling dependencies for {0}', release),
+    l10n.t('The pull'),
     releaseScopedArgs(verb, release),
-    `resolved the dependencies of ${release} and wrote its lockfile, recording the external inputs it renders with.`,
+    l10n.t('resolved the dependencies of {0} and wrote its lockfile, recording the external inputs it renders with.', release),
   );
 }
 
@@ -908,12 +912,12 @@ async function runBuild(deps: OperationDeps, dials: readonly string[]): Promise<
 
   const out = deps.output;
   out.show(true);
-  out.appendLine(`\nBuild of ${release}.`);
+  out.appendLine(`\n${l10n.t('Build of {0}.', release)}`);
 
   let result: BuildResponse;
   try {
     result = await withCancellableProgress(
-      `Aggrega: building ${release}`,
+      l10n.t('Aggrega: building {0}', release),
       (signal) => deps.build(release, dials, signal),
     );
   } catch (err) {
@@ -934,7 +938,7 @@ async function runBuild(deps: OperationDeps, dials: readonly string[]): Promise<
     // already raised the notification for this fault, carrying the act that
     // resolves it — a missing lockfile is answered by its own notice offering
     // Pull — the ending raises no second one.
-    await reportOutcome(deps, 'The build', outcome, true, { notified: routed === 'notified' });
+    await reportOutcome(deps, l10n.t('The build'), outcome, true, { notified: routed === 'notified' });
     return;
   }
 
@@ -946,12 +950,13 @@ async function runBuild(deps: OperationDeps, dials: readonly string[]): Promise<
   const files = result.files ?? [];
   // The closing line is the command line's own summary of a completed build,
   // in the same words: the two surfaces perform one operation, so a reader who
-  // has seen one report should not have to work out that the other is the same.
+  // has seen one report should not have to work out that the other is the same —
+  // which is also why it stays untranslated.
   out.appendLine(
     `Build completed: ${countOf(files.length, 'file', 'files')} written to ${result.outputDirectory}/`,
   );
   void vscode.window.showInformationMessage(
-    `Aggrega: built ${release} — ${files.length} file(s) written to ${result.outputDirectory}/.`,
+    l10n.t('Aggrega: built {0} — {1} file(s) written to {2}/.', release, files.length, result.outputDirectory),
   );
 }
 
@@ -986,12 +991,12 @@ async function runPreview(deps: OperationDeps): Promise<void> {
 
   const out = deps.output;
   out.show(true);
-  out.appendLine(`\nPreview of a build of ${release}. Nothing is written to disk.`);
+  out.appendLine(`\n${l10n.t('Preview of a build of {0}. Nothing is written to disk.', release)}`);
 
   let result: BuildPreviewResponse;
   try {
     result = await withCancellableProgress(
-      `Aggrega: previewing a build of ${release}`,
+      l10n.t('Aggrega: previewing a build of {0}', release),
       (signal) => deps.previewBuild(release, signal),
     );
   } catch (err) {
@@ -1010,7 +1015,7 @@ async function runPreview(deps: OperationDeps): Promise<void> {
     // remediation, that remediation is what the reader needs — so the action
     // button is added beside it rather than in place of it, and where the routing
     // already raised the notification carrying that act, no second one follows.
-    await reportOutcome(deps, 'The preview', outcome, true, { notified: routed === 'notified' });
+    await reportOutcome(deps, l10n.t('The preview'), outcome, true, { notified: routed === 'notified' });
     return;
   }
 
@@ -1026,11 +1031,11 @@ async function runPreview(deps: OperationDeps): Promise<void> {
   // same names one level down rather than at the workspace root.
   out.appendLine(
     files.length === 1
-      ? 'A build of this Release writes 1 file, under the output directory it is given.'
-      : `A build of this Release writes ${files.length} files, under the output directory it is given.`,
+      ? l10n.t('A build of this Release writes 1 file, under the output directory it is given.')
+      : l10n.t('A build of this Release writes {0} files, under the output directory it is given.', files.length),
   );
   void vscode.window.showInformationMessage(
-    `Aggrega: a build of ${release} writes ${files.length} file(s). Nothing was written.`,
+    l10n.t('Aggrega: a build of {0} writes {1} file(s). Nothing was written.', release, files.length),
   );
 }
 
@@ -1073,7 +1078,7 @@ async function runImport(deps: OperationDeps, clicked: string | null): Promise<v
   // opens its lines on the channel and runs under the same progress and stop.
   const watched = (work: (signal: CancellationSignal) => Promise<ImportReport>): Promise<ImportReport> => {
     out.appendLine(importOpeningLine(source));
-    return withCancellableProgress(`Aggrega: importing ${source}`, work);
+    return withCancellableProgress(l10n.t('Aggrega: importing {0}', source), work);
   };
   const show = (report: ImportReport): Promise<void> => showImportReport(deps, report);
 
@@ -1194,7 +1199,7 @@ async function runCache(deps: OperationDeps, chosen?: unknown): Promise<void> {
   const answered = menuAnswer('cache', chosen);
   const choice = answered ?? (await vscode.window.showQuickPick(
     CACHE_OPERATIONS.map((o) => ({ label: o.value, description: o.detail, value: o.value })),
-    { placeHolder: 'Aggrega: choose a cache operation' },
+    { placeHolder: l10n.t('Aggrega: choose a cache operation') },
   ))?.value;
   if (!choice) { return; }
   // Resolved against the one set rather than asserted to belong to it, so a
@@ -1215,8 +1220,8 @@ async function runCache(deps: OperationDeps, chosen?: unknown): Promise<void> {
   let maxSize = '';
   if (operation === 'evict') {
     const answer = await vscode.window.showInputBox({
-      title: 'Aggrega: trim the compiled-module cache',
-      prompt: 'Size cap to trim down to — a byte quantity such as 5GiB or 512MiB, or a byte count',
+      title: l10n.t('Aggrega: trim the compiled-module cache'),
+      prompt: l10n.t('Size cap to trim down to — a byte quantity such as 5GiB or 512MiB, or a byte count'),
       ignoreFocusOut: true,
     });
     if (answer === undefined) { return; }
@@ -1234,7 +1239,7 @@ async function runCache(deps: OperationDeps, chosen?: unknown): Promise<void> {
       // Declining is an answer, and the reader is told their answer was taken:
       // a confirmation that closes with nothing said is indistinguishable from
       // one that was dismissed by accident.
-      void vscode.window.showInformationMessage(`Aggrega: ${operation} cancelled. Nothing was removed.`);
+      void vscode.window.showInformationMessage(l10n.t('Aggrega: {0} cancelled. Nothing was removed.', operation));
       return;
     }
   }
@@ -1278,39 +1283,43 @@ export async function performCacheOperation(
   switch (operation) {
     case 'status': {
       const result = await deps.cacheStatus();
-      out.appendLine('\nCache report. Nothing is removed.');
+      out.appendLine(`\n${l10n.t('Cache report. Nothing is removed.')}`);
       // Every collection in a cache answer is declared nullable, so an empty one
       // may arrive as null, which says the same thing an empty list does. Each is
       // coalesced where it is read rather than defended against at every use.
       for (const cacheClass of result.classes ?? []) {
-        const reclaimable = cacheClass.prunable ? ', reclaimable by prune' : '';
         const elements = cacheClass.elements ?? [];
-        out.appendLine(
-          `  ${cacheClass.name} (${cacheClass.reach}${reclaimable}) — ${countOf(elements.length, 'entry', 'entries')}`,
-        );
+        const entries = entryCount(elements.length);
+        out.appendLine(`  ${cacheClass.prunable
+          ? l10n.t('{0} ({1}, reclaimable by prune) — {2}', cacheClass.name, cacheClass.reach, entries)
+          : l10n.t('{0} ({1}) — {2}', cacheClass.name, cacheClass.reach, entries)}`);
         for (const element of elements) {
           const note = element.note ? ` — ${element.note}` : '';
           out.appendLine(`    ${element.label}  ${element.sizeText}${note}`);
         }
       }
       for (const record of result.provenance ?? []) {
-        const shared = record.sharedBy ? ` (shared by ${record.sharedBy})` : '';
-        out.appendLine(`  recorded plugin identities: ${(record.identities ?? []).join(', ')}${shared}`);
+        const identities = l10n.series(record.identities ?? []);
+        out.appendLine(`  ${record.sharedBy
+          ? l10n.t('recorded plugin identities: {0} (shared by {1})', identities, record.sharedBy)
+          : l10n.t('recorded plugin identities: {0}', identities)}`);
       }
       appendCacheScope(out, result.scope);
-      return `listed ${countOf(result.totalCount, 'entry', 'entries')} holding ${result.totalSizeText}.`;
+      return result.totalCount === 1
+        ? l10n.t('listed 1 entry holding {0}.', result.totalSizeText)
+        : l10n.t('listed {0} entries holding {1}.', result.totalCount, result.totalSizeText);
     }
     case 'prune': {
       const result = await deps.cachePrune();
-      out.appendLine('\nRemoving cache entries no lockfile references.');
+      out.appendLine(`\n${l10n.t('Removing cache entries no lockfile references.')}`);
       const pruned = result.removed ?? [];
       appendCacheRemovals(out, pruned);
       const prunedHeld = result.heldOpen ?? [];
       appendHeldOpen(out, prunedHeld);
-      out.appendLine(`  kept, still referenced: ${countOf(result.retainedCount, 'entry', 'entries')}`);
+      out.appendLine(`  ${l10n.t('kept, still referenced: {0}', entryCount(result.retainedCount))}`);
       if (result.unattributedCount > 0) {
         out.appendLine(
-          `  attributed to no lockfile either way: ${countOf(result.unattributedCount, 'entry', 'entries')}, ${result.unattributedSizeText}`,
+          `  ${l10n.t('attributed to no lockfile either way: {0}, {1}', entryCount(result.unattributedCount), result.unattributedSizeText)}`,
         );
       }
       // The compiler names, per shortfall, the operations that would reclaim
@@ -1318,49 +1327,60 @@ export async function performCacheOperation(
       // to run next, so it is passed on rather than summarised away.
       for (const shortfall of result.notPruneEligible ?? []) {
         out.appendLine(
-          `  left in ${shortfall.class} (${shortfall.reach}): ${countOf(shortfall.count, 'entry', 'entries')}, ${shortfall.sizeText} — reclaimed by ${(shortfall.reclaimedBy ?? []).join(', ')}`,
+          `  ${l10n.t('left in {0} ({1}): {2}, {3} — reclaimed by {4}', shortfall.class, shortfall.reach, entryCount(shortfall.count), shortfall.sizeText, l10n.series(shortfall.reclaimedBy ?? []))}`,
         );
       }
       appendCacheScope(out, result.scope);
-      return `removed ${countOf(pruned.length, 'entry', 'entries')} and reclaimed ${result.reclaimedBytesText}.${heldOpenSentence(operation, prunedHeld.length, 'entry')}`;
+      return `${removedEntries(pruned.length, result.reclaimedBytesText)}${heldOpenSentence(operation, prunedHeld.length)}`;
     }
     case 'evict': {
       const result = await deps.cacheEvict(maxSize);
-      out.appendLine('\nTrimming the compiled-module cache to the size cap.');
+      out.appendLine(`\n${l10n.t('Trimming the compiled-module cache to the size cap.')}`);
       // Already under the cap is the case a reader most needs told apart from a
       // failure: nothing was removed and nothing went wrong.
       if (result.withinCapBefore) {
         appendCacheScope(out, result.scope);
-        return `removed nothing: the cache held ${result.totalBeforeText}, already within the ${result.capBytesText} cap.`;
+        return l10n.t('removed nothing: the cache held {0}, already within the {1} cap.', result.totalBeforeText, result.capBytesText);
       }
       const evicted = result.removed ?? [];
       appendCacheRemovals(out, evicted);
       const evictedHeld = result.heldOpen ?? [];
       appendHeldOpen(out, evictedHeld);
-      out.appendLine(`  held before: ${result.totalBeforeText}`);
-      out.appendLine(`  holds now: ${result.remainingBytesText}, under a cap of ${result.capBytesText}`);
+      out.appendLine(`  ${l10n.t('held before: {0}', result.totalBeforeText)}`);
+      out.appendLine(`  ${l10n.t('holds now: {0}, under a cap of {1}', result.remainingBytesText, result.capBytesText)}`);
       appendCacheScope(out, result.scope);
-      return `removed ${countOf(evicted.length, 'entry', 'entries')} and reclaimed ${result.reclaimedBytesText}.${heldOpenSentence(operation, evictedHeld.length, 'entry')}`;
+      return `${removedEntries(evicted.length, result.reclaimedBytesText)}${heldOpenSentence(operation, evictedHeld.length)}`;
     }
     case 'clear': {
       const result = await deps.cacheClear();
-      out.appendLine('\nEmptying every cache this session addresses.');
+      out.appendLine(`\n${l10n.t('Emptying every cache this session addresses.')}`);
       const cleared = result.cleared ?? [];
       // A wipe leaves whole files rather than entries, and counts them per cache
       // instead of naming them, so what it left is said under the cache it is in.
       let heldFiles = 0;
       for (const subtree of cleared) {
-        out.appendLine(`  emptied ${subtree.class} (${subtree.reach})  ${subtree.sizeText}`);
+        out.appendLine(`  ${l10n.t('emptied {0} ({1})  {2}', subtree.class, subtree.reach, subtree.sizeText)}`);
         const held = subtree.heldOpenFiles ?? 0;
         if (held > 0) {
           heldFiles += held;
-          out.appendLine(`    left in place: ${countOf(held, 'file', 'files')}, ${subtree.heldOpenBytesText} — open in another process`);
+          out.appendLine(`    ${l10n.t('left in place: {0}, {1} — open in another process', fileCount(held), subtree.heldOpenBytesText)}`);
         }
       }
       appendCacheScope(out, result.scope);
-      return `emptied ${countOf(cleared.length, 'cache', 'caches')} and reclaimed ${result.reclaimedBytesText}. They repopulate on the next build.${heldOpenSentence(operation, heldFiles, 'file')}`;
+      const emptied = cleared.length === 1
+        ? l10n.t('emptied 1 cache and reclaimed {0}. They repopulate on the next build.', result.reclaimedBytesText)
+        : l10n.t('emptied {0} caches and reclaimed {1}. They repopulate on the next build.', cleared.length, result.reclaimedBytesText);
+      return `${emptied}${heldOpenSentence(operation, heldFiles)}`;
     }
   }
+}
+
+// removedEntries is the ending of a prune or a trim that removed something: how
+// many entries, and how much that reclaimed.
+function removedEntries(count: number, reclaimed: string): string {
+  return count === 1
+    ? l10n.t('removed 1 entry and reclaimed {0}.', reclaimed)
+    : l10n.t('removed {0} entries and reclaimed {1}.', count, reclaimed);
 }
 
 // appendCacheRemovals writes what an operation removed, and says so when it
@@ -1371,11 +1391,11 @@ export async function performCacheOperation(
 // that never ran look identical when both write nothing.
 function appendCacheRemovals(out: vscode.OutputChannel, removed: CacheRemoval[]): void {
   if (removed.length === 0) {
-    out.appendLine('  nothing was removed.');
+    out.appendLine(`  ${l10n.t('nothing was removed.')}`);
     return;
   }
   for (const removal of removed) {
-    out.appendLine(`  removed ${removal.class}: ${removal.label} (${removal.reach})  ${removal.sizeText}`);
+    out.appendLine(`  ${l10n.t('removed {0}: {1} ({2})  {3}', removal.class, removal.label, removal.reach, removal.sizeText)}`);
   }
 }
 
@@ -1388,7 +1408,7 @@ function appendCacheRemovals(out: vscode.OutputChannel, removed: CacheRemoval[])
 // file produces one at all.
 function appendHeldOpen(out: vscode.OutputChannel, held: CacheRemoval[]): void {
   for (const entry of held) {
-    out.appendLine(`  left in place ${entry.class}: ${entry.label} (${entry.reach})  ${entry.sizeText} — open in another process`);
+    out.appendLine(`  ${l10n.t('left in place {0}: {1} ({2})  {3} — open in another process', entry.class, entry.label, entry.reach, entry.sizeText)}`);
   }
 }
 
@@ -1399,17 +1419,42 @@ function appendHeldOpen(out: vscode.OutputChannel, held: CacheRemoval[]): void {
 // an ending naming none reads exactly as it would without it.
 //
 // The operation is named the way its ending is, so the sentence asks the reader
-// to run again the thing the notification just said finished.
-function heldOpenSentence(operation: CacheOperation, count: number, unit: 'entry' | 'file'): string {
+// to run again the thing the notification just said finished. Each operation and
+// each count is a whole sentence of its own rather than the ending's subject
+// spliced in, so a translation gives the operation the case "run … again" needs.
+// A prune and a trim leave entries, which the channel names one by one; a wipe
+// leaves files, which the channel counts per cache — so the pointer after the
+// sentence says which of the two the reader will find there.
+function heldOpenSentence(operation: 'prune' | 'evict' | 'clear', count: number): string {
   if (count <= 0) { return ''; }
   const single = count === 1;
-  const them = single ? 'it' : 'them';
-  const left = unit === 'entry' ? countOf(count, 'entry', 'entries') : countOf(count, 'file', 'files');
-  const again = cacheWhat(operation).replace(/^The /, 'the ');
-  // Entries are named one by one on the channel; files a wipe left are counted
-  // per cache, so the pointer says which of the two the reader will find there.
-  const where = unit === 'entry' ? `The Aggrega output channel names ${them}.` : 'The Aggrega output channel gives the count for each cache.';
-  return ` ${left} ${single ? 'was' : 'were'} left in place because another process has ${them} open; run ${again} again once that process has finished. ${where}`;
+  let left: string;
+  switch (operation) {
+    case 'prune':
+      left = single
+        ? l10n.t('1 entry was left in place because another process has it open; run the prune again once that process has finished.')
+        : l10n.t('{0} entries were left in place because another process has them open; run the prune again once that process has finished.', count);
+      break;
+    case 'evict':
+      left = single
+        ? l10n.t('1 entry was left in place because another process has it open; run the trim again once that process has finished.')
+        : l10n.t('{0} entries were left in place because another process has them open; run the trim again once that process has finished.', count);
+      break;
+    case 'clear':
+      left = single
+        ? l10n.t('1 file was left in place because another process has it open; run the cache wipe again once that process has finished.')
+        : l10n.t('{0} files were left in place because another process has them open; run the cache wipe again once that process has finished.', count);
+      break;
+  }
+  let where: string;
+  if (operation === 'clear') {
+    where = l10n.t('The Aggrega output channel gives the count for each cache.');
+  } else {
+    where = single
+      ? l10n.t('The Aggrega output channel names it.')
+      : l10n.t('The Aggrega output channel names them.');
+  }
+  return ` ${left} ${where}`;
 }
 
 // appendCacheScope writes how far the answer reached.
@@ -1421,28 +1466,40 @@ function heldOpenSentence(operation: CacheOperation, count: number, unit: 'entry
 function appendCacheScope(out: vscode.OutputChannel, scope: CacheScope): void {
   const machineWide = scope.machineWideClasses ?? [];
   out.appendLine(
-    machineWide.length === 0
-      ? '  Nothing shared with other projects on this machine was reached.'
-      : `  Reached beyond this workspace, shared by every project on this machine: ${machineWide.join(', ')}.`,
+    `  ${machineWide.length === 0
+      ? l10n.t('Nothing shared with other projects on this machine was reached.')
+      : l10n.t('Reached beyond this workspace, shared by every project on this machine: {0}.', l10n.series(machineWide))}`,
   );
   if (scope.workspaceRoot !== '') {
-    out.appendLine(`  Workspace: ${scope.workspaceRoot}`);
+    out.appendLine(`  ${l10n.t('Workspace: {0}', scope.workspaceRoot)}`);
   }
 }
 
 // countOf renders a count with the noun agreeing with it, so an ending sentence
-// reads as prose rather than as a figure with a bracketed plural.
+// reads as prose rather than as a figure with a bracketed plural. It writes the
+// command line's own words, untranslated, for the one line that repeats them.
 function countOf(count: number, one: string, many: string): string {
   return `${count} ${count === 1 ? one : many}`;
+}
+
+// entryCount and fileCount render a count of cache entries or files as a piece
+// standing on its own — after a colon or a dash, where no word of the line
+// around it agrees with it — so it can fill a placeholder of a line's message.
+function entryCount(count: number): string {
+  return count === 1 ? l10n.t('1 entry') : l10n.t('{0} entries', count);
+}
+
+function fileCount(count: number): string {
+  return count === 1 ? l10n.t('1 file') : l10n.t('{0} files', count);
 }
 
 // cacheWhat names a cache operation the way the ending sentence needs it.
 function cacheWhat(operation: CacheOperation): string {
   switch (operation) {
-    case 'status': return 'The cache report';
-    case 'prune': return 'The prune';
-    case 'evict': return 'The trim';
-    case 'clear': return 'The cache wipe';
+    case 'status': return l10n.t('The cache report');
+    case 'prune': return l10n.t('The prune');
+    case 'evict': return l10n.t('The trim');
+    case 'clear': return l10n.t('The cache wipe');
   }
 }
 
@@ -1452,13 +1509,13 @@ function cacheWhat(operation: CacheOperation): string {
 // the chosen operation can name. It says the workspace declares none rather than
 // showing an empty picker, because an empty list of choices reads as a surface
 // that failed to load.
-const NO_ENTITY_TO_OFFER = 'Aggrega: this workspace declares no entity to offer here.';
+const NO_ENTITY_TO_OFFER = l10n.t('Aggrega: this workspace declares no entity to offer here.');
 
 // NO_KIND_TO_OFFER is what a reader is told when the compiler answered with no
 // kind an author may write a document of. It says so rather than showing an
 // empty list of choices, on the same terms as the sentence above: an empty list
 // reads as a surface that failed to load.
-const NO_KIND_TO_OFFER = 'Aggrega: the compiler reports no entity kind to draft.';
+const NO_KIND_TO_OFFER = l10n.t('Aggrega: the compiler reports no entity kind to draft.');
 
 // MenuFill reads one control's choices where the compiler is what holds them,
 // and reports null where there are none to offer — having already told the
@@ -1551,7 +1608,7 @@ async function pickEntityKind(
   // choice that overwrote it would be silently reshaping the control.
   const choice = await vscode.window.showQuickPick(
     kinds.map((entityKind) => ({ label: entityKind.documentKind, entityKind })),
-    { placeHolder: 'Aggrega: choose the kind of entity to draft' },
+    { placeHolder: l10n.t('Aggrega: choose the kind of entity to draft') },
   );
   return choice?.entityKind ?? null;
 }
@@ -1581,11 +1638,11 @@ async function readSubjects(
   let doc: CatalogIndexDoc;
   try {
     doc = await withCancellableProgress(
-      'Aggrega: reading the workspace entity index',
+      l10n.t('Aggrega: reading the workspace entity index'),
       (signal) => deps.requestCatalogIndex(signal),
     );
   } catch (err) {
-    await reportOutcome(deps, 'The workspace entity index', outcomeOf(err), true);
+    await reportOutcome(deps, l10n.t('The workspace entity index'), outcomeOf(err), true);
     return null;
   }
   const subjects = subjectsFor(doc.entities);
@@ -1648,7 +1705,7 @@ async function runCatalogUpload(
   const subject = chosen ?? await pickEntity(
     deps,
     publishableSubjects,
-    'Aggrega: choose the entity to publish',
+    l10n.t('Aggrega: choose the entity to publish'),
   );
   if (!subject) { return; }
 
@@ -1657,7 +1714,7 @@ async function runCatalogUpload(
   out.appendLine(publicationOpeningLine(subject.label));
 
   const report = await withCancellableProgress(
-    `Aggrega: publishing ${subject.label}`,
+    publishingTitle(subject.label),
     (signal) => performPublishEntity(deps, subject.file, signal),
   );
   for (const line of report.lines) {
@@ -1686,8 +1743,8 @@ async function runCatalogUpload(
 // reference alone would not say what was signed.
 async function runSign(deps: OperationDeps): Promise<void> {
   const reference = await vscode.window.showInputBox({
-    title: 'Aggrega: sign a published artifact',
-    prompt: 'Reference of the already-published artifact to sign',
+    title: l10n.t('Aggrega: sign a published artifact'),
+    prompt: l10n.t('Reference of the already-published artifact to sign'),
     ignoreFocusOut: true,
   });
   if (!reference) { return; }
@@ -1697,7 +1754,7 @@ async function runSign(deps: OperationDeps): Promise<void> {
   out.appendLine(signatureOpeningLine(reference));
 
   const report = await withCancellableProgress(
-    `Aggrega: signing ${reference}`,
+    l10n.t('Aggrega: signing {0}', reference),
     (signal) => performSignArtifacts(deps, reference, signal),
   );
   for (const line of report.lines) {
@@ -1727,21 +1784,21 @@ async function runSign(deps: OperationDeps): Promise<void> {
 // and a withdrawal reported without it names nothing a reader could inspect.
 async function runDeprecate(deps: OperationDeps): Promise<void> {
   const reference = await vscode.window.showInputBox({
-    title: 'Aggrega: deprecate a published artifact',
-    prompt: 'Reference of the already-published artifact to deprecate',
+    title: l10n.t('Aggrega: deprecate a published artifact'),
+    prompt: l10n.t('Reference of the already-published artifact to deprecate'),
     ignoreFocusOut: true,
   });
   if (!reference) { return; }
 
   const severity = await vscode.window.showQuickPick(
     DEPRECATION_SEVERITIES.map((s) => ({ label: s.value, description: s.detail })),
-    { placeHolder: 'Aggrega: how severe is this deprecation?' },
+    { placeHolder: l10n.t('Aggrega: how severe is this deprecation?') },
   );
   if (!severity) { return; }
 
   const reason = await vscode.window.showInputBox({
-    title: 'Aggrega: deprecation reason',
-    prompt: 'Why it is deprecated, and what to use instead',
+    title: l10n.t('Aggrega: deprecation reason'),
+    prompt: l10n.t('Why it is deprecated, and what to use instead'),
     ignoreFocusOut: true,
   });
   if (!reason) { return; }
@@ -1751,7 +1808,7 @@ async function runDeprecate(deps: OperationDeps): Promise<void> {
   out.appendLine(withdrawalOpeningLine(reference));
 
   const report = await withCancellableProgress(
-    `Aggrega: deprecating ${reference}`,
+    l10n.t('Aggrega: deprecating {0}', reference),
     (signal) => performDeprecateArtifact(deps, reference, severity.label, reason, signal),
   );
   for (const line of report.lines) {
@@ -1832,7 +1889,7 @@ export async function runScaffold(
   // The name is optional: the compiler fills a placeholder where none is given,
   // so an empty answer still produces a document rather than a refusal.
   const name = await vscode.window.showInputBox({
-    title: 'Aggrega: draft an entity',
+    title: l10n.t('Aggrega: draft an entity'),
     prompt: draftNamePrompt(subject.documentKind),
     ignoreFocusOut: true,
   });
@@ -1842,7 +1899,7 @@ export async function runScaffold(
     const result = await deps.scaffoldEntity(subject.kind, name);
     await openDocument(result.skeleton, 'yaml');
   } catch (err) {
-    await reportDaemonFailure(deps, err, 'The draft');
+    await reportDaemonFailure(deps, err, l10n.t('The draft'));
   }
 }
 
@@ -1864,7 +1921,7 @@ async function runInspect(
   const subject = chosen ?? await pickEntity(
     deps,
     inspectableSubjects,
-    'Aggrega: choose the entity to inspect',
+    l10n.t('Aggrega: choose the entity to inspect'),
   );
   if (!subject) { return; }
   await inspectEntity(deps, subject.name);

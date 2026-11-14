@@ -3,6 +3,7 @@
 
 import { zeroBasedFromOneBased } from './diagnostics-shape';
 import { isJsonRpcError } from './error-surfaces';
+import * as l10n from './l10n';
 import { OperationOutcome, outcomeOf } from './operation-outcome';
 import { ERR_ENTITY_NOT_RESOLVABLE } from './types';
 import { fromWorkspaceRelative } from './workspace';
@@ -22,11 +23,11 @@ import { fromWorkspaceRelative } from './workspace';
 
 // INSPECTION_SUBJECT names the operation in the reader's terms, for the ending
 // every other refusal takes.
-export const INSPECTION_SUBJECT = 'The inspection';
+export const INSPECTION_SUBJECT = l10n.t('The inspection');
 
 // OPEN_DECLARING_DOCUMENT_ACTION is the label on the button a refusal naming
 // the declaring document offers.
-export const OPEN_DECLARING_DOCUMENT_ACTION = 'Open document';
+export const OPEN_DECLARING_DOCUMENT_ACTION = l10n.t('Open document');
 
 // DeclaringDocument is where that button takes the reader: the absolute path of
 // the document, and the 0-based position to put the cursor at, or null where the
@@ -84,7 +85,7 @@ export function inspectionEnding(
   // document, so it falls through to the ordinary ending rather than offering
   // to open the workspace root.
   if (isJsonRpcError(err) && err.code === ERR_ENTITY_NOT_RESOLVABLE && err.data?.file) {
-    const line = `${name} cannot be inspected because of the document that declares it: ${err.message}`;
+    const line = l10n.t('{0} cannot be inspected because of the document that declares it: {1}', name, err.message);
     if (workspaceRoot === null) {
       return { kind: 'declaring-document', line, document: null };
     }

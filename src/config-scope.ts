@@ -34,6 +34,7 @@
 // extension host.
 
 import { ConfigControl } from './config-schema';
+import * as l10n from './l10n';
 
 // ConfigReach is how far a setting's value carries.
 export type ConfigReach = 'machine' | 'project' | 'unclassified';
@@ -76,16 +77,14 @@ const MACHINE_WIDE_BY_NATURE: ReachRule[] = [
     // every workspace on this machine unless told otherwise.
     prefix: ['registries'],
     reach: 'machine',
-    evidence: 'A registry and its signature trust policy are global tooling, so '
-      + 'registering one changes what every project on this machine resolves through.',
+    evidence: l10n.t('A registry and its signature trust policy are global tooling, so registering one changes what every project on this machine resolves through.'),
   },
   {
     // A command-contributing plugin installs a command for every project on the
     // machine, so its list is written to the shared file by default.
     prefix: ['plugins', 'cli'],
     reach: 'machine',
-    evidence: 'A command-contributing plugin adds its command for every project on this '
-      + 'machine, so the list it joins is the shared one.',
+    evidence: l10n.t('A command-contributing plugin adds its command for every project on this machine, so the list it joins is the shared one.'),
   },
   {
     // The compiled-module store is one store per machine, and the schema says so
@@ -93,8 +92,7 @@ const MACHINE_WIDE_BY_NATURE: ReachRule[] = [
     // machine rather than once per build.
     prefix: ['compiled_module_cache'],
     reach: 'machine',
-    evidence: 'The compiled-module store is shared by every workspace on this machine, so a '
-      + 'cap written for one project would not be the cap in force.',
+    evidence: l10n.t('The compiled-module store is shared by every workspace on this machine, so a cap written for one project would not be the cap in force.'),
   },
 ];
 
@@ -108,26 +106,22 @@ const PROJECT_SCOPED_BY_NATURE: ReachRule[] = [
   {
     prefix: ['plugins', 'providers'],
     reach: 'project',
-    evidence: 'A provider binding is part of how this project builds, so it travels with the '
-      + 'project.',
+    evidence: l10n.t('A provider binding is part of how this project builds, so it travels with the project.'),
   },
   {
     prefix: ['plugins', 'governance'],
     reach: 'project',
-    evidence: 'A governance attachment shapes this project\'s build, so it travels with the '
-      + 'project.',
+    evidence: l10n.t('A governance attachment shapes this project\'s build, so it travels with the project.'),
   },
   {
     prefix: ['plugins', 'linter'],
     reach: 'project',
-    evidence: 'A linter attachment shapes this project\'s build, so it travels with the '
-      + 'project.',
+    evidence: l10n.t('A linter attachment shapes this project\'s build, so it travels with the project.'),
   },
   {
     prefix: ['plugins', 'importer'],
     reach: 'project',
-    evidence: 'An importer attachment shapes this project\'s build, so it travels with the '
-      + 'project.',
+    evidence: l10n.t('An importer attachment shapes this project\'s build, so it travels with the project.'),
   },
 ];
 

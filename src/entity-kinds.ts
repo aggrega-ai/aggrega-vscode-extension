@@ -2,6 +2,7 @@
 // Copyright 2026 Cognitio s.r.l.
 
 import type * as wire from '@aggrega-ai/aggrega-abi/dist/servewire_gen';
+import * as l10n from './l10n';
 
 // This module reads the compiler's answer to a schema request that names no
 // kind, and it holds no editor type — so what a reader is offered is read back
@@ -41,7 +42,7 @@ export type EntityKindAcceptance = wire.EntityKindAcceptance;
 // ENTITY_KIND_READ names the read of the kinds answer in the sentence it ends in
 // when it fails. Two surfaces read that answer — the drafting flow and the
 // Catalog panel — and a failure of the one read reads the same on both.
-export const ENTITY_KIND_READ = 'The entity-kind read';
+export const ENTITY_KIND_READ = l10n.t('The entity-kind read');
 
 // readAcceptance reads an entry's acceptance, each member accepting only where
 // the answer carries the boolean true for it.
@@ -186,5 +187,7 @@ export function draftSubjectFor(
 // that holds an editor type — so written there the sentence a reader is shown
 // could not be read back without an extension host.
 export function draftNamePrompt(documentKind: string | null): string {
-  return `Name for the new ${documentKind ?? 'entity'} — leave empty for a placeholder`;
+  return documentKind === null
+    ? l10n.t('Name for the new entity — leave empty for a placeholder')
+    : l10n.t('Name for the new {0} — leave empty for a placeholder', documentKind);
 }

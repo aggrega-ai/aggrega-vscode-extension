@@ -3,7 +3,7 @@
 
 import * as path from 'path';
 
-import { SELECTOR_ROW_LABELS } from './selector-levels';
+import * as l10n from './l10n';
 import type { ReleaseCandidatesResponse } from './types';
 import { toWorkspaceRelative } from './workspace';
 
@@ -50,8 +50,11 @@ const OPENS: ConfigurationOpening = { open: true };
 
 // configurationNotOpened is the sentence an action ends in where it does not open
 // a configuration file, naming the file as the language server's answer spells it.
+//
+// The sentence spells SELECTOR_ROW_LABELS.workspace (selector-levels.ts) inside
+// its own message, since the label is a noun after "the" there.
 export function configurationNotOpened(name: string): string {
-  return `Aggrega: ${name} is not opened, because it leads outside the ${SELECTOR_ROW_LABELS.workspace}, so Aggrega does not use it.`;
+  return l10n.t('Aggrega: {0} is not opened, because it leads outside the Aggrega workspace, so Aggrega does not use it.', name);
 }
 
 // asTheServerSpellsIt writes a path relative to the workspace root the way the

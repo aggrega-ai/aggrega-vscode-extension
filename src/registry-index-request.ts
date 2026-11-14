@@ -3,6 +3,7 @@
 
 import type * as wire from '@aggrega-ai/aggrega-abi/dist/servewire_gen';
 import { CancellationSignal } from './cancellation';
+import * as l10n from './l10n';
 import { couldNotBeReached, refusedAsNotReached } from './not-reached';
 import { OperationOutcome, outcomeOf } from './operation-outcome';
 
@@ -154,7 +155,7 @@ export interface RegistryIndexReport {
 // INDEX_BUILD_SUBJECT is the operation in the reader's terms, used for the
 // sentence every ending produces. One spelling, so a completion and a failure
 // name the same thing, and the same spelling whichever scope was pressed.
-export const INDEX_BUILD_SUBJECT = 'The index build';
+export const INDEX_BUILD_SUBJECT = l10n.t('The index build');
 
 // indexBuildOpeningLine is what the channel says an index build is about to do.
 //
@@ -165,13 +166,8 @@ export const INDEX_BUILD_SUBJECT = 'The index build';
 // last, the way every operation that writes here does.
 export function indexBuildOpeningLine(registry?: string): string {
   return registry
-    ? `\nIndex build for ${registry}.`
-    : '\nIndex build for every configured registry.';
-}
-
-// countOf renders a count with the singular or plural form of its noun.
-function countOf(n: number, singular: string, plural: string): string {
-  return `${n} ${n === 1 ? singular : plural}`;
+    ? `\n${l10n.t('Index build for {0}.', registry)}`
+    : `\n${l10n.t('Index build for every configured registry.')}`;
 }
 
 // --- composing the request -----------------------------------------------
@@ -199,7 +195,7 @@ export function indexBuildRequest(registry?: string): RegistryUpdateParams {
   }
   const trimmed = registry.trim();
   if (trimmed === '') {
-    throw new Error('an index build for one registry takes that registry, and none was named');
+    throw new Error(l10n.t('an index build for one registry takes that registry, and none was named'));
   }
   return { registry: trimmed };
 }
@@ -209,7 +205,7 @@ export function indexBuildRequest(registry?: string): RegistryUpdateParams {
 // skippedLine renders one unreadable repository, with the compiler's own reason
 // unaltered.
 export function skippedLine(skipped: SkippedRepository): string {
-  return `    skipped ${skipped.repo}: ${skipped.reason}`;
+  return `    ${l10n.t('skipped {0}: {1}', skipped.repo, skipped.reason)}`;
 }
 
 // deprecationLine renders one marker the walk met.
@@ -219,14 +215,20 @@ export function skippedLine(skipped: SkippedRepository): string {
 // that could not be read from one whose signature was not honoured. Reporting
 // only that it was not recorded would collapse two different situations a reader
 // acts on differently.
+//
+// The severity and the reason are the compiler's own words and fill their
+// placeholders untranslated; a marker carrying no severity is recorded as
+// deprecated, in a message of its own.
 export function deprecationLine(met: DeprecationMet): string {
-  const subject = `    deprecation ${met.repo}:${met.version}`;
   if (met.recorded) {
-    return `${subject}: recorded as ${met.severity ?? 'deprecated'}`;
+    const severity = met.severity ?? null;
+    return `    ${severity !== null
+      ? l10n.t('deprecation {0}:{1}: recorded as {2}', met.repo, met.version, severity)
+      : l10n.t('deprecation {0}:{1}: recorded as deprecated', met.repo, met.version)}`;
   }
-  return met.reason
-    ? `${subject}: present, not recorded — ${met.reason}`
-    : `${subject}: present, not recorded`;
+  return `    ${met.reason
+    ? l10n.t('deprecation {0}:{1}: present, not recorded — {2}', met.repo, met.version, met.reason)
+    : l10n.t('deprecation {0}:{1}: present, not recorded', met.repo, met.version)}`;
 }
 
 // hostLines is everything one registry's walk puts on the channel.
@@ -236,6 +238,10 @@ export function deprecationLine(met: DeprecationMet): string {
 // held nothing. A host the answer says could not be reached is named as such
 // ahead of those words; any other failure — a registry that answered, and whose
 // answer could not be indexed — is named by the compiler's words alone.
+//
+// The headline lists what the walk found after the registry's name, each item a
+// piece standing on its own between commas, and the list itself is a message of
+// its own, so a translation joins the items as its language does.
 export function hostLines(host: IndexedHost): readonly string[] {
   if (host.error) {
     return host.unreachable === true
@@ -246,24 +252,30 @@ export function hostLines(host: IndexedHost): readonly string[] {
   // Every collection in this answer reaches the wire as null when it is empty,
   // which says the same thing an empty list does.
   const skipped = host.skipped ?? [];
-  let headline = `  ${host.host}: ${countOf(host.indexed, 'entity', 'entities')}`;
-  if (skipped.length > 0) {
-    headline += `, ${countOf(skipped.length, 'repository', 'repositories')}`
-      + ' could not be read';
-  }
+  const entities = host.indexed === 1 ? l10n.t('1 entity') : l10n.t('{0} entities', host.indexed);
   // The reads asked again are stated on every row, zero included: a walk whose
   // retries all succeeded lists no repository above, so this count is the only
   // sign of how close it came to leaving one out.
-  headline += `, ${countOf(host.readsRetried, 'read retried', 'reads retried')}`;
-  lines.push(headline);
+  const retried = host.readsRetried === 1
+    ? l10n.t('1 read retried')
+    : l10n.t('{0} reads retried', host.readsRetried);
+  if (skipped.length > 0) {
+    const unread = skipped.length === 1
+      ? l10n.t('1 repository could not be read')
+      : l10n.t('{0} repositories could not be read', skipped.length);
+    lines.push(`  ${l10n.t('{0}: {1}, {2}, {3}', host.host, entities, unread, retried)}`);
+  } else {
+    lines.push(`  ${l10n.t('{0}: {1}, {2}', host.host, entities, retried)}`);
+  }
   // The markers line says which of two things happened rather than showing a
   // count that could mean either: a run with no trust basis did not look, and a
   // run that looked and found nothing is a different answer.
   if (host.deprecationsExamined) {
-    lines.push(`    ${countOf(host.deprecationsRecorded, 'deprecation marker', 'deprecation markers')} recorded`);
+    lines.push(`    ${host.deprecationsRecorded === 1
+      ? l10n.t('1 deprecation marker recorded')
+      : l10n.t('{0} deprecation markers recorded', host.deprecationsRecorded)}`);
   } else {
-    lines.push('    deprecation markers not examined: signature verification is disabled'
-      + ' for this registry');
+    lines.push(`    ${l10n.t('deprecation markers not examined: signature verification is disabled for this registry')}`);
   }
   for (const one of skipped) {
     lines.push(skippedLine(one));
@@ -291,7 +303,7 @@ export function hostLines(host: IndexedHost): readonly string[] {
 // walk that indexed nothing would name a directory nothing was written to.
 export function indexBuildLines(result: RegistryUpdateResult): readonly string[] {
   if (!result.registriesConfigured) {
-    return ['  no registries are configured'];
+    return [`  ${l10n.t('no registries are configured')}`];
   }
   const lines: string[] = [];
   const hosts = result.hosts ?? [];
@@ -299,7 +311,7 @@ export function indexBuildLines(result: RegistryUpdateResult): readonly string[]
     lines.push(...hostLines(host));
   }
   if (result.indexRoot !== '' && hosts.some((host) => !host.error)) {
-    lines.push(`  index written to ${result.indexRoot}`);
+    lines.push(`  ${l10n.t('index written to {0}', result.indexRoot)}`);
   }
   return lines;
 }
@@ -318,16 +330,58 @@ function indexedEntities(hosts: readonly IndexedHost[]): number {
 // missedPhrase names the registries a walk missed, those not reached ahead of
 // those not indexed; the second group drops its noun where the first has named
 // it already. At least one of the two holds a registry.
+//
+// A group standing alone is one message, its count and its noun together. Both
+// groups together are one whole message per count of each, because the second
+// group's clause leans on the first group's noun and cannot stand apart from it.
 function missedPhrase(notReached: readonly string[], notIndexed: readonly string[]): string {
-  const notReachedPart = notReached.length === 0 ? null
-    : `${countOf(notReached.length, 'registry', 'registries')} could not be reached (${notReached.join(', ')})`;
+  const reached = l10n.series(notReached);
+  const listed = l10n.series(notIndexed);
   if (notIndexed.length === 0) {
-    return notReachedPart ?? '';
+    if (notReached.length === 0) { return ''; }
+    return notReached.length === 1
+      ? l10n.t('1 registry could not be reached ({0})', reached)
+      : l10n.t('{0} registries could not be reached ({1})', notReached.length, reached);
   }
-  const listed = `(${notIndexed.join(', ')})`;
-  return notReachedPart === null
-    ? `${countOf(notIndexed.length, 'registry', 'registries')} could not be indexed ${listed}`
-    : `${notReachedPart} and ${notIndexed.length} could not be indexed ${listed}`;
+  if (notReached.length === 0) {
+    return notIndexed.length === 1
+      ? l10n.t('1 registry could not be indexed ({0})', listed)
+      : l10n.t('{0} registries could not be indexed ({1})', notIndexed.length, listed);
+  }
+  if (notReached.length === 1) {
+    return notIndexed.length === 1
+      ? l10n.t('1 registry could not be reached ({0}) and 1 could not be indexed ({1})', reached, listed)
+      : l10n.t('1 registry could not be reached ({0}) and {1} could not be indexed ({2})', reached, notIndexed.length, listed);
+  }
+  return notIndexed.length === 1
+    ? l10n.t('{0} registries could not be reached ({1}) and 1 could not be indexed ({2})', notReached.length, reached, listed)
+    : l10n.t('{0} registries could not be reached ({1}) and {2} could not be indexed ({3})', notReached.length, reached, notIndexed.length, listed);
+}
+
+// indexedFrom says how many entities a walk that missed some registries indexed
+// from the ones it did walk, each count with its noun in one whole message.
+function indexedFrom(entityCount: number, registryCount: number): string {
+  if (entityCount === 1) {
+    return registryCount === 1
+      ? l10n.t('1 entity was indexed from 1 registry')
+      : l10n.t('1 entity was indexed from {0} registries', registryCount);
+  }
+  return registryCount === 1
+    ? l10n.t('{0} entities were indexed from 1 registry', entityCount)
+    : l10n.t('{0} entities were indexed from {1} registries', entityCount, registryCount);
+}
+
+// indexedInto is the ending of a walk that indexed every registry it was asked
+// for, each count with its noun in one whole message.
+function indexedInto(entityCount: number, registryCount: number, indexRoot: string): string {
+  if (entityCount === 1) {
+    return registryCount === 1
+      ? l10n.t('indexed 1 entity from 1 registry, into {0}.', indexRoot)
+      : l10n.t('indexed 1 entity from {0} registries, into {1}.', registryCount, indexRoot);
+  }
+  return registryCount === 1
+    ? l10n.t('indexed {0} entities from 1 registry, into {1}.', entityCount, indexRoot)
+    : l10n.t('indexed {0} entities from {1} registries, into {2}.', entityCount, registryCount, indexRoot);
 }
 
 // indexBuildOutcome is the sentence an index build ends in.
@@ -353,7 +407,7 @@ export function indexBuildOutcome(result: RegistryUpdateResult): OperationOutcom
   if (!result.registriesConfigured) {
     return {
       kind: 'ok',
-      detail: 'found no configured registries, so there was nothing to index.',
+      detail: l10n.t('found no configured registries, so there was nothing to index.'),
     };
   }
   const hosts = result.hosts ?? [];
@@ -362,21 +416,18 @@ export function indexBuildOutcome(result: RegistryUpdateResult): OperationOutcom
   const notReached = failed.filter((host) => host.unreachable === true).map((host) => host.host);
   const notIndexed = failed.filter((host) => host.unreachable !== true).map((host) => host.host);
   const entityCount = indexedEntities(hosts);
-  const entities = countOf(entityCount, 'entity', 'entities');
   if (failed.length > 0) {
     const indexed = walked.length === 0
-      ? 'nothing was indexed'
-      : `${entities} ${entityCount === 1 ? 'was' : 'were'} indexed from `
-        + `${countOf(walked.length, 'registry', 'registries')}`;
+      ? l10n.t('nothing was indexed')
+      : indexedFrom(entityCount, walked.length);
     return {
       kind: 'failed',
-      message: `${missedPhrase(notReached, notIndexed)}; ${indexed}.`,
+      message: l10n.t('{0}; {1}.', missedPhrase(notReached, notIndexed), indexed),
     };
   }
   return {
     kind: 'ok',
-    detail: `indexed ${entities} from `
-      + `${countOf(walked.length, 'registry', 'registries')}, into ${result.indexRoot}.`,
+    detail: indexedInto(entityCount, walked.length, result.indexRoot),
   };
 }
 

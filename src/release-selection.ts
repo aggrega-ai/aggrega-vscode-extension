@@ -2,6 +2,7 @@
 // Copyright 2026 Cognitio s.r.l.
 
 import * as path from 'path';
+import * as l10n from './l10n';
 import { describeLinksLeadingOut, LinksLeadingOut } from './links-leading-out';
 import { ActiveReleaseResponse, ReleaseCandidatesResponse } from './types';
 import { SELECTOR_ROW_LABELS } from './selector-levels';
@@ -49,7 +50,7 @@ export type SelectionState =
 // the moment one of them was reworded. It is an instruction rather than an
 // account of the state, because it is read beside a control the reader can
 // already see is unavailable — what they cannot see is what to do about it.
-export const NO_RELEASE_SELECTED_CONTROL_REASON = 'Select a Release first.';
+export const NO_RELEASE_SELECTED_CONTROL_REASON = l10n.t('Select a Release first.');
 
 // ReleaseSelectionDeps supplies the workspace root, the two language-server
 // queries the selection is built from, and the editor surfaces it drives.
@@ -323,7 +324,7 @@ export function createReleaseSelection(deps: ReleaseSelectionDeps): ReleaseSelec
     if (dropped.length === 0) { return; }
     deps.reportInfo(describeDropped(dropped.length, root));
     for (const absolute of dropped) {
-      deps.logLine(`[not offered] ${absolute}`);
+      deps.logLine(l10n.t('[not offered] {0}', absolute));
     }
   };
 
@@ -363,7 +364,7 @@ export function createReleaseSelection(deps: ReleaseSelectionDeps): ReleaseSelec
         // state says nothing is selected and carries why.
         const reason = describeUnnameable(answer.release, daemonRoot);
         setState({ kind: 'none', reason });
-        deps.logLine(`[no Release selected] ${reason}`);
+        deps.logLine(l10n.t('[no Release selected] {0}', reason));
         return;
       }
       select({ release, absolute: answer.release, lockfile: answer.lockfile ?? null });
@@ -385,7 +386,7 @@ export function createReleaseSelection(deps: ReleaseSelectionDeps): ReleaseSelec
           deps.logLine(line);
         }
     } else if (reason) {
-      deps.logLine(`[no Release selected] ${reason}`);
+      deps.logLine(l10n.t('[no Release selected] {0}', reason));
     }
   };
 
@@ -448,7 +449,7 @@ export function createReleaseSelection(deps: ReleaseSelectionDeps): ReleaseSelec
       // they would have started on had they never chosen at all.
       deps.store.write(null);
       deps.reportInfo(
-        `Aggrega: ${remembered} is no longer offered in this workspace, so the previous selection was dropped. Falling back to this workspace's default.`,
+        l10n.t("Aggrega: {0} is no longer offered in this workspace, so the previous selection was dropped. Falling back to this workspace's default.", remembered),
       );
       reportDropped(gathered.dropped, gathered.root);
       await adoptDefault();
@@ -457,8 +458,10 @@ export function createReleaseSelection(deps: ReleaseSelectionDeps): ReleaseSelec
     choose: async (placeHolder?: string): Promise<string | null> => {
       const root = deps.getWorkspaceRoot();
       if (!root) {
+        // Spells SELECTOR_ROW_LABELS.workspace and .release (selector-levels.ts)
+        // inside its own message, each a noun after "no" there.
         deps.reportInfo(
-          `Aggrega: no ${SELECTOR_ROW_LABELS.workspace} is in use, so there is no ${SELECTOR_ROW_LABELS.release} to select.`,
+          l10n.t('Aggrega: no Aggrega workspace is in use, so there is no Release to select.'),
         );
         return null;
       }
@@ -468,7 +471,7 @@ export function createReleaseSelection(deps: ReleaseSelectionDeps): ReleaseSelec
       } catch {
         setOfferable(null);
         deps.reportError(
-          'Aggrega: cannot list Releases — the language server is not running. Start it and try again.',
+          l10n.t('Aggrega: cannot list Releases — the language server is not running. Start it and try again.'),
         );
         return null;
       }
@@ -479,7 +482,7 @@ export function createReleaseSelection(deps: ReleaseSelectionDeps): ReleaseSelec
         // Releases. Saying so when some were dropped would be the wrong
         // sentence, and it is the one a reader would act on.
         if (gathered.dropped.length === 0) {
-          deps.reportInfo('Aggrega: no Release found in this workspace.');
+          deps.reportInfo(l10n.t('Aggrega: no Release found in this workspace.'));
         }
         return null;
       }
@@ -489,7 +492,7 @@ export function createReleaseSelection(deps: ReleaseSelectionDeps): ReleaseSelec
       // command ran at all.
       const picked = await deps.pickRelease(
         gathered.offerable.map(c => c.absolute),
-        placeHolder ?? 'Aggrega: choose the Release to work on',
+        placeHolder ?? l10n.t('Aggrega: choose the Release to work on'),
       );
       if (!picked) { return null; }
       const chosen = gathered.offerable.find(c => c.absolute === picked);
@@ -523,13 +526,19 @@ export function createReleaseSelection(deps: ReleaseSelectionDeps): ReleaseSelec
 // Releases the server reported. It carries the count and where those files sit,
 // which is what separates "there are none" from "there are some I cannot offer
 // you".
+//
+// One Release and several are whole messages of their own, the verb agreeing
+// with the count, and each spells SELECTOR_ROW_LABELS.workspace (selector-levels.ts)
+// inside its own message, the label being a noun after "the" there.
 function describeDropped(count: number, root: string | null): string {
-  const noun = count === 1 ? 'Release' : 'Releases';
   if (root === null) {
-    return `Aggrega: ${count} ${noun} cannot be offered — the language server has not reported which folder it anchored to, and a Release is named relative to that folder. Restart the language server to try again. The paths are in the Aggrega output channel.`;
+    return count === 1
+      ? l10n.t('Aggrega: 1 Release cannot be offered — the language server has not reported which folder it anchored to, and a Release is named relative to that folder. Restart the language server to try again. The paths are in the Aggrega output channel.')
+      : l10n.t('Aggrega: {0} Releases cannot be offered — the language server has not reported which folder it anchored to, and a Release is named relative to that folder. Restart the language server to try again. The paths are in the Aggrega output channel.', count);
   }
-  const verb = count === 1 ? 'sits' : 'sit';
-  return `Aggrega: ${count} ${noun} ${verb} outside the ${SELECTOR_ROW_LABELS.workspace} ${root} and cannot be offered, because a Release is named relative to it. The paths are in the Aggrega output channel.`;
+  return count === 1
+    ? l10n.t('Aggrega: 1 Release sits outside the Aggrega workspace {0} and cannot be offered, because a Release is named relative to it. The paths are in the Aggrega output channel.', root)
+    : l10n.t('Aggrega: {0} Releases sit outside the Aggrega workspace {1} and cannot be offered, because a Release is named relative to it. The paths are in the Aggrega output channel.', count, root);
 }
 
 // describeUnreadLinks is the line a reader gets when the language server met
@@ -543,17 +552,18 @@ function describeDropped(count: number, root: string | null): string {
 // leading out of it is not followed.
 export function describeUnreadLinks(links: LinksLeadingOut): string | null {
   const sentence = describeLinksLeadingOut(links, { things: 'Releases', as: 'offered' });
-  return sentence === null ? null : `Aggrega: ${sentence}`;
+  return sentence === null ? null : l10n.t('Aggrega: {0}', sentence);
 }
 
 // describeUnnameable explains why a Release this workspace points at could not
 // be taken as the selection. Both branches name the Aggrega workspace, or its
-// absence, because that is the fact the reader needs in order to act.
+// absence, because that is the fact the reader needs in order to act. The second
+// spells SELECTOR_ROW_LABELS.workspace inside its own message.
 function describeUnnameable(release: string, root: string | null): string {
   if (root === null) {
-    return `the language server has not reported which folder it anchored to, so ${release} cannot be named relative to it`;
+    return l10n.t('the language server has not reported which folder it anchored to, so {0} cannot be named relative to it', release);
   }
-  return `${release} sits outside the ${SELECTOR_ROW_LABELS.workspace} ${root}, and a Release is named relative to it`;
+  return l10n.t('{0} sits outside the Aggrega workspace {1}, and a Release is named relative to it', release, root);
 }
 
 // describeSelection renders the selection for the two surfaces that display it,
@@ -595,47 +605,56 @@ export function describeSelection(
         value: state.release,
         // The closing line stands apart behind a blank line: it is the one line
         // that says what a click does rather than what is selected.
-        detail: `Aggrega selected Release: ${state.absolute}\n\nClick to choose a different ${SELECTOR_ROW_LABELS.release}.`,
+        detail: `${l10n.t('Aggrega selected Release: {0}', state.absolute)}\n\n${l10n.t('Click to choose a different Release.')}`,
       };
     case 'none': {
       // The server's own account of why it named no default travels with the
       // state, and it is carried into every reading below: it is the only text
       // that says which of several reasons applied.
       const because = state.reason ? ` ${state.reason}` : '';
+      // Each label puts the Release row's label ahead of a colon, where it stands
+      // as a label, and the value after it. Each sentence spells
+      // SELECTOR_ROW_LABELS.release and .workspace inside its own message, where
+      // they are nouns after an article.
       if (offerable === 0) {
+        const value = l10n.t('none available');
         return {
-          label: `${SELECTOR_ROW_LABELS.release}: none available`,
-          value: 'none available',
+          label: l10n.t('{0}: {1}', SELECTOR_ROW_LABELS.release, value),
+          value,
           detail:
-            `Aggrega: no ${SELECTOR_ROW_LABELS.release} is available in this ${SELECTOR_ROW_LABELS.workspace}.${because}\n`
-            + `Work in a different ${SELECTOR_ROW_LABELS.workspace}, or create a ${SELECTOR_ROW_LABELS.release}.`,
+            `${l10n.t('Aggrega: no Release is available in this Aggrega workspace.')}${because}\n`
+            + l10n.t('Work in a different Aggrega workspace, or create a Release.'),
         };
       }
       if (offerable === null) {
+        const value = l10n.t('none selected');
         return {
-          label: `${SELECTOR_ROW_LABELS.release}: none selected`,
-          value: 'none selected',
+          label: l10n.t('{0}: {1}', SELECTOR_ROW_LABELS.release, value),
+          value,
           detail:
-            `Aggrega: no ${SELECTOR_ROW_LABELS.release} is selected.${because}\n`
-            + `What this ${SELECTOR_ROW_LABELS.workspace} offers has not been read.\n`
-            + 'Click to read it and select one.',
+            `${l10n.t('Aggrega: no Release is selected.')}${because}\n`
+            + `${l10n.t('What this Aggrega workspace offers has not been read.')}\n`
+            + l10n.t('Click to read it and select one.'),
         };
       }
+      const value = l10n.t('none selected');
       return {
-        label: `${SELECTOR_ROW_LABELS.release}: none selected`,
-        value: 'none selected',
-        detail: `Aggrega: no ${SELECTOR_ROW_LABELS.release} is selected.${because}\nClick to select one.`,
+        label: l10n.t('{0}: {1}', SELECTOR_ROW_LABELS.release, value),
+        value,
+        detail: `${l10n.t('Aggrega: no Release is selected.')}${because}\n${l10n.t('Click to select one.')}`,
       };
     }
-    case 'unknown':
+    case 'unknown': {
       // What was on offer is not reported here even where a count survives from
       // moments ago: with the server silent, what the reader can act on is the
       // server, and a count would invite a choice nothing can currently answer.
+      const value = l10n.t('unavailable');
       return {
-        label: `${SELECTOR_ROW_LABELS.release}: unavailable`,
-        value: 'unavailable',
+        label: l10n.t('{0}: {1}', SELECTOR_ROW_LABELS.release, value),
+        value,
         detail:
-          'Aggrega: the language server is not running, so which Release is selected is unknown.',
+          l10n.t('Aggrega: the language server is not running, so which Release is selected is unknown.'),
       };
+    }
   }
 }

@@ -16,6 +16,7 @@ import {
 } from './get-started-steps';
 import { DAEMON_READING_WORDS, DaemonReading } from './daemon-status';
 import { escapeHtml } from './html';
+import * as l10n from './l10n';
 import { VERSION_ABSENT, versionKnown } from './version-words';
 
 // This module composes the welcome panel's document and holds no editor types,
@@ -65,8 +66,8 @@ function detailHtml(block: StepDetail): string {
 // — and the glyph beside it is hidden from assistive technology, so this word is
 // the only channel a reader using a screen reader gets. Spoken aloud, the
 // ambiguity is the whole of the problem.
-export const MET_LABEL = 'Met';
-export const UNMET_LABEL = 'To do';
+export const MET_LABEL = l10n.t('Met');
+export const UNMET_LABEL = l10n.t('To do');
 
 // initiallyCollapsedStepIds decides which sections a panel opens closed: the
 // ones whose condition is already satisfied.
@@ -100,7 +101,7 @@ export function initiallyCollapsedStepIds(
 // which is where a screen reader reads it from, and a name that also said
 // "expand" would be a second copy of that state — wrong half the time.
 export function toggleLabel(title: string): string {
-  return `Explanation: ${title}`;
+  return l10n.t('Explanation: {0}', title);
 }
 
 // VALUE_LEAD_IN introduces a chosen value, so the line says what it is rather
@@ -115,7 +116,11 @@ export function toggleLabel(title: string): string {
 // The words standing where a value would be take no lead-in. They are whole
 // sentences rather than tokens, and introducing a sentence with a label reads
 // as a label applied to the wrong kind of thing.
-export const VALUE_LEAD_IN = 'Selected: ';
+//
+// The words end at their colon. The gap between them and the value is layout,
+// so the markup puts it there, inside the lead-in's own span, and a translation
+// carries no space of its own.
+export const VALUE_LEAD_IN = l10n.t('Selected:');
 
 // VALUE_LEAD_CLASS addresses the lead-in so the stylesheet can set it apart
 // from the value it introduces. It is named here because this is where the
@@ -145,7 +150,7 @@ function stepValueHtml(value: StepValue, position: 'folded' | 'open'): string {
   const classes = ['step-value', `step-value-${position}`];
   if (!chosen) { classes.push('step-value-absent'); }
   const lead = chosen
-    ? `<span class="${VALUE_LEAD_CLASS}">${escapeHtml(VALUE_LEAD_IN)}</span>`
+    ? `<span class="${VALUE_LEAD_CLASS}">${escapeHtml(VALUE_LEAD_IN)} </span>`
     : '';
   const text = chosen ? value.chosen : value.absent;
   return `<p class="${classes.join(' ')}">${lead}${escapeHtml(text)}</p>`;
@@ -198,7 +203,7 @@ export function stepsHtml(
   <h2 class="step-head">
     <span class="step-mark" aria-hidden="true">${met ? '&check;' : '&#9675;'}</span>
     <span class="step-title">${escapeHtml(step.title)}</span>
-    <span class="step-standing">${met ? MET_LABEL : UNMET_LABEL}</span>
+    <span class="step-standing">${escapeHtml(met ? MET_LABEL : UNMET_LABEL)}</span>
     <button class="step-toggle" type="button" aria-expanded="${open}" aria-controls="${proseId}" aria-label="${escapeHtml(toggleLabel(step.title))}" data-toggle="${escapeHtml(step.id)}"></button>
   </h2>
   <div class="step-prose" id="${proseId}"${open ? '' : ' hidden'}>
@@ -268,8 +273,8 @@ export interface VersionStandings {
 // Each label is a word the page already uses for the thing it names, so a reader
 // meets no new vocabulary at the foot of a page they came to for an
 // introduction.
-export const EXTENSION_VERSION_LABEL = 'Extension';
-export const COMPILER_VERSION_LABEL = 'Compiler';
+export const EXTENSION_VERSION_LABEL = l10n.t('Extension');
+export const COMPILER_VERSION_LABEL = l10n.t('Compiler');
 
 // versionValueHtml draws the value of one version reading: the value as it was
 // read, or the words for a reading not obtained, marked as absent. An empty value
@@ -310,7 +315,7 @@ export interface ServerReading {
 
 // SERVER_LABEL names the language server on the page's last line, the way the
 // rest of the extension names it.
-export const SERVER_LABEL = 'Language server';
+export const SERVER_LABEL = l10n.t('Language server');
 
 // serverHtml composes the page's last line: whether the language server is
 // running, in the words the rest of the extension uses for its states, and,

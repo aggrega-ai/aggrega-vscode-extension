@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cognitio s.r.l.
 
-import { CANCELLED_BY_READER, isCancellation } from './cancellation';
+import { isCancellation, stoppedSentence } from './cancellation';
 import { describeError } from './error-text';
 import * as l10n from './l10n';
 
@@ -77,15 +77,16 @@ export function outcomeOf(
 // shape its language needs — a label and a colon, say — where a verb would
 // otherwise have to agree with a subject it cannot see. A completed operation's
 // predicate closes its own sentence, so its joining is `{0} {1}`; the stop's
-// predicate is a phrase this module closes, so its joining carries the full
-// stop, `{0} {1}.`. The failed sentence's own words are this module's, and the
-// compiler's message fills its placeholder untranslated.
+// predicate is a phrase, so its joining carries the full stop, `{0} {1}.`, and
+// that sentence is composed once, by cancellation.ts's stoppedSentence, which the
+// message a stop carries is composed by too. The failed sentence's own words are
+// this module's, and the compiler's message fills its placeholder untranslated.
 export function terminalLine(what: string, outcome: OperationOutcome): string {
   switch (outcome.kind) {
     case 'ok':
       return l10n.t('{0} {1}', what, outcome.detail);
     case 'cancelled':
-      return l10n.t('{0} {1}.', what, CANCELLED_BY_READER);
+      return stoppedSentence(what);
     case 'failed':
       return l10n.t('{0} did not complete: {1}', what, outcome.message);
   }

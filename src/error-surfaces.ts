@@ -10,6 +10,7 @@ import {
 } from './types';
 import { ConvertedShape, DIAGNOSTIC_SOURCE_FALLBACK } from './diagnostics-shape';
 import { refusalCondition } from './error-text';
+import * as l10n from './l10n';
 import { operationLabel } from './operation-groups';
 
 // LOCKFILE_PULL_ACTION is the action the missing-lockfile notice offers, and it
@@ -124,7 +125,7 @@ export function handleDaemonError(err: JsonRpcError, ctx: DaemonErrorContext): D
     case ERR_LOCKFILE_ABSENT:
       return surfaceLockfileNotice(ctx, err.message, err.data?.release);
     case ERR_SHUTTING_DOWN:
-      ctx.logLine(`[shutting down] ${err.message}`);
+      ctx.logLine(l10n.t('[shutting down] {0}', err.message));
       return 'surfaced';
     default:
       return 'unrecognised';
@@ -204,7 +205,10 @@ export function refusalDocument(err: JsonRpcError, fallbackPath: string): string
 // Where no Release can be named, the notice says "the Release" rather than
 // inventing one.
 export function lockfileNotice(release: string | null, message: string): string {
-  return `Aggrega: ${release || 'the Release'} has no lockfile. ${message}`;
+  const which = release
+    ? l10n.t('Aggrega: {0} has no lockfile.', release)
+    : l10n.t('Aggrega: the Release has no lockfile.');
+  return `${which} ${message}`;
 }
 
 // surfaceLockfileNotice answers a lockfile-absent refusal. named is the Release the

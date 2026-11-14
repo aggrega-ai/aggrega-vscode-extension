@@ -3,6 +3,7 @@
 
 import type * as wire from '@aggrega-ai/aggrega-abi/dist/servewire_gen';
 import { describeError } from './error-surfaces';
+import * as l10n from './l10n';
 import { panelActionLabel } from './operation-groups';
 import { EMPTY_LABEL } from './registries-run';
 import { shortUri } from './uri-display';
@@ -185,27 +186,39 @@ export function searchParams(filter: CatalogFilter): RegistrySearchParams {
 // ANY_VALUE_LABEL is how an unset facet reads in the filter list. It says the
 // facet narrows nothing, which is what an unset facet does — as opposed to
 // reading as a blank, which a reader could take for a value that failed to load.
-export const ANY_VALUE_LABEL = 'any';
+export const ANY_VALUE_LABEL = l10n.t('any');
 
 // describeFilter renders the filter as one short phrase, for the message a
 // reader sees when a search returned nothing. Naming what was searched is what
 // makes an empty result attributable to the filter rather than to the catalog.
+//
+// Each facet is a piece of its own, set off from the next by a comma, and the
+// values a facet allows are joined by a message of their own, so a translation
+// words each piece and each alternative as its language does.
 export function describeFilter(filter: CatalogFilter): string {
   const parts: string[] = [];
   const query = filter.query?.trim();
-  if (query) { parts.push(`"${query}"`); }
-  if (filter.kinds.length) { parts.push(`kind ${filter.kinds.join(' or ')}`); }
+  if (query) { parts.push(l10n.t('"{0}"', query)); }
+  if (filter.kinds.length) { parts.push(l10n.t('kind {0}', eitherOf(filter.kinds))); }
   if (filter.capabilities.length) {
-    parts.push(`capability ${filter.capabilities.join(' or ')}`);
+    parts.push(l10n.t('capability {0}', eitherOf(filter.capabilities)));
   }
   const selector = filter.selector?.trim();
-  if (selector) { parts.push(`labels ${selector}`); }
+  if (selector) { parts.push(l10n.t('labels {0}', selector)); }
   const pluginType = filter.pluginType?.trim();
-  if (pluginType) { parts.push(`plugin type ${pluginType}`); }
+  if (pluginType) { parts.push(l10n.t('plugin type {0}', pluginType)); }
   if (parts.length === 0) {
-    return 'the whole published catalog';
+    return l10n.t('the whole published catalog');
   }
-  return parts.join(', ');
+  // The facets run on with a comma between each and no word before the last —
+  // they narrow the search together rather than naming alternatives — so they are
+  // a series, and not a list, whose last joining is "and".
+  return l10n.series(parts);
+}
+
+// eitherOf joins the values one facet allows: "a", "a or b", "a or b or c".
+function eitherOf(values: readonly string[]): string {
+  return values.reduce((joined, value) => l10n.t('{0} or {1}', joined, value));
 }
 
 // splitValueList reads a reader-typed comma list into separate values.
@@ -234,7 +247,7 @@ export function parseLimit(text: string): { limit?: number } | { error: string }
     return { limit: undefined };
   }
   if (!/^\d+$/.test(trimmed)) {
-    return { error: 'Enter a whole number, or leave the box empty for no cap.' };
+    return { error: l10n.t('Enter a whole number, or leave the box empty for no cap.') };
   }
   return { limit: Number(trimmed) };
 }
@@ -276,16 +289,19 @@ export function rowForRecord(record: IndexRecord): CatalogRow {
 // rows of the Registries panel — named in the words those rows carry, which are
 // read from the one place that draws them; the compiler words its own
 // remediation as a command line, which is not where the reader of this message
-// is.
-export const NO_REGISTRIES_MESSAGE =
-  `Aggrega: ${EMPTY_LABEL} Add one with “${panelActionLabel('registryAdd')}” in the `
-  + `Registries panel, then build its index with “${panelActionLabel('registryIndex')}”.`;
+// is. The compiler's sentence fills its placeholder untranslated, and each row's
+// label fills one quoted as the name of the control it is.
+export const NO_REGISTRIES_MESSAGE = l10n.t(
+  'Aggrega: {0} Add one with “{1}” in the Registries panel, then build its index with “{2}”.',
+  EMPTY_LABEL, panelActionLabel('registryAdd'), panelActionLabel('registryIndex'),
+);
 
-// INDEX_ROW is the editor's own way to build or refresh a snapshot: the
-// Registries panel's row, named in the words it carries. The compiler names a
-// command line for the same repair; this reader is in an editor, and the row is
-// the thing they can press.
-const INDEX_ROW = `“${panelActionLabel('registryIndex')}” in the Registries panel`;
+// INDEX_ROW_LABEL names the editor's own way to build or refresh a snapshot: the
+// Registries panel's row, in the words it carries. The compiler names a command
+// line for the same repair; this reader is in an editor, and the row is the
+// thing they can press. Each sentence sending a reader there is a whole message
+// naming the panel, with the label quoted as the name of the control.
+const INDEX_ROW_LABEL = panelActionLabel('registryIndex');
 
 // notSearched says which configured registries a search could not consult and
 // why, followed by the repair that applies to them.
@@ -297,22 +313,16 @@ const INDEX_ROW = `“${panelActionLabel('registryIndex')}” in the Registries 
 // composition for the channel's line and the empty answer's clause, so the two
 // cannot come to give the same fact two accounts.
 export function notSearched(hosts: readonly string[]): string {
-  const one = hosts.length === 1;
-  return `${listOf(hosts)} ${one ? 'has' : 'have'} no local index and ${one ? 'was' : 'were'} not `
-    + `searched — build ${one ? 'its index' : 'their indexes'} with ${INDEX_ROW}`;
+  return hosts.length === 1
+    ? l10n.t('{0} has no local index and was not searched — build its index with “{1}” in the Registries panel', l10n.list(hosts), INDEX_ROW_LABEL)
+    : l10n.t('{0} have no local index and were not searched — build their indexes with “{1}” in the Registries panel', l10n.list(hosts), INDEX_ROW_LABEL);
 }
 
 // STALE_LINE is the channel's line for the compiler judging a consulted snapshot
 // stale, with the repair that applies to it on the same line. The compiler's
 // verdict covers the snapshots consulted as a whole and names none of them, so
 // the line names none either.
-export const STALE_LINE = `One or more indexes are stale — refresh them with ${INDEX_ROW}.`;
-
-// listOf joins names for a sentence: "a", "a and b", "a, b and c".
-function listOf(names: readonly string[]): string {
-  if (names.length <= 1) { return names.join(''); }
-  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
-}
+export const STALE_LINE = l10n.t('One or more indexes are stale — refresh them with “{0}” in the Registries panel.', INDEX_ROW_LABEL);
 
 // SearchOutcome is what one search produced. The five cases are distinct types
 // rather than a message plus a flag, because four of them are easy to collapse
@@ -354,13 +364,13 @@ export type SearchOutcome =
 export function freshnessReport(doc: SearchDoc): string[] {
   const lines: string[] = [];
   for (const host of doc.missingIndexHosts ?? []) {
-    lines.push(`${notSearched([host])}.`);
+    lines.push(l10n.t('{0}.', notSearched([host])));
   }
   for (const index of doc.indexes ?? []) {
     lines.push(
       index.lastUpdated
-        ? `Index for ${index.host} last updated ${index.lastUpdated}`
-        : `Index for ${index.host} last updated (timestamp unavailable)`,
+        ? l10n.t('Index for {0} last updated {1}', index.host, index.lastUpdated)
+        : l10n.t('Index for {0} last updated (timestamp unavailable)', index.host),
     );
   }
   if (doc.stale === true) {
@@ -379,13 +389,14 @@ export function freshnessReport(doc: SearchDoc): string[] {
 // consulted. Every name in it is read off the answer's own fields.
 export function noMatchesMessage(doc: SearchDoc, filter: CatalogFilter): string {
   const missing = doc.missingIndexHosts ?? [];
-  const opening = `Aggrega: no catalog matches for ${describeFilter(filter)}`;
+  const searchedFor = describeFilter(filter);
   if (missing.length === 0) {
-    return `${opening}.`;
+    return l10n.t('Aggrega: no catalog matches for {0}.', searchedFor);
   }
   const searched = (doc.indexes ?? []).map((index) => index.host);
-  const where = searched.length > 0 ? ` in ${listOf(searched)}` : '';
-  return `${opening}${where}; ${notSearched(missing)}.`;
+  return searched.length > 0
+    ? l10n.t('Aggrega: no catalog matches for {0} in {1}; {2}.', searchedFor, l10n.list(searched), notSearched(missing))
+    : l10n.t('Aggrega: no catalog matches for {0}; {1}.', searchedFor, notSearched(missing));
 }
 
 // CatalogSearchLog is the reader-visible channel the run appends to.
@@ -484,13 +495,13 @@ export interface FilterRow {
 }
 
 // RESET_ROW_LABEL is the row that clears every facet.
-export const RESET_ROW_LABEL = 'Reset search filter';
+export const RESET_ROW_LABEL = l10n.t('Reset search filter');
 
 // NOTHING_SET_LABEL is what the reset row reads when no facet narrows anything.
-export const NOTHING_SET_LABEL = 'nothing is set';
+export const NOTHING_SET_LABEL = l10n.t('nothing is set');
 
 // RUN_ROW_LABEL is the row that runs the search.
-export const RUN_ROW_LABEL = 'Search';
+export const RUN_ROW_LABEL = l10n.t('Search');
 
 // filterRows renders the filter as a list of editable facets, then the row that
 // clears them, then the row that runs the search.
@@ -499,7 +510,8 @@ export const RUN_ROW_LABEL = 'Search';
 // Kind, Label selector, Capability, Plugin type, Limit — rather than a friendlier
 // synonym. A second name for one facet would leave a reader who set it here
 // unable to find it on the command line, which is the whole cost of naming one
-// concept twice.
+// concept twice; for the same reason the labels stay untranslated, while what
+// each row says about its facet is translated.
 //
 // The shape is one list rather than a fixed sequence of prompts on purpose. A
 // chain of prompts forces every facet to be answered in an order the reader did
@@ -521,13 +533,13 @@ export function filterRows(filter: CatalogFilter): FilterRow[] {
       action: 'reset',
       label: RESET_ROW_LABEL,
       description: resetDescription(filter, facets),
-      detail: 'Clear every facet above without searching',
+      detail: l10n.t('Clear every facet above without searching'),
     },
     {
       action: 'run',
       label: RUN_ROW_LABEL,
       description: describeFilter(filter),
-      detail: 'Search the configured registries with the filter above',
+      detail: l10n.t('Search the configured registries with the filter above'),
     },
   ];
 }
@@ -543,7 +555,7 @@ export function filterRows(filter: CatalogFilter): FilterRow[] {
 function resetDescription(filter: CatalogFilter, facets: FilterRow[]): string {
   const sent = searchParams(filter);
   const set = facets.filter((row) => row.action in sent).map((row) => row.label);
-  return set.length === 0 ? NOTHING_SET_LABEL : `clears ${set.join(', ')}`;
+  return set.length === 0 ? NOTHING_SET_LABEL : l10n.t('clears {0}', l10n.series(set));
 }
 
 // facetRows renders one row per facet, in the order the list draws them.
@@ -556,19 +568,19 @@ function facetRows(filter: CatalogFilter): FilterRow[] {
       action: 'query',
       label: 'Query',
       description: query || ANY_VALUE_LABEL,
-      detail: 'Match this text against each entity’s name and description',
+      detail: l10n.t('Match this text against each entity’s name and description'),
     },
     {
       action: 'kinds',
       label: 'Kind',
       description: filter.kinds.length ? filter.kinds.join(', ') : ANY_VALUE_LABEL,
-      detail: 'Limit the result to one or more entity kinds',
+      detail: l10n.t('Limit the result to one or more entity kinds'),
     },
     {
       action: 'selector',
       label: 'Label selector',
       description: selector || ANY_VALUE_LABEL,
-      detail: 'Select on the entity’s catalog labels, category included',
+      detail: l10n.t('Select on the entity’s catalog labels, category included'),
     },
     {
       action: 'capabilities',
@@ -576,19 +588,19 @@ function facetRows(filter: CatalogFilter): FilterRow[] {
       description: filter.capabilities.length
         ? filter.capabilities.join(', ')
         : ANY_VALUE_LABEL,
-      detail: 'Keep plugins declaring any one of these capabilities',
+      detail: l10n.t('Keep plugins declaring any one of these capabilities'),
     },
     {
       action: 'pluginType',
       label: 'Plugin type',
       description: pluginType || ANY_VALUE_LABEL,
-      detail: 'Keep plugins attached at this socket',
+      detail: l10n.t('Keep plugins attached at this socket'),
     },
     {
       action: 'limit',
       label: 'Limit',
-      description: filter.limit === undefined ? 'no cap' : String(filter.limit),
-      detail: 'Cap how many results come back',
+      description: filter.limit === undefined ? l10n.t('no cap') : String(filter.limit),
+      detail: l10n.t('Cap how many results come back'),
     },
   ];
 }

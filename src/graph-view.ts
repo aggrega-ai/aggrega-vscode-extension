@@ -26,7 +26,6 @@ import {
   composeInsertionText,
   connectionContainerRequest,
   connectionNotDrawn,
-  connectionWords,
   fillSlot,
   insertionPositionInDocument,
   nameAttachment,
@@ -48,6 +47,8 @@ import {
 } from './connection-at-cursor';
 import { DaemonErrorRouting, WhoAsked, describeError } from './error-surfaces';
 import { reportGraphFailure } from './graph-failure';
+import { escapeHtml } from './html';
+import * as l10n from './l10n';
 import { RendersOnReady } from './readiness';
 import { CancellationSignal } from './cancellation';
 import { withCancellableProgress } from './progress';
@@ -170,6 +171,14 @@ export interface GraphView {
   shownRelease(): string | null;
 }
 
+// NO_RELEASE_SHOWN_REASON and NO_RELEASE_SHOWN_SENTENCE say that the panel is
+// showing no Release yet, so nothing about its graph can be asked. The reason is
+// the lower-case clause a candidate list's failure is reported with; the sentence
+// stands on its own as an attachment's outcome. Each is written once here and
+// reached from every question the panel can be asked before it shows a Release.
+const NO_RELEASE_SHOWN_REASON = l10n.t('this panel is not showing a Release yet.');
+const NO_RELEASE_SHOWN_SENTENCE = l10n.t('This panel is not showing a Release yet.');
+
 // activateGraphView registers the topology-graph command, and the attach from a
 // connection's entry in a document, which ends in the same panel. A single panel
 // is reused across invocations so re-running either refreshes the existing view
@@ -237,7 +246,7 @@ export function activateGraphView(context: vscode.ExtensionContext, deps: GraphD
     if (!panel || !toPanel) {
       const created = vscode.window.createWebviewPanel(
         'aggrega.graph',
-        'Aggrega Graph',
+        l10n.t('Aggrega Graph'),
         vscode.ViewColumn.Active,
         {
           enableScripts: true,
@@ -293,7 +302,7 @@ export function activateGraphView(context: vscode.ExtensionContext, deps: GraphD
             if (!shownRelease) {
               toPanel.post({
                 type: 'attachCandidatesError', nodeId, requestId,
-                message: 'this panel is not showing a Release yet.',
+                message: NO_RELEASE_SHOWN_REASON,
               });
               return;
             }
@@ -307,7 +316,7 @@ export function activateGraphView(context: vscode.ExtensionContext, deps: GraphD
             const site = shownSites.get(nodeId);
             if (!site) {
               postAttachOutcome(toPanel, { nodeId },
-                `${nodeId} is not on the graph this panel drew.`, false);
+                l10n.t('{0} is not on the graph this panel drew.', nodeId), false);
               return;
             }
             // The Release asked about is the one this panel's graph was drawn
@@ -317,7 +326,7 @@ export function activateGraphView(context: vscode.ExtensionContext, deps: GraphD
             // different graph.
             if (!shownRelease) {
               postAttachOutcome(toPanel, { nodeId },
-                'This panel is not showing a Release yet.', false);
+                NO_RELEASE_SHOWN_SENTENCE, false);
               return;
             }
             void attachFeature(toPanel, deps, site, featureName, shownRelease);
@@ -329,7 +338,7 @@ export function activateGraphView(context: vscode.ExtensionContext, deps: GraphD
             if (!shownRelease) {
               toPanel.post({
                 type: 'attachCandidatesError', nodeId, requestId,
-                message: 'this panel is not showing a Release yet.',
+                message: NO_RELEASE_SHOWN_REASON,
               });
               return;
             }
@@ -349,7 +358,7 @@ export function activateGraphView(context: vscode.ExtensionContext, deps: GraphD
             }
             if (!shownRelease) {
               postAttachOutcome(toPanel, about,
-                'This panel is not showing a Release yet.', false);
+                NO_RELEASE_SHOWN_SENTENCE, false);
               return;
             }
             // A connection selected from its entry in a document is written in
@@ -385,7 +394,7 @@ export function activateGraphView(context: vscode.ExtensionContext, deps: GraphD
   // graph could not be built, a failure the render has already reported.
   const showRelease = async (release: string): Promise<boolean> => {
     const { shown, delivery } = openPanel();
-    shown.title = `Aggrega Graph — ${release}`;
+    shown.title = l10n.t('Aggrega Graph — {0}', release);
     shownRelease = release;
     let sent = false;
     await renderGraph(delivery, deps, redact, release, (graph) => {
@@ -536,7 +545,7 @@ async function renderGraph(
     const answer = opts.quiet
       ? await deps.requestIrGraph(request)
       : await withCancellableProgress(
-        `Aggrega: building the topology of ${release}`,
+        l10n.t('Aggrega: building the topology of {0}', release),
         (signal) => deps.requestIrGraph(request, signal),
       );
     const graph = redact(answer, showsSensitiveValues);
@@ -594,7 +603,7 @@ async function attachFeature(
   await writeAttachment(toPanel, deps, {
     container: attachmentContainerRequest(site, release),
     entryName: named.instanceName,
-    subject: site.nodeId,
+    connection: null,
     about,
   }, featureName);
 }
@@ -630,19 +639,23 @@ async function attachToConnection(
   await writeAttachment(toPanel, deps, {
     container: connectionContainerRequest(site, release),
     entryName: named.instanceName,
-    subject: `the ${connectionWords(site.source, site)}`,
+    connection: { socket: site.socket, alias: site.alias },
     about,
   }, featureName);
 }
 
 // AttachTarget is one attach as the writer is handed it: the question asking
-// where its container is, the name its entry is written under, how the thing
-// attached to is named on the output channel and in the line reporting a made
-// attach, and what the outcome is about.
+// where its container is, the name its entry is written under, the connection
+// attached to — null for an attach to the node itself — and what the outcome is
+// about.
+//
+// The output channel and the line reporting a made attach name the node, or the
+// connection, each in whole sentences of their own, naming a connection as
+// attachment-edit.ts says every sentence does.
 interface AttachTarget {
   container: AttachmentContainerRequest;
   entryName: string;
-  subject: string;
+  connection: ConnectionNames | null;
   about: OutcomeSubject;
 }
 
@@ -704,8 +717,7 @@ async function writeAttachment(
     );
     if (located === null) {
       postAttachOutcome(toPanel, about, attachRefusal(
-        'the compiler\'s answer about which document this belongs in is in a shape this cannot '
-        + 'apply.'), false);
+        l10n.t('the compiler\'s answer about which document this belongs in is in a shape this cannot apply.')), false);
       return;
     }
 
@@ -718,8 +730,7 @@ async function writeAttachment(
     const insertion = readInsertion(answer);
     if (insertion === null) {
       postAttachOutcome(toPanel, about, attachRefusal(
-        'the compiler\'s answer about where in that document this belongs is in a shape this '
-        + 'cannot apply.'), false);
+        l10n.t('the compiler\'s answer about where in that document this belongs is in a shape this cannot apply.')), false);
       return;
     }
     const shapeRefusal = refusesEntryShape(insertion);
@@ -739,9 +750,9 @@ async function writeAttachment(
     // rather than an error anybody sees.
     const at = insertionPositionInDocument(doc.getText(), insertion);
     if (at === null) {
-      postAttachOutcome(toPanel, about, attachRefusal(
-        `the position is reported in ${insertion.positionEncoding || 'unstated'} units, which `
-        + 'this cannot convert from.'), false);
+      postAttachOutcome(toPanel, about, attachRefusal(insertion.positionEncoding
+        ? l10n.t('the position is reported in {0} units, which this cannot convert from.', insertion.positionEncoding)
+        : l10n.t('the position is reported in unstated units, which this cannot convert from.')), false);
       return;
     }
 
@@ -753,7 +764,7 @@ async function writeAttachment(
     const edit = new vscode.WorkspaceEdit();
     edit.insert(uri, new vscode.Position(at.line, at.character), text);
     if (!(await vscode.workspace.applyEdit(edit))) {
-      postAttachOutcome(toPanel, about, 'The editor did not apply the edit.', false);
+      postAttachOutcome(toPanel, about, l10n.t('The editor did not apply the edit.'), false);
       return;
     }
 
@@ -767,16 +778,24 @@ async function writeAttachment(
     // uses a different width is owed the reason the new lines do not match it.
     const note = insertion.indentStepMeasured
       ? ''
-      : ' The document exhibits no nesting to measure, so a default indentation was used.';
-    deps.output.appendLine(
-      `attached ${featureName} to ${target.subject} as ${target.entryName} in ${insertion.file}`,
-    );
-    postAttachOutcome(toPanel, about,
-      `Attached ${featureName} to ${target.subject} as ${target.entryName}.${note}`, true);
+      : ` ${l10n.t('The document exhibits no nesting to measure, so a default indentation was used.')}`;
+    const { connection } = target;
+    const node = about.nodeId;
+    deps.output.appendLine(connection === null
+      ? l10n.t('attached {0} to {1} as {2} in {3}', featureName, node, target.entryName, insertion.file)
+      : l10n.t('attached {0} to the connection {1} through socket {2} of {3} as {4} in {5}',
+        featureName, connection.alias, connection.socket, node, target.entryName, insertion.file));
+    const made = connection === null
+      ? l10n.t('Attached {0} to {1} as {2}.', featureName, node, target.entryName)
+      : l10n.t('Attached {0} to the connection {1} through socket {2} of {3} as {4}.',
+        featureName, connection.alias, connection.socket, node, target.entryName);
+    postAttachOutcome(toPanel, about, `${made}${note}`, true);
   } catch (err) {
-    deps.output.appendLine(
-      `attaching ${featureName} to ${target.subject} failed: ${describeError(err)}`,
-    );
+    const { connection } = target;
+    deps.output.appendLine(connection === null
+      ? l10n.t('attaching {0} to {1} failed: {2}', featureName, about.nodeId, describeError(err))
+      : l10n.t('attaching {0} to the connection {1} through socket {2} of {3} failed: {4}',
+        featureName, connection.alias, connection.socket, about.nodeId, describeError(err)));
     postAttachOutcome(toPanel, about, attachFailureLine(err), false);
   }
 }
@@ -816,7 +835,7 @@ function postAttachOutcome(
 function reportConnectionAtCursorFailure(deps: GraphDeps, err: unknown, release: string): void {
   const routed = deps.reportDaemonError(err, release, 'reader');
   const message = describeError(err);
-  deps.output.appendLine(`aggrega/connectionAtPosition failed: ${message}`);
+  deps.output.appendLine(l10n.t('aggrega/connectionAtPosition failed: {0}', message));
   if (routed !== 'notified') {
     void vscode.window.showErrorMessage(message);
   }
@@ -831,14 +850,15 @@ async function openSource(workspaceRoot: string, sourceFile: string): Promise<vo
     );
     await vscode.window.showTextDocument(doc, { preview: true });
   } catch {
-    void vscode.window.showWarningMessage(`Aggrega: cannot open ${sourceFile}.`);
+    void vscode.window.showWarningMessage(l10n.t('Aggrega: cannot open {0}.', sourceFile));
   }
 }
 
 // graphHtml builds the webview document: a strict CSP allowing only the
 // nonce'd inline bootstrap plus the five local scripts (elk bundle + the
 // layout model + the attachment projection + the candidate projection + the
-// graph renderer), served through webview-scoped URIs.
+// graph renderer), served through webview-scoped URIs. Its own words are looked
+// up and escaped, so a translation is written into the document as text.
 function graphHtml(webview: vscode.Webview, extensionUri: vscode.Uri): string {
   const nonce = makeNonce();
   const elkUri = webview.asWebviewUri(
@@ -869,10 +889,10 @@ function graphHtml(webview: vscode.Webview, extensionUri: vscode.Uri): string {
   <meta http-equiv="Content-Security-Policy" content="${csp}">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link href="${styleUri}" rel="stylesheet">
-  <title>Aggrega Graph</title>
+  <title>${escapeHtml(l10n.t('Aggrega Graph'))}</title>
 </head>
 <body>
-  <div id="status" class="status">Select a Release to render its topology.</div>
+  <div id="status" class="status">${escapeHtml(l10n.t('Select a Release to render its topology.'))}</div>
   <svg id="canvas" xmlns="http://www.w3.org/2000/svg"></svg>
   <!-- The layout has to size every box around the text it will hold, and it
        runs before any of the graph is in the document. This text element is in
@@ -887,7 +907,7 @@ function graphHtml(webview: vscode.Webview, extensionUri: vscode.Uri): string {
   <aside id="panel" class="panel hidden">
     <header class="panel-head">
       <span id="panel-title" class="panel-title"></span>
-      <button id="panel-close" class="panel-close" title="Close">✕</button>
+      <button id="panel-close" class="panel-close" title="${escapeHtml(l10n.t('Close'))}">✕</button>
     </header>
     <div id="panel-body" class="panel-body"></div>
   </aside>

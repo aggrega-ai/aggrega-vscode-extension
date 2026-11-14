@@ -17,6 +17,8 @@
 // against is silent: the reader would meet a refusal for a combination they
 // never authored and cannot see.
 
+import * as l10n from './l10n';
+
 // AUTO_PULL_DIAL is the parameter the dependency-resolving adjustment composes.
 //
 // It is the compiler's own name for that parameter, carried through verbatim,
@@ -60,9 +62,8 @@ export interface BuildDial {
 export const BUILD_DIALS: BuildDial[] = [
   {
     id: AUTO_PULL_DIAL,
-    label: 'Auto pull',
-    detail: "Resolve the Release's dependencies into the lockfile before rendering, "
-      + 'then build against them',
+    label: l10n.t('Auto pull'),
+    detail: l10n.t("Resolve the Release's dependencies into the lockfile before rendering, then build against them"),
   },
 ];
 

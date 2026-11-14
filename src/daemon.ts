@@ -17,6 +17,7 @@ import { Settings } from './settings';
 import { extractServerInitMetadata } from './init-metadata';
 import { CancellationSignal, OperationCancelled } from './cancellation';
 import { DaemonState } from './daemon-state';
+import * as l10n from './l10n';
 import { StartFailure, startFailureReason, startFailureWords } from './start-failure';
 
 // buildServeArgs assembles the argv for `aggrega serve` from the
@@ -108,19 +109,19 @@ const STARTUP_QUEUE_LIMIT = 100;
 // what makes a claim about how a daemon stopped assertable without timing it.
 export const ShutdownNarration = {
   // The first request: stop accepting work, finish what is in flight, exit.
-  cooperativeRequest: 'asking the daemon to exit cooperatively',
+  cooperativeRequest: l10n.t('asking the daemon to exit cooperatively'),
   // The daemon answered that first request within its grace window.
-  cooperativeExit: 'the daemon exited cooperatively',
+  cooperativeExit: l10n.t('the daemon exited cooperatively'),
   // The grace window closed with the daemon still working, so it is asked
   // again — this time to give up the work rather than finish it.
-  abandonRequest: 'the daemon is still working; asking it to abandon in-flight work',
+  abandonRequest: l10n.t('the daemon is still working; asking it to abandon in-flight work'),
   // The daemon answered the second request.
-  abandonedExit: 'the daemon exited after abandoning in-flight work',
+  abandonedExit: l10n.t('the daemon exited after abandoning in-flight work'),
   // No cooperative answer is coming, or none was asked for: the process is
   // taken down by the operating system instead.
-  osTermination: 'the daemon is still running; terminating it at the operating-system level',
+  osTermination: l10n.t('the daemon is still running; terminating it at the operating-system level'),
   // Even that was not honored within its grace window.
-  forcedTermination: 'the daemon did not stop; forcing termination',
+  forcedTermination: l10n.t('the daemon did not stop; forcing termination'),
 } as const;
 
 // RespawnNarration is what the client writes to the output channel while it
@@ -137,17 +138,19 @@ export const ShutdownNarration = {
 export const RespawnNarration = {
   // The server ended while nothing had asked it to.
   ended: (code: number | null, signal: NodeJS.Signals | null): string =>
-    `the language server stopped unexpectedly: ${exitWords(code, signal)}`,
+    l10n.t('the language server stopped unexpectedly: {0}', exitWords(code, signal)),
   // It is started again; `made` counts this restart among those made within
   // the window.
   restarting: (made: number, limit: number, windowSeconds: number): string =>
-    `starting the language server again: restart ${made} of ${limit} allowed within ${windowSeconds} seconds`,
+    l10n.t('starting the language server again: restart {0} of {1} allowed within {2} seconds', made, limit, windowSeconds),
   // A server started again ended, or failed, before it answered.
   restartFailed: (reason: string): string =>
-    `the language server started again did not come up: ${reason}`,
-  // The bound is spent, so nothing starts the server again by itself.
-  boundSpent: (limit: number, windowSeconds: number): string =>
-    `not starting the language server again: it has been started again ${limit} ${limit === 1 ? 'time' : 'times'} within ${windowSeconds} seconds, as many as aggrega.server.respawnAttempts allows`,
+    l10n.t('the language server started again did not come up: {0}', reason),
+  // The bound is spent, so nothing starts the server again by itself. One
+  // message for one restart and one for several, as the counts are worded.
+  boundSpent: (limit: number, windowSeconds: number): string => (limit === 1
+    ? l10n.t('not starting the language server again: it has been started again 1 time within {0} seconds, as many as aggrega.server.respawnAttempts allows', windowSeconds)
+    : l10n.t('not starting the language server again: it has been started again {0} times within {1} seconds, as many as aggrega.server.respawnAttempts allows', limit, windowSeconds)),
 } as const;
 
 // StartNarration is what the client writes to the output channel when an attempt
@@ -160,15 +163,15 @@ export const RespawnNarration = {
 // above are.
 export const StartNarration = {
   failed: (failure: StartFailure): string =>
-    `the language server did not start: ${startFailureReason(failure)}`,
+    l10n.t('the language server did not start: {0}', startFailureReason(failure)),
 } as const;
 
 // exitWords says how a subprocess ended, in the terms the operating system
 // reported it.
 function exitWords(code: number | null, signal: NodeJS.Signals | null): string {
-  if (signal !== null) { return `it was ended by ${signal}`; }
-  if (code !== null) { return `it exited with code ${code}`; }
-  return 'it exited';
+  if (signal !== null) { return l10n.t('it was ended by {0}', signal); }
+  if (code !== null) { return l10n.t('it exited with code {0}', code); }
+  return l10n.t('it exited');
 }
 
 // RespawnTracker counts the respawns made within a sliding window and reports
@@ -383,7 +386,7 @@ export class Daemon extends EventEmitter {
 
   async start(workspaceRoot: string): Promise<void> {
     if (this.state !== DaemonState.Stopped) {
-      throw new Error(`cannot start: state is ${this.state}`);
+      throw new Error(l10n.t('cannot start: state is {0}', this.state));
     }
     this.workspaceRoot = workspaceRoot;
     await this.spawnAndInitialize();
@@ -395,7 +398,7 @@ export class Daemon extends EventEmitter {
       return;
     }
     this.setState(DaemonState.Stopping);
-    this.rejectPending(new Error('daemon shutting down'));
+    this.rejectPending(new Error(l10n.t('daemon shutting down')));
     await this.terminateSubprocess(/*cooperative=*/ true);
     this.setState(DaemonState.Stopped);
   }
@@ -406,7 +409,7 @@ export class Daemon extends EventEmitter {
   async restart(): Promise<void> {
     this.generation++;
     this.setState(DaemonState.Restarting);
-    this.rejectPending(new Error('daemon restarted'));
+    this.rejectPending(new Error(l10n.t('daemon restarted')));
     await this.terminateSubprocess();
     this.respawnTracker.reset();
     await this.spawnAndInitialize();
@@ -442,11 +445,11 @@ export class Daemon extends EventEmitter {
       switch (this.state) {
         case DaemonState.Stopped:
         case DaemonState.Stopping:
-          reject(new Error(`daemon is ${this.state}`));
+          reject(new Error(l10n.t('daemon is {0}', this.state)));
           return;
         case DaemonState.Starting: {
           if (this.startupQueue.length >= STARTUP_QUEUE_LIMIT) {
-            reject(new Error('daemon startup queue overflow'));
+            reject(new Error(l10n.t('daemon startup queue overflow')));
             return;
           }
           const queued: QueuedRequest = {
@@ -474,7 +477,7 @@ export class Daemon extends EventEmitter {
           return;
         }
         case DaemonState.Restarting:
-          reject(new Error('daemon is restarting; retry after restart completes'));
+          reject(new Error(l10n.t('daemon is restarting; retry after restart completes')));
           return;
         case DaemonState.Running:
           this.dispatch(method, params, wrappedResolve, wrappedReject, signal);
@@ -632,6 +635,8 @@ export class Daemon extends EventEmitter {
     };
     proc.stdout.on('data', whileCurrent((chunk: Buffer) => this.handleStdoutChunk(chunk)));
     proc.stderr.on('data', (chunk: Buffer) => {
+      // The tag names the command and the stream the line came from, so it is not
+      // translated; the line itself is the compiler's.
       this.log(`[aggrega serve stderr] ${chunk.toString('utf8').trimEnd()}`);
     });
     proc.on('exit', whileCurrent((code: number | null, signal: NodeJS.Signals | null) => this.handleExit(code, signal)));
@@ -676,7 +681,7 @@ export class Daemon extends EventEmitter {
     const result = await new Promise<unknown>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
-        reject(new Error('initialize timeout'));
+        reject(new Error(l10n.t('initialize timeout')));
       }, INITIALIZE_TIMEOUT_MS);
       this.pending.set(id, {
         resolve: v => { clearTimeout(timer); resolve(v); },
@@ -686,7 +691,7 @@ export class Daemon extends EventEmitter {
     });
     const encoding = extractServerEncoding(result);
     if (encoding === null) {
-      this.log('initialize response missing capabilities.positionEncoding; defaulting to UTF-16');
+      this.log(l10n.t('initialize response missing capabilities.positionEncoding; defaulting to UTF-16'));
       this.serverEncoding = 'utf-16';
     } else {
       this.serverEncoding = encoding;
@@ -702,7 +707,7 @@ export class Daemon extends EventEmitter {
     signal?: CancellationSignal,
   ): void {
     if (!this.proc) {
-      reject(new Error('no subprocess'));
+      reject(new Error(l10n.t('no subprocess')));
       return;
     }
     if (signal?.isCancellationRequested) {
@@ -786,7 +791,7 @@ export class Daemon extends EventEmitter {
       const header = this.readBuffer.subarray(0, headerEnd).toString('ascii');
       const m = /Content-Length: (\d+)/i.exec(header);
       if (!m) {
-        this.log(`malformed JSON-RPC header: ${header}`);
+        this.log(l10n.t('malformed JSON-RPC header: {0}', header));
         this.readBuffer = Buffer.alloc(0);
         return;
       }
@@ -803,7 +808,7 @@ export class Daemon extends EventEmitter {
           this.handleResponse(parsed as JsonRpcResponse);
         }
       } catch (err) {
-        this.log(`failed to parse JSON-RPC body: ${(err as Error).message}`);
+        this.log(l10n.t('failed to parse JSON-RPC body: {0}', (err as Error).message));
       }
     }
   }

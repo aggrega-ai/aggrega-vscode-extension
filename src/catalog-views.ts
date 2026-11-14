@@ -18,6 +18,7 @@ import {
   splitValueList,
 } from './catalog-search-run';
 import { describeError } from './error-surfaces';
+import * as l10n from './l10n';
 import { NO_ANCHORED_WORKSPACE_MESSAGE } from './workspace';
 
 // CatalogDeps supplies the live state the published-catalog search needs: the
@@ -63,8 +64,10 @@ async function searchPublished(deps: CatalogDeps, kept: KeptFilter): Promise<voi
           action: row.action,
         })),
         {
-          title: 'Aggrega: search published catalog',
-          placeHolder: 'Narrow the search, then choose Search',
+          title: l10n.t('Aggrega: search published catalog'),
+          // The placeholder spells RUN_ROW_LABEL (catalog-search-run.ts) inside
+          // its own sentence, so a change to the row's label finds it here.
+          placeHolder: l10n.t('Narrow the search, then choose Search'),
           ignoreFocusOut: true,
         },
       );
@@ -119,8 +122,8 @@ async function editFacet(filter: CatalogFilter, action: FacetAction): Promise<vo
   switch (action) {
     case 'query': {
       const value = await vscode.window.showInputBox({
-        title: 'Aggrega: query',
-        prompt: 'Matched against each entity’s name and description. Leave empty to match any.',
+        title: l10n.t('Aggrega: query'),
+        prompt: l10n.t('Matched against each entity’s name and description. Leave empty to match any.'),
         value: filter.query ?? '',
         ignoreFocusOut: true,
       });
@@ -132,8 +135,8 @@ async function editFacet(filter: CatalogFilter, action: FacetAction): Promise<vo
       const chosen = await vscode.window.showQuickPick(
         ENTITY_KINDS.map((kind) => ({ label: kind, picked: filter.kinds.includes(kind) })),
         {
-          title: 'Aggrega: entity kinds',
-          placeHolder: 'Select kinds to narrow to — selecting none matches any kind',
+          title: l10n.t('Aggrega: entity kinds'),
+          placeHolder: l10n.t('Select kinds to narrow to — selecting none matches any kind'),
           canPickMany: true,
           ignoreFocusOut: true,
         },
@@ -144,9 +147,9 @@ async function editFacet(filter: CatalogFilter, action: FacetAction): Promise<vo
     }
     case 'selector': {
       const value = await vscode.window.showInputBox({
-        title: 'Aggrega: label selector',
+        title: l10n.t('Aggrega: label selector'),
         prompt:
-          'Selector over the entity’s catalog labels. Category is a label: component.aggrega.ai/category=compute',
+          l10n.t('Selector over the entity’s catalog labels. Category is a label: component.aggrega.ai/category=compute'),
         value: filter.selector ?? '',
         ignoreFocusOut: true,
       });
@@ -156,8 +159,8 @@ async function editFacet(filter: CatalogFilter, action: FacetAction): Promise<vo
     }
     case 'capabilities': {
       const value = await vscode.window.showInputBox({
-        title: 'Aggrega: plugin capabilities',
-        prompt: 'One or more capabilities, comma-separated. A plugin declaring any one is kept.',
+        title: l10n.t('Aggrega: plugin capabilities'),
+        prompt: l10n.t('One or more capabilities, comma-separated. A plugin declaring any one is kept.'),
         value: filter.capabilities.join(', '),
         ignoreFocusOut: true,
       });
@@ -167,8 +170,8 @@ async function editFacet(filter: CatalogFilter, action: FacetAction): Promise<vo
     }
     case 'pluginType': {
       const value = await vscode.window.showInputBox({
-        title: 'Aggrega: plugin type',
-        prompt: 'The socket a plugin is attached at, for example provider, governance, linter.',
+        title: l10n.t('Aggrega: plugin type'),
+        prompt: l10n.t('The socket a plugin is attached at, for example provider, governance, linter.'),
         value: filter.pluginType ?? '',
         ignoreFocusOut: true,
       });
@@ -178,8 +181,8 @@ async function editFacet(filter: CatalogFilter, action: FacetAction): Promise<vo
     }
     case 'limit': {
       const value = await vscode.window.showInputBox({
-        title: 'Aggrega: limit',
-        prompt: 'How many results at most. Leave empty for no cap.',
+        title: l10n.t('Aggrega: limit'),
+        prompt: l10n.t('How many results at most. Leave empty for no cap.'),
         value: filter.limit === undefined ? '' : String(filter.limit),
         ignoreFocusOut: true,
         // Validating here keeps a typo from becoming a cap that silently hides
@@ -211,14 +214,14 @@ async function offerMatches(rows: CatalogRow[]): Promise<void> {
       uri: row.uri,
     })),
     {
-      placeHolder: `${rows.length} match(es) — select to copy the reference`,
+      placeHolder: l10n.t('{0} match(es) — select to copy the reference', rows.length),
       matchOnDescription: true,
       matchOnDetail: true,
     },
   );
   if (!pick) { return; }
   await vscode.env.clipboard.writeText(pick.uri);
-  void vscode.window.showInformationMessage(`Aggrega: copied ${pick.uri}`);
+  void vscode.window.showInformationMessage(l10n.t('Aggrega: copied {0}', pick.uri));
 }
 
 // activateCatalogViews registers the published-catalog search command. Command
@@ -235,7 +238,7 @@ export function activateCatalogViews(context: vscode.ExtensionContext, deps: Cat
       void searchPublished(deps, kept).then(undefined, (err) => {
         // Forensic catch: a rejection from the filter list or the clipboard
         // would otherwise vanish with no trace of why the search stopped.
-        deps.output.appendLine(`search failed: ${describeError(err)}`);
+        deps.output.appendLine(l10n.t('search failed: {0}', describeError(err)));
       });
     }),
   );

@@ -10,6 +10,7 @@ import {
   OPEN_DECLARING_DOCUMENT_ACTION,
   inspectionEnding,
 } from './inspection-request';
+import * as l10n from './l10n';
 import { outcomeOf } from './operation-outcome';
 import { openDocument } from './open-document';
 import { withCancellableProgress } from './progress';
@@ -38,7 +39,7 @@ export interface InspectionDeps extends OutcomeChannel {
 export async function inspectEntity(deps: InspectionDeps, name: string): Promise<void> {
   try {
     const result = await withCancellableProgress(
-      `Aggrega: inspecting ${name}`,
+      l10n.t('Aggrega: inspecting {0}', name),
       (signal) => deps.entityDefinition(name, signal),
     );
     await openDocument(JSON.stringify(result, null, 2), 'json');
@@ -82,6 +83,6 @@ async function openDeclaringDocument(deps: OutcomeChannel, document: DeclaringDo
       );
     await vscode.window.showTextDocument(doc, { preview: false, selection });
   } catch (err) {
-    await reportOutcome(deps, `Opening ${document.file}`, outcomeOf(err), true);
+    await reportOutcome(deps, l10n.t('Opening {0}', document.file), outcomeOf(err), true);
   }
 }

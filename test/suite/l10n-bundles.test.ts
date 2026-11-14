@@ -106,6 +106,23 @@ describe('the extension speaks the docs site\'s languages', () => {
     );
   });
 
+  it('names a connection in every message in the one order the compiler\'s refusals use', () => {
+    // Every sentence naming a connection writes the alias, the socket and the node
+    // inside its own message, in the order the compiler's own refusals name them:
+    // "the connection {alias} through socket {socket} of {node}". The sentences sit
+    // in several modules, so the order is held here, over every message the
+    // sources send, rather than by a list of those modules kept in a comment.
+    // 🔴 PLANTED DEFECT: write "through socket {1} of {2} the connection {0}" in
+    // any message, or drop "of {2}" from one, and this reddens naming it.
+    const { messages } = generator.collectMessages();
+    const naming = messages.filter((message) => message.includes('through socket'));
+    assert.ok(naming.length > 0, 'no message names a connection, so the reading below measures nothing');
+    const form = /[Tt]he connection \{\d+\} through socket \{\d+\} of \{\d+\}/g;
+    const departing = naming.filter((message) =>
+      (message.match(form) ?? []).length !== message.split('through socket').length - 1);
+    assert.deepStrictEqual(departing, [], 'a message names a connection in another order or shape');
+  });
+
   it('lets the lookup reach the editor through one load of the editor module, and reach nothing else', () => {
     // 🔴 THE CENSUSES THAT ADMIT TEXT_LOOKUP BY NAME REST ON THIS, AND THIS IS THE
     // ONE PLACE IT IS CHECKED. A module held to

@@ -5,11 +5,15 @@
 // folder to it: whether the add puts the window on a new workspace, and what the
 // add costs the reader.
 //
-// 🔴 IT IMPORTS NOTHING, AND THAT IS WHY IT IS A MODULE OF ITS OWN. Two modules
+// 🔴 IT IMPORTS NOTHING BUT THE TEXT LOOKUP, AND THAT IS WHY IT IS A MODULE OF ITS
+// OWN. Two modules
 // draw a line offering an add — the Project folder row's chooser and the Aggrega
 // workspace row's chooser — and the first already imports the second. Held in
 // either of them, the grading would make the two import each other; held here,
-// each imports it and neither needs the other.
+// each imports it and neither needs the other. Its one import is the text
+// lookup, which reaches no module of the extension.
+
+import * as l10n from './l10n';
 
 // WindowKind is what the editor says about a window that decides what adding a
 // folder to it costs.
@@ -29,7 +33,7 @@ export interface WindowKind {
 // WINDOW_RELOADS is how an entry's second line names a reload, whichever entry it
 // is: the open entry's always, and an add's where the window is remote. Written
 // once so no two entries can come to name one consequence in two ways.
-export const WINDOW_RELOADS = 'The window reloads.';
+export const WINDOW_RELOADS = l10n.t('The window reloads.');
 
 // addingMakesNewWorkspace reports whether adding a folder to this kind of window
 // puts the window on a workspace it was not on before.
@@ -68,6 +72,6 @@ export function addingMakesNewWorkspace(windowKind: WindowKind): boolean {
 // true.
 export function withAddingCost(line: string, windowKind: WindowKind): string {
   if (!addingMakesNewWorkspace(windowKind)) { return line; }
-  const cost = windowKind.remote ? WINDOW_RELOADS : 'Extensions restart.';
+  const cost = windowKind.remote ? WINDOW_RELOADS : l10n.t('Extensions restart.');
   return `${line} ${cost}`;
 }

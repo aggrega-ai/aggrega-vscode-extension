@@ -2,8 +2,8 @@
 // Copyright 2026 Cognitio s.r.l.
 
 import * as path from 'path';
+import * as l10n from './l10n';
 import { AnchoredFolder, FolderLike, workspaceRootOf } from './workspace';
-import { SELECTOR_ROW_LABELS } from './selector-levels';
 import { distinguishingLabel } from './uri-display';
 import { WindowKind, withAddingCost } from './window-kind';
 
@@ -197,8 +197,13 @@ export function buildPickerItems<F extends FolderLike>(
 // together. Three surfaces offer this one choice — the selector row, the
 // status-bar prompt, and the chooser itself — and a reader who reaches it from
 // one must not be told something different by another.
+//
+// This sentence and the four after it spell SELECTOR_ROW_LABELS.workspace
+// (selector-levels.ts) inside their own messages rather than taking it as a
+// placeholder: the level's name is a noun in each, so a translation has to give
+// it the article and case its sentence needs.
 export const CHOOSE_ANCHOR_INVITATION =
-  `Click to choose which ${SELECTOR_ROW_LABELS.workspace} the editor works in.`;
+  l10n.t('Click to choose which Aggrega workspace the editor works in.');
 
 // CHOOSE_ANCHOR_PLACEHOLDER is the same offer as the chooser's own placeholder.
 //
@@ -206,7 +211,7 @@ export const CHOOSE_ANCHOR_INVITATION =
 // instruction to click — the reader has already clicked — and takes the product
 // prefix every quick-pick in this extension carries.
 export const CHOOSE_ANCHOR_PLACEHOLDER =
-  `Aggrega: choose which ${SELECTOR_ROW_LABELS.workspace} the editor works in`;
+  l10n.t('Aggrega: choose which Aggrega workspace the editor works in');
 
 // CHOOSE_ANCHOR_ACTION is the same offer again, compressed to a control's own
 // label — the status-bar prompt, and the button on the activation notice.
@@ -216,7 +221,7 @@ export const CHOOSE_ANCHOR_PLACEHOLDER =
 // to "workspace": that word names the set of folders a window has open, and a
 // control read on its own, in a status bar or by a screen reader, has nothing
 // around it to settle which of the two is meant.
-export const CHOOSE_ANCHOR_ACTION = `Choose ${SELECTOR_ROW_LABELS.workspace}…`;
+export const CHOOSE_ANCHOR_ACTION = l10n.t('Choose Aggrega workspace…');
 
 // anchorsAvailableSentence reports how many Aggrega workspaces this window
 // reaches, for the two surfaces that say so before offering the choice.
@@ -225,7 +230,7 @@ export const CHOOSE_ANCHOR_ACTION = `Choose ${SELECTOR_ROW_LABELS.workspace}…`
 // findAllAnchoredFolders answers with; saying "folders" here would report a
 // number the reader cannot reconcile with the list they are about to be shown.
 export function anchorsAvailableSentence(count: number): string {
-  return `${count} ${SELECTOR_ROW_LABELS.workspace}s are available in this project.`;
+  return l10n.t('{0} Aggrega workspaces are available in this project.', count);
 }
 
 // WIDEN_ANCHOR_OFFER_DETAIL explains, on the offer's second line, what
@@ -236,7 +241,7 @@ export function anchorsAvailableSentence(count: number): string {
 // add costs is the second, and a surface drawing this alone would promise the
 // reach and leave out the restart.
 const WIDEN_ANCHOR_OFFER_DETAIL =
-  'Looks through the folders you have open for one Aggrega recognises, and adds it.';
+  l10n.t('Looks through the folders you have open for one Aggrega recognises, and adds it.');
 
 // widenAnchorOfferDetail is the offer's second line for this kind of window:
 // what taking it does, and what the add it ends in costs where it costs
@@ -258,8 +263,8 @@ export function widenAnchorOfferDetail(windowKind: WindowKind): string {
 // that implies a folder the reader does not have.
 export function widenAnchorOfferLabel(anchoredCount: number): string {
   return anchoredCount === 0
-    ? 'Choose a folder Aggrega recognises…'
-    : 'Choose another folder Aggrega recognises…';
+    ? l10n.t('Choose a folder Aggrega recognises…')
+    : l10n.t('Choose another folder Aggrega recognises…');
 }
 
 // AnchorOffer is one entry in what the Aggrega workspace row opens when
@@ -331,7 +336,7 @@ export function anchorOffers<F extends FolderLike>(
 // can share a basename, which is the very collision the folder picker above
 // disambiguates, and a message is read without the picker's side-by-side context.
 export function anchorSwitchMessage(workspaceRoot: string): string {
-  return `Aggrega: now working in ${workspaceRoot}. The language server is restarting there.`;
+  return l10n.t('Aggrega: now working in {0}. The language server is restarting there.', workspaceRoot);
 }
 
 // activeWorkspaceLabel renders the status-bar text for an attached language

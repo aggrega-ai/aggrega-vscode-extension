@@ -16,6 +16,7 @@ import {
 import { terminalLine } from '../../src/operation-outcome';
 import {
   EXTENSION_ROOT,
+  TEXT_LOOKUP,
   WIRE_CONTRACT,
   typeOnlyImports,
   valueImports,
@@ -339,9 +340,10 @@ describe('the removal reaches the compiler without a launch', () => {
     // no code through them. Asserted separately below, because a reading that
     // folded the two together would let a later change from one kind to the other
     // pass unnoticed.
+    // The text lookup is admitted by name, for the reason TEXT_LOOKUP carries.
     assert.deepStrictEqual(
       valueImports('src/plugin-removal.ts'),
-      ['./config-change-watch', './config-write-scope', './operation-groups', './operation-outcome'],
+      ['./config-change-watch', './config-write-scope', TEXT_LOOKUP, './operation-groups', './operation-outcome'],
     );
     assert.deepStrictEqual(typeOnlyImports('src/plugin-removal.ts'), [WIRE_CONTRACT]);
   });

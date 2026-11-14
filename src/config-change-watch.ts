@@ -4,6 +4,7 @@
 import * as path from 'path';
 import type { TimerLike } from './binary-restart';
 import { describeError } from './error-text';
+import * as l10n from './l10n';
 
 // What a change to a configuration file means while a language server is
 // running, decided without an editor.
@@ -96,8 +97,7 @@ export type ConfigurationWriter = <T>(
 // server read has changed on disk: which file, and why the change is not yet in
 // force. The action beside it is the restart.
 export function configurationChangedWarning(file: string): string {
-  return `Aggrega: ${file} changed. The language server reads its configuration when it starts, `
-    + 'so restart it to pick up the change.';
+  return l10n.t('Aggrega: {0} changed. The language server reads its configuration when it starts, so restart it to pick up the change.', file);
 }
 
 // ownWriteRestartTitle is what the reader sees while the server is restarted
@@ -109,11 +109,11 @@ export function configurationChangedWarning(file: string): string {
 // naming that file, and a second notification for one act is a notification a
 // reader learns to dismiss unread.
 export function ownWriteRestartTitle(file: string): string {
-  return `Aggrega: restarting the language server so it reads ${file}`;
+  return l10n.t('Aggrega: restarting the language server so it reads {0}', file);
 }
 
 export function ownWriteRestartLine(file: string): string {
-  return `restarted the language server so it reads ${file}, which the change just made wrote.`;
+  return l10n.t('restarted the language server so it reads {0}, which the change just made wrote.', file);
 }
 
 // IN_EFFECT_SENTENCE is what the ending of a configuration write the extension
@@ -124,7 +124,7 @@ export function ownWriteRestartLine(file: string): string {
 // once, and the restart that put it in force has already said what it was doing
 // while it did it. Where the restart failed, or nothing was running to restart,
 // the sentence is not said, because the change is then on disk and not in force.
-export const IN_EFFECT_SENTENCE = 'The change is now in effect: the running language server has read it.';
+export const IN_EFFECT_SENTENCE = l10n.t('The change is now in effect: the running language server has read it.');
 
 // endingInEffect is the ending of a configuration write, with the sentence above
 // added where the write is in effect and nothing added where it is not.
@@ -145,13 +145,12 @@ export function endingInEffect(detail: string, inEffect: boolean): string {
 // the extension was writing configuration at the time.
 export function watchingLine(files: readonly string[]): string {
   return files.length === 0
-    ? 'the language server read no configuration file, so no configuration change is watched for.'
-    : `watching the configuration files the language server read: ${files.join(', ')}.`;
+    ? l10n.t('the language server read no configuration file, so no configuration change is watched for.')
+    : l10n.t('watching the configuration files the language server read: {0}.', l10n.series(files));
 }
 
 export function deferredChangeLine(file: string): string {
-  return `${file} changed while the extension was writing configuration; `
-    + 'the change is judged once the language server has read that write.';
+  return l10n.t('{0} changed while the extension was writing configuration; the change is judged once the language server has read that write.', file);
 }
 
 // ConfigurationWatchDeps is everything the watch reaches outside itself. Each is
@@ -233,7 +232,7 @@ export function createConfigurationWatch(deps: ConfigurationWatchDeps): Configur
   let loading: Promise<void> = Promise.resolve();
   const enqueue = (task: () => Promise<void>): Promise<void> => {
     chain = chain.then(task).catch((err: unknown) => {
-      deps.log(`the configuration files could not be watched: ${describeError(err)}`);
+      deps.log(l10n.t('the configuration files could not be watched: {0}', describeError(err)));
     });
     return chain;
   };

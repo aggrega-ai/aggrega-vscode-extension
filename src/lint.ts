@@ -4,6 +4,7 @@
 import * as vscode from 'vscode';
 import { CancellationSignal } from './cancellation';
 import { replaceLintFindings } from './diagnostics';
+import * as l10n from './l10n';
 import {
   CATALOG_WIDE,
   LintAnswer,
@@ -87,7 +88,7 @@ export function activateLint(context: vscode.ExtensionContext, deps: LintDeps): 
   // keeps the two from presenting differently for a difference neither of them
   // can see.
   return {
-    run: () => withCancellableProgress('Aggrega: checking publishing conventions', (signal) =>
+    run: () => withCancellableProgress(l10n.t('Aggrega: checking publishing conventions'), (signal) =>
       runLint(runDeps, CATALOG_WIDE, signal),
     ),
     runEntity: (entityPath) => {
@@ -96,7 +97,7 @@ export function activateLint(context: vscode.ExtensionContext, deps: LintDeps): 
       // that would then have to explain itself.
       const subject = entityLintSubject(entityPath);
       return withCancellableProgress(
-        `Aggrega: checking the publishing conventions for ${entityPath}`,
+        l10n.t('Aggrega: checking the publishing conventions for {0}', entityPath),
         (signal) => runLint(runDeps, subject, signal),
       );
     },

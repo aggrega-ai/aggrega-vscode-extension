@@ -44,6 +44,7 @@ import { REGISTRY_ADD_COMMAND } from '../../src/registry-configure';
 import { SELECTOR_ROW_DRAWN_LABELS, SELECTOR_ROW_KEYS, SELECTOR_ROW_LABELS } from '../../src/selector-levels';
 import { functionBody } from '../helpers/anchoring-census';
 import {
+  TEXT_LOOKUP,
   WIRE_CONTRACT,
   assertCensusInstrumentFires,
   launchFacilityCount,
@@ -1002,17 +1003,18 @@ describe('the welcome panel', () => {
         for (const value of values) {
           assert.strictEqual(
             value.lead,
-            VALUE_LEAD_IN,
+            `${VALUE_LEAD_IN} `,
             `${id} draws a chosen value with nothing introducing it`,
           );
         }
       }
-      // It ends in a separator of its own rather than relying on the markup to
-      // put one there: the two run together in the document, and a lead-in
-      // that did not carry the gap would read as part of the path beside it.
+      // The lead-in's span carries the gap after its words, asserted above: the
+      // two run together in the document, and a lead-in that did not carry the
+      // gap would read as part of the path beside it. The gap is the markup's
+      // and not the words', so a translation of them carries no layout space.
       assert.ok(
-        VALUE_LEAD_IN.endsWith(' '),
-        'the words introducing the value run straight into it',
+        !VALUE_LEAD_IN.endsWith(' '),
+        'the words introducing the value carry the gap the markup puts after them',
       );
       for (const one of EMPTY_READINGS) {
         const html = stepsHtml(stepReadings({ ...EVERYTHING_MET, ...one.facts }), []);
@@ -2837,7 +2839,7 @@ describe('the welcome panel seeds a configuration without starting a process', (
     // pass unnoticed.
     assert.deepStrictEqual(
       valueImports('src/config-seeding.ts'),
-      ['./config-change-watch', './config-write-scope', './operation-outcome', './registration-outcome'],
+      ['./config-change-watch', './config-write-scope', TEXT_LOOKUP, './operation-outcome', './registration-outcome'],
     );
     assert.deepStrictEqual(typeOnlyImports('src/config-seeding.ts'), [WIRE_CONTRACT]);
     assert.strictEqual(launchFacilityCount('src/config-seeding.ts'), 0);

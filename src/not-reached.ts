@@ -2,6 +2,7 @@
 // Copyright 2026 Cognitio s.r.l.
 
 import { isJsonRpcError } from './error-text';
+import * as l10n from './l10n';
 
 // This module is the one wording of a registry the compiler could not reach, and
 // the one reading of a refusal that says so.
@@ -17,14 +18,17 @@ import { isJsonRpcError } from './error-text';
 // fails as a refused connection rather than as a name that does not exist — and
 // the words are the compiler's to change.
 //
-// It imports nothing that can start a process or reach the editor, so every
-// sentence here is read back by a test exactly as a reader meets it.
+// It imports nothing that can start a process or reach the editor beyond the
+// text lookup, which answers the English itself where there is no editor, so
+// every sentence here is read back by a test exactly as a reader meets it.
 
 // couldNotBeReached is the sentence naming a registry the compiler could not
 // reach, followed by the compiler's own words for why. Where the answer carries
 // no words, the sentence ends at the fact.
 export function couldNotBeReached(registry: string, words: string | undefined): string {
-  return words ? `${registry} could not be reached: ${words}` : `${registry} could not be reached.`;
+  return words
+    ? l10n.t('{0} could not be reached: {1}', registry, words)
+    : l10n.t('{0} could not be reached.', registry);
 }
 
 // refusedAsNotReached says whether a refusal states, in its data, that the

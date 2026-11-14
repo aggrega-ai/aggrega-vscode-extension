@@ -49,6 +49,8 @@
 // opens with — is assertable without an extension host. What it reads from
 // elsewhere holds none either, which is what keeps that true.
 
+import { DAEMON_STANDING_WORDS } from './daemon-status';
+import * as l10n from './l10n';
 import { panelActionLabel } from './operation-groups';
 import { SELECT_RELEASE_COMMAND } from './release-selection';
 import { REGISTRY_ADD_COMMAND } from './registry-configure';
@@ -78,7 +80,7 @@ export const WELCOME_SHOW_SETTING = 'aggrega.getStarted.show';
 // WELCOME_PANEL_TITLE is the tab the panel opens in. It names Aggrega, because
 // a tab is read in a strip beside whatever else the reader has open and a title
 // that only said "Welcome" would not say whose.
-export const WELCOME_PANEL_TITLE = 'Welcome to Aggrega';
+export const WELCOME_PANEL_TITLE = l10n.t('Welcome to Aggrega');
 
 // WELCOME_VIEW_TYPE is the type the panel is drawn under, which is what tells the
 // editor's tabs holding it apart from every other page.
@@ -119,9 +121,14 @@ export function isWelcomePageTab(viewType: string): boolean {
 // the only one that can catch an edit HERE — a check that read the panel
 // against this constant alone would move both of its sides at once and pass a
 // paraphrase.
-export const WELCOME_GREETING = 'Welcome to Aggrega!';
+//
+// 🔴 A TRANSLATION OF THE DESCRIPTION IS THE TRANSLATED DOCUMENTATION'S OWN COPY,
+// for the same reason: in a language the documentation is published in, the
+// panel carries the description that documentation carries, character for
+// character, rather than a second translation of the English.
+export const WELCOME_GREETING = l10n.t('Welcome to Aggrega!');
 export const WELCOME_DESCRIPTION =
-  'Aggrega is an open-source compiler for AI-era architecture. Describe the components of an application and how they connect; Aggrega turns them, deterministically, into the deployment files that run it.';
+  l10n.t('Aggrega is an open-source compiler for AI-era architecture. Describe the components of an application and how they connect; Aggrega turns them, deterministically, into the deployment files that run it.');
 
 // StepId names one condition the extension needs before it can do the work it
 // is for.
@@ -243,8 +250,8 @@ export function stepMet(id: StepId, facts: GetStartedFacts): boolean {
 // Sharing one constant between the two would need a case-and-punctuation
 // transform at one of them, which is a second mechanic in place of a second
 // short string.
-export const VALUE_NONE_SELECTED = 'None selected.';
-export const VALUE_NONE_AVAILABLE = 'None available.';
+export const VALUE_NONE_SELECTED = l10n.t('None selected.');
+export const VALUE_NONE_AVAILABLE = l10n.t('None available.');
 
 // 🔴 THE REGISTRY STEP KEEPS A THIRD SENTENCE AND THE DISTINCTION IS
 // LOAD-BEARING. A configuration that names no registry and a question that
@@ -259,7 +266,7 @@ export const VALUE_NONE_AVAILABLE = 'None available.';
 // different shape: whether one is SELECTED is known there, and only what is on
 // offer is unread — so that step says nothing is selected and claims nothing
 // about what exists.
-export const REGISTRY_VALUE_UNREAD = 'Not read yet.';
+export const REGISTRY_VALUE_UNREAD = l10n.t('Not read yet.');
 
 // REGISTRY_SEPARATOR joins the registries a configuration names, because the
 // condition is satisfied by having one and a reader may have several. They are
@@ -462,6 +469,10 @@ export const WELCOME_SHOW_COMMAND = 'aggrega.getStarted.show';
 // SHOW_COMMAND_TITLE is how the way back is named in the command palette. The
 // dismissal is not a one-way door, and this is the door back; a conformance
 // assertion requires it to stay reachable there.
+//
+// It and the other command titles below are the manifest's own titles, which the
+// editor draws from the manifest and its translations; they are not looked up
+// here, because nothing draws them from this module.
 export const SHOW_COMMAND_TITLE = 'Aggrega: Get started';
 
 // WELCOME_OPEN_COMMAND opens the page and changes nothing else.
@@ -507,7 +518,7 @@ export const DISMISS_COMMAND_TITLE = 'Aggrega: Stop opening the welcome page on 
 // and says nothing leaves a reader with no way to find out that it can be
 // brought back.
 export const DISMISSED_CONFIRMATION =
-  `Aggrega: the welcome page will not open on startup again. Run "${SHOW_COMMAND_TITLE}" from the Command Palette to bring it back.`;
+  l10n.t('Aggrega: the welcome page will not open on startup again. Run "{0}" from the Command Palette to bring it back.', SHOW_COMMAND_TITLE);
 
 // StepAction is one way through a step: the words on the control, and the
 // command pressing it runs.
@@ -577,183 +588,201 @@ export interface StepContent {
 // not be written back in. What belongs there is the registries and their
 // signature trust policy, the compiled-module store's size, and the installed
 // command extensions — the settings that are the same wherever the reader works.
+//
+// 🔴 A SENTENCE NAMING ONE OF A STEP'S OWN CONTROLS TAKES THE CONTROL'S LABEL AS A
+// PLACEHOLDER, set in bold as the control's name. Each label is held once, below,
+// and read by both the control and the sentence, so a translation names the
+// control in the explanation exactly as the button reads. The same holds for the
+// words the status bar shows for the language server's state, which a sentence
+// here names as the reader will see them.
+const CREATE_WORKSPACE_LABEL = l10n.t('Create a workspace configuration');
+const CHOOSE_WORKSPACE_LABEL = l10n.t('Use a folder that already has one');
+const USE_COMPILER_ON_PATH_LABEL = l10n.t('Use the compiler on my PATH');
+const LOCATE_COMPILER_LABEL = l10n.t('Point at a compiler I have');
+const DRAFT_RELEASE_LABEL = l10n.t('Draft a Release');
+const CHOOSE_RELEASE_LABEL = l10n.t('Choose a Release I already have');
+const SEED_REGISTRY_LABEL = l10n.t('Seed the official hub');
+const SEED_NAMED_REGISTRY_LABEL = l10n.t('Seed a registry I name');
+const ADD_REGISTRY_LABEL = l10n.t('Add a registry to what I have');
+
 export const STEP_CONTENT: readonly StepContent[] = [
   {
     id: 'workspace',
-    title: 'A workspace Aggrega recognises',
+    title: l10n.t('A workspace Aggrega recognises'),
     summary:
-      'Aggrega reads one file at your project root — `.aggrega-config.yaml`, carrying a `workspace:` block — and climbs to find it, starting at the folder you opened.',
+      l10n.t('Aggrega reads one file at your project root — `.aggrega-config.yaml`, carrying a `workspace:` block — and climbs to find it, starting at the folder you opened.'),
     detail: [
       {
         paragraph:
-          'Every Aggrega operation runs against a **workspace root** — one folder that the compiler treats as the top of your project. It is where catalog directories are resolved from, where rendered artifacts are written, and what every path in a request is interpreted relative to.',
+          l10n.t('Every Aggrega operation runs against a **workspace root** — one folder that the compiler treats as the top of your project. It is where catalog directories are resolved from, where rendered artifacts are written, and what every path in a request is interpreted relative to.'),
       },
       {
         paragraph:
-          'Aggrega\'s own configuration is **two files, and most projects need nothing else**:',
+          l10n.t('Aggrega\'s own configuration is **two files, and most projects need nothing else**:'),
       },
       {
         bullets: [
-          '**One file in your project**, named `.aggrega-config.yaml`, sitting at the project root. Its `workspace:` block is what marks the directory as the project root, and a project that vendors no catalog content still writes the block empty — `workspace: {}` — because the block\'s presence is the marker.',
-          '**One global file on your machine**, at `~/.config/aggrega/config.yaml`. It holds settings that belong to the machine rather than to any one project — the registries you pull from and the signature trust policy for each, how large the compiled-module store may grow, and any command-extension plugin you have installed. It loads automatically when it is there, and nothing breaks when it is not.',
+          l10n.t('**One file in your project**, named `.aggrega-config.yaml`, sitting at the project root. Its `workspace:` block is what marks the directory as the project root, and a project that vendors no catalog content still writes the block empty — `workspace: {}` — because the block\'s presence is the marker.'),
+          l10n.t('**One global file on your machine**, at `~/.config/aggrega/config.yaml`. It holds settings that belong to the machine rather than to any one project — the registries you pull from and the signature trust policy for each, how large the compiled-module store may grow, and any command-extension plugin you have installed. It loads automatically when it is there, and nothing breaks when it is not.'),
         ],
       },
       {
         paragraph:
-          'Between the two files, your project\'s file wins. Marking the root with a `workspace:` block is the explicit choice and the one to prefer; a project that has never declared one can still be recognised by other markers, so a folder can be a workspace root without carrying that file at all.',
+          l10n.t('Between the two files, your project\'s file wins. Marking the root with a `workspace:` block is the explicit choice and the one to prefer; a project that has never declared one can still be recognised by other markers, so a folder can be a workspace root without carrying that file at all.'),
       },
       // The row is named in full and then as the panel draws it, shortened: the
       // full name is the one every other sentence teaches, and the drawn one is
       // what a reader sent to the panel has to find there.
       {
         paragraph:
-          `Because discovery climbs rather than descends, the root may legitimately sit *above* the folder you opened. The **${SELECTOR_ROW_LABELS.workspace} (${SELECTOR_ROW_DRAWN_LABELS.workspace})** row at the top of the Commands panel always names the folder that was actually anchored, so when it differs from what you opened you can see why.`,
+          l10n.t('Because discovery climbs rather than descends, the root may legitimately sit *above* the folder you opened. The **{0} ({1})** row at the top of the Commands panel always names the folder that was actually anchored, so when it differs from what you opened you can see why.', SELECTOR_ROW_LABELS.workspace, SELECTOR_ROW_DRAWN_LABELS.workspace),
       },
       {
         paragraph:
-          'That is the whole model for one project on one machine. Everything else exists for projects that outgrow it — more than one configuration file inside one project, a list that extends what an outer file declared rather than replacing it, a configuration file your pipeline owns, the other ways a project root is recognised, and what a relative path written in a configuration file points at. Aggrega\'s own configuration reference carries every one of them, and `aggrega config show --origin` names where each setting in force right now came from: a configuration file, an environment variable, or the built-in default.',
+          l10n.t('That is the whole model for one project on one machine. Everything else exists for projects that outgrow it — more than one configuration file inside one project, a list that extends what an outer file declared rather than replacing it, a configuration file your pipeline owns, the other ways a project root is recognised, and what a relative path written in a configuration file points at. Aggrega\'s own configuration reference carries every one of them, and `aggrega config show --origin` names where each setting in force right now came from: a configuration file, an environment variable, or the built-in default.'),
       },
       {
         paragraph:
-          '**Create a workspace configuration** writes the smallest file that anchors a root, in the folder you have open. **Use a folder that already has one** offers the folders beneath you that Aggrega already recognises, and adds the one you choose so the compiler anchors there.',
+          l10n.t('**{0}** writes the smallest file that anchors a root, in the folder you have open. **{1}** offers the folders beneath you that Aggrega already recognises, and adds the one you choose so the compiler anchors there.', CREATE_WORKSPACE_LABEL, CHOOSE_WORKSPACE_LABEL),
       },
     ],
     actions: [
-      { label: 'Create a workspace configuration', command: CREATE_WORKSPACE_COMMAND },
-      { label: 'Use a folder that already has one', command: CHOOSE_WORKSPACE_COMMAND },
+      { label: CREATE_WORKSPACE_LABEL, command: CREATE_WORKSPACE_COMMAND },
+      { label: CHOOSE_WORKSPACE_LABEL, command: CHOOSE_WORKSPACE_COMMAND },
     ],
   },
   {
     id: 'compiler',
-    title: 'A compiler this editor can run',
+    title: l10n.t('A compiler this editor can run'),
     summary:
-      'The editor starts the `aggrega` binary named in your settings; a plain name is looked up on your PATH.',
+      l10n.t('The editor starts the `aggrega` binary named in your settings; a plain name is looked up on your PATH.'),
     detail: [
       {
         paragraph:
-          'This extension computes nothing about your architecture itself. It renders the compiler\'s own answers — so a compiler it can start is what everything else here depends on.',
+          l10n.t('This extension computes nothing about your architecture itself. It renders the compiler\'s own answers — so a compiler it can start is what everything else here depends on.'),
       },
       {
-        paragraph: 'Two transports carry those answers, and both run the same binary:',
+        paragraph: l10n.t('Two transports carry those answers, and both run the same binary:'),
       },
       {
         bullets: [
-          'a **language server**, started once and kept running, which answers validation, navigation, hover, completion, the topology graph and the workspace catalog;',
-          '**one-shot commands**, run per operation and streamed to the Aggrega output channel, which carry fetching dependencies, the plugin list, generating catalog entities from a plugin, and the Catalog panel\'s check of one entity.',
+          l10n.t('a **language server**, started once and kept running, which answers validation, navigation, hover, completion, the topology graph and the workspace catalog;'),
+          l10n.t('**one-shot commands**, run per operation and streamed to the Aggrega output channel, which carry fetching dependencies, the plugin list, generating catalog entities from a plugin, and the Catalog panel\'s check of one entity.'),
         ],
       },
       {
         paragraph:
-          'Which binary runs is the `aggrega.server.binaryPath` setting. A plain name is looked up on your `PATH`; an absolute or relative path is honoured as written.',
+          l10n.t('Which binary runs is the `aggrega.server.binaryPath` setting. A plain name is looked up on your `PATH`; an absolute or relative path is honoured as written.'),
       },
       {
         paragraph:
-          'That setting is yours rather than the project\'s: it names something about the machine you are working on, so a repository cannot pin it for whoever clones it. The consequence is deliberate — a project cannot point this extension at a checked-in build — and it is what lets you keep one path locally and a different one inside a container.',
+          l10n.t('That setting is yours rather than the project\'s: it names something about the machine you are working on, so a repository cannot pin it for whoever clones it. The consequence is deliberate — a project cannot point this extension at a checked-in build — and it is what lets you keep one path locally and a different one inside a container.'),
       },
       {
         paragraph:
-          'The language server\'s state is reported in the status bar, on the left. It reads **running**, **starting**, or **not running**, and its tooltip says which of two reasons applies: nothing here is a folder Aggrega recognises, or there is one and no server is attached to it. Clicking it offers to start or restart.',
+          l10n.t('The language server\'s state is reported in the status bar, on the left. It reads **{0}**, **{1}**, or **{2}**, and its tooltip says which of two reasons applies: nothing here is a folder Aggrega recognises, or there is one and no server is attached to it. Clicking it offers to start or restart.',
+            DAEMON_STANDING_WORDS.running, DAEMON_STANDING_WORDS.starting, DAEMON_STANDING_WORDS.notRunning),
       },
       {
         paragraph:
-          '**Use the compiler on my PATH** restores the plain name — the path for someone who installed the compiler after opening the editor. **Point at a compiler I have** selects a build you keep elsewhere.',
+          l10n.t('**{0}** restores the plain name — the path for someone who installed the compiler after opening the editor. **{1}** selects a build you keep elsewhere.', USE_COMPILER_ON_PATH_LABEL, LOCATE_COMPILER_LABEL),
       },
       {
         paragraph:
-          `**${DOWNLOAD_COMPILER_ACTION}** fetches the newest published release this extension works with, built for the machine the editor runs its extensions on — the remote machine, in a window opened on one. It proposes the folder Aggrega's install scripts use, \`~/.local/bin\` on Linux and macOS and \`%LOCALAPPDATA%\\Programs\\aggrega\` on Windows, which you can change; it shows the version and asks you to confirm before anything is downloaded, checks the file against the release's published checksums, and then sets \`aggrega.server.binaryPath\` to it. It never replaces a compiler you put somewhere yourself, and it never upgrades on its own.`,
+          l10n.t('**{0}** fetches the newest published release this extension works with, built for the machine the editor runs its extensions on — the remote machine, in a window opened on one. It proposes the folder Aggrega\'s install scripts use, `~/.local/bin` on Linux and macOS and `%LOCALAPPDATA%\\Programs\\aggrega` on Windows, which you can change; it shows the version and asks you to confirm before anything is downloaded, checks the file against the release\'s published checksums, and then sets `aggrega.server.binaryPath` to it. It never replaces a compiler you put somewhere yourself, and it never upgrades on its own.', DOWNLOAD_COMPILER_ACTION),
       },
     ],
     actions: [
-      { label: 'Use the compiler on my PATH', command: USE_COMPILER_ON_PATH_COMMAND },
-      { label: 'Point at a compiler I have', command: LOCATE_COMPILER_COMMAND },
+      { label: USE_COMPILER_ON_PATH_LABEL, command: USE_COMPILER_ON_PATH_COMMAND },
+      { label: LOCATE_COMPILER_LABEL, command: LOCATE_COMPILER_COMMAND },
       { label: DOWNLOAD_COMPILER_ACTION, command: DOWNLOAD_COMPILER_COMMAND },
     ],
   },
   {
     id: 'release',
-    title: 'A Release to act on',
+    title: l10n.t('A Release to act on'),
     summary:
-      'Building, previewing and the topology graph each act on one Release, so the editor needs to know which one you mean.',
+      l10n.t('Building, previewing and the topology graph each act on one Release, so the editor needs to know which one you mean.'),
     detail: [
       {
         paragraph:
-          'A **Release** is the document that says *this* Aggregate is deployed *here*, with these parameters fulfilled. It is what turns developer intent into something a compiler can render.',
+          l10n.t('A **Release** is the document that says *this* Aggregate is deployed *here*, with these parameters fulfilled. It is what turns developer intent into something a compiler can render.'),
       },
       {
         paragraph:
-          'So most of what this extension does acts on one Release rather than on the workspace in general: validation, building, previewing a build, the topology graph and pulling dependencies all need to know which one you mean. The editor asks once and remembers, rather than asking at every command.',
+          l10n.t('So most of what this extension does acts on one Release rather than on the workspace in general: validation, building, previewing a build, the topology graph and pulling dependencies all need to know which one you mean. The editor asks once and remembers, rather than asking at every command.'),
       },
       {
         paragraph:
-          `The selection is named in two places — a status-bar indicator, and a **${SELECTOR_ROW_LABELS.release}** row at the top of the Commands panel — so the Problems panel and the graph always describe the same Release, and you can see which without pressing anything.`,
+          l10n.t('The selection is named in two places — a status-bar indicator, and a **{0}** row at the top of the Commands panel — so the Problems panel and the graph always describe the same Release, and you can see which without pressing anything.', SELECTOR_ROW_LABELS.release),
       },
       {
-        paragraph: 'Two properties of the selection are worth knowing:',
+        paragraph: l10n.t('Two properties of the selection are worth knowing:'),
       },
       {
         bullets: [
-          '**It is remembered per editor window, not in the repository.** Your choice does not travel to whoever else opens the project.',
-          '**It is re-verified when it is restored.** A Release that no longer resolves falls back to the workspace\'s own default, and says so — rather than failing on first use, at a moment you cannot connect to a choice made in a previous session.',
+          l10n.t('**It is remembered per editor window, not in the repository.** Your choice does not travel to whoever else opens the project.'),
+          l10n.t('**It is re-verified when it is restored.** A Release that no longer resolves falls back to the workspace\'s own default, and says so — rather than failing on first use, at a moment you cannot connect to a choice made in a previous session.'),
         ],
       },
       {
         paragraph:
-          'The Releases offered are the ones the language server will accept, named relative to the folder it anchored to. Recording a workspace\'s own persisted default is a separate, explicit act.',
+          l10n.t('The Releases offered are the ones the language server will accept, named relative to the folder it anchored to. Recording a workspace\'s own persisted default is a separate, explicit act.'),
       },
       {
         paragraph:
-          `**Draft a Release** opens the same drafting flow as **${panelActionLabel('scaffold')}** at the head of the Catalog panel, with the kind already settled — you are asked for the name and nothing else. **Choose a Release I already have** opens the picker over what this workspace offers.`,
+          l10n.t('**{0}** opens the same drafting flow as **{1}** at the head of the Catalog panel, with the kind already settled — you are asked for the name and nothing else. **{2}** opens the picker over what this workspace offers.', DRAFT_RELEASE_LABEL, panelActionLabel('scaffold'), CHOOSE_RELEASE_LABEL),
       },
     ],
     actions: [
-      { label: 'Draft a Release', command: DRAFT_RELEASE_COMMAND },
-      { label: 'Choose a Release I already have', command: SELECT_RELEASE_COMMAND },
+      { label: DRAFT_RELEASE_LABEL, command: DRAFT_RELEASE_COMMAND },
+      { label: CHOOSE_RELEASE_LABEL, command: SELECT_RELEASE_COMMAND },
     ],
   },
   {
     id: 'registry',
-    title: 'A registry to resolve from',
+    title: l10n.t('A registry to resolve from'),
     summary:
-      'Pulling dependencies and searching the published catalog resolve against the registries your configuration names.',
+      l10n.t('Pulling dependencies and searching the published catalog resolve against the registries your configuration names.'),
     detail: [
       {
         paragraph:
-          'A **registry** is where published catalog content lives — the Components, Features, Recipes and Plugins your Aggregate refers to but does not itself contain.',
+          l10n.t('A **registry** is where published catalog content lives — the Components, Features, Recipes and Plugins your Aggregate refers to but does not itself contain.'),
       },
       {
-        paragraph: 'Two things have nothing to resolve against without one:',
+        paragraph: l10n.t('Two things have nothing to resolve against without one:'),
       },
       {
         bullets: [
-          '**Pulling dependencies**, which fetches what a Release refers to and pins it,',
-          '**Searching the published catalog**, which is how you find an entity to refer to in the first place.',
+          l10n.t('**Pulling dependencies**, which fetches what a Release refers to and pins it,'),
+          l10n.t('**Searching the published catalog**, which is how you find an entity to refer to in the first place.'),
         ],
       },
       {
         paragraph:
-          'Registries are named by your configuration rather than by this extension, and each one carries its own signature trust policy — whether artifacts pulled from it must be signed. The **Registries** panel lists every registry the effective configuration declares, with each one\'s host, its alias, which is the default, whether signatures are required, and whether a credential for that host is present. Reading that list contacts no registry: the credential state reports presence only, so it says a credential exists rather than that the registry would accept it.',
+          l10n.t('Registries are named by your configuration rather than by this extension, and each one carries its own signature trust policy — whether artifacts pulled from it must be signed. The **Registries** panel lists every registry the effective configuration declares, with each one\'s host, its alias, which is the default, whether signatures are required, and whether a credential for that host is present. Reading that list contacts no registry: the credential state reports presence only, so it says a credential exists rather than that the registry would accept it.'),
       },
       {
         paragraph:
-          'A registry belongs in the global file on your machine rather than in your project\'s: the registries you pull from are the same wherever you are working, so declaring them once is the point. **Secrets are not configuration** — a registry password and a signing identity token are never fields in either file, and are supplied by environment variable or flag at the moment they are needed.',
+          l10n.t('A registry belongs in the global file on your machine rather than in your project\'s: the registries you pull from are the same wherever you are working, so declaring them once is the point. **Secrets are not configuration** — a registry password and a signing identity token are never fields in either file, and are supplied by environment variable or flag at the moment they are needed.'),
       },
       {
         paragraph:
-          '**Seed the official hub** registers the public hub together with its signature trust policy, using the compiler\'s own seeding — so what you get here and what you would get from the command line are the same configuration. It writes the global file on your machine rather than one in your project. Seeding is for a machine that has no configuration file yet: where one is already there it declines, names the file it found, and leaves that file exactly as it stands.',
+          l10n.t('**{0}** registers the public hub together with its signature trust policy, using the compiler\'s own seeding — so what you get here and what you would get from the command line are the same configuration. It writes the global file on your machine rather than one in your project. Seeding is for a machine that has no configuration file yet: where one is already there it declines, names the file it found, and leaves that file exactly as it stands.', SEED_REGISTRY_LABEL),
       },
       {
         paragraph:
-          '**Seed a registry I name** does the same for a host you supply, which is the path for a private or air-gapped hub.',
+          l10n.t('**{0}** does the same for a host you supply, which is the path for a private or air-gapped hub.', SEED_NAMED_REGISTRY_LABEL),
       },
       {
         paragraph:
-          '**Add a registry to what I have** is the one to press when a configuration file already exists — including when seeding has just declined and named it. Registering a registry carries no such condition, because the entry is merged into the configuration that is there: every registry you have already declared keeps its entry, and nothing in the file is rewritten. It asks you for the host and for which configuration file to write it to.',
+          l10n.t('**{0}** is the one to press when a configuration file already exists — including when seeding has just declined and named it. Registering a registry carries no such condition, because the entry is merged into the configuration that is there: every registry you have already declared keeps its entry, and nothing in the file is rewritten. It asks you for the host and for which configuration file to write it to.', ADD_REGISTRY_LABEL),
       },
     ],
     actions: [
-      { label: 'Seed the official hub', command: SEED_REGISTRY_COMMAND },
-      { label: 'Seed a registry I name', command: SEED_NAMED_REGISTRY_COMMAND },
-      { label: 'Add a registry to what I have', command: REGISTRY_ADD_COMMAND },
+      { label: SEED_REGISTRY_LABEL, command: SEED_REGISTRY_COMMAND },
+      { label: SEED_NAMED_REGISTRY_LABEL, command: SEED_NAMED_REGISTRY_COMMAND },
+      { label: ADD_REGISTRY_LABEL, command: REGISTRY_ADD_COMMAND },
     ],
   },
 ];
@@ -773,7 +802,7 @@ export const STEP_CONTENT: readonly StepContent[] = [
 // They are also the words a reader would search the settings screen for, so the
 // preference is described in one vocabulary wherever it is met rather than in
 // one here and another there.
-export const PANEL_SETTING_LABEL = 'Show Aggrega welcome page on startup';
+export const PANEL_SETTING_LABEL = l10n.t('Show Aggrega welcome page on startup');
 
 // OPEN_ON_STARTUP_COMMAND turns the startup preference on and does nothing else.
 // Ticking the box at the page's foot runs it.

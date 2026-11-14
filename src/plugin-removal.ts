@@ -4,6 +4,7 @@
 import type * as wire from '@aggrega-ai/aggrega-abi/dist/servewire_gen';
 import { AppliedWrite, endingInEffect } from './config-change-watch';
 import { reachPhrase } from './config-write-scope';
+import * as l10n from './l10n';
 import { OperationOutcome, outcomeOf } from './operation-outcome';
 import { withSubject } from './operation-groups';
 
@@ -73,7 +74,7 @@ export interface PluginRemovalDeps {
 // REMOVAL_SUBJECT is the removal in the reader's terms, used for the sentence
 // every ending produces. One spelling, so a completion and a failure name the
 // same thing.
-export const REMOVAL_SUBJECT = 'The removal';
+export const REMOVAL_SUBJECT = l10n.t('The removal');
 
 // removeParams composes the request for one configured plugin.
 //
@@ -91,11 +92,11 @@ export const REMOVAL_SUBJECT = 'The removal';
 // present — and it is the one that holds if a later binding is written more
 // loosely.
 export function removeParams(type: string, reference: string): PluginRemoveParams {
-  const [, checkedType] = withSubject('plugin remove', type, "the plugin's type");
+  const [, checkedType] = withSubject('plugin remove', type, l10n.t("the plugin's type"));
   const [, query] = withSubject(
     'plugin remove',
     reference,
-    'a reference to the plugin to remove',
+    l10n.t('a reference to the plugin to remove'),
   );
   return { type: checkedType, query };
 }
@@ -133,8 +134,11 @@ export async function runPluginRemoval(
 // more than the command line's own account of the same removal: that one names
 // the file it wrote and leaves the reader to judge how far the file reaches,
 // which is the fact that decides whether the change affects this project or
-// every project on the machine.
+// every project on the machine. How far the file reaches fills a placeholder in
+// config-write-scope.ts's own words, a phrase standing alone after the file.
 export function removalDetail(result: PluginRemoveResult): string {
-  return `removed the ${result.type} plugin ${result.query} from `
-    + `${result.scope.configFile}, ${reachPhrase(result.scope)}.`;
+  return l10n.t(
+    'removed the {0} plugin {1} from {2}, {3}.',
+    result.type, result.query, result.scope.configFile, reachPhrase(result.scope),
+  );
 }

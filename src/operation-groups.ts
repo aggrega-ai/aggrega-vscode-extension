@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cognitio s.r.l.
 
+import * as l10n from './l10n';
 import { NO_RELEASE_SELECTED_CONTROL_REASON } from './release-selection';
 import { CatalogIndexEntity } from './workspace-catalog-run';
 import { NO_ANCHORED_WORKSPACE_CONTROL_REASON } from './workspace';
@@ -157,36 +158,36 @@ export interface OperationGroup {
 export const OPERATION_GROUPS: OperationGroup[] = [
   {
     id: 'build',
-    heading: 'Build',
+    heading: l10n.t('Build'),
     operations: [
       {
         id: 'validate',
-        label: 'Validate',
-        detail: 'Validate the active YAML file via the language server',
+        label: l10n.t('Validate'),
+        detail: l10n.t('Validate the active YAML file via the language server'),
         icon: 'check',
       },
       {
         id: 'lint',
-        label: 'Lint',
-        detail: 'Check publishing conventions across the catalog; findings land in the Problems panel',
+        label: l10n.t('Lint'),
+        detail: l10n.t('Check publishing conventions across the catalog; findings land in the Problems panel'),
         icon: 'search',
       },
       {
         id: 'build',
-        label: 'Build',
-        detail: 'Compile a Release and write its rendered artifacts; findings land in the Problems panel',
+        label: l10n.t('Build'),
+        detail: l10n.t('Compile a Release and write its rendered artifacts; findings land in the Problems panel'),
         icon: 'package',
       },
       {
         id: 'preview',
-        label: 'Preview',
-        detail: 'Render what a build would emit without writing it; findings land in the Problems panel',
+        label: l10n.t('Preview'),
+        detail: l10n.t('Render what a build would emit without writing it; findings land in the Problems panel'),
         icon: 'eye',
       },
       {
         id: 'graph',
-        label: 'Graph',
-        detail: 'Draw the topology the selected Release compiles to',
+        label: l10n.t('Graph'),
+        detail: l10n.t('Draw the topology the selected Release compiles to'),
         icon: 'type-hierarchy',
         command: 'aggrega.graph.show',
       },
@@ -194,67 +195,67 @@ export const OPERATION_GROUPS: OperationGroup[] = [
   },
   {
     id: 'dependencies',
-    heading: 'Dependencies',
+    heading: l10n.t('Dependencies'),
     operations: [
       {
         id: 'pull',
-        label: 'Pull',
-        detail: 'Pull remote dependencies into the workspace',
+        label: l10n.t('Pull'),
+        detail: l10n.t('Pull remote dependencies into the workspace'),
         icon: 'cloud-download',
       },
     ],
   },
   {
     id: 'author',
-    heading: 'Author',
+    heading: l10n.t('Author'),
     operations: [
       {
         id: 'import',
-        label: 'Import',
-        detail: 'Import a foreign source into Aggrega',
+        label: l10n.t('Import'),
+        detail: l10n.t('Import a foreign source into Aggrega'),
         icon: 'insert',
       },
       {
         id: 'inspect',
-        label: 'Inspect',
-        detail: 'Show what an entity in this workspace resolves to',
+        label: l10n.t('Inspect'),
+        detail: l10n.t('Show what an entity in this workspace resolves to'),
         icon: 'list-tree',
       },
     ],
   },
   {
     id: 'publish',
-    heading: 'Publish',
+    heading: l10n.t('Publish'),
     separated: true,
     operations: [
       {
         id: 'push',
-        label: 'Push',
-        detail: 'Bundle and publish a catalog entity in this workspace to a configured registry',
+        label: l10n.t('Push'),
+        detail: l10n.t('Bundle and publish a catalog entity in this workspace to a configured registry'),
         icon: 'cloud-upload',
       },
       {
         id: 'sign',
-        label: 'Sign',
-        detail: 'Attach a signature to an already-published artifact',
+        label: l10n.t('Sign'),
+        detail: l10n.t('Attach a signature to an already-published artifact'),
         icon: 'verified',
       },
       {
         id: 'deprecate',
-        label: 'Deprecate',
-        detail: 'Attach a signed deprecation marker to an already-published artifact',
+        label: l10n.t('Deprecate'),
+        detail: l10n.t('Attach a signed deprecation marker to an already-published artifact'),
         icon: 'warning',
       },
     ],
   },
   {
     id: 'config',
-    heading: 'Configuration',
+    heading: l10n.t('Configuration'),
     operations: [
       {
         id: 'configShow',
-        label: 'Show config',
-        detail: 'Every setting the schema declares, with the value in force and where it came from',
+        label: l10n.t('Show config'),
+        detail: l10n.t('Every setting the schema declares, with the value in force and where it came from'),
         icon: 'settings-gear',
         // The configuration surface contributes its own command, so the entry
         // points at that rather than at a second one wrapping it — the same
@@ -263,8 +264,8 @@ export const OPERATION_GROUPS: OperationGroup[] = [
       },
       {
         id: 'cache',
-        label: 'Cache…',
-        detail: 'Inspect or maintain the local cache',
+        label: l10n.t('Cache…'),
+        detail: l10n.t('Inspect or maintain the local cache'),
         icon: 'database',
       },
     ],
@@ -289,8 +290,8 @@ export const PANEL_ACTIONS: Record<ListPanelId, readonly PanelActionDef[]> = {
   registries: [
     {
       id: 'registryAdd',
-      label: 'Add registry',
-      detail: 'Register a registry to resolve dependencies from and publish to',
+      label: l10n.t('Add registry'),
+      detail: l10n.t('Register a registry to resolve dependencies from and publish to'),
       icon: 'add',
       // The literal rather than the registry module's own identifier, and the
       // direction of the dependency is why: that module reaches this one for
@@ -302,8 +303,8 @@ export const PANEL_ACTIONS: Record<ListPanelId, readonly PanelActionDef[]> = {
     },
     {
       id: 'registryIndex',
-      label: 'Update index',
-      detail: 'Refresh the searchable index of every configured registry',
+      label: l10n.t('Update index'),
+      detail: l10n.t('Refresh the searchable index of every configured registry'),
       icon: 'cloud-download',
       command: 'aggrega.registries.update',
     },
@@ -314,30 +315,30 @@ export const PANEL_ACTIONS: Record<ListPanelId, readonly PanelActionDef[]> = {
   catalog: [
     {
       id: 'catalogSearch',
-      label: 'Search catalog',
-      detail: 'Search the published catalog and copy the reference of a match',
+      label: l10n.t('Search catalog'),
+      detail: l10n.t('Search the published catalog and copy the reference of a match'),
       icon: 'cloud',
       command: 'aggrega.catalog.searchPublished',
     },
     {
       id: 'scaffold',
-      label: 'Draft entity',
-      detail: 'Draft a starter document for an entity kind, opened in a new editor tab',
+      label: l10n.t('Draft entity'),
+      detail: l10n.t('Draft a starter document for an entity kind, opened in a new editor tab'),
       icon: 'new-file',
     },
   ],
   plugins: [
     {
       id: 'pluginAdd',
-      label: 'Add plugin',
-      detail: 'Search a configured registry for a plugin and attach it to this workspace',
+      label: l10n.t('Add plugin'),
+      detail: l10n.t('Search a configured registry for a plugin and attach it to this workspace'),
       icon: 'add',
       command: 'aggrega.plugins.add',
     },
     {
       id: 'pluginEntities',
-      label: 'Generate entities',
-      detail: 'Write a Plugin entity per selected plugin, under a directory you choose',
+      label: l10n.t('Generate entities'),
+      detail: l10n.t('Write a Plugin entity per selected plugin, under a directory you choose'),
       icon: 'export',
       command: 'aggrega.plugins.genCatalog',
     },
@@ -389,9 +390,18 @@ export function panelActionLabel(id: PanelActionId): string {
 
 // controlHint is the hover a control carries: what it is, and where it cannot
 // run, why. Every control that is drawn unable to run composes its hover here,
-// so the reason reads the same way wherever a reader points.
+// so the reason reads the same way wherever a reader points. The two halves are
+// each whole on their own, and the dash joining them is a message of its own, so
+// a translation may join them as its language does.
+//
+// A menu choice's hint on the Commands panel joins its label and its detail with
+// a fixed " — " instead (operations-render.ts menuOptionHtml), and the difference
+// is deliberate rather than a second copy of this one: the panel's script joins a
+// fetched choice's hint itself and cannot reach the lookup, so the composed
+// choices are joined the way the script joins them. Merging the two would part a
+// fixed menu's hints from a fetched one's.
 export function controlHint(what: string, reason: string | null): string {
-  return reason === null ? what : `${what} — ${reason}`;
+  return reason === null ? what : l10n.t('{0} — {1}', what, reason);
 }
 
 // operationHint is the hover an operation's control carries: what it does, and
@@ -566,10 +576,16 @@ export function panelActionReason(id: PanelActionId, workspaceAnchored: boolean)
 // paragraph. It is exported for that reason: a composition living in another
 // module still routes through this one guard rather than restating it, and a
 // restatement would agree with this until the day one of the two was changed.
+//
+// verb is the command line's own words and fills the refusal untranslated. what
+// is the caller's name for the subject, translated by the caller as a piece that
+// stands alone — a noun phrase carrying its own article, in its dictionary form
+// — so a translation of the refusal sets it off as its language needs rather
+// than inflecting it.
 export function withSubject(verb: string, subject: string, what: string): string[] {
   const trimmed = subject.trim();
   if (trimmed === '') {
-    throw new Error(`aggrega ${verb} takes ${what}, and none was given`);
+    throw new Error(l10n.t('aggrega {0} takes {1}, and none was given', verb, what));
   }
   return [verb, trimmed];
 }
@@ -600,7 +616,7 @@ export type ReleaseScopedVerb = 'pull';
 export function releaseScopedArgs(verb: ReleaseScopedVerb, release: string): string[] {
   const trimmed = release.trim();
   if (trimmed === '') {
-    throw new Error(`aggrega ${verb} requires a Release, and none is selected`);
+    throw new Error(l10n.t('aggrega {0} requires a Release, and none is selected', verb));
   }
   return [verb, '--release', trimmed];
 }
@@ -649,28 +665,28 @@ export type CacheOperation = 'status' | 'prune' | 'evict' | 'clear';
 export const CACHE_OPERATIONS: Array<{ value: CacheOperation; detail: string }> = [
   {
     value: 'status',
-    detail: 'List every cache and what it holds — removes nothing',
+    detail: l10n.t('List every cache and what it holds — removes nothing'),
   },
   {
     value: 'prune',
-    detail: 'Remove entries no lockfile references, in this workspace and on this machine',
+    detail: l10n.t('Remove entries no lockfile references, in this workspace and on this machine'),
   },
   {
     value: 'evict',
-    detail: 'Trim the compiled-module cache to a size cap — on this machine, shared by every project',
+    detail: l10n.t('Trim the compiled-module cache to a size cap — on this machine, shared by every project'),
   },
   {
     value: 'clear',
-    detail: 'Empty every cache, in this workspace and on this machine',
+    detail: l10n.t('Empty every cache, in this workspace and on this machine'),
   },
 ];
 
 // The affirmative on a cache confirmation says what will happen rather than
 // "OK", so a reader dismissing the dialog quickly is reading the act rather
 // than agreeing to an unnamed one.
-const CACHE_CONFIRM_LABEL_PRUNE = 'Remove unreferenced entries';
-const CACHE_CONFIRM_LABEL_EVICT = 'Trim to the cap';
-const CACHE_CONFIRM_LABEL_CLEAR = 'Empty every cache';
+const CACHE_CONFIRM_LABEL_PRUNE = l10n.t('Remove unreferenced entries');
+const CACHE_CONFIRM_LABEL_EVICT = l10n.t('Trim to the cap');
+const CACHE_CONFIRM_LABEL_CLEAR = l10n.t('Empty every cache');
 
 // CacheConfirmation is what a reader is asked before a cache operation removes
 // anything: the question, the scope it reaches, and the affirmative.
@@ -691,69 +707,60 @@ export interface CacheConfirmation {
   confirmLabel: string;
 }
 
-// THIS_MACHINE_CACHES names the caches that are not this workspace's and that a
-// prune reclaims from.
+// The caches that are not this workspace's, each by the compiler's own name, as
+// it appears in its cache listing, so a reader who runs the report sees the same
+// words back. They fill the confirmations' placeholders untranslated for that
+// reason.
 //
 // They are shared because what they hold is identical across projects — a
 // compiled plugin is the same bytes whichever workspace asked for it — so
-// emptying them affects every project on the machine, not only this one. The
-// names are the compiler's own, as they appear in its cache listing, so a
-// reader who runs the report sees the same words back.
+// emptying them affects every project on the machine, not only this one.
 //
-// The cli-plugin cache is among them: it holds the bytes of the cli plugins added
-// where no workspace was found, and a prune removes the ones no plugins.cli entry
-// of the configuration pins.
-const THIS_MACHINE_CACHES =
-  'the compiled-module cache, the plugin-describe cache and the cli-plugin cache, which every project on this machine shares';
-
-// EVERY_MACHINE_CACHE names every cache that is not this workspace's, the
-// docs-bundle cache among them: the documentation for one registry and version
-// is the same bytes whichever workspace reads it, so it is kept once per
-// machine. A wipe empties it; a prune never removes from it, which is why the
-// prune names the three above and not this list.
-const EVERY_MACHINE_CACHE =
-  'the compiled-module cache, the plugin-describe cache, the docs-bundle cache and the cli-plugin cache, which every project on this machine shares';
-
-// THE_COMPILED_MODULE_CACHE names the single store a trim addresses, in the
-// compiler's own words. It is machine-wide without qualification: every project
-// on the machine draws on that one store, so trimming it reaches workspaces
-// this editor has never opened.
-const THE_COMPILED_MODULE_CACHE =
-  'the compiled-module cache, which every project on this machine shares';
-
-// THIS_WORKSPACE_CACHES names the caches that sit under this workspace's own
-// configured cache directory.
-const THIS_WORKSPACE_CACHES =
-  "this workspace's own entity, source-artifact and external-input caches";
+// The cli-plugin cache holds the bytes of the cli plugins added where no
+// workspace was found, and a prune removes the ones no plugins.cli entry of the
+// configuration pins. The docs-bundle cache holds the documentation for one
+// registry and version, which is the same bytes whichever workspace reads it, so
+// it is kept once per machine: a wipe empties it, and a prune never removes from
+// it, which is why the prune does not name it. The compiled-module cache is the
+// single store a trim addresses, machine-wide without qualification: every
+// project on the machine draws on that one store, so trimming it reaches
+// workspaces this editor has never opened.
+const COMPILED_MODULE_CACHE = 'compiled-module cache';
+const PLUGIN_DESCRIBE_CACHE = 'plugin-describe cache';
+const DOCS_BUNDLE_CACHE = 'docs-bundle cache';
+const CLI_PLUGIN_CACHE = 'cli-plugin cache';
 
 // cacheConfirmation reports what to ask before a cache operation runs, or null
 // where nothing is removed and there is nothing to confirm.
 //
 // Two of the three removals reach both scopes: clear empties this workspace's
-// caches and every shared one, and prune reclaims unreferenced entries from
-// this workspace's caches, from the shared plugin-describe and cli-plugin caches,
-// and from the shared compiled-module cache by reference. The trim reaches one — its subject
-// is the compiled-module store alone — so it names one.
+// caches — its own entity, source-artifact and external-input caches, under its
+// configured cache directory — and every shared one, and prune reclaims
+// unreferenced entries from this workspace's caches, from the shared
+// plugin-describe and cli-plugin caches, and from the shared compiled-module
+// cache by reference. The trim reaches one — its subject is the compiled-module
+// store alone — so it names one. Each scope is one whole message, so a
+// translation words each reach as its language needs.
 export function cacheConfirmation(operation: CacheOperation): CacheConfirmation | null {
   switch (operation) {
     case 'status':
       return null;
     case 'prune':
       return {
-        question: 'Remove cache entries no lockfile references?',
-        scope: `This reaches ${THIS_WORKSPACE_CACHES}, and ${THIS_MACHINE_CACHES}. Entries still referenced are kept.`,
+        question: l10n.t('Remove cache entries no lockfile references?'),
+        scope: l10n.t("This reaches this workspace's own entity, source-artifact and external-input caches, and the {0}, the {1} and the {2}, which every project on this machine shares. Entries still referenced are kept.", COMPILED_MODULE_CACHE, PLUGIN_DESCRIBE_CACHE, CLI_PLUGIN_CACHE),
         confirmLabel: CACHE_CONFIRM_LABEL_PRUNE,
       };
     case 'evict':
       return {
-        question: 'Trim the compiled-module cache to the size cap?',
-        scope: `This reaches ${THE_COMPILED_MODULE_CACHE}. Nothing under this workspace's own cache directory is touched. What is removed is rebuilt on the next build that needs it.`,
+        question: l10n.t('Trim the compiled-module cache to the size cap?'),
+        scope: l10n.t("This reaches the {0}, which every project on this machine shares. Nothing under this workspace's own cache directory is touched. What is removed is rebuilt on the next build that needs it.", COMPILED_MODULE_CACHE),
         confirmLabel: CACHE_CONFIRM_LABEL_EVICT,
       };
     case 'clear':
       return {
-        question: 'Empty every cache?',
-        scope: `This empties ${THIS_WORKSPACE_CACHES}, and ${EVERY_MACHINE_CACHE}. The caches repopulate on the next build.`,
+        question: l10n.t('Empty every cache?'),
+        scope: l10n.t("This empties this workspace's own entity, source-artifact and external-input caches, and the {0}, the {1}, the {2} and the {3}, which every project on this machine shares. The caches repopulate on the next build.", COMPILED_MODULE_CACHE, PLUGIN_DESCRIBE_CACHE, DOCS_BUNDLE_CACHE, CLI_PLUGIN_CACHE),
         confirmLabel: CACHE_CONFIRM_LABEL_CLEAR,
       };
   }
@@ -770,15 +777,15 @@ export interface DeprecationSeverity {
 export const DEPRECATION_SEVERITIES: DeprecationSeverity[] = [
   {
     value: 'warning',
-    detail: 'Deprecated but still usable — a consumer is advised to migrate, not blocked',
+    detail: l10n.t('Deprecated but still usable — a consumer is advised to migrate, not blocked'),
   },
   {
     value: 'error',
-    detail: 'Deprecated and no longer fit for new use — a consumer should treat resolving it as an error',
+    detail: l10n.t('Deprecated and no longer fit for new use — a consumer should treat resolving it as an error'),
   },
   {
     value: 'retracted',
-    detail: 'Withdrawn — it must not be used',
+    detail: l10n.t('Withdrawn — it must not be used'),
   },
 ];
 

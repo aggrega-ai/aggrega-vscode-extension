@@ -328,6 +328,7 @@ describe('the registries panel and the catalog search reach the compiler without
         './config-change-watch',
         './config-write-scope',
         './error-surfaces',
+        TEXT_LOOKUP,
         './operation-groups',
         './operation-outcome',
         './registration-outcome',
@@ -337,11 +338,11 @@ describe('the registries panel and the catalog search reach the compiler without
     assert.strictEqual(launchFacilityCount('src/registry-configure.ts'), 0);
     // The module that says whether a write is in effect is on the same side of
     // the claim, so it is measured too: it names the editor nowhere and starts
-    // nothing, and the one module it reaches for a declaration is erased. The one
-    // module it reaches for code renders a thrown value as a line, and it is held
-    // here to reaching nothing at runtime but the text lookup, so the claim stays
-    // whole.
-    assert.deepStrictEqual(valueImports('src/config-change-watch.ts'), ['./error-text', 'path']);
+    // nothing, and the one module it reaches for a declaration is erased. Of the
+    // modules it reaches for code, one renders a thrown value as a line and the
+    // other is the text lookup, and the first is held here to reaching nothing at
+    // runtime but the text lookup, so the claim stays whole.
+    assert.deepStrictEqual(valueImports('src/config-change-watch.ts'), ['./error-text', TEXT_LOOKUP, 'path']);
     assert.deepStrictEqual(typeOnlyImports('src/config-change-watch.ts'), ['./binary-restart']);
     assert.strictEqual(launchFacilityCount('src/config-change-watch.ts'), 0);
     // The text lookup is admitted by name, for the reason TEXT_LOOKUP carries.
@@ -360,7 +361,7 @@ describe('the registries panel and the catalog search reach the compiler without
     // kind to the other cannot pass unnoticed.
     assert.deepStrictEqual(
       valueImports('src/catalog-search-run.ts'),
-      ['./error-surfaces', './operation-groups', './registries-run', './uri-display', './workspace'],
+      ['./error-surfaces', TEXT_LOOKUP, './operation-groups', './registries-run', './uri-display', './workspace'],
     );
     assert.deepStrictEqual(typeOnlyImports('src/catalog-search-run.ts'), [WIRE_CONTRACT]);
   });
@@ -368,7 +369,7 @@ describe('the registries panel and the catalog search reach the compiler without
   it('reaches no process-launching helper from the module that owns the listing', () => {
     assert.deepStrictEqual(
       valueImports('src/registries-run.ts'),
-      ['./error-surfaces', './workspace', './workspace-catalog-run'],
+      ['./error-surfaces', TEXT_LOOKUP, './workspace', './workspace-catalog-run'],
     );
     assert.deepStrictEqual(typeOnlyImports('src/registries-run.ts'), ['./panel-actions', WIRE_CONTRACT]);
     // The listing draws the Catalog panel's row for a language server that is not

@@ -3,6 +3,8 @@
 
 import * as semver from 'semver';
 
+import * as l10n from './l10n';
+
 // VersionCheckResult names the four outcomes the helper can produce.
 // The caller in extension.ts decides surface behavior per kind:
 // `match` is silent; `mismatch` warns the operator via toast;
@@ -84,7 +86,7 @@ export async function readDaemonVersion(deps: VersionReadDeps): Promise<DaemonVe
   if (!payload.version) {
     return {
       kind: 'unreadable',
-      err: new Error('daemon version output missing `version` field'),
+      err: new Error(l10n.t('daemon version output missing `version` field')),
     };
   }
   return { kind: 'reported', version: payload.version };
@@ -120,7 +122,7 @@ export interface VersionCheckDeps {
 // doing.
 export async function checkDaemonVersion(deps: VersionCheckDeps): Promise<VersionCheckResult> {
   if (!deps.compatibilityRange) {
-    return { kind: 'skipped', reason: 'aggregaCompatibility field absent from package.json' };
+    return { kind: 'skipped', reason: l10n.t('aggregaCompatibility field absent from package.json') };
   }
   const reading = await readDaemonVersion(deps);
   if (reading.kind === 'unreadable') {
@@ -128,11 +130,11 @@ export async function checkDaemonVersion(deps: VersionCheckDeps): Promise<Versio
   }
   const reported = reading.version;
   if (reported === '(devel)' || reported === '(unknown)') {
-    return { kind: 'skipped', reason: `daemon reports unreleased build (${reported}); skipping compatibility check` };
+    return { kind: 'skipped', reason: l10n.t('daemon reports unreleased build ({0}); skipping compatibility check', reported) };
   }
   const parsed = semver.coerce(reported);
   if (!parsed) {
-    return { kind: 'skipped', reason: `daemon version "${reported}" does not parse as SemVer; skipping compatibility check` };
+    return { kind: 'skipped', reason: l10n.t('daemon version "{0}" does not parse as SemVer; skipping compatibility check', reported) };
   }
   if (semver.satisfies(parsed, deps.compatibilityRange)) {
     return { kind: 'match', version: reported };

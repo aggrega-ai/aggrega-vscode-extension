@@ -12,6 +12,7 @@ import {
   ConnectionSite,
   attachRefusal,
 } from './attachment-edit';
+import * as l10n from './l10n';
 import { convertPosition } from './translator';
 import { LspPosition, ServerEncoding } from './types';
 import { CatalogIndexDoc } from './workspace-catalog-run';
@@ -154,7 +155,7 @@ export function readConnectionAtPosition(value: unknown): ConnectionAtCursor | n
 // UNREADABLE_ANSWER is what is said for an answer in a shape this side cannot
 // act on, in the words the attach's other unreadable answers are reported in.
 export const UNREADABLE_ANSWER = attachRefusal(
-  'the compiler\'s answer about the connection at the cursor is in a shape this cannot read.',
+  l10n.t('the compiler\'s answer about the connection at the cursor is in a shape this cannot read.'),
 );
 
 // The reasons the answer gives for a cursor on no connection. These are wire
@@ -174,18 +175,15 @@ const UNKNOWN_CONNECTION = 'unknown-connection';
 // guess.
 export function noConnectionSentence(reason: string, noSlotNote: (reason: string) => string): string {
   if (reason === NO_CONNECTION_ENTRY) {
-    return 'The cursor is not inside a connection\'s entry — the entry a component draws a '
-      + 'connection with, under its alias, or the entry a Release writes for one — so nothing '
-      + 'may be attached here.';
+    return l10n.t('The cursor is not inside a connection\'s entry — the entry a component draws a connection with, under its alias, or the entry a Release writes for one — so nothing may be attached here.');
   }
   if (reason === FEATURE_CREATED_CONNECTION) {
     return noSlotNote(FEATURE_CREATED_CONNECTION);
   }
   if (reason === UNKNOWN_CONNECTION) {
-    return 'The entry at the cursor is one the Release writes for a connection its compiled '
-      + 'graph does not carry, so nothing may be attached here.';
+    return l10n.t('The entry at the cursor is one the Release writes for a connection its compiled graph does not carry, so nothing may be attached here.');
   }
-  return 'Nothing may be attached at the cursor.';
+  return l10n.t('Nothing may be attached at the cursor.');
 }
 
 // CANDIDATES_MODEL_PATH is where the shared candidate projection sits relative
@@ -206,7 +204,7 @@ export function loadNoSlotNote(extensionRoot: string): (reason: string) => strin
   const model = sandbox.AggregaCandidates as { noSlotNote?: unknown } | undefined;
   const noSlotNote = model?.noSlotNote;
   if (typeof noSlotNote !== 'function') {
-    throw new Error(`${file} defines no candidate projection`);
+    throw new Error(l10n.t('{0} defines no candidate projection', file));
   }
   return (reason: string) => String(noSlotNote(reason));
 }

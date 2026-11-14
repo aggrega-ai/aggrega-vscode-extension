@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cognitio s.r.l.
 
+import * as l10n from './l10n';
 import { WorkspaceCatalogNode } from './workspace-catalog-run';
 import { withSubject } from './operation-groups';
 import { releaseFlag } from './release-terms';
@@ -144,5 +145,5 @@ export function catalogEntityName(node: WorkspaceCatalogNode): string | null {
 // terms. The flag is put on by the composition every request answered in a
 // Release's terms goes through.
 export function catalogValidateArgs(entityPath: string, selectedRelease: string | null): string[] {
-  return [...withSubject('validate', entityPath, 'the path of the entity to check'), ...releaseFlag(selectedRelease)];
+  return [...withSubject('validate', entityPath, l10n.t('the path of the entity to check')), ...releaseFlag(selectedRelease)];
 }

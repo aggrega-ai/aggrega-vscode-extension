@@ -4,6 +4,7 @@
 import type * as wire from '@aggrega-ai/aggrega-abi/dist/servewire_gen';
 import { AppliedWrite, endingInEffect } from './config-change-watch';
 import { reachPhrase } from './config-write-scope';
+import * as l10n from './l10n';
 import { OperationOutcome, outcomeOf } from './operation-outcome';
 import { registrationSentence, trustPhrase } from './registration-outcome';
 
@@ -89,12 +90,12 @@ export interface ConfigSeedingDeps {
 // Naming no host means the official hub, and the words are the panel's own for
 // the control that does it — so what the reader is told reads as the button they
 // pressed.
-export const OFFICIAL_HUB_LABEL = 'the official hub';
+export const OFFICIAL_HUB_LABEL = l10n.t('the official hub');
 
 // SEEDING_SUBJECT is the seeding in the reader's terms, used for the sentence
 // every ending produces. One spelling, so a completion and a failure name the
 // same thing.
-export const SEEDING_SUBJECT = 'The seeding';
+export const SEEDING_SUBJECT = l10n.t('The seeding');
 
 // seedingOpeningLine is what the channel is told before the request goes out.
 //
@@ -102,8 +103,14 @@ export const SEEDING_SUBJECT = 'The seeding';
 // registry takes, with nothing drawn while it does. A reader who pressed the
 // control and then went to the channel finds the operation named there rather
 // than an empty channel, and the terminal line lands under it.
+//
+// The unnamed registry's sentence spells OFFICIAL_HUB_LABEL in its own message
+// rather than taking it as a placeholder: the hub is the object of the verb
+// there, so a translation has to give it the case the sentence needs.
 export function seedingOpeningLine(host: string | null): string {
-  return `\nSeeding ${host ?? OFFICIAL_HUB_LABEL}, with its signature trust policy.`;
+  return host === null
+    ? `\n${l10n.t('Seeding the official hub, with its signature trust policy.')}`
+    : `\n${l10n.t('Seeding {0}, with its signature trust policy.', host)}`;
 }
 
 // seedParams composes the request for a host, or for none.
@@ -160,7 +167,8 @@ export function seedingDetail(result: ConfigInitResult): string {
   if (result.written) {
     return registrationSentence(result.host, result.scope, result.trust);
   }
-  const where = `${result.scope.configFile}, ${reachPhrase(result.scope)}`;
-  return `reported the configuration for ${result.host} without writing ${where}. `
+  // How far the file reaches fills a placeholder standing alone after the file,
+  // as registration-outcome.ts places it, for the reason it gives there.
+  return `${l10n.t('reported the configuration for {0} without writing {1}, {2}.', result.host, result.scope.configFile, reachPhrase(result.scope))} `
     + trustPhrase(result.host, result.trust);
 }

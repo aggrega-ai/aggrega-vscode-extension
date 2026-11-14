@@ -18,6 +18,7 @@ import {
   targetWords,
 } from './compiler-download';
 import { describeError } from './error-text';
+import * as l10n from './l10n';
 import { BINARY_PATH_SETTING } from './start-failure';
 import { SpawnFn, readDaemonVersion } from './version-check';
 
@@ -146,7 +147,9 @@ async function isExecutable(file: string): Promise<boolean> {
 // reader can look them up.
 export function situationLine(situation: CompilerSituation, version: string | null): string | null {
   if (situation.kind !== 'onPath') { return null; }
-  return `Aggrega: using the compiler found on PATH at ${situation.path}, version ${version ?? 'not reported'}.`;
+  return version === null
+    ? l10n.t('Aggrega: using the compiler found on PATH at {0}, version not reported.', situation.path)
+    : l10n.t('Aggrega: using the compiler found on PATH at {0}, version {1}.', situation.path, version);
 }
 
 // ---- what the extension may replace -------------------------------------------
@@ -215,12 +218,18 @@ export type DownloadOutcome =
   | { kind: 'declined' };
 
 // DOWNLOAD_GO, SHARED_INSTEAD_GO are the buttons the two confirmations carry.
-export const DOWNLOAD_GO = 'Download';
-export const SHARED_INSTEAD_GO = 'Download into the shared location';
+export const DOWNLOAD_GO = l10n.t('Download');
+export const SHARED_INSTEAD_GO = l10n.t('Download into the shared location');
+
+// downloadingTitle is what the progress of a compiler download says while it
+// runs, the same whether a first compiler or a different version is fetched.
+export function downloadingTitle(version: string): string {
+  return l10n.t('Aggrega: downloading aggrega {0}', version);
+}
 
 // keptSentence is the one sentence that says nothing was changed, and why.
 export function keptSentence(reason: string): string {
-  return `Aggrega: no compiler was downloaded and ${BINARY_PATH_SETTING} was left as it is, because ${reason}.`;
+  return l10n.t('Aggrega: no compiler was downloaded and {0} was left as it is, because {1}.', BINARY_PATH_SETTING, reason);
 }
 
 // OfferedVersions is the versions a reader may be offered, newest first and
@@ -242,7 +251,7 @@ export async function offeredVersions(
   let versions: string[];
   try {
     const releases = await prompts.withProgress(
-      'Aggrega: reading the list of compiler releases',
+      l10n.t('Aggrega: reading the list of compiler releases'),
       (signal) => listReleases(source, signal),
     );
     versions = compatibleVersions(releases, compatibilityRange, target);
@@ -253,7 +262,9 @@ export async function offeredVersions(
   if (newest === undefined) {
     return {
       kind: 'kept',
-      reason: `no published release ${compatibilityRange ? `within ${compatibilityRange}, the versions this extension works with, ` : ''}carries a compiler for ${targetWords(target)}`,
+      reason: compatibilityRange
+        ? l10n.t('no published release within {0}, the versions this extension works with, carries a compiler for {1}', compatibilityRange, targetWords(target))
+        : l10n.t('no published release carries a compiler for {0}', targetWords(target)),
     };
   }
   return { kind: 'offered', versions: [newest, ...older] };
@@ -284,21 +295,21 @@ export async function replaceableDestination(
   prompts: Pick<DownloadPrompts, 'confirm'>,
 ): Promise<Destination> {
   if (await isFolder(wanted)) {
-    return { kind: 'kept', reason: `${wanted} is a folder, so the compiler cannot be saved under that name` };
+    return { kind: 'kept', reason: l10n.t('{0} is a folder, so the compiler cannot be saved under that name', wanted) };
   }
   if (!(await exists(wanted)) || mayReplace(wanted, shared, memory, platform)) {
     return { kind: 'to', file: wanted };
   }
   if (shared === null) {
-    return { kind: 'kept', reason: `${wanted} is a compiler you chose, which the extension never replaces` };
+    return { kind: 'kept', reason: l10n.t('{0} is a compiler you chose, which the extension never replaces', wanted) };
   }
   const instead = await prompts.confirm(
-    `Aggrega: ${wanted} is a compiler you chose, and the extension never replaces one. Download aggrega ${version} into the shared location, ${shared}, instead?`,
+    l10n.t('Aggrega: {0} is a compiler you chose, and the extension never replaces one. Download aggrega {1} into the shared location, {2}, instead?', wanted, version, shared),
     SHARED_INSTEAD_GO,
   );
   if (!instead) { return { kind: 'declined' }; }
   if (await isFolder(shared)) {
-    return { kind: 'kept', reason: `${shared} is a folder, so the compiler cannot be saved under that name` };
+    return { kind: 'kept', reason: l10n.t('{0} is a folder, so the compiler cannot be saved under that name', shared) };
   }
   return { kind: 'to', file: shared };
 }
@@ -335,7 +346,7 @@ export async function downloadCompiler(deps: DownloadDeps): Promise<DownloadOutc
   const folder = await prompts.askFolder(proposed, version, target);
   if (folder === undefined || folder.trim() === '') { return { kind: 'declined' }; }
   if (!path.isAbsolute(folder.trim())) {
-    return kept(`${folder.trim()} is not a full path to a folder`);
+    return kept(l10n.t('{0} is not a full path to a folder', folder.trim()));
   }
 
   const settled = await replaceableDestination(
@@ -352,7 +363,9 @@ export async function downloadCompiler(deps: DownloadDeps): Promise<DownloadOutc
 
   const replacing = await exists(destination);
   const go = await prompts.confirm(
-    `Aggrega: download aggrega ${version} for ${targetWords(target)} into ${destination}${replacing ? ', replacing the aggrega already there,' : ''} and set ${BINARY_PATH_SETTING} to it?`,
+    replacing
+      ? l10n.t('Aggrega: download aggrega {0} for {1} into {2}, replacing the aggrega already there, and set {3} to it?', version, targetWords(target), destination, BINARY_PATH_SETTING)
+      : l10n.t('Aggrega: download aggrega {0} for {1} into {2} and set {3} to it?', version, targetWords(target), destination, BINARY_PATH_SETTING),
     DOWNLOAD_GO,
   );
   if (!go) { return { kind: 'declined' }; }
@@ -360,7 +373,7 @@ export async function downloadCompiler(deps: DownloadDeps): Promise<DownloadOutc
   let outcome: InstallOutcome;
   try {
     outcome = await prompts.withProgress(
-      `Aggrega: downloading aggrega ${version}`,
+      downloadingTitle(version),
       (signal) => installRelease({
         source: deps.source,
         target,
@@ -380,7 +393,7 @@ export async function downloadCompiler(deps: DownloadDeps): Promise<DownloadOutc
     await deps.memory.rememberDownload(outcome.path);
   }
   prompts.inform(
-    `Aggrega: aggrega ${outcome.version} is installed at ${outcome.path}, and ${BINARY_PATH_SETTING} names it.`,
+    l10n.t('Aggrega: aggrega {0} is installed at {1}, and {2} names it.', outcome.version, outcome.path, BINARY_PATH_SETTING),
   );
   return { kind: 'installed', path: outcome.path, version: outcome.version, replaced: replacing };
 }
@@ -458,14 +471,14 @@ export async function noteNewerRelease(deps: NoticeDeps): Promise<string | null>
   try {
     versions = compatibleVersions(await listReleases(deps.source), deps.compatibilityRange, target);
   } catch (err) {
-    deps.log(`Aggrega: could not read whether a newer compiler is available: ${describeError(err)}`);
+    deps.log(l10n.t('Aggrega: could not read whether a newer compiler is available: {0}', describeError(err)));
     return null;
   }
   const newer = newerVersionToMention(running.version, versions, deps.memory.mentioned());
   if (newer === null) { return null; }
   await deps.memory.rememberMention(newer);
   deps.inform(
-    `Aggrega: aggrega ${newer} is available; the compiler at ${file} is ${running.version}. The extension does not upgrade it on its own.`,
+    l10n.t('Aggrega: aggrega {0} is available; the compiler at {1} is {2}. The extension does not upgrade it on its own.', newer, file, running.version),
   );
   return newer;
 }

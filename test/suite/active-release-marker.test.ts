@@ -7,7 +7,7 @@ import { RecordsActiveRelease, recordActiveRelease } from '../../src/active-rele
 import type { SetActiveReleaseParams } from '../../src/types';
 import { callArguments, functionBody } from '../helpers/anchoring-census';
 import { tokenModules } from '../helpers/open-folder-census';
-import { valueImports } from '../helpers/launch-census';
+import { TEXT_LOOKUP, valueImports } from '../helpers/launch-census';
 
 // Recording the selected Release as the workspace's default is a request to the
 // language server, which writes the marker under the one judgement every write
@@ -123,7 +123,8 @@ describe('the extension writes no active-release marker of its own', () => {
     // its ending writes nothing either. An equality over the value imports, so a
     // module gaining a way to write is a difference rather than a presence a later
     // edit could satisfy.
-    assert.deepStrictEqual(valueImports('src/active-release-marker.ts'), ['./error-text', './workspace']);
+    // The text lookup is admitted by name, for the reason TEXT_LOOKUP carries.
+    assert.deepStrictEqual(valueImports('src/active-release-marker.ts'), ['./error-text', TEXT_LOOKUP, './workspace']);
     const action = functionBody('src/release-actions.ts', 'export async function createActiveReleaseMarker(');
     for (const write of ['fs.', 'writeFile', 'mkdir', 'appendFile', 'rename']) {
       assert.ok(!action.includes(write), `createActiveReleaseMarker reaches the filesystem (${write})`);

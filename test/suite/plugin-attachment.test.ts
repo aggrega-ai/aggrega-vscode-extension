@@ -19,6 +19,7 @@ import type { AppliedWrite } from '../../src/config-change-watch';
 import { terminalLine } from '../../src/operation-outcome';
 import {
   EXTENSION_ROOT,
+  TEXT_LOOKUP,
   WIRE_CONTRACT,
   assertCensusInstrumentFires,
   launchFacilityCount,
@@ -483,6 +484,7 @@ describe('the attachment reaches the compiler without a launch', () => {
         './cancellation',
         './config-change-watch',
         './config-write-scope',
+        TEXT_LOOKUP,
         './operation-groups',
         './operation-outcome',
         './plugins-run',

@@ -2,6 +2,7 @@
 // Copyright 2026 Cognitio s.r.l.
 
 import { DaemonErrorRouting, WhoAsked, describeError } from './error-surfaces';
+import * as l10n from './l10n';
 
 // GraphFailureSinks are the surfaces a failed graph render reports on.
 // Injecting them is what keeps the decisions — which surfaces are written, in
@@ -76,5 +77,5 @@ export function reportGraphFailure(
 // after the Release a reader picked, then the compiler's own words for why. It
 // names the act as a reader knows it rather than by the request that carries it.
 export function graphFailureLine(release: string, message: string): string {
-  return `The topology of ${release} could not be drawn: ${message}`;
+  return l10n.t('The topology of {0} could not be drawn: {1}', release, message);
 }

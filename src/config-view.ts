@@ -14,6 +14,7 @@ import type { DaemonState } from './daemon';
 import { daemonStanding } from './daemon-status';
 import { describeError } from './error-surfaces';
 import { makeNonce } from './html';
+import * as l10n from './l10n';
 
 // This module is the whole editor-coupled boundary of the configuration surface:
 // it asks the compiler its two questions, hands both answers to the composition,
@@ -112,8 +113,7 @@ export function activateConfigPanel(
       effective = readEffectiveConfiguration(await deps.effectiveConfiguration());
     } catch (err) {
       deps.output.appendLine(
-        'Aggrega configuration: the resolved-configuration report could not be read, so every '
-        + `setting is shown with its declared default and no source. ${describeError(err)}`,
+        l10n.t('Aggrega configuration: the resolved-configuration report could not be read, so every setting is shown with its declared default and no source. {0}', describeError(err)),
       );
     }
 
@@ -125,7 +125,7 @@ export function activateConfigPanel(
   const createPanel = (): vscode.WebviewPanel => {
     const created = vscode.window.createWebviewPanel(
       'aggrega.config',
-      'Aggrega configuration',
+      l10n.t('Aggrega configuration'),
       vscode.ViewColumn.Active,
       {
         // The document runs no script: it reports, its one control reaching a

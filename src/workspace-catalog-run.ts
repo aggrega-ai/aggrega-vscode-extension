@@ -12,6 +12,7 @@ import {
 } from './entity-kinds';
 import { daemonStandingTooltip, startServerPress } from './daemon-status';
 import { describeError } from './error-text';
+import * as l10n from './l10n';
 import { LinksLeadingOut, Withheld, describeLinksLeadingOut } from './links-leading-out';
 import { outcomeOf, terminalLine } from './operation-outcome';
 import type { PanelActionPress } from './panel-actions';
@@ -88,20 +89,20 @@ export function linksLeadingOutOf(doc: CatalogIndexDoc): LinksLeadingOut {
 // no entity in. An empty index is a complete answer rather than a failure,
 // which is why it gets a row of its own and never the failure wording: one says
 // "there is nothing here" and the other says "we do not know what is here".
-export const EMPTY_LABEL = 'No entities in this workspace.';
+export const EMPTY_LABEL = l10n.t('No entities in this workspace.');
 
 // FAILURE_LABEL points at the channel that carries the server's own message
 // verbatim. The row stays one short line because a tree row is not a place to
 // render a diagnostic; the full text reaches the reader through the channel and
 // through this row's detail.
 export const FAILURE_LABEL =
-  'Could not read the workspace catalog — see the Aggrega output channel.';
+  l10n.t('Could not read the workspace catalog — see the Aggrega output channel.');
 
 // SERVER_STOPPED_LABEL is the row for an anchored workspace whose language
 // server is not running. It is distinct from FAILURE_LABEL on purpose: a server
 // that has not started yet is an ordinary transient state, and wording it as a
 // failure would send a reader looking for a fault that is not there.
-export const SERVER_STOPPED_LABEL = 'The Aggrega language server is not running.';
+export const SERVER_STOPPED_LABEL = l10n.t('The Aggrega language server is not running.');
 
 // ENTITIES_NOT_LISTED is what this panel withholds where the index answer names
 // links leading out of the workspace: the entities a document behind such a link
@@ -141,7 +142,7 @@ export function serverStoppedNode(): { kind: 'message'; label: string; detail: s
 // directories their configuration's workspace block names. Naming the
 // directories rather than the catalog keeps it distinct from the published
 // catalog the search palette reaches, which is a registry and not a directory.
-export const CATALOG_ORIGIN_LABEL = 'from a configured catalog directory';
+export const CATALOG_ORIGIN_LABEL = l10n.t('from a configured catalog directory');
 
 // ENTITY_ICON is the editor's own theme-icon id, so the tree follows the
 // reader's theme rather than shipping bitmaps. One icon serves every entity of
@@ -285,10 +286,13 @@ export function rowForEntity(
   // everything that depends on having a document reads the answer.
   const hasDocument = fromWorkspace && entity.file !== '';
 
+  // kind, name, apiVersion and description name the keys the author wrote, so
+  // they stay as written; the label and file lines name nothing authored under
+  // those words, and are translated.
   const lines = [`kind: ${entity.kind}`, `name: ${entity.name}`];
   if (entity.apiVersion) { lines.push(`apiVersion: ${entity.apiVersion}`); }
   if (entity.description) { lines.push(`description: ${entity.description}`); }
-  for (const segment of labels) { lines.push(`label: ${segment}`); }
+  for (const segment of labels) { lines.push(l10n.t('label: {0}', segment)); }
   // The relative path is what the reader recognizes and what names the file
   // this row opens; the absolute form it resolves to is not shown, because it
   // says nothing a reader working inside the workspace needs. An entity with no
@@ -296,12 +300,14 @@ export function rowForEntity(
   // undeclared description contributes none, and carries where it came from
   // instead — so the tooltip answers "where is this from" either way, and never
   // with a name followed by nothing.
-  if (entity.file) { lines.push(`file: ${entity.file}`); }
+  if (entity.file) { lines.push(l10n.t('file: {0}', entity.file)); }
   if (originLabel) { lines.push(originLabel); }
 
   // The two parts of the dimmed line are separated by a dash rather than by the
   // labels' own separator: the note is not another label, and running it into
-  // the same list would present it as one the author had declared.
+  // the same list would present it as one the author had declared. Both
+  // separators are layout between pieces each standing on its own, as the
+  // labels' own are, so neither is a message.
   const labelLine = labels.join(' · ');
   const description = originLabel && labelLine
     ? `${originLabel} — ${labelLine}`

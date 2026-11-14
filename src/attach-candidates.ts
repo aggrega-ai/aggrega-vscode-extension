@@ -6,10 +6,10 @@ import {
   ConnectionAddress,
   attachCandidatesRequest,
   connectionCandidatesRequest,
-  connectionWords,
 } from './attachment-edit';
 import { describeError } from './error-surfaces';
 import { PanelDelivery } from './graph-messages';
+import * as l10n from './l10n';
 import { Withheld, describeLinksLeadingOut } from './links-leading-out';
 import { catalogIndexParams } from './release-terms';
 import { CatalogIndexParams } from './types';
@@ -100,7 +100,7 @@ export async function postAttachCandidates(
   release: string,
   requestId: number,
 ): Promise<void> {
-  await askAndPost(toPanel, deps, nodeId, nodeId, attachCandidatesRequest(nodeId, release), requestId,
+  await askAndPost(toPanel, deps, nodeId, null, attachCandidatesRequest(nodeId, release), requestId,
     (result, linksNote) => (linksNote === null
       ? { type: 'attachCandidates', nodeId, requestId, result }
       : { type: 'attachCandidates', nodeId, requestId, result, linksNote }));
@@ -124,7 +124,7 @@ export async function postConnectionCandidates(
   release: string,
   requestId: number,
 ): Promise<void> {
-  await askAndPost(toPanel, deps, nodeId, `the ${connectionWords(nodeId, connection)}`,
+  await askAndPost(toPanel, deps, nodeId, connection,
     connectionCandidatesRequest(nodeId, connection, release), requestId,
     (result, linksNote) => (linksNote === null
       ? { type: 'connectionCandidates', nodeId, connection, requestId, result }
@@ -133,12 +133,14 @@ export async function postConnectionCandidates(
 
 // askAndPost is the one path both questions take: the index asked beside the
 // question, the answer posted as `answered` words it, and a refusal posted and
-// recorded. `subject` names what was asked about on the output channel.
+// recorded. The output channel names what was asked about: the node, or the
+// connection where one is given — each in a whole sentence of its own, naming a
+// connection as attachment-edit.ts says every sentence does.
 async function askAndPost(
   toPanel: Pick<PanelDelivery, 'post'>,
   deps: AttachCandidatesDeps,
   nodeId: string,
-  subject: string,
+  connection: ConnectionAddress | null,
   request: AttachCandidatesRequest,
   requestId: number,
   answered: (result: unknown, linksNote: string | null) => unknown,
@@ -148,7 +150,9 @@ async function askAndPost(
     const result = await deps.requestAttachCandidates(request);
     const read = await links;
     if ('failure' in read) {
-      deps.output.appendLine(`catalogIndex failed for ${subject}, so the list of what may attach names no link leading out of the workspace: ${read.failure}`);
+      deps.output.appendLine(connection === null
+        ? l10n.t('catalogIndex failed for {0}, so the list of what may attach names no link leading out of the workspace: {1}', nodeId, read.failure)
+        : l10n.t('catalogIndex failed for the connection {0} through socket {1} of {2}, so the list of what may attach names no link leading out of the workspace: {3}', connection.alias, connection.socket, nodeId, read.failure));
     }
     const linksNote = 'line' in read ? read.line : null;
     toPanel.post(answered(result, linksNote));
@@ -157,7 +161,9 @@ async function askAndPost(
     // a line for a reader, so a transport refusal and a language server that is
     // not running are worded here by the same rule they are worded everywhere.
     const message = describeError(err);
-    deps.output.appendLine(`attachCandidates failed for ${subject}: ${message}`);
+    deps.output.appendLine(connection === null
+      ? l10n.t('attachCandidates failed for {0}: {1}', nodeId, message)
+      : l10n.t('attachCandidates failed for the connection {0} through socket {1} of {2}: {3}', connection.alias, connection.socket, nodeId, message));
     toPanel.post({ type: 'attachCandidatesError', nodeId, requestId, message });
   }
 }

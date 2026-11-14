@@ -623,11 +623,11 @@ describe('the index build reaches the compiler without a launch', () => {
     // kind to the other cannot pass unnoticed.
     assert.deepStrictEqual(
       valueImports('src/registry-index-request.ts'),
-      ['./cancellation', './not-reached', './operation-outcome'],
+      ['./cancellation', TEXT_LOOKUP, './not-reached', './operation-outcome'],
     );
     // The module it reaches for the reading and the wording of a registry not
     // reached is on the same side of the claim, so it is measured too.
-    assert.deepStrictEqual(valueImports('src/not-reached.ts'), ['./error-text']);
+    assert.deepStrictEqual(valueImports('src/not-reached.ts'), ['./error-text', TEXT_LOOKUP]);
     // The text lookup is admitted by name, for the reason TEXT_LOOKUP carries.
     assert.deepStrictEqual(valueImports('src/error-text.ts'), [TEXT_LOOKUP]);
     assert.strictEqual(launchFacilityCount('src/not-reached.ts'), 0);

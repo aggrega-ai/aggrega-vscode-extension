@@ -15,6 +15,7 @@ import {
 } from './selector-levels';
 import { CREATE_WORKSPACE_COMMAND, DRAFT_RELEASE_COMMAND } from './get-started-steps';
 import { CHOOSE_ANCHOR_INVITATION, SWITCH_ANCHOR_COMMAND } from './anchor-picker';
+import * as l10n from './l10n';
 import {
   CHOOSE_PROJECT_FOLDER_COMMAND,
   CHOOSE_PROJECT_FOLDER_INVITATION,
@@ -22,6 +23,13 @@ import {
 } from './project-folder';
 import { NO_ANCHORED_WORKSPACE_ROW_TOOLTIP, compareWorkspaceWithFolder } from './workspace';
 import { WORKSPACE_ABOVE_HEADLINE, workspacePathsAccount } from './workspace-above';
+
+// Every sentence below that names a level inside running prose spells the
+// level's name from SELECTOR_ROW_LABELS (selector-levels.ts) in its own message,
+// rather than taking the label as a placeholder: the name is a noun there, so a
+// translation has to give it the article and case its sentence needs. Only a
+// hover's first line, which holds the name as a label before a colon, takes it as
+// a placeholder.
 
 // SelectorCreate is a row's SECOND control: the one that makes a new value for
 // that level, standing beside the one that chooses among the values there are.
@@ -279,9 +287,9 @@ export function projectFolderRow(
     // elsewhere.
     return {
       ...base,
-      value: 'none open',
+      value: l10n.t('none open'),
       tooltip:
-        `Aggrega: no ${SELECTOR_ROW_LABELS.project} is open.\nClick to open one.`,
+        `${l10n.t('Aggrega: no Project folder is open.')}\n${l10n.t('Click to open one.')}`,
     };
   }
   if (chosenFolder === null) {
@@ -291,13 +299,13 @@ export function projectFolderRow(
     // reads correctly for the counts reachable today is one that starts lying
     // the moment the rule above it moves.
     const open = candidates === 1
-      ? `One ${SELECTOR_ROW_LABELS.project} is open in this window.`
-      : `${candidates} ${SELECTOR_ROW_LABELS.project}s are open in this window.`;
+      ? l10n.t('One Project folder is open in this window.')
+      : l10n.t('{0} Project folders are open in this window.', candidates);
     return {
       ...base,
-      value: 'none selected',
+      value: l10n.t('none selected'),
       tooltip:
-        `Aggrega: no ${SELECTOR_ROW_LABELS.project} is selected.\n${open}\n`
+        `${l10n.t('Aggrega: no Project folder is selected.')}\n${open}\n`
         + CHOOSE_PROJECT_FOLDER_INVITATION,
     };
   }
@@ -313,8 +321,8 @@ export function projectFolderRow(
     // is the part a reader cannot see: the Aggrega workspaces on offer below are
     // the ones this folder reaches, so changing it changes that list.
     tooltip:
-      `${SELECTOR_ROW_LABELS.project}: ${chosenFolder}${sole}\n`
-      + `The ${SELECTOR_ROW_LABELS.workspace}s on offer are the ones this folder reaches.\n`
+      `${l10n.t('{0}: {1}', SELECTOR_ROW_LABELS.project, chosenFolder)}${sole}\n`
+      + `${l10n.t('The Aggrega workspaces on offer are the ones this folder reaches.')}\n`
       + invitation,
   };
 }
@@ -376,7 +384,7 @@ export function workspaceRow(
       // around it, so a word placing the creation reads as a promise about the
       // folder — and the command settles that for itself rather than taking it
       // from this row.
-      label: `Create an ${SELECTOR_ROW_LABELS.workspace}`,
+      label: l10n.t('Create an Aggrega workspace'),
     },
     // The offer is the exception among these controls: it belongs to one of
     // this row's readings rather than to the row, so the base carries none and
@@ -393,7 +401,7 @@ export function workspaceRow(
     if (candidates === 0) {
       return {
         ...base,
-        value: 'none available',
+        value: l10n.t('none available'),
         // Read from the one home of this state's wording rather than written
         // here. The same absence reaches a reader as a notification, as a tree
         // row and as the reason a control cannot run, and a rendering invented
@@ -409,14 +417,14 @@ export function workspaceRow(
     // what went wrong.
     const last = openedFolder === null
       ? ''
-      : `\nThe last folder Aggrega worked in is ${openedFolder}.`;
+      : `\n${l10n.t('The last folder Aggrega worked in is {0}.', openedFolder)}`;
     // The closing line stands apart behind a blank line, for the reason the
     // reading below gives.
     return {
       ...base,
-      value: 'none selected',
+      value: l10n.t('none selected'),
       tooltip:
-        `Aggrega: no ${SELECTOR_ROW_LABELS.workspace} is selected, and the language server has not reported one it anchored to.${last}\n\nClick to choose one.`,
+        `${l10n.t('Aggrega: no Aggrega workspace is selected, and the language server has not reported one it anchored to.')}${last}\n\n${l10n.t('Click to choose one.')}`,
     };
   }
   // 🔴 READ FROM THE ONE COMPARISON OF THOSE TWO PATHS RATHER THAN MADE HERE.
@@ -479,10 +487,11 @@ export function workspaceRow(
         // so a name giving only the destination would be accurate and would
         // still surprise every reader who pressed it.
         //
-        // Both levels are named from the one place those names are written, so
-        // the sentence cannot come to call a level something the row above it
-        // does not.
-        label: `Open the ${SELECTOR_ROW_LABELS.workspace} as the ${SELECTOR_ROW_LABELS.project}. The window reloads.`,
+        // Both levels are named in the words SELECTOR_ROW_LABELS holds for them,
+        // spelled in this message as the note at the head of this module says,
+        // so the sentence does not call a level something the row above it does
+        // not.
+        label: l10n.t('Open the Aggrega workspace as the Project folder. The window reloads.'),
       }
       : null,
     // 🔴 THE MARK AND THE OFFER ARE READ FROM THE SAME COMPARISON AND ANSWER
@@ -507,7 +516,7 @@ export function workspaceRow(
     // that says what a click does rather than what is true, and a reader
     // looking for it finds it without reading the account above it.
     tooltip:
-      `${SELECTOR_ROW_LABELS.workspace}: ${anchoredRoot}${opened}\n\n${CHOOSE_ANCHOR_INVITATION}`,
+      `${l10n.t('{0}: {1}', SELECTOR_ROW_LABELS.workspace, anchoredRoot)}${opened}\n\n${CHOOSE_ANCHOR_INVITATION}`,
   };
 }
 
@@ -540,7 +549,7 @@ export function releaseRow(state: SelectionState, releases: number | null): Sele
       // Aggrega workspace row's own create control states: the drafting this
       // opens produces a document to be placed, so a name that placed it would
       // be describing something the flow has not done yet.
-      label: `Create a ${SELECTOR_ROW_LABELS.release}`,
+      label: l10n.t('Create a Release'),
     },
   };
 }

@@ -3,6 +3,7 @@
 
 import type * as wire from '@aggrega-ai/aggrega-abi/dist/servewire_gen';
 import { describeError } from './error-surfaces';
+import * as l10n from './l10n';
 import type { PanelActionPress } from './panel-actions';
 import { NO_ANCHORED_WORKSPACE_TREE_LABEL } from './workspace';
 import { serverStoppedNode } from './workspace-catalog-run';
@@ -63,7 +64,8 @@ const AUTH_STATE_ABSENT = 'none';
 // EMPTY_LABEL is the product's own sentence for a configuration that names no
 // registry. Reusing it keeps the view and the command saying the same thing
 // about the same state, and an empty result is a successful answer rather than a
-// failure — which is why it gets a row of its own.
+// failure — which is why it gets a row of its own. Being the command line's
+// words, it stays untranslated.
 export const EMPTY_LABEL = 'No registries configured.';
 
 // FAILURE_LABEL points at the channel that carries the product's own message
@@ -72,7 +74,7 @@ export const EMPTY_LABEL = 'No registries configured.';
 // render a compiler diagnostic; the full text reaches the reader through the
 // channel and this row's detail. A language server that is not running is not
 // such a failure, and draws the Catalog panel's row for that state instead.
-export const FAILURE_LABEL = 'registry list failed — see the Aggrega output channel.';
+export const FAILURE_LABEL = l10n.t('registry list failed — see the Aggrega output channel.');
 
 // DEFAULT_ICON and ENTRY_ICON are the editor's own theme-icon ids, so the tree
 // follows the reader's theme rather than shipping bitmaps. The default registry
@@ -127,16 +129,17 @@ export function describeAuthState(authState: string | undefined): string | null 
     return null;
   }
   if (authState === AUTH_STATE_PRESENT) {
-    return 'credential configured';
+    return l10n.t('credential configured');
   }
   if (authState === AUTH_STATE_ABSENT) {
-    return 'no credential';
+    return l10n.t('no credential');
   }
-  return `credential: ${authState}`;
+  return l10n.t('credential: {0}', authState);
 }
 
 // describeTrust renders the trust posture in the same words the command's own
-// table uses, so the two renderings of one posture never word it differently.
+// table uses, so the two renderings of one posture never word it differently —
+// which is also why they stay untranslated.
 // A posture the product did not report produces nothing.
 export function describeTrust(trust: RegistryTrust | undefined): string | null {
   const required = trust?.signaturesRequired;
@@ -159,7 +162,7 @@ export function rowForRegistry(entry: RegistryEntry): RegistryRow {
 
   const segments = [
     entry.name,
-    isDefault ? 'default' : null,
+    isDefault ? l10n.t('default') : null,
     trust,
     credential,
   ].filter((s): s is string => typeof s === 'string' && s.length > 0);
@@ -167,11 +170,11 @@ export function rowForRegistry(entry: RegistryEntry): RegistryRow {
   // The tooltip names each fact and carries the credential state as the
   // product's own token, so a reader who wants the literal value gets it
   // unfiltered — including a value this view has no phrase for.
-  const lines = [`host: ${entry.host}`];
-  if (entry.name) { lines.push(`alias: ${entry.name}`); }
-  if (isDefault) { lines.push('default registry'); }
-  if (trust) { lines.push(`trust: ${trust}`); }
-  if (credential) { lines.push(`credential: ${entry.authState}`); }
+  const lines = [l10n.t('host: {0}', entry.host)];
+  if (entry.name) { lines.push(l10n.t('alias: {0}', entry.name)); }
+  if (isDefault) { lines.push(l10n.t('default registry')); }
+  if (trust) { lines.push(l10n.t('trust: {0}', trust)); }
+  if (credential) { lines.push(l10n.t('credential: {0}', entry.authState ?? '')); }
 
   return {
     host: entry.host,

@@ -19,9 +19,11 @@ import {
   PublishEntityParams,
   PublishEntityResult,
   publicationOpeningLine,
+  publishingTitle,
   runPublishEntity,
 } from './publication-request';
 import { inspectEntity } from './inspection';
+import * as l10n from './l10n';
 import { withCancellableProgress } from './progress';
 import { RendersOnReady } from './readiness';
 
@@ -33,7 +35,7 @@ const KIND_GROUP_ICON = 'symbol-class';
 // OPEN_COMMAND_TITLE names the action a row performs when it is clicked. The
 // editor requires a title on a command binding; a tree row renders none, so
 // this reaches a reader only through the editor's own command surfaces.
-const OPEN_COMMAND_TITLE = 'Open the entity file';
+const OPEN_COMMAND_TITLE = l10n.t('Open the entity file');
 
 // WorkspaceCatalogDeps supplies the live state the workspace-catalog tree
 // needs: the anchored root the reported paths resolve against, whether the
@@ -296,10 +298,10 @@ export function activateWorkspaceCatalogView(
       (node?: CatalogPanelNode) => onPath(node, (entityPath) =>
         runWatchableCli(
           deps,
-          `Aggrega: checking ${entityPath}`,
-          'The check',
+          l10n.t('Aggrega: checking {0}', entityPath),
+          l10n.t('The check'),
           catalogValidateArgs(entityPath, deps.selectedRelease()),
-          `checked ${entityPath}.`,
+          l10n.t('checked {0}.', entityPath),
         )),
     ),
 
@@ -347,24 +349,23 @@ export function activateWorkspaceCatalogView(
     vscode.commands.registerCommand(
       'aggrega.workspaceCatalog.push',
       (node?: CatalogPanelNode) => onPath(node, async (entityPath) => {
+        const publish = l10n.t('Publish');
         const consented = await vscode.window.showWarningMessage(
-          `Publish ${entityPath} to a registry?`,
+          l10n.t('Publish {0} to a registry?', entityPath),
           {
             modal: true,
-            detail: 'The entity is bundled and pushed under its own declared version, and anyone '
-              + 'pulling that version from that registry resolves what is published here. The '
-              + 'checks beside this entry change nothing outside this machine; this one does.',
+            detail: l10n.t('The entity is bundled and pushed under its own declared version, and anyone pulling that version from that registry resolves what is published here. The checks beside this entry change nothing outside this machine; this one does.'),
           },
-          'Publish',
+          publish,
         );
-        if (consented !== 'Publish') { return; }
+        if (consented !== publish) { return; }
 
         const out = deps.output;
         out.show(true);
         out.appendLine(publicationOpeningLine(entityPath));
 
         const report = await withCancellableProgress(
-          `Aggrega: publishing ${entityPath}`,
+          publishingTitle(entityPath),
           (signal) => runPublishEntity(deps, entityPath, signal),
         );
         for (const line of report.lines) {

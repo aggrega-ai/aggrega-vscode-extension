@@ -21,6 +21,7 @@ import {
   menuFor,
 } from './operation-menus';
 import { escapeHtml } from './html';
+import * as l10n from './l10n';
 import {
   SelectorCreate,
   SelectorOffer,
@@ -72,7 +73,7 @@ import {
 // PANEL_TITLE is the document's title. The view's own name comes from the
 // manifest; this is what a reader's assistive technology announces for the
 // document inside it.
-const PANEL_TITLE = 'Aggrega commands';
+const PANEL_TITLE = l10n.t('Aggrega commands');
 
 // selectorCreateHtml draws the control that makes a new value for one level,
 // BESIDE that level's own choosing control.
@@ -302,7 +303,10 @@ function dialsCaretHtml(op: OperationDef, layout: OperationsLayout, reason: stri
   // only what it is called. It is the same whatever is ticked: nothing on the
   // caret counts what is on, and each option's own box is where its state is
   // read.
-  const label = `${op.label} options`;
+  if (!isAdjustable(op.id)) {
+    throw new Error(`${op.id} offers adjustments, and the control opening them has no name`);
+  }
+  const label = caretName(op.id);
   const reasonId = `why-${control}`;
   const disabled = reason === null ? '' : ` disabled aria-describedby="${reasonId}"`;
   const opens = reason === null
@@ -317,6 +321,31 @@ function dialsCaretHtml(op: OperationDef, layout: OperationsLayout, reason: stri
   return `<button class="op-caret" type="button"${disabled} tabindex="${focused ? '0' : '-1'}" data-dials="${escapeHtml(op.id)}" data-focus-key="${escapeHtml(control)}" aria-label="${escapeHtml(label)}" title="${escapeHtml(controlHint(label, reason))}"${opens}>${named}
       <span class="codicon codicon-chevron-down" aria-hidden="true"></span>${note}
     </button>`;
+}
+
+// ADJUSTABLE_OPERATIONS is every operation drawn with a control for its
+// adjustments beside its button. It is closed so the control's name below is
+// written for each: an operation added here without its name does not compile,
+// and a caret drawn for one missing here refuses to draw rather than borrow a
+// name from anywhere else.
+const ADJUSTABLE_OPERATIONS = ['build'] as const;
+type AdjustableOperation = typeof ADJUSTABLE_OPERATIONS[number];
+
+function isAdjustable(id: OperationId): id is AdjustableOperation {
+  return (ADJUSTABLE_OPERATIONS as readonly OperationId[]).includes(id);
+}
+
+// caretName is the name of the control opening one operation's adjustments.
+//
+// The button's label is a noun inside that name rather than a label standing on
+// its own, so a translation has to give it the form the name needs: each name is
+// a whole message of its own, spelling the label OPERATION_GROUPS gives the
+// button.
+function caretName(id: AdjustableOperation): string {
+  switch (id) {
+    case 'build':
+      return l10n.t('Build options');
+  }
 }
 
 // dialsFor reports the adjustments an operation offers, or null where it offers
@@ -404,6 +433,8 @@ function menuOptionHtml(option: MenuOption): string {
     ? ''
     : `
       <span class="op-menu-detail">${escapeHtml(option.detail)}</span>`;
+  // The two are joined as the panel's script joins a fetched option's label and
+  // detail, so a choice's hint reads alike whichever kind of menu drew it.
   const hint = option.detail === '' ? option.label : `${option.label} — ${option.detail}`;
   return `<button class="op-menu-option" type="button" role="menuitem" tabindex="-1" data-option="${escapeHtml(option.value)}" title="${escapeHtml(hint)}">
       <span class="op-menu-label">${escapeHtml(option.label)}</span>${detail}
@@ -602,7 +633,7 @@ export interface OperationsBody {
 // FLOW_LABEL names the flow for a reader who arrives at it without seeing it.
 // It is the panel's own name, which is the word that container already puts in
 // front of them.
-const FLOW_LABEL = 'Commands';
+const FLOW_LABEL = l10n.t('Commands');
 
 // buttonsFlowHtml draws every operation as one continuous sequence of buttons
 // that wraps over as many lines as the panel's width needs, with NO GROUP
@@ -749,6 +780,11 @@ export interface OperationsDocumentOptions extends OperationsBody {
   codiconUri: string;
   scriptUri: string;
   cspSource: string;
+  // language is the editor's display language, which the document declares so
+  // assistive technology reads the panel's words in the language they are
+  // written in. Absent, the document declares English, the language of every
+  // message the lookup answers where there is no translation.
+  language?: string;
 }
 
 // operationsDocumentHtml composes the whole panel.
@@ -773,7 +809,7 @@ export function operationsDocumentHtml(opts: OperationsDocumentOptions): string 
   ].join('; ');
 
   return `<!DOCTYPE html>
-<html lang="en">
+<html lang="${escapeHtml(opts.language ?? 'en')}">
 <head>
   <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy" content="${csp}">

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cognitio s.r.l.
 
+import * as l10n from './l10n';
+
 // Two of the extension's surfaces are documents it draws itself, and both run a
 // command when a control in them is pressed. What it MEANS to accept such a
 // press has one home here, and the reason it is one home rather than one per
@@ -62,7 +64,7 @@ export function panelControlCommand(
   if (!named || named.type !== 'run' || typeof named.command !== 'string') { return null; }
   if (!offered.includes(named.command)) {
     log.appendLine(
-      `${surface}: the panel asked for ${named.command}, which none of its controls offers.`,
+      l10n.t('{0}: the panel asked for {1}, which none of its controls offers.', surface, named.command),
     );
     return null;
   }
