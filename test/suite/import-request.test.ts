@@ -19,16 +19,25 @@ import {
   IMPORT_SUBJECT,
   IMPORT_TARGET_PROMPT,
   IMPORT_TARGET_TITLE,
+  ImportAnswered,
   ImportDecision,
   ImportDrift,
+  ImportOwed,
   ImportParams,
   ImportQuestions,
+  ImportReport,
   ImportResult,
   ImportSwitches,
+  OwedAnsweringDeps,
+  OwedAsks,
+  OwedQuestion,
   SourceAsks,
   SourceDialog,
   SourceKind,
+  answerOwedValues,
+  answeredRequest,
   askImport,
+  askOwed,
   chooseSource,
   clickedSource,
   decisionLine,
@@ -40,6 +49,10 @@ import {
   importOpeningLine,
   importOutcome,
   importRequest,
+  keyPath,
+  owedOffer,
+  owedQuestion,
+  owedValues,
   previewLines,
   runImport,
   writtenLine,
@@ -696,6 +709,399 @@ describe('a refusal whose remedy is naming the format is answered by a second re
     assert.strictEqual(r.sent.length, 2);
     assert.deepStrictEqual(r.asked, [AMBIGUOUS_REFUSAL.message]);
     assert.strictEqual(report.outcome.kind, 'failed');
+  });
+});
+
+// --- the values the drafts still owe -----------------------------------------
+
+// Two values an import owes, as the language server lists them: an ordinary one,
+// and a secret's under a key that the key path writes quoted. The question and the
+// secret's sentence are the compiler's; they are literals here so the assertions
+// below show they reach the box unaltered.
+const OWED_HOST: ImportOwed = {
+  file: 'aggregate.yaml',
+  key: ['spec', 'parameters', 'db_host'],
+  question: 'The host name the database is reached at',
+  sensitive: false,
+};
+const SECRET_ADVICE = 'This is a secret: answer with where it comes from — a variable name, ${NAME}, '
+  + 'or the name of a Kubernetes Secret — never the secret itself.';
+const OWED_SECRET: ImportOwed = {
+  file: 'release.yaml',
+  key: ['spec', 'parameters', 'api.key'],
+  question: 'The API key the agent calls the model with',
+  sensitive: true,
+  secretAdvice: SECRET_ADVICE,
+};
+
+// A written import that still owes both, and one that owes nothing more.
+const OWING: ImportResult = { ...DRAFTED_WITH_RECORD, owed: [OWED_HOST, OWED_SECRET] };
+const OWING_PREVIEW: ImportResult = { ...PREVIEWED, owed: [OWED_HOST, OWED_SECRET] };
+
+// The reader's answers to the owed questions, given in order, and every question
+// asked recorded as it was asked. An answer of undefined is a dismissed box; a
+// question asked past the answers given is dismissed too.
+function owedAsks(...answers: Array<string | undefined>): { asks: OwedAsks; asked: OwedQuestion[] } {
+  const asked: OwedQuestion[] = [];
+  return {
+    asked,
+    asks: {
+      ask(question: OwedQuestion): Promise<string | undefined> {
+        asked.push(question);
+        return Promise.resolve(answers[asked.length - 1]);
+      },
+    },
+  };
+}
+
+describe('each owed value is asked in a box of its own, in the compiler words', () => {
+  it('titles a box with the drafted file and the key path, quoting a key the path would misread', () => {
+    // 🔴 PLANTED DEFECT: join the keys with '.' and no quoting in owedQuestion, and
+    // the secret's title reads spec.parameters.api.key — a different key path.
+    assert.strictEqual(owedQuestion(OWED_HOST).title, 'aggregate.yaml spec.parameters.db_host');
+    assert.strictEqual(owedQuestion(OWED_SECRET).title, 'release.yaml spec.parameters."api.key"');
+  });
+
+  it('writes the key path exactly as a drifted part at the same keys is written', () => {
+    // One rendering, so an owed value and a drifted part never name one key two ways.
+    assert.strictEqual(keyPath(['spec', 'parameters', 'api.key']), 'spec.parameters."api.key"');
+    assert.strictEqual(
+      driftLine({ file: 'release.yaml', change: 'changed', key: ['spec', 'parameters', 'api.key'] }),
+      '  changed spec.parameters."api.key" in release.yaml',
+    );
+  });
+
+  it('prompts with the compiler question verbatim, and hides nothing for an ordinary value', () => {
+    // 🔴 AN EQUALITY ON THE WHOLE QUESTION, so a prompt that adds, drops or
+    // re-words a word fails rather than passing a contains check.
+    assert.deepStrictEqual(owedQuestion(OWED_HOST), {
+      title: 'aggregate.yaml spec.parameters.db_host',
+      prompt: 'The host name the database is reached at',
+      password: false,
+    });
+  });
+
+  it('asks a secret with its question and the compiler sentence for a secret, verbatim, in a hidden box', () => {
+    // 🔴 PLANTED DEFECT: drop the secretAdvice from the prompt, or set password
+    // from anything but sensitive, and this equality reddens.
+    assert.deepStrictEqual(owedQuestion(OWED_SECRET), {
+      title: 'release.yaml spec.parameters."api.key"',
+      prompt: 'The API key the agent calls the model with This is a secret: answer with where it comes from — '
+        + 'a variable name, ${NAME}, or the name of a Kubernetes Secret — never the secret itself.',
+      password: true,
+    });
+  });
+
+  it('asks a secret whose answer carries no sentence in its question alone, supplying none of its own', () => {
+    assert.deepStrictEqual(owedQuestion({ ...OWED_SECRET, secretAdvice: undefined }), {
+      title: 'release.yaml spec.parameters."api.key"',
+      prompt: 'The API key the agent calls the model with',
+      password: true,
+    });
+  });
+
+  it('offers once, naming how many values are owed', () => {
+    assert.strictEqual(
+      owedOffer(1),
+      'Aggrega: the drafts still owe 1 value. Answer them here, or leave them for the answers file.',
+    );
+    assert.strictEqual(
+      owedOffer(2),
+      'Aggrega: the drafts still owe 2 values. Answer them here, or leave them for the answers file.',
+    );
+  });
+});
+
+describe('the owed values are asked in order, and only an answer given is sent', () => {
+  it('asks every owed value in the answer order and answers each in the shape the request carries', async () => {
+    // 🔴 PLANTED DEFECT: ask the owed list reversed in askOwed and the titles
+    // below arrive in the other order.
+    const { asks, asked } = owedAsks('db.internal', 'API_KEY');
+    const answered = await askOwed(asks, [OWED_HOST, OWED_SECRET]);
+    assert.deepStrictEqual(asked.map((q) => q.title), [
+      'aggregate.yaml spec.parameters.db_host',
+      'release.yaml spec.parameters."api.key"',
+    ]);
+    assert.deepStrictEqual(answered, [
+      { file: 'aggregate.yaml', key: ['spec', 'parameters', 'db_host'], answer: 'db.internal' },
+      { file: 'release.yaml', key: ['spec', 'parameters', 'api.key'], answer: 'API_KEY' },
+    ]);
+  });
+
+  it('leaves out a value answered empty, so it stays owed, and goes on asking', async () => {
+    // 🔴 PLANTED DEFECT: push an answer whatever was typed, and an empty answer
+    // for the host is sent — which would ask the compiler to fill it with nothing.
+    for (const empty of ['', '   ', '\t']) {
+      const { asks, asked } = owedAsks(empty, ' API_KEY ');
+      const answered = await askOwed(asks, [OWED_HOST, OWED_SECRET]);
+      assert.strictEqual(asked.length, 2, JSON.stringify(empty));
+      assert.deepStrictEqual(answered, [
+        { file: 'release.yaml', key: ['spec', 'parameters', 'api.key'], answer: 'API_KEY' },
+      ]);
+    }
+  });
+
+  it('ends at a dismissed box with nothing to send, asking nothing further and keeping no answer', async () => {
+    // 🔴 PLANTED DEFECT: skip a dismissed box like an empty one in askOwed, and the
+    // second box is asked and an answer list comes back instead of null.
+    const { asks, asked } = owedAsks(undefined, 'API_KEY');
+    assert.strictEqual(await askOwed(asks, [OWED_HOST, OWED_SECRET]), null);
+    assert.strictEqual(asked.length, 1);
+    // A dismissal after an answer discards that answer too.
+    const later = owedAsks('db.internal', undefined);
+    assert.strictEqual(await askOwed(later.asks, [OWED_HOST, OWED_SECRET]), null);
+    assert.strictEqual(later.asked.length, 2);
+  });
+
+  it('answers an empty list where every value was left empty, so nothing is sent again', async () => {
+    const { asks } = owedAsks('', '');
+    assert.deepStrictEqual(await askOwed(asks, [OWED_HOST, OWED_SECRET]), []);
+  });
+});
+
+describe('an answer listing no owed value offers nothing', () => {
+  it('reads an absent, a null and an empty owed list alike, as nothing owed', async () => {
+    // 🔴 PLANTED DEFECT: read result.owed without coalescing in owedValues and the
+    // absent and null cases answer undefined and null rather than an empty list.
+    for (const owed of [undefined, null, []]) {
+      const result: ImportResult = owed === undefined ? { ...DRAFTED } : { ...DRAFTED, owed };
+      assert.deepStrictEqual(owedValues(result), [], JSON.stringify(owed));
+      const report = await runImport(recorder(result).deps, { source: './flow.json' });
+      assert.deepStrictEqual(report.owed, [], JSON.stringify(owed));
+    }
+  });
+
+  it('owes nothing for a run the compiler did not answer', async () => {
+    const report = await runImport(recorder({ code: REFUSAL_CODE, message: COMPILER_REFUSAL }).deps, {
+      source: './flow.json',
+    });
+    assert.deepStrictEqual(report.owed, []);
+    assert.strictEqual(report.sent, undefined);
+  });
+});
+
+// The surface the answering round runs against, recorded. The offer answers the
+// next of the answers given — declined past them — and records the count it named;
+// the boxes answer as owedAsks does; every request goes through the recorder; the
+// watch hands the work this spec's own signal; and every report shown is kept.
+//
+// A DELIBERATE SHARED NAME: workspace-above.test.ts has a test-local `answering`
+// too, a fake that presses a dialogue's buttons. The two are local to their specs,
+// do different jobs and share no code, so neither is a copy of the other.
+const ROUND_SIGNAL: CancellationSignal = {
+  isCancellationRequested: false,
+  onCancellationRequested: () => ({ dispose() { /* nothing to release */ } }),
+};
+
+function answering(
+  r: ReturnType<typeof recorder>,
+  offers: boolean[],
+  ...answers: Array<string | undefined>
+): { deps: OwedAnsweringDeps; offered: number[]; asked: OwedQuestion[]; shown: ImportReport[]; watched: number[] } {
+  const offered: number[] = [];
+  const shown: ImportReport[] = [];
+  const watched: number[] = [];
+  const { asks, asked } = owedAsks(...answers);
+  return {
+    offered,
+    asked,
+    shown,
+    watched,
+    deps: {
+      offer(count: number): Promise<boolean> {
+        offered.push(count);
+        return Promise.resolve(offers[offered.length - 1] ?? false);
+      },
+      asks,
+      importSource: (params, signal) => r.deps.importSource(params, signal),
+      watched(work: (signal: CancellationSignal) => Promise<ImportReport>): Promise<ImportReport> {
+        watched.push(r.sent.length);
+        return work(ROUND_SIGNAL);
+      },
+      show(report: ImportReport): Promise<void> {
+        shown.push(report);
+        return Promise.resolve();
+      },
+    },
+  };
+}
+
+const HOST_ANSWER: ImportAnswered = { file: 'aggregate.yaml', key: ['spec', 'parameters', 'db_host'], answer: 'db.internal' };
+const SECRET_ANSWER: ImportAnswered = { file: 'release.yaml', key: ['spec', 'parameters', 'api.key'], answer: 'API_KEY' };
+
+describe('the answering round offers only what an answer owes, and ends with nothing sent where the reader stops', () => {
+  it('offers nothing for a run the compiler did not answer', async () => {
+    // A report with no request is one the compiler refused or the reader stopped,
+    // so there is nothing to send answers on, whatever it lists.
+    // 🔴 PLANTED DEFECT: loop on the owed list alone in answerOwedValues and this
+    // offers once.
+    const r = recorder(DRAFTED);
+    const a = answering(r, [true], 'db.internal');
+    await answerOwedValues(a.deps, { outcome: { kind: 'failed', message: COMPILER_REFUSAL }, lines: [], owed: [OWED_HOST] });
+    assert.deepStrictEqual(a.offered, []);
+    assert.strictEqual(r.sent.length, 0);
+  });
+
+  it('offers nothing for an answer owing nothing, whether its list is absent, null or empty', async () => {
+    // 🔴 PLANTED DEFECT: loop while a request was sent, whatever it owes, and this
+    // offers with a count of nought.
+    for (const owed of [undefined, null, []]) {
+      const r = recorder(owed === undefined ? { ...DRAFTED } : { ...DRAFTED, owed });
+      const report = await runImport(r.deps, { source: './flow.json' });
+      const a = answering(r, [true], 'db.internal');
+      await answerOwedValues(a.deps, report);
+      assert.deepStrictEqual(a.offered, [], JSON.stringify(owed));
+      assert.strictEqual(r.sent.length, 1, JSON.stringify(owed));
+    }
+  });
+
+  it('offers once, naming the count, and a declined offer asks nothing and sends nothing', async () => {
+    // 🔴 PLANTED DEFECT: ask whatever the offer answered and this asks two boxes and
+    // sends a second request.
+    const r = recorder(OWING, DRAFTED);
+    const report = await runImport(r.deps, { source: './flow.json' });
+    const a = answering(r, [false], 'db.internal', 'API_KEY');
+    await answerOwedValues(a.deps, report);
+    assert.deepStrictEqual(a.offered, [2]);
+    assert.deepStrictEqual(a.asked, []);
+    assert.strictEqual(r.sent.length, 1);
+    assert.deepStrictEqual(a.shown, []);
+  });
+
+  it('ends at a dismissed box with nothing sent, the answers before it discarded', async () => {
+    // 🔴 PLANTED DEFECT: send the answers given so far when a box is dismissed and
+    // this sends a second request.
+    const r = recorder(OWING, DRAFTED);
+    const report = await runImport(r.deps, { source: './flow.json' });
+    const a = answering(r, [true], 'db.internal', undefined);
+    await answerOwedValues(a.deps, report);
+    assert.strictEqual(a.asked.length, 2);
+    assert.strictEqual(r.sent.length, 1);
+    assert.deepStrictEqual(a.watched, []);
+  });
+
+  it('ends with nothing sent where every box was left empty', async () => {
+    // 🔴 PLANTED DEFECT: drop the empty-list check in answerOwedValues and this sends
+    // a request carrying no answer.
+    const r = recorder(OWING, DRAFTED);
+    const report = await runImport(r.deps, { source: './flow.json' });
+    const a = answering(r, [true], '', '  ');
+    await answerOwedValues(a.deps, report);
+    assert.strictEqual(a.asked.length, 2);
+    assert.strictEqual(r.sent.length, 1);
+  });
+});
+
+describe('an answered round is sent again on the request that was last sent, and shown as the first was', () => {
+  it('re-sends a write as a sync carrying the answers, under the watch, and shows its report', async () => {
+    // 🔴 TWO REQUESTS, READ BACK AS SENT, and the answers' KEY SETS: each answer is
+    // the file, the keys and the answer, nothing more. The re-send runs under the
+    // watch and carries the signal it hands over.
+    // PLANTED DEFECT: drop the show in answerOwedValues and nothing is shown.
+    const r = recorder(OWING, DRAFTED);
+    const report = await runImport(r.deps, { source: './flow.json', outputDir: 'drafts', target: 'compose' });
+    assert.deepStrictEqual(report.owed, [OWED_HOST, OWED_SECRET]);
+    assert.deepStrictEqual(report.sent, { source: './flow.json', outputDir: 'drafts', target: 'compose' });
+    const a = answering(r, [true], 'db.internal', 'API_KEY');
+    await answerOwedValues(a.deps, report);
+    assert.deepStrictEqual(r.sent, [
+      { source: './flow.json', outputDir: 'drafts', target: 'compose' },
+      {
+        source: './flow.json',
+        outputDir: 'drafts',
+        target: 'compose',
+        sync: true,
+        answered: [HOST_ANSWER, SECRET_ANSWER],
+      },
+    ]);
+    for (const answer of r.sent[1].answered ?? []) {
+      assert.deepStrictEqual(Object.keys(answer).sort(), ['answer', 'file', 'key']);
+    }
+    assert.deepStrictEqual(a.watched, [1]);
+    assert.strictEqual(r.signals[1], ROUND_SIGNAL);
+    assert.strictEqual(a.shown.length, 1);
+    assert.strictEqual(
+      terminalLine(IMPORT_SUBJECT, a.shown[0].outcome),
+      'The import drafted 3 files, recognised as langflow, in /work/project.',
+    );
+    assert.deepStrictEqual(a.offered, [2]);
+  });
+
+  it('offers again what the re-send still owes, and sends the next answers on the request the round sent', async () => {
+    // The secret's literal answer is refused and stays owed, with the reason as its
+    // sentence; the next round asks it alone and re-sends with both answers.
+    // 🔴 PLANTED DEFECTS: stop after the first round, and the second offer never
+    // comes; send the second round on the first import's request instead of the
+    // one the round sent, and the host's answer is missing from it.
+    const refused: ImportOwed = { ...OWED_SECRET, secretAdvice: 'not a name: sk-literal' };
+    const r = recorder(OWING, { ...DRAFTED, owed: [refused] }, DRAFTED);
+    const report = await runImport(r.deps, { source: './flow.json' });
+    const a = answering(r, [true, true], 'db.internal', 'sk-literal', 'API_KEY');
+    await answerOwedValues(a.deps, report);
+    assert.deepStrictEqual(a.offered, [2, 1]);
+    assert.deepStrictEqual(a.asked.map((q) => q.prompt), [
+      'The host name the database is reached at',
+      `The API key the agent calls the model with ${SECRET_ADVICE}`,
+      'The API key the agent calls the model with not a name: sk-literal',
+    ]);
+    assert.deepStrictEqual(r.sent[1].answered, [HOST_ANSWER, { ...SECRET_ANSWER, answer: 'sk-literal' }]);
+    assert.deepStrictEqual(r.sent[2], {
+      source: './flow.json',
+      sync: true,
+      answered: [HOST_ANSWER, SECRET_ANSWER],
+    });
+    assert.strictEqual(a.shown.length, 2);
+  });
+
+  it('re-sends a preview as a preview, which turns on no sync', async () => {
+    // 🔴 PLANTED DEFECT: turn sync on whatever the request was, and the preview's
+    // re-send asks for a sync of drafts that were never written.
+    const r = recorder(OWING_PREVIEW, PREVIEWED);
+    const report = await runImport(r.deps, { source: './flow.json', dryRun: true });
+    const a = answering(r, [true], 'db.internal', '');
+    await answerOwedValues(a.deps, report);
+    assert.deepStrictEqual(r.sent[1], { source: './flow.json', dryRun: true, answered: [HOST_ANSWER] });
+  });
+
+  it('carries a format named after a refusal into the re-send', async () => {
+    // 🔴 PLANTED DEFECT: report the request composed from the reader's first
+    // choices rather than the one last sent, and the re-send loses the format —
+    // which the compiler refuses again as ambiguous.
+    const r = recorder(AMBIGUOUS_REFUSAL, OWING, DRAFTED);
+    r.answerFormat('langflow');
+    const report = await runImport(r.deps, { source: '/home/reader/flow.json' });
+    assert.deepStrictEqual(report.sent, { source: '/home/reader/flow.json', format: 'langflow' });
+    const a = answering(r, [true], '', 'API_KEY');
+    await answerOwedValues(a.deps, report);
+    assert.deepStrictEqual(r.sent[2], {
+      source: '/home/reader/flow.json',
+      format: 'langflow',
+      sync: true,
+      answered: [SECRET_ANSWER],
+    });
+  });
+
+  it('shows a refused re-send as the ending, owing nothing, and offers nothing more', async () => {
+    const r = recorder(OWING, { code: REFUSAL_CODE, message: COMPILER_REFUSAL });
+    const report = await runImport(r.deps, { source: './flow.json' });
+    const a = answering(r, [true, true], 'db.internal', '');
+    await answerOwedValues(a.deps, report);
+    assert.strictEqual(a.shown.length, 1);
+    assert.deepStrictEqual(a.shown[0].outcome, { kind: 'failed', message: COMPILER_REFUSAL });
+    assert.deepStrictEqual(a.shown[0].lines, []);
+    assert.deepStrictEqual(a.offered, [2]);
+  });
+
+  it('sends earlier answers again, a new answer for the same value replacing the earlier one', () => {
+    // A preview keeps no answer, so a round leaving one out would list it as owed
+    // once more; a refused answer answered again is sent once, as answered last.
+    const earlier: ImportAnswered[] = [HOST_ANSWER, { ...SECRET_ANSWER, answer: 'sk-literal' }];
+    const params = answeredRequest({ source: './flow.json', dryRun: true, answered: earlier }, [SECRET_ANSWER]);
+    assert.deepStrictEqual(params, {
+      source: './flow.json',
+      dryRun: true,
+      answered: [HOST_ANSWER, SECRET_ANSWER],
+    });
   });
 });
 

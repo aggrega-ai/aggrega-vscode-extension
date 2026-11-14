@@ -49,15 +49,20 @@ import {
   IMPORT_SOURCE_PROMPT,
   IMPORT_SOURCE_TITLE,
   IMPORT_SUBJECT,
+  IMPORT_OWED_ACTION,
   IMPORT_TARGET_PROMPT,
   IMPORT_TARGET_TITLE,
   ImportParams,
   ImportQuestions,
+  ImportReport,
   ImportResult,
+  OwedAsks,
+  answerOwedValues,
   askImport,
   chooseSource,
   clickedSource,
   importOpeningLine,
+  owedOffer,
   runImport as performImport,
   switchesFrom,
 } from './import-request';
@@ -1048,6 +1053,12 @@ async function runPreview(deps: OperationDeps): Promise<void> {
 // document, so they are written to this channel — the same surface a build's
 // positionless advisories reach, and for the same reason. The ending is composed
 // from the answer's own fields.
+//
+// Where the answer lists values the drafts still owe, the reader is offered to
+// answer them here, one input box each; the answers are sent back on the same
+// request and the compiler keeps them. When to offer, when to stop and what is
+// sent are decided in import-request.ts (answerOwedValues); this binds the offer,
+// the boxes, the watch and the report to the editor.
 async function runImport(deps: OperationDeps, clicked: string | null): Promise<void> {
   const choices = await askImport(IMPORT_QUESTIONS, clicked);
   if (choices === null) { return; }
@@ -1055,21 +1066,51 @@ async function runImport(deps: OperationDeps, clicked: string | null): Promise<v
 
   const out = deps.output;
   out.show(true);
-  out.appendLine(importOpeningLine(source));
 
-  const report = await withCancellableProgress(
-    `Aggrega: importing ${source}`,
-    (signal) => performImport(
-      { importSource: (params, s) => deps.importSource(params, s), nameFormat: askImportFormat },
-      choices,
-      signal,
-    ),
+  const importSource = (params: ImportParams, s?: CancellationSignal): Promise<ImportResult> =>
+    deps.importSource(params, s);
+  // Every request this import sends — the first, and each sent again with answers —
+  // opens its lines on the channel and runs under the same progress and stop.
+  const watched = (work: (signal: CancellationSignal) => Promise<ImportReport>): Promise<ImportReport> => {
+    out.appendLine(importOpeningLine(source));
+    return withCancellableProgress(`Aggrega: importing ${source}`, work);
+  };
+  const show = (report: ImportReport): Promise<void> => showImportReport(deps, report);
+
+  const report = await watched(
+    (signal) => performImport({ importSource, nameFormat: askImportFormat }, choices, signal),
   );
+  await show(report);
+  await answerOwedValues({ offer: offerOwed, asks: OWED_ASKS, importSource, watched, show }, report);
+}
+
+// showImportReport puts one import's lines on the channel, then its ending.
+async function showImportReport(deps: OperationDeps, report: ImportReport): Promise<void> {
   for (const line of report.lines) {
-    out.appendLine(line);
+    deps.output.appendLine(line);
   }
   await reportOutcome(deps, IMPORT_SUBJECT, report.outcome, true);
 }
+
+// offerOwed offers to answer the values an import still owes, naming how many,
+// with one button. Dismissing it is declining it, and changes nothing: the values
+// stay owed in the answers file the compiler keeps.
+async function offerOwed(count: number): Promise<boolean> {
+  const choice = await vscode.window.showInformationMessage(owedOffer(count), IMPORT_OWED_ACTION);
+  return choice === IMPORT_OWED_ACTION;
+}
+
+// OWED_ASKS asks each owed value in an input box of its own, titled and prompted
+// as owedQuestion composes it, hiding what is typed for a secret. Escape answers
+// undefined, which ends the questions with nothing sent.
+const OWED_ASKS: OwedAsks = {
+  ask: (question) => Promise.resolve(vscode.window.showInputBox({
+    title: question.title,
+    prompt: question.prompt,
+    password: question.password,
+    ignoreFocusOut: true,
+  })),
+};
 
 // IMPORT_QUESTIONS binds each of the import's questions to the editor's own input.
 // A dismissed question answers undefined, which ends the import with nothing sent.

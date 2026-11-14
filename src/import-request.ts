@@ -192,11 +192,44 @@ export const FORMAT_REMEDIED_REFUSALS: readonly string[] = ['unrecognised-import
 // for "none", so what the compiler does with it is its own default — the format
 // recognised from the source's shape, the drafts beneath the workspace root, no
 // Manifest, written whole, the answers file beside the source — exactly as for a
-// command line naming none of them. The compiler asks this surface nothing: a
-// value the drafts still owe comes back among the diagnostics, and the reader
-// writes it in the answers file the last diagnostic names.
+// command line naming none of them.
+//
+// answered is the one field the reader does not choose up front: it carries the
+// reader's answers to values an earlier answer listed as still owed, and is sent
+// only on the request that re-sends an import with them (answeredRequest).
 export type ImportParams =
-  Pick<wire.ImportParams, 'outputDir' | 'format' | 'target' | 'dryRun' | 'sync' | 'answers'> & { source: string };
+  Pick<wire.ImportParams, 'outputDir' | 'format' | 'target' | 'dryRun' | 'sync' | 'answers'>
+  & { source: string; answered?: ImportAnswered[] };
+
+// ImportOwed is one value the drafts still leave empty that no source can hold, as
+// the answer lists it: the drafted file, relative to the destination, the keys
+// leading to the value inside it, the compiler's own question for it, whether it
+// is a secret's, and, for a secret, a sentence of the compiler's own (secretAdvice).
+//
+// 🔴 WRITTEN OUT HERE, FIELD FOR FIELD IN THE COMPILER'S NAMES, rather than taken
+// from the wire declarations this module reads its other shapes from, which do not
+// declare the owed list or the answers sent for it.
+export interface ImportOwed {
+  file: string;
+  key: string[];
+  question: string;
+  sensitive: boolean;
+  // secretAdvice is present for a secret: the compiler's own sentence saying what
+  // the answer must be — or, where an answer sent for it was refused, why it was
+  // refused. Either way it is shown as written.
+  secretAdvice?: string;
+}
+
+// ImportAnswered is one answer the reader gave to an owed value, as the request
+// carries it: the drafted file and the keys the answer names the value by, exactly
+// as the owed list named them, and the answer. The compiler judges each answer —
+// a secret's included — keeps it in the answers file, and writes it into the
+// drafts; nothing here decides whether an answer is acceptable.
+export interface ImportAnswered {
+  file: string;
+  key: string[];
+  answer: string;
+}
 
 // ImportChoices is what the reader answered: the source, and each option they
 // chose. A text left blank and a switch left off are both unchosen.
@@ -267,7 +300,13 @@ export type ImportDecision = wire.ImportDecision;
 // an operation that did not complete, which is what the command line reports for
 // the same import, and the diagnostics are on the channel where the reader can act
 // on them.
-export type ImportResult = wire.ImportResult;
+//
+// owed lists the values the drafts still owe, in the drafts' order; an answer that
+// owes nothing may carry it as an empty list, as null, or not at all, and the three
+// say the same thing (owedValues). It is declared here as possibly absent whatever
+// the contract declares, because an answer from a language server that lists no
+// owed values is read the same way as one listing none.
+export type ImportResult = Omit<wire.ImportResult, 'owed'> & { owed?: ImportOwed[] | null };
 
 // ImportRequestDeps is what an import needs: a way to ask the compiler, carrying
 // the reader's stop, and a way to ask the reader for the format where the
@@ -287,9 +326,17 @@ export interface ImportRequestDeps {
 // The two travel together because they are one account of one run and the surface
 // renders both. Composing them here rather than at the surface is what keeps every
 // word an author reads in a module a test can read it back from.
+//
+// sent is the request the compiler answered, exactly as it was last sent — a
+// format the reader named after a refusal included — and owed is what that answer
+// lists as still owed. Both are what answering those values needs: the answers are
+// sent on that same request (answeredRequest). A run the compiler did not answer
+// carries no request and owes nothing.
 export interface ImportReport {
   outcome: OperationOutcome;
   lines: readonly string[];
+  sent?: ImportParams;
+  owed: readonly ImportOwed[];
 }
 
 // --- composing the request -----------------------------------------------
@@ -406,23 +453,199 @@ export async function runImport(
   signal?: CancellationSignal,
 ): Promise<ImportReport> {
   let params: ImportParams;
-  let result: ImportResult;
   try {
     params = importRequest(choices);
-    result = await deps.importSource(params, signal);
   } catch (err) {
+    return unansweredReport(err);
+  }
+  return sendImport(deps, params, signal, async (err) => {
     const named = remediesWithAFormat(err) && chosenText(choices.format) === undefined && deps.nameFormat
       ? chosenText(await deps.nameFormat(describeError(err)))
       : undefined;
-    if (named !== undefined) {
-      return runImport(deps, { ...choices, format: named }, signal);
-    }
-    // Nothing reached the channel, because nothing was answered. The refusal's own
-    // text is the whole of what the reader gets, and it travels unaltered.
-    return { outcome: outcomeOf(err), lines: [] };
+    return named === undefined ? undefined : runImport(deps, { ...choices, format: named }, signal);
+  });
+}
+
+// sendImport sends one import request and reports how it ended: the answer's
+// ending, or the refusal's. It is the one place a request is sent and its answer
+// composed into a report, for the first import and for every re-send with answers.
+//
+// remedy is offered a refusal first, and the report it answers is the ending in
+// its place; where it answers undefined, or there is none, the refusal is.
+async function sendImport(
+  deps: Pick<ImportRequestDeps, 'importSource'>,
+  params: ImportParams,
+  signal?: CancellationSignal,
+  remedy?: (err: unknown) => Promise<ImportReport | undefined>,
+): Promise<ImportReport> {
+  let result: ImportResult;
+  try {
+    result = await deps.importSource(params, signal);
+  } catch (err) {
+    return (remedy ? await remedy(err) : undefined) ?? unansweredReport(err);
   }
+  return answeredReport(params, result);
+}
+
+// unansweredReport is the ending of a request the compiler did not answer. Nothing
+// reached the channel, because nothing was answered: the refusal's own text is the
+// whole of what the reader gets, it travels unaltered, and nothing is owed.
+function unansweredReport(err: unknown): ImportReport {
+  return { outcome: outcomeOf(err), lines: [], owed: [] };
+}
+
+// answeredReport is the ending of a request the compiler answered: how it ended,
+// the lines the channel gets, the request as sent, and what it still owes.
+function answeredReport(params: ImportParams, result: ImportResult): ImportReport {
   const preview = params.dryRun === true;
-  return { outcome: importOutcome(result, preview), lines: importLines(result, preview) };
+  return {
+    outcome: importOutcome(result, preview),
+    lines: importLines(result, preview),
+    sent: params,
+    owed: owedValues(result),
+  };
+}
+
+// owedValues reads the values an answer lists as still owed, an absent list and a
+// null one read as the empty list they stand for.
+export function owedValues(result: ImportResult): readonly ImportOwed[] {
+  return result.owed ?? [];
+}
+
+// --- the values the drafts still owe ---------------------------------------
+
+// OwedQuestion is the input box one owed value is asked in: its title, its
+// prompt, and whether what is typed is hidden.
+export interface OwedQuestion {
+  title: string;
+  prompt: string;
+  password: boolean;
+}
+
+// owedQuestion is the question for one owed value.
+//
+// The title is this side's own naming of the value: the drafted file, then the key
+// path, written by the extension's one key rendering (keyPath). The prompt is the
+// compiler's own question, verbatim; for a secret it is followed by the compiler's
+// own sentence for that secret (secretAdvice), verbatim, and what is typed is
+// hidden.
+//
+// 🔴 NO COMPILER SENTENCE IS WRITTEN HERE. The question and the secret's sentence
+// both arrive on the answer, so this side places them and words neither; a secret
+// whose answer carries no sentence is asked in its question alone rather than in
+// words this side would supply.
+export function owedQuestion(owed: ImportOwed): OwedQuestion {
+  const advice = owed.sensitive ? chosenText(owed.secretAdvice) : undefined;
+  return {
+    title: `${owed.file} ${keyPath(owed.key)}`,
+    prompt: advice === undefined ? owed.question : `${owed.question} ${advice}`,
+    password: owed.sensitive,
+  };
+}
+
+// OwedAsks asks the reader one owed value's question, answering what they typed,
+// or undefined where they dismissed it. It is declared free of editor types so the
+// asking is driven by a test with no editor at all.
+export interface OwedAsks {
+  ask(question: OwedQuestion): Promise<string | undefined>;
+}
+
+// askOwed asks for each owed value, in the answer's order, and answers what the
+// reader gave, in the shape the request carries — or null where they dismissed a
+// question.
+//
+// 🔴 A DISMISSED QUESTION ENDS THE ASKING AND KEEPS NOTHING. The answers typed
+// before it are discarded with it, so a reader who stops part way leaves
+// everything as it was rather than half-answered. A question left empty is the
+// other case: it is an answer meaning "later", so that value is not sent and stays
+// owed, in the answers file, while the questions go on. An answer is sent trimmed,
+// as the command line reads one.
+export async function askOwed(asks: OwedAsks, owed: readonly ImportOwed[]): Promise<ImportAnswered[] | null> {
+  const answered: ImportAnswered[] = [];
+  for (const value of owed) {
+    const typed = await asks.ask(owedQuestion(value));
+    if (typed === undefined) { return null; }
+    const answer = chosenText(typed);
+    if (answer !== undefined) {
+      answered.push({ file: value.file, key: value.key, answer });
+    }
+  }
+  return answered;
+}
+
+// answeredRequest is the request that sends the reader's answers: the request as
+// it was last sent, carrying them.
+//
+// 🔴 A WRITE IS RE-SENT AS A SYNC, AND A PREVIEW AS A PREVIEW. A request that wrote
+// its drafts has left them on disk, and a plain import over drafts already written
+// is refused — bringing them up to date is what a sync is, so the answers go on a
+// sync. A preview wrote nothing, so it is re-sent as the preview it was, and
+// writes nothing again. Every other choice — the format named after a refusal
+// among them — is sent as it was.
+//
+// Answers an earlier re-send carried travel again, with each new answer replacing
+// one for the same value. A preview kept none of them, so leaving them out would
+// list them as owed once more; a write kept them, and the compiler applies an
+// answer only to a value its drafts still leave empty.
+export function answeredRequest(sent: ImportParams, answered: readonly ImportAnswered[]): ImportParams {
+  const same = (a: ImportAnswered, b: ImportAnswered): boolean =>
+    a.file === b.file && a.key.length === b.key.length && a.key.every((k, i) => k === b.key[i]);
+  const earlier = (sent.answered ?? []).filter((a) => !answered.some((b) => same(a, b)));
+  const params: ImportParams = { ...sent, answered: [...earlier, ...answered] };
+  if (sent.dryRun !== true) { params.sync = true; }
+  return params;
+}
+
+// OwedAnsweringDeps is what answering an import's owed values needs from the
+// surface: the offer, which answers whether the reader accepted it; the questions;
+// a way to ask the compiler; the watch every import runs under, which shows the
+// wait, carries the reader's stop and opens the import's lines on the channel; and
+// a way to show a report, its lines and then its ending.
+//
+// It is declared free of editor types so every decision the answering makes —
+// when it offers, when it stops, what it sends — is driven by a test with no
+// editor at all, as the import's own questions are.
+export interface OwedAnsweringDeps {
+  offer(count: number): Promise<boolean>;
+  asks: OwedAsks;
+  importSource(params: ImportParams, signal?: CancellationSignal): Promise<ImportResult>;
+  watched(work: (signal: CancellationSignal) => Promise<ImportReport>): Promise<ImportReport>;
+  show(report: ImportReport): Promise<void>;
+}
+
+// answerOwedValues offers to answer what an import still owes and, round by round,
+// sends the import again with the reader's answers.
+//
+// A round is offered only where the compiler answered and its answer lists owed
+// values; the offer is made once per round, naming how many. Declining it,
+// dismissing a question, and leaving every question empty each end the answering
+// with nothing sent. Otherwise the answers go on the request that was last sent
+// (answeredRequest), under the same watch the first import ran under, and the
+// report is shown as the first one was. What that answer still owes — a refused
+// answer among it — is offered again the same way, and the next round's answers
+// go on the request this round sent, so the answers given before travel with them.
+export async function answerOwedValues(deps: OwedAnsweringDeps, report: ImportReport): Promise<void> {
+  let last = report;
+  while (last.sent !== undefined && last.owed.length > 0) {
+    const sent = last.sent;
+    if (!(await deps.offer(last.owed.length))) { return; }
+    const answered = await askOwed(deps.asks, last.owed);
+    if (answered === null || answered.length === 0) { return; }
+    const params = answeredRequest(sent, answered);
+    last = await deps.watched((signal) => sendImport(deps, params, signal));
+    await deps.show(last);
+  }
+}
+
+// IMPORT_OWED_ACTION is the one button the offer to answer owed values carries.
+export const IMPORT_OWED_ACTION = 'Answer them';
+
+// owedOffer is the sentence offering to answer the values an import still owes,
+// naming how many. It is this side's own sentence rather than the compiler's: what
+// each value is, the questions themselves say.
+export function owedOffer(count: number): string {
+  const values = count === 1 ? '1 value' : `${count} values`;
+  return `Aggrega: the drafts still owe ${values}. Answer them here, or leave them for the answers file.`;
 }
 
 // remediesWithAFormat says whether a refusal names a condition whose remedy is
@@ -537,7 +760,15 @@ export function driftLine(drift: ImportDrift): string {
   if (key.length === 0) {
     return `  ${drift.change} ${drift.file}`;
   }
-  return `  ${drift.change} ${key.map(keySegment).join('.')} in ${drift.file}`;
+  return `  ${drift.change} ${keyPath(key)} in ${drift.file}`;
+}
+
+// keyPath writes the keys leading to a part of a drafted document as one path:
+// the keys joined by full stops, each quoted where the compiler quotes it. It is
+// the extension's one rendering of a key path, so a drifted part and an owed value
+// at the same keys are written alike.
+export function keyPath(key: readonly string[]): string {
+  return key.map(keySegment).join('.');
 }
 
 // keySegment writes one key of a key path: as it is, or quoted where it is empty
