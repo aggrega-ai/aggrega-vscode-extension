@@ -11,7 +11,7 @@ import { FixtureError, FixtureProof } from './fixtures';
 import { coveredBy, putAwayNotifications } from './graph-panel';
 import { CHOOSER_SETTLE_MS, chooser, Chooser, waitChooser } from './levels';
 import { commandTitle, run, SuiteContext } from './suite-context';
-import { centre, documentWith, evaluateWithin, holds, hoverAt, pressConfirmed, PressSite, Reading, RUNNING, selectorTarget, statusLog, treeRows, until } from './workbench';
+import { centre, documentWith, evaluateWithin, holds, hoverAt, pressConfirmed, PressSite, quietReading, Reading, RUNNING, selectorTarget, statusLog, treeRows, until } from './workbench';
 
 // Reading the welcome page and pressing what a reader presses on it: its four
 // steps with their marks, standings, values and ways through; the checkbox at its
@@ -390,14 +390,7 @@ export async function frontPage(ctx: SuiteContext): Promise<void> {
 
 // QUIET_READING answers how long it is since the page last drew anything, watching
 // from the first time it is asked.
-const QUIET_READING = `(() => {
-  if (!window.__welcomeSuiteQuiet) {
-    window.__welcomeSuiteQuiet = { at: Date.now() };
-    const main = document.querySelector('main.welcome');
-    if (main) { new MutationObserver(() => { window.__welcomeSuiteQuiet.at = Date.now(); }).observe(main, { subtree: true, childList: true, characterData: true, attributes: true }); }
-  }
-  return Date.now() - window.__welcomeSuiteQuiet.at;
-})()`;
+const QUIET_READING = quietReading(`document.querySelector('main.welcome')`, '__welcomeSuiteQuiet');
 
 // QUIET_MS is how long the page is to have drawn nothing before a press is made on it.
 const QUIET_MS = 300;

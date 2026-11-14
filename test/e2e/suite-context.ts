@@ -7,6 +7,7 @@ import * as path from 'path';
 import { Checks, need } from './checks';
 import { ScratchHome } from './cli';
 import { UiDriver } from './drivers';
+import { scratchHomeOf } from './editor';
 import { Inputs } from './inputs';
 import { DiagnosticEntry, ProbeClient } from './probe-client';
 import { readCmdline } from './processes';
@@ -45,7 +46,7 @@ export function makeContext(s: Scenario, inputs: Inputs, checks: Checks): SuiteC
   return {
     s, d: s.driver, probe: s.probe, inputs, checks,
     out: new OutputLog(s.root.userData),
-    home: { home: s.root.home, tmp: s.root.tmp },
+    home: scratchHomeOf(s.root),
     cliLog: path.join(s.root.logs, 'cli.log'),
     folder: s.folder,
     manifest: JSON.parse(fs.readFileSync(path.join(s.root.extensionCopy, 'package.json'), 'utf8')) as Manifest,

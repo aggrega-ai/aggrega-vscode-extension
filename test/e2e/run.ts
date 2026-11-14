@@ -5,6 +5,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { NeedleResult, runNeedles } from './calibration';
+import { captureDocs, Group, GROUPS } from './capture-docs';
 import { declaredChecks, Judgement, VERDICTS } from './checks';
 import { containmentSummary, ContainmentStart, markStart, placesFor, readContainment } from './containment';
 import { markRunnerEnvironment } from './editor';
@@ -49,6 +50,11 @@ import { runSuite, SCENARIO_CHECKS } from './suite';
 //                   no run can reach, with why; launches nothing
 //   compare <a> <b> compare two suite reports (a run's directory or its
 //                   suite.json), header and verdict by verdict
+//   capture-docs    take the screenshots the documentation shows of the editor,
+//                   driving it through each state they show, and write each
+//                   frame under --out; reads the documentation checkout --docs
+//                   names for the folders it opens; it is no check, and it
+//                   passes or fails nothing about the extension
 //
 // Options (each input also reads the environment variable named beside it):
 //   --scratch <dir>          where every scratch root of the run is created
@@ -68,6 +74,17 @@ import { runSuite, SCENARIO_CHECKS } from './suite';
 //                            copy, run the scenario that holds its checks until
 //                            they have reported, and report whether they moved
 //                            the way the plant says
+//   --out <dir>              capture-docs: where the frames are written
+//   --docs <dir>             capture-docs: the documentation checkout
+//   --only <groups>          capture-docs: a comma-separated subset of manual,
+//                            quickstart and import
+//   --importer-catalog <dir> capture-docs: a catalog folder holding the
+//                            importers at the compiler's own version, read
+//                            ahead of --catalog by the import frames, for a
+//                            compiler built between releases
+//   --page-quotes <file>     capture-docs: what each import page marks — its
+//                            import command and the example files it quotes —
+//                            as the documentation's own block reader read it
 //
 // Exit status: 0 when every reading passed (for suite: when no check failed or
 // was not run, every fixture was built and no process it started outlived it, a
@@ -86,6 +103,10 @@ interface Options {
   driver?: string;
   only?: string[];
   plant?: string;
+  out?: string;
+  docs?: string;
+  importerCatalog?: string;
+  pageQuotes?: string;
   inputs: Omit<InputOptions, 'scratch'>;
 }
 
@@ -100,7 +121,7 @@ function parseArgs(argv: string[]): Options {
     flags[a.slice(2)] = rest[++i];
   }
   if (positional.length > 0 && command !== 'compare') { throw new Usage(`unexpected argument ${positional[0]}`); }
-  const known = new Set(['scratch', 'driver', 'only', 'plant', 'extension', 'compiler', 'compiler-commit', 'catalog', 'registry-server', 'editor']);
+  const known = new Set(['scratch', 'driver', 'only', 'plant', 'extension', 'compiler', 'compiler-commit', 'catalog', 'registry-server', 'editor', 'out', 'docs', 'importer-catalog', 'page-quotes']);
   for (const k of Object.keys(flags)) { if (!known.has(k)) { throw new Usage(`unknown option --${k}`); } }
   if (flags.driver !== undefined && flags.driver !== 'all' && !DRIVERS.includes(flags.driver)) {
     throw new Usage(`unknown driver ${flags.driver}; the drivers are ${DRIVERS.join(', ')}, or all`);
@@ -114,6 +135,10 @@ function parseArgs(argv: string[]): Options {
     driver: flags.driver,
     only: flags.only === undefined ? undefined : flags.only.split(',').map((s) => s.trim()).filter((s) => s !== ''),
     plant: flags.plant,
+    out: resolved(flags.out),
+    docs: resolved(flags.docs),
+    importerCatalog: resolved(flags['importer-catalog']),
+    pageQuotes: resolved(flags['page-quotes']),
     inputs: {
       extension: path.resolve(pick('extension', INPUT_NAMES.extension.env) ?? REPO_ROOT),
       compiler: resolved(pick('compiler', INPUT_NAMES.compiler.env)),
@@ -411,6 +436,61 @@ function commandCompare(opts: Options): number {
   return differ.length === 0 && headerDiffers.length === 0 ? 0 : 1;
 }
 
+// commandCaptureDocs takes the documentation's screenshots of the editor. Its
+// scratch directory is where every folder the editor opens sits, so the paths a
+// frame can show are under it: it is to be a neutral path, absent or empty, and
+// the compiler is copied into it before anything is launched, so the path the
+// editor shows for the compiler is under it too.
+async function commandCaptureDocs(opts: Options): Promise<number> {
+  const refusals: string[] = [];
+  if (!opts.scratch) { refusals.push('refused: no scratch directory was given (--scratch); the capture writes nowhere else'); }
+  if (!opts.out) { refusals.push('refused: no output directory was given (--out)'); }
+  if (!opts.docs || !fs.existsSync(path.join(opts.docs, 'authoring', 'import'))) { refusals.push('refused: --docs names no documentation checkout (it holds no authoring/import)'); }
+  if (!opts.inputs.compiler) { refusals.push(`refused: no compiler was given (${INPUT_NAMES.compiler.option})`); }
+  const groups = opts.only ?? [...GROUPS];
+  const unknown = groups.filter((g) => !(GROUPS as readonly string[]).includes(g));
+  if (unknown.length > 0) { refusals.push(`refused: --only names ${unknown.join(', ')}; the groups are ${GROUPS.join(', ')}`); }
+  if (opts.importerCatalog !== undefined && !fs.existsSync(path.join(opts.importerCatalog, 'plugin', 'importer'))) {
+    refusals.push('refused: --importer-catalog names no catalog folder holding importers (it holds no plugin/importer)');
+  }
+  if (groups.includes('import') && (opts.pageQuotes === undefined || !fs.existsSync(opts.pageQuotes))) {
+    refusals.push('refused: the import frames need the page quotes (--page-quotes), naming a file that exists');
+  }
+  if (refusals.length > 0) { throw new Refused(refusals); }
+  const scratch = path.resolve(opts.scratch as string);
+  if (fs.existsSync(scratch) && fs.readdirSync(scratch).length > 0) {
+    throw new Refused([`refused: the scratch directory ${scratch} is not empty; the capture lays every folder it opens out afresh`]);
+  }
+  fs.mkdirSync(path.join(scratch, 'runner-tmp'), { recursive: true });
+  process.env.TMPDIR = path.join(scratch, 'runner-tmp');
+  markRunnerEnvironment();
+  const bin = path.join(scratch, 'bin', 'aggrega');
+  fs.mkdirSync(path.dirname(bin), { recursive: true });
+  fs.copyFileSync(opts.inputs.compiler as string, bin);
+  fs.chmodSync(bin, 0o755);
+  const checked = checkInputs({ ...opts.inputs, compiler: bin, scratch }, { catalog: 'optional', registryServer: false });
+  if ('refusals' in checked) {
+    throw new Refused(checked.refusals.map((r) => `refused: ${r.input} (${r.option}): ${r.reason}; ${r.remedy}`));
+  }
+  const libs = checkLibraries(checked.inputs.editor.executable);
+  const refusal = libraryRefusal(libs);
+  if (refusal !== null) { throw new Refused([`refused: ${refusal}`]); }
+  const report = await captureDocs({
+    inputs: checked.inputs, scratch, out: path.resolve(opts.out as string), docs: path.resolve(opts.docs as string),
+    groups: groups as Group[], importerCatalog: opts.importerCatalog, pageQuotes: opts.pageQuotes,
+  });
+  const taken = report.frames.filter((f) => f.written);
+  const { extensionBuild, compiler, editor, catalog } = header(checked.inputs);
+  const summary = [
+    `capture-docs: ${taken.length} of ${report.frames.length} frames written in ${Math.round(report.elapsedMs / 1000)} s`,
+    `  extension ${extensionBuild}; compiler ${compiler}; editor ${editor}; catalog ${catalog}`,
+    ...report.frames.map((f) => `  ${f.written ? 'written' : 'NOT TAKEN'} ${f.file} — ${f.what}${f.how ? ` (${f.how})` : ''}${f.error ? `: ${f.error}` : ''}`),
+  ];
+  fs.writeFileSync(path.join(scratch, 'capture.json'), `${JSON.stringify({ header: header(checked.inputs), ...report }, null, 2)}\n`);
+  process.stdout.write(`${summary.join('\n')}\n`);
+  return taken.length === report.frames.length ? 0 : 1;
+}
+
 function stopEverything(signal: NodeJS.Signals): void {
   for (const t of active) {
     for (const r of t.alive()) { try { process.kill(r.pid, 'SIGKILL'); } catch { /* gone */ } }
@@ -433,7 +513,8 @@ async function main(): Promise<number> {
     case 'plants': return commandPlants(opts);
     case 'checklist': return commandChecklist();
     case 'compare': return commandCompare(opts);
-    default: throw new Usage(`unknown command ${JSON.stringify(opts.command)}; the commands are inputs, fetch-editor, calibrate, probe, teardown-study, suite, plants, checklist and compare`);
+    case 'capture-docs': return commandCaptureDocs(opts);
+    default: throw new Usage(`unknown command ${JSON.stringify(opts.command)}; the commands are inputs, fetch-editor, calibrate, probe, teardown-study, suite, plants, checklist, compare and capture-docs`);
   }
 }
 

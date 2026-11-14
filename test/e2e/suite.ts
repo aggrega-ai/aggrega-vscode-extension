@@ -6,7 +6,7 @@ import * as path from 'path';
 
 import { CheckResult, Checks, EnoughReported, sealDeclarations, suitePassed, tally } from './checks';
 import { makeScratchHome, ScratchHome } from './cli';
-import { createScenarioRoot, ScenarioRoot } from './editor';
+import { createScenarioRoot, ScenarioRoot, scratchHomeOf } from './editor';
 import {
   copyLockfile, FixtureError, FixtureProof, MYSQL_EXAMPLE, placeDocsExample, placeEmptyBeneathWorkspace, placeFolder, placeOwnCatalogs, placeSecondAggregate,
   placeSelectionReadings, placeUnanchored, placeWorkspaceAbove, proveMissing, proveUnreachable, readTree, Tree, UNREACHABLE_HOST, writeLockfile,
@@ -871,7 +871,7 @@ async function runScenario(plan: ScenarioPlan, inputs: Inputs, runDir: string, d
   const result: ScenarioResult = { name: plan.name, folder: null, settingsChanged: plan.settings ?? {}, environmentAdded: plan.environment ?? {}, fixtures: [], results: [], ranOutOutsideChecks: [], bringUpMs: null, wallMs: 0, teardown: null, display: null };
   const checks = new Checks(plan.name, plant === null ? undefined : plant.checks);
   const root = createScenarioRoot(runDir, plan.name);
-  const home: ScratchHome = { home: root.home, tmp: root.tmp };
+  const home: ScratchHome = scratchHomeOf(root);
   const log = path.join(root.logs, 'cli.log');
   let prepared: Prepared | null = null;
   let s: Scenario | null = null;

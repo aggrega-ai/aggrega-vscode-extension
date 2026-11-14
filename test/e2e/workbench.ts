@@ -139,6 +139,28 @@ export async function holds<T>(windowMs: number, read: () => Promise<T>, ok: (v:
   return { held: true, readings };
 }
 
+// quietReading is an expression answering how long it is since the element `root`
+// names last drew anything, watching from the first time it is asked: one observer
+// per document, kept under `key` on its window, and nothing watched where `root`
+// names no element. A press or a capture waits on it for a document to stop being
+// drawn again. A change of an element's attributes counts as drawing where
+// `attributes` is true; where it is false only an element or a text added,
+// removed or changed does, so a caret blinking by toggling a class does not hold
+// the reading at zero. The last change seen is kept beside it, as `what`, for a
+// wait that runs out to name.
+export function quietReading(root: string, key: string, attributes = true): string {
+  return `(() => {
+  if (!window[${JSON.stringify(key)}]) {
+    const q = { at: Date.now(), what: '' };
+    window[${JSON.stringify(key)}] = q;
+    const root = ${root};
+    const describe = (n) => { const e = n && n.nodeType === 1 ? n : (n && n.parentElement) || null; return e ? e.tagName.toLowerCase() + (typeof e.className === 'string' && e.className.trim() !== '' ? '.' + e.className.trim().split(/\\s+/).slice(0, 3).join('.') : '') : 'nothing'; };
+    if (root) { new MutationObserver((records) => { q.at = Date.now(); const r = records[records.length - 1]; q.what = r.type + ' on ' + describe(r.target); }).observe(root, { subtree: true, childList: true, characterData: true, attributes: ${attributes} }); }
+  }
+  return Date.now() - window[${JSON.stringify(key)}].at;
+})()`;
+}
+
 // ---- the status bar ----------------------------------------------------------
 
 // statusObserver is installed in the workbench before the action it watches, so
@@ -763,15 +785,24 @@ export async function pressDialogButton(driver: UiDriver, label: string): Promis
 // TreeRow is one row of a tree view.
 export interface TreeRow { label: string; description: string; aria: string; level: number; expanded: string | null; decorations: string }
 
-// TREE_PANE and TREE_ROW are the one reading of a side-bar view and of one of its
-// rows, in the workbench's own document: the pane whose header reads `title`, and
-// what a row reads as. Both of the readings below are made of them, so the list
-// read whole and the rows drawn now are read alike.
-const TREE_PANE = `(title) => [...document.querySelectorAll('.pane')].find((pane) => {
+// paneByTitle is the one lookup of a view by the title its header reads, as an
+// expression for the workbench's own document: a function from a title to the
+// first pane under `scope` — an expression naming an element, the whole document
+// where none is given — whose header reads it, case set aside, or null. Every
+// reading and every press of a view by its title is made with it.
+export function paneByTitle(scope = 'document'): string {
+  return `(title) => [...((${scope}) || document.createDocumentFragment()).querySelectorAll('.pane')].find((pane) => {
   const h = pane.querySelector('.pane-header');
   const t = h ? ((h.querySelector('h3.title, .title') || {}).innerText || '').trim() : '';
   return t.toLowerCase() === title.toLowerCase();
 }) || null`;
+}
+
+// TREE_PANE and TREE_ROW are the one reading of a side-bar view and of one of its
+// rows, in the workbench's own document: the pane whose header reads `title`, and
+// what a row reads as. Both of the readings below are made of them, so the list
+// read whole and the rows drawn now are read alike.
+const TREE_PANE = paneByTitle();
 const TREE_ROW = `(r) => ({
   label: ((r.querySelector('.label-name') || {}).innerText || '').trim(),
   description: ((r.querySelector('.label-description') || {}).innerText || '').trim(),
@@ -1227,16 +1258,13 @@ export interface PaneState { found: boolean; expanded: string | null; rows: stri
 
 export function paneState(driver: UiDriver, title: string): Promise<PaneState> {
   return driver.workbench<PaneState>(`((title) => {
-    for (const pane of document.querySelectorAll('.pane')) {
-      const h = pane.querySelector('.pane-header');
-      const t = h ? ((h.querySelector('h3.title, .title') || {}).innerText || '').trim() : '';
-      if (t.toLowerCase() !== title.toLowerCase()) { continue; }
-      const rows = [...pane.querySelectorAll('.pane-body .monaco-list-row')]
-        .filter((r) => r.getBoundingClientRect().height > 0)
-        .map((r) => ((r.querySelector('.label-name') || {}).innerText || '').trim());
-      return { found: true, expanded: h.getAttribute('aria-expanded'), rows };
-    }
-    return { found: false, expanded: null, rows: [] };
+    const pane = (${TREE_PANE})(title);
+    if (!pane) { return { found: false, expanded: null, rows: [] }; }
+    const h = pane.querySelector('.pane-header');
+    const rows = [...pane.querySelectorAll('.pane-body .monaco-list-row')]
+      .filter((r) => r.getBoundingClientRect().height > 0)
+      .map((r) => ((r.querySelector('.label-name') || {}).innerText || '').trim());
+    return { found: true, expanded: h.getAttribute('aria-expanded'), rows };
   })(${JSON.stringify(title)})`);
 }
 
@@ -1245,10 +1273,8 @@ export function paneState(driver: UiDriver, title: string): Promise<PaneState> {
 // actions the header draws at its right, through `pressConfirmed`.
 export async function pressPaneHeader(driver: UiDriver, title: string): Promise<void> {
   const target = `((t) => {
-    for (const h of document.querySelectorAll('#workbench\\\\.parts\\\\.sidebar .pane-header')) {
-      if (((h.querySelector('h3.title') || {}).innerText || '').trim().toLowerCase() === t.toLowerCase()) { return h; }
-    }
-    return null;
+    const pane = (${paneByTitle(`document.getElementById('workbench.parts.sidebar')`)})(t);
+    return pane ? pane.querySelector('.pane-header') : null;
   })(${JSON.stringify(title)})`;
   await pressConfirmed(driver, { doc: null, target, what: `the "${title}" view's header` }, () => driver.workbench<PressSite>(uncoveredMiddle(target, 40)));
 }

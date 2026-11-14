@@ -7,7 +7,7 @@ import * as path from 'path';
 import { writeCalibrationFolder } from './calibration';
 import { connectOverDevTools, launchWithElectron, UiDriver } from './drivers';
 import {
-  copyExtension, copyProbe, createScenarioRoot, editorArguments, editorEnvironment, freePort,
+  copyExtension, copyProbe, createScenarioRoot, editorArguments, editorEnvironment, freePort, installExtensions,
   languageServer, launchEditor, LaunchShape, readEnvironment, sameArguments, ScenarioRoot, writeProfile,
 } from './editor';
 import { Inputs } from './inputs';
@@ -59,12 +59,19 @@ const DISPLAY_VARIABLES = ['DISPLAY', 'WAYLAND_DISPLAY'];
 // observers are evaluated in the workbench as soon as it is reachable, beside the
 // status and notification observers, for a scenario whose checks read what the
 // editor drew while the extension was still starting. environment is what the
-// scenario adds to the editor's environment.
+// scenario adds to the editor's environment. screen is the window's size, SCREEN
+// where none is given. afterProfile runs once the profile is written and before
+// the editor starts, so a change it makes to what the profile laid out — the
+// compiler it links onto the editor's PATH among them — is what the editor meets.
+// installed loads the extension as an installed one (LaunchShape, editor.ts).
 export interface BringUpOptions {
   root?: ScenarioRoot;
   folder?: string;
   settings?: Record<string, unknown>;
+  screen?: { width: number; height: number };
+  installed?: boolean;
   beforeLaunch?: (root: ScenarioRoot) => void;
+  afterProfile?: (root: ScenarioRoot) => void;
   observers?: readonly string[];
   environment?: Readonly<Record<string, string>>;
 }
@@ -85,10 +92,12 @@ export async function bringUp(name: string, inputs: Inputs, runDir: string, driv
   copyExtension(inputs.extension.dir, root.extensionCopy);
   copyProbe(inputs.extension.dir, root.probeCopy);
   if (opts.beforeLaunch) { opts.beforeLaunch(root); }
+  if (opts.installed === true) { installExtensions(root); }
   const settings = writeProfile(root, inputs, opts.settings ?? {});
+  if (opts.afterProfile) { opts.afterProfile(root); }
   const folder = opts.folder ?? writeCalibrationFolder(path.join(root.dir, 'folder'), inputs.catalog.dir).folder;
   const added = opts.environment ?? {};
-  const shape: LaunchShape = { folder, screen: SCREEN };
+  const shape: LaunchShape = { folder, screen: opts.screen ?? SCREEN, installed: opts.installed };
   let table: ProcessTable;
   let probe: ProbeClient;
   let driver: UiDriver | null = null;

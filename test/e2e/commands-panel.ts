@@ -9,7 +9,7 @@ import { Box, WebviewDocument } from './drivers';
 import { PanelBox } from './levels';
 import { capture, run, SuiteContext } from './suite-context';
 import { openSettingsOn, settingLabel, settingValue } from './suite-gateway';
-import { centre, COMMANDS_PANEL, documentNow, pressIn, pressMenuItem, until } from './workbench';
+import { centre, COMMANDS_PANEL, documentNow, paneByTitle, pressIn, pressMenuItem, until } from './workbench';
 
 // Reading the Commands panel as a reader meets it — the shape it is drawn in, its
 // controls with their icons, borders and boxes, the menu a control has open and
@@ -626,13 +626,10 @@ export interface TitleActions { header: Box; actions: { label: string; icon: str
 export function paneTitleActions(ctx: SuiteContext, title: string): Promise<TitleActions | null> {
   return ctx.d.workbench<TitleActions | null>(`((t) => {
     const b = (e) => { const r = e.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; };
-    for (const pane of document.querySelectorAll('.pane')) {
-      const h = pane.querySelector('.pane-header');
-      const tt = h ? ((h.querySelector('h3.title, .title') || {}).innerText || '').trim().toLowerCase() : '';
-      if (tt !== t.toLowerCase()) { continue; }
-      return { header: b(h), actions: [...h.querySelectorAll('.action-label')].map((a) => ({ label: a.getAttribute('aria-label') || '', icon: (String(a.className).match(/codicon-[a-z-]+/) || [''])[0], box: b(a) })) };
-    }
-    return null;
+    const pane = (${paneByTitle()})(t);
+    const h = pane ? pane.querySelector('.pane-header') : null;
+    if (!h) { return null; }
+    return { header: b(h), actions: [...h.querySelectorAll('.action-label')].map((a) => ({ label: a.getAttribute('aria-label') || '', icon: (String(a.className).match(/codicon-[a-z-]+/) || [''])[0], box: b(a) })) };
   })(${JSON.stringify(title)})`);
 }
 

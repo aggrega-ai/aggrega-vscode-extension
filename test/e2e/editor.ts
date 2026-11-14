@@ -7,6 +7,7 @@ import * as net from 'net';
 import * as os from 'os';
 import * as path from 'path';
 
+import { ScratchHome } from './cli';
 import { Inputs } from './inputs';
 import { PROBE_PORT_ENV } from './probe/protocol';
 import { ProcessTable, readEnviron } from './processes';
@@ -68,6 +69,13 @@ export function createScenarioRoot(runDir: string, name: string): ScenarioRoot {
   }
   fs.mkdirSync(path.join(home, root.runtimeDirName), { recursive: true, mode: 0o700 });
   return root;
+}
+
+// scratchHomeOf is the home directory a launch's own processes are given, as the
+// compiler run beside the editor takes it: the one reading of a scratch root as a
+// home.
+export function scratchHomeOf(root: ScenarioRoot): ScratchHome {
+  return { home: root.home, tmp: root.tmp };
 }
 
 // copyExtension copies the compiled extension into the scratch root, so another
@@ -186,10 +194,25 @@ function statedEnvironment(root: ScenarioRoot, probePort: number): Record<string
   };
 }
 
-// LaunchShape is the part of the command line a scenario chooses.
+// LaunchShape is the part of the command line a scenario chooses. installed
+// loads the extension and the probe from the profile's extensions directory, as
+// the editor loads an installed extension (installExtensions puts them there),
+// rather than as extensions under development, so the window's title does not
+// carry the mark the editor gives a window developing an extension.
 export interface LaunchShape {
   folder: string;
   screen: { width: number; height: number };
+  installed?: boolean;
+}
+
+// installExtensions copies the scratch root's extension and probe into the
+// profile's extensions directory, each in the directory the editor gives an
+// installed extension, named by its publisher, name and version.
+export function installExtensions(root: ScenarioRoot): void {
+  for (const from of [root.extensionCopy, root.probeCopy]) {
+    const m = JSON.parse(fs.readFileSync(path.join(from, 'package.json'), 'utf8')) as { publisher: string; name: string; version: string };
+    fs.cpSync(from, path.join(root.extensionsDir, `${m.publisher}.${m.name}-${m.version}`), { recursive: true });
+  }
 }
 
 // editorArguments is the editor's command line, without the debugging port, which
@@ -210,9 +233,11 @@ export function editorArguments(root: ScenarioRoot, shape: LaunchShape): string[
     '--force-disable-user-env',
     `--user-data-dir=${root.userData}`,
     `--extensions-dir=${root.extensionsDir}`,
-    `--extensionDevelopmentPath=${root.extensionCopy}`,
-    `--extensionDevelopmentPath=${root.probeCopy}`,
-    '--disable-extensions',
+    ...(shape.installed === true ? [] : [
+      `--extensionDevelopmentPath=${root.extensionCopy}`,
+      `--extensionDevelopmentPath=${root.probeCopy}`,
+      '--disable-extensions',
+    ]),
     '--disable-workspace-trust',
     '--skip-welcome', '--skip-release-notes', '--disable-telemetry', '--disable-updates', '--disable-crash-reporter',
     '--new-window', shape.folder,

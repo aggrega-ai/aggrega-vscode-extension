@@ -84,14 +84,37 @@ export function defaultEditorDir(extensionDir: string): string {
   return path.join(extensionDir, '.vscode-test', `vscode-linux-x64-${EDITOR_VERSION}`);
 }
 
-// checkInputs checks every input and returns either all of them or every refusal
-// at once, so one attempt names everything that has to be put right.
-export function checkInputs(opts: InputOptions): { inputs: Inputs } | { refusals: Refusal[] } {
+// InputsNeeded says which of the inputs a command needs beyond the extension, the
+// compiler and the editor, which every command needs. The suite needs all of
+// them, and is checked with the default; a command that starts no registry
+// server, or reads a catalog only where it is given one, says so.
+export interface InputsNeeded {
+  catalog: 'required' | 'optional';
+  registryServer: boolean;
+}
+
+const EVERY_INPUT: InputsNeeded = { catalog: 'required', registryServer: true };
+
+// NOT_GIVEN_CATALOG and NOT_USED_REGISTRY_SERVER stand in an input set for an
+// input a command does not need and was not given. Nothing such a command starts
+// reads either, and each says so where a report prints it.
+const NOT_GIVEN_CATALOG: Inputs['catalog'] = { dir: '', commit: 'none given', uncommitted: false };
+const NOT_USED_REGISTRY_SERVER: Inputs['registryServer'] = { path: '', version: 'not used' };
+
+// catalogGiven says whether an input set carries a catalog, rather than the stand-in
+// for one a command was not given.
+export function catalogGiven(inputs: Inputs): boolean {
+  return inputs.catalog !== NOT_GIVEN_CATALOG;
+}
+
+// checkInputs checks every input a command needs and returns either all of them or
+// every refusal at once, so one attempt names everything that has to be put right.
+export function checkInputs(opts: InputOptions, needed: InputsNeeded = EVERY_INPUT): { inputs: Inputs } | { refusals: Refusal[] } {
   const refusals: Refusal[] = [];
   const extension = checkExtension(opts.extension, refusals);
   const compiler = checkCompiler(opts, refusals);
-  const catalog = checkCatalog(opts.catalog, refusals);
-  const registryServer = checkRegistryServer(opts.registryServer, refusals);
+  const catalog = needed.catalog === 'optional' && opts.catalog === undefined ? NOT_GIVEN_CATALOG : checkCatalog(opts.catalog, refusals);
+  const registryServer = needed.registryServer ? checkRegistryServer(opts.registryServer, refusals) : NOT_USED_REGISTRY_SERVER;
   const editor = checkEditor(opts.editor ?? defaultEditorDir(opts.extension), refusals);
   if (refusals.length > 0 || !extension || !compiler || !catalog || !registryServer || !editor) {
     return { refusals };

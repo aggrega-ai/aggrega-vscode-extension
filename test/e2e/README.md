@@ -460,4 +460,55 @@ Other commands and options:
   anything; `calibrate`, `probe` and `teardown-study` exercise the runner's own
   driver, probe and teardown.
 
+## Screenshots for the documentation
+
+`capture-docs` takes the screenshots the documentation shows of the editor. It
+checks no behaviour and passes or fails nothing about the extension: it drives
+the editor the way a reader does — the welcome page, the Aggrega view and its
+panels, the topology graph, the Release chooser, each quickstart step, and each
+import page's import, validation and build — and writes one frame of each state.
+The documentation's own `scripts/capture-editor-screenshots.sh` runs it, by hand,
+from time to time; no test mode and no release runs it.
+
+```bash
+node out/test/e2e/run.js capture-docs --scratch /tmp/aggrega-screens --out <dir> \
+  --docs <aggrega-docs checkout> \
+  --compiler <aggrega binary> --compiler-commit <commit> [--catalog <aggrega-catalog directory>] \
+  [--importer-catalog <dir>] [--page-quotes <file>] [--only manual,quickstart,import]
+```
+
+It needs the compiled extension, the compiler and its commit, and the editor
+build, refused as the suite refuses them; it starts no registry server. Every
+editor it opens is 1280 × 800, in the Dark Modern theme, with the extension
+loaded as an installed one, so its title does not mark it as a window developing
+an extension. Its inputs differ from the suite's in three ways:
+
+- **The scratch directory is what the frames show.** Every folder the editor
+  opens, its home directory and its profile go beneath it, and the compiler is
+  copied into it, so the path a frame shows for any of them is under it: name a
+  neutral one, absent or empty. Before each frame is written, the text the window
+  draws is read for your home directory and the checkouts' own paths, and a frame
+  drawing either is not taken.
+- **The folders come from the documentation checkout** `--docs` names: the
+  quickstart steps, a documentation example holding several Releases, and the
+  import examples, each laid out as the files the checkout tracks. An import
+  example is scaffolded with `aggrega scaffold --example` where the compiler
+  finds the documentation for its version, and laid out from the checkout
+  otherwise; each import is the one the page's own marked import command runs.
+  The capture reads no page itself: `--page-quotes` names a file listing, for
+  each import page, its marked import command and the example files it quotes,
+  which the documentation's command writes with the documentation's own reader
+  of fenced blocks.
+- **`--catalog` makes every editor and every compiler run read the standard
+  library from a copy of what that catalog's commit holds**, laid out under the
+  scratch directory, rather than from the registry the examples name — for a
+  machine that registry does not serve. `--importer-catalog` adds a catalog
+  folder holding the importers at the compiler's own version, for a compiler
+  built between releases, whose importers no registry holds.
+
+It writes each frame under `--out`, one directory per group, and `capture.json`
+in the scratch directory, listing every frame with where it went, or why it was
+not taken. It exits 0 when every frame was taken, 1 when one was not, and 2 when
+it refused to start.
+
 The head of `test/e2e/run.ts` lists every command and option.

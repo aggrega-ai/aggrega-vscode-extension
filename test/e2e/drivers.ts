@@ -32,7 +32,9 @@ export interface UiDriver {
   readonly name: string;
   workbench<T>(expression: string): Promise<T>;
   webviews(): Promise<WebviewDocument[]>;
-  screenshot(file: string): Promise<number>;
+  // screenshot writes the window as drawn to a PNG file, or only the part of it
+  // `clip` names, and answers with the file's size in bytes.
+  screenshot(file: string, clip?: Box): Promise<number>;
   drag(from: { x: number; y: number }, to: { x: number; y: number }, steps: number): Promise<void>;
   // dragAtPace drags with the primary button from one point to another the way a
   // person's pointer does: each event is sent `paceMs` after the one before it,
@@ -88,8 +90,8 @@ class PlaywrightDriver implements UiDriver {
       .map((f) => new PlaywrightDocument(f));
   }
 
-  async screenshot(file: string): Promise<number> {
-    const png = await this.page.screenshot({ path: file });
+  async screenshot(file: string, clip?: Box): Promise<number> {
+    const png = await this.page.screenshot(clip === undefined ? { path: file } : { path: file, clip });
     return png.length;
   }
 
