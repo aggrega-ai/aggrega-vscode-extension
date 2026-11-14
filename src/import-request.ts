@@ -187,13 +187,16 @@ export const FORMAT_REMEDIED_REFUSALS: readonly string[] = ['unrecognised-import
 // 🔴 THE SOURCE IS ALWAYS SENT, AND EVERY OTHER FIELD ONLY WHEN THE READER CHOSE
 // IT. Each option is the command line's own, on the command line's terms: a
 // destination (--output-dir), the format (--format), the target (--target), a
-// preview (--dry-run) and a sync (--sync). An option left unchosen is absent from
-// the request rather than sent with a value standing for "none", so what the
-// compiler does with it is its own default — the format recognised from the
-// source's shape, the drafts beneath the workspace root, no Manifest, written
-// whole — exactly as for a command line naming none of them.
+// preview (--dry-run), a sync (--sync) and the answers file (--answers). An option
+// left unchosen is absent from the request rather than sent with a value standing
+// for "none", so what the compiler does with it is its own default — the format
+// recognised from the source's shape, the drafts beneath the workspace root, no
+// Manifest, written whole, the answers file beside the source — exactly as for a
+// command line naming none of them. The compiler asks this surface nothing: a
+// value the drafts still owe comes back among the diagnostics, and the reader
+// writes it in the answers file the last diagnostic names.
 export type ImportParams =
-  Pick<wire.ImportParams, 'outputDir' | 'format' | 'target' | 'dryRun' | 'sync'> & { source: string };
+  Pick<wire.ImportParams, 'outputDir' | 'format' | 'target' | 'dryRun' | 'sync' | 'answers'> & { source: string };
 
 // ImportChoices is what the reader answered: the source, and each option they
 // chose. A text left blank and a switch left off are both unchosen.
@@ -204,6 +207,7 @@ export interface ImportChoices {
   target?: string;
   dryRun?: boolean;
   sync?: boolean;
+  answers?: string;
 }
 
 // ImportSwitches is the reader's answer to the two options that are on or off: a
@@ -316,6 +320,8 @@ export function importRequest(choices: ImportChoices): ImportParams {
   if (target !== undefined) { params.target = target; }
   if (choices.dryRun === true) { params.dryRun = true; }
   if (choices.sync === true) { params.sync = true; }
+  const answers = chosenText(choices.answers);
+  if (answers !== undefined) { params.answers = answers; }
   return params;
 }
 
