@@ -866,7 +866,9 @@ describe('an answer listing no owed value offers nothing', () => {
     // 🔴 PLANTED DEFECT: read result.owed without coalescing in owedValues and the
     // absent and null cases answer undefined and null rather than an empty list.
     for (const owed of [undefined, null, []]) {
-      const result: ImportResult = owed === undefined ? { ...DRAFTED } : { ...DRAFTED, owed };
+      // The contract declares the list optional and never null; null is read as the
+      // answer's nullable lists are, so that case is asserted onto the answer's type.
+      const result = (owed === undefined ? { ...DRAFTED } : { ...DRAFTED, owed }) as ImportResult;
       assert.deepStrictEqual(owedValues(result), [], JSON.stringify(owed));
       const report = await runImport(recorder(result).deps, { source: './flow.json' });
       assert.deepStrictEqual(report.owed, [], JSON.stringify(owed));

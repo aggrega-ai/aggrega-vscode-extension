@@ -209,38 +209,23 @@ export const FORMAT_REMEDIED_REFUSALS: readonly string[] = ['unrecognised-import
 // reader's answers to values an earlier answer listed as still owed, and is sent
 // only on the request that re-sends an import with them (answeredRequest).
 export type ImportParams =
-  Pick<wire.ImportParams, 'outputDir' | 'format' | 'target' | 'dryRun' | 'sync' | 'answers'>
-  & { source: string; answered?: ImportAnswered[] };
+  Pick<wire.ImportParams, 'outputDir' | 'format' | 'target' | 'dryRun' | 'sync' | 'answers' | 'answered'>
+  & { source: string };
 
 // ImportOwed is one value the drafts still leave empty that no source can hold, as
 // the answer lists it: the drafted file, relative to the destination, the keys
 // leading to the value inside it, the compiler's own question for it, whether it
-// is a secret's, and, for a secret, a sentence of the compiler's own (secretAdvice).
-//
-// 🔴 WRITTEN OUT HERE, FIELD FOR FIELD IN THE COMPILER'S NAMES, rather than taken
-// from the wire declarations this module reads its other shapes from, which do not
-// declare the owed list or the answers sent for it.
-export interface ImportOwed {
-  file: string;
-  key: string[];
-  question: string;
-  sensitive: boolean;
-  // secretAdvice is present for a secret: the compiler's own sentence saying what
-  // the answer must be — or, where an answer sent for it was refused, why it was
-  // refused. Either way it is shown as written.
-  secretAdvice?: string;
-}
+// is a secret's, and, for a secret, a sentence of the compiler's own (secretAdvice)
+// saying what the answer must be — or, where an answer sent for it was refused,
+// why it was refused. Either way that sentence is shown as written.
+export type ImportOwed = wire.ImportOwed;
 
 // ImportAnswered is one answer the reader gave to an owed value, as the request
 // carries it: the drafted file and the keys the answer names the value by, exactly
 // as the owed list named them, and the answer. The compiler judges each answer —
 // a secret's included — keeps it in the answers file, and writes it into the
 // drafts; nothing here decides whether an answer is acceptable.
-export interface ImportAnswered {
-  file: string;
-  key: string[];
-  answer: string;
-}
+export type ImportAnswered = wire.ImportAnswered;
 
 // ImportChoices is what the reader answered: the source, and each option they
 // chose. A text left blank and a switch left off are both unchosen.
@@ -312,12 +297,9 @@ export type ImportDecision = wire.ImportDecision;
 // the same import, and the diagnostics are on the channel where the reader can act
 // on them.
 //
-// owed lists the values the drafts still owe, in the drafts' order; an answer that
-// owes nothing may carry it as an empty list, as null, or not at all, and the three
-// say the same thing (owedValues). It is declared here as possibly absent whatever
-// the contract declares, because an answer from a language server that lists no
-// owed values is read the same way as one listing none.
-export type ImportResult = Omit<wire.ImportResult, 'owed'> & { owed?: ImportOwed[] | null };
+// owed lists the values the drafts still owe, in the drafts' order, and is read
+// through owedValues, where an absent list reads as the empty one.
+export type ImportResult = wire.ImportResult;
 
 // ImportRequestDeps is what an import needs: a way to ask the compiler, carrying
 // the reader's stop, and a way to ask the reader for the format where the
@@ -519,6 +501,12 @@ function answeredReport(params: ImportParams, result: ImportResult): ImportRepor
 
 // owedValues reads the values an answer lists as still owed, an absent list and a
 // null one read as the empty list they stand for.
+//
+// 🔴 THE ABSENT LIST IS A REAL ANSWER, NOT A DEFENCE. The contract declares owed
+// optional, and the compilers this extension declares itself compatible with
+// include versions older than the owed list, whose answer carries no such field,
+// so an import one of those answers lists nothing this side can ask for. Null is
+// read the same way, as the answer's other lists are.
 export function owedValues(result: ImportResult): readonly ImportOwed[] {
   return result.owed ?? [];
 }
