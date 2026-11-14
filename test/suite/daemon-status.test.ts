@@ -35,11 +35,7 @@ import {
 } from '../../src/daemon-status';
 import { COMPILER_ANSWERABLE_CONTEXT_KEY } from '../../src/readiness';
 import { callArguments } from '../helpers/anchoring-census';
-
-// The manifest is read and parsed rather than pattern-matched: what is asserted
-// below is a property of the declared contributions, and only a parse can see
-// that.
-const MANIFEST = path.resolve(__dirname, '../../../package.json');
+import { readManifest } from '../helpers/manifest';
 
 // PRODUCT_EDITOR_PAGE is the documentation's guide to this extension — the
 // manual a reader is sent to from this repository's README. It sits outside
@@ -52,8 +48,11 @@ const PRODUCT_EDITOR_PAGE = path.resolve(__dirname, '../../../../aggrega-docs/au
 interface CommandEntry { command?: unknown; title?: unknown; enablement?: unknown }
 interface MenuEntry { command?: unknown; when?: unknown }
 
+// The manifest is read and parsed rather than pattern-matched: what is asserted
+// below is a property of the declared contributions, and only a parse can see
+// that. It is read with its text in place, as the editor draws it.
 function manifest(): { commands: CommandEntry[]; palette: MenuEntry[] } {
-  const pkg = JSON.parse(fs.readFileSync(MANIFEST, 'utf8'));
+  const pkg = readManifest();
   return {
     commands: pkg.contributes.commands,
     palette: pkg.contributes.menus.commandPalette ?? [],
@@ -469,7 +468,7 @@ describe('the notification raised when the language server stops responding', ()
     'Aggrega language server has stopped responding. Run "Aggrega: Start or restart the language server" to recover.';
 
   it('names the command that starts the server again, under the title the manifest declares', () => {
-    const pkg = JSON.parse(fs.readFileSync(MANIFEST, 'utf8'));
+    const pkg = readManifest();
     assert.strictEqual(commandTitle(pkg, RESTART_COMMAND), 'Aggrega: Start or restart the language server');
     assert.strictEqual(stoppedRespondingMessage(commandTitle(pkg, RESTART_COMMAND)), STOPPED_RESPONDING);
   });

@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cognitio s.r.l.
 
+import * as l10n from './l10n';
 import type { JsonRpcError } from './types';
 
 // This module renders a thrown value as the line a reader is shown. It imports
-// nothing at runtime, so every surface that reports a failure can reach it —
-// the language-server client included, which most of the extension depends on
-// and which therefore cannot depend back on most of it.
+// nothing at runtime but the text lookup, which imports nothing of the extension
+// itself, so every surface that reports a failure can reach it — the
+// language-server client included, which most of the extension depends on and
+// which therefore cannot depend back on most of it.
 
 // isJsonRpcError narrows a thrown value to the daemon's error shape. A numeric
 // code is the discriminator: the language-server transport always carries one,
@@ -52,7 +54,7 @@ export function refusalCondition(err: unknown): RefusalCondition {
 // REFUSAL_WITHOUT_WORDS is the line for a refusal the language server answered
 // with no message, which is the one case where there are no words of its own to
 // carry.
-export const REFUSAL_WITHOUT_WORDS = 'the language server refused the request without saying why';
+export const REFUSAL_WITHOUT_WORDS = l10n.t('the language server refused the request without saying why');
 
 // describeError renders any thrown value as one line for a reader.
 //

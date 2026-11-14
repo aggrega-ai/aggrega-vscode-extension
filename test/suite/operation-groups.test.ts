@@ -4,6 +4,7 @@
 import * as assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { readManifest } from '../helpers/manifest';
 import { COMMANDS_TITLE_BAR_ENTRIES, commandsPanelTitleBar } from '../helpers/title-bar';
 
 // Imported as a namespace as well as by name, so the export surface itself can
@@ -434,7 +435,8 @@ describe('the operations drawn at the head of each list panel', () => {
 
 describe('the surface the manifest actually contributes', () => {
   // Read from the manifest on disk rather than imported, so the assertion is
-  // about the file the editor loads and not about a copy the compiler made.
+  // about the file the editor loads and not about a copy the compiler made — with
+  // its text in place, as the editor draws it.
   interface Manifest {
     contributes: {
       views: { aggrega: Array<{ id: string; name: string; type?: string }> };
@@ -453,9 +455,7 @@ describe('the surface the manifest actually contributes', () => {
     };
   }
 
-  const manifest: Manifest = JSON.parse(
-    fs.readFileSync(path.join(__dirname, '..', '..', '..', 'package.json'), 'utf8'),
-  );
+  const manifest: Manifest = readManifest();
 
   // The commands lead, because they are what a reader came to do. What a
   // reader with nothing configured needs first is the welcome panel, and that

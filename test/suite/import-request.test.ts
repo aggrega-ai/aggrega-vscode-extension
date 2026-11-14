@@ -61,6 +61,7 @@ import { CancellationSignal, OperationCancelled } from '../../src/cancellation';
 import { terminalLine } from '../../src/operation-outcome';
 import {
   EXTENSION_ROOT,
+  TEXT_LOOKUP,
   WIRE_CONTRACT,
   assertCensusInstrumentFires,
   launchFacilityCount,
@@ -68,6 +69,7 @@ import {
   typeOnlyImports,
   valueImports,
 } from '../helpers/launch-census';
+import { readManifest } from '../helpers/manifest';
 
 // This spec drives the whole import decision with no transport, no editor and no
 // process: every sentence a reader meets is read back here, and every request this
@@ -393,14 +395,14 @@ describe('the import asks for each part in order, and each answer sends only wha
   });
 
   it('places the one import command in the explorer on files and folders, titled Import into Aggrega', () => {
-    // Read from the manifest the extension loads rather than from a copy, so the
-    // assertion is about what the editor draws. A menu entry carries no title of
+    // Read from the manifest the extension loads rather than from a copy, with its
+    // text in place, so the assertion is about what the editor draws. A menu entry carries no title of
     // its own and shows its command's, which is why the command itself carries the
     // explorer's title and the palette reads it under the category.
     // 🔴 PLANTED DEFECT: drop the explorer/context entry, or give it a second
     // command id, and this reddens on the placement; put back "Import…" and it
     // reddens on the title.
-    const manifest = JSON.parse(fs.readFileSync(path.join(EXTENSION_ROOT, 'package.json'), 'utf8')) as {
+    const manifest = readManifest() as {
       contributes: {
         commands: Array<{ command: string; title: string; category?: string }>;
         menus: Record<string, Array<{ command: string; when?: string; group?: string }>>;
@@ -1664,9 +1666,10 @@ describe('the import reaches the compiler without a launch', () => {
     // no code through them. Asserted separately below, because a reading that
     // folded the two together would let a later change from one kind to the other
     // pass unnoticed.
+    // The text lookup is admitted by name, for the reason TEXT_LOOKUP carries.
     assert.deepStrictEqual(
       valueImports('src/import-request.ts'),
-      ['./cancellation', './error-text', './operation-groups', './operation-outcome'],
+      ['./cancellation', './error-text', TEXT_LOOKUP, './operation-groups', './operation-outcome'],
     );
     assert.deepStrictEqual(typeOnlyImports('src/import-request.ts'), [WIRE_CONTRACT]);
   });

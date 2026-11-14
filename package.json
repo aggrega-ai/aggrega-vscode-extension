@@ -27,6 +27,7 @@
     "workspaceContains:**/.aggrega-config.yaml"
   ],
   "main": "./out/src/extension.js",
+  "l10n": "./l10n",
   "contributes": {
     "viewsContainers": {
       "activitybar": [
@@ -620,6 +621,7 @@
     "compile": "npm run build-wire-contract && tsc -p ./ && npm run copy-vendor-assets && npm run stamp-build-version",
     "copy-vendor-assets": "node build/copy-vendor-assets.js",
     "stamp-build-version": "node build/stamp-build-version.js",
+    "l10n-bundle": "node build/l10n-bundle.js",
     "watch": "tsc -watch -p ./",
     "build-fixtures": "node out/test/helpers/build-aggrega.js",
     "pretest": "npm run compile && npm run build-fixtures",

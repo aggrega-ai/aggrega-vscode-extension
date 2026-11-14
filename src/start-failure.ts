@@ -2,6 +2,7 @@
 // Copyright 2026 Cognitio s.r.l.
 
 import { describeError } from './error-text';
+import * as l10n from './l10n';
 
 // This module says what is wrong when the compiler could not be started — the
 // language server, or a command the extension runs — in the words a reader acts
@@ -19,16 +20,16 @@ export const BINARY_PATH_SETTING = 'aggrega.server.binaryPath';
 
 // OPEN_BINARY_PATH_SETTING_ACTION is the button that takes a reader to that
 // setting, wherever a failure to start the compiler is reported with one.
-export const OPEN_BINARY_PATH_SETTING_ACTION = 'Open binary path setting';
+export const OPEN_BINARY_PATH_SETTING_ACTION = l10n.t('Open binary path setting');
 
 // DOWNLOAD_COMPILER_ACTION is the button that downloads a compiler from a
 // published release. The welcome page's compiler step carries the same words, so
 // a reader told here that nothing was found meets the same offer there.
-export const DOWNLOAD_COMPILER_ACTION = 'Download the compiler';
+export const DOWNLOAD_COMPILER_ACTION = l10n.t('Download the compiler');
 
 // CHOOSE_ANOTHER_FILE_ACTION is the button that points the setting at a compiler
 // file the reader picks.
-export const CHOOSE_ANOTHER_FILE_ACTION = 'Choose another file';
+export const CHOOSE_ANOTHER_FILE_ACTION = l10n.t('Choose another file');
 
 // StartFailure is a failed attempt to start the compiler: what the attempt
 // failed with, and the path it tried to start. The path is kept beside the
@@ -82,9 +83,9 @@ export function startFailureCause(err: unknown): StartFailureCause {
 export function startFailureWords(failure: StartFailure): string {
   switch (startFailureCause(failure.reason)) {
     case 'notFound':
-      return `the compiler at ${failure.binaryPath} was not found`;
+      return l10n.t('the compiler at {0} was not found', failure.binaryPath);
     case 'notExecutable':
-      return `${failure.binaryPath} is not an executable file`;
+      return l10n.t('{0} is not an executable file', failure.binaryPath);
     case 'other':
       return describeError(failure.reason);
   }
@@ -99,9 +100,9 @@ export function startFailureWords(failure: StartFailure): string {
 export function startFailureReason(failure: StartFailure): string {
   const words = startFailureWords(failure);
   if (startFailureCause(failure.reason) === 'other') {
-    return `${withoutClosingStop(words)}. ${BINARY_PATH_SETTING} names the compiler it runs, ${failure.binaryPath}.`;
+    return l10n.t('{0}. {1} names the compiler it runs, {2}.', withoutClosingStop(words), BINARY_PATH_SETTING, failure.binaryPath);
   }
-  return `${words}. Set ${BINARY_PATH_SETTING} to the aggrega binary.`;
+  return l10n.t('{0}. Set {1} to the aggrega binary.', words, BINARY_PATH_SETTING);
 }
 
 // startFailureActions is what a notification of a failure to start offers, in

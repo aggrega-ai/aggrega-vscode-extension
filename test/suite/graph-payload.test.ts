@@ -7,6 +7,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { createGraphRedactor, loadAttachmentsModel } from '../../src/graph-payload';
 import { SHOW_SENSITIVE_VALUES_KEY, showsSensitiveValues } from '../../src/settings';
+import { readManifest } from '../helpers/manifest';
 
 // These tests exercise the payload the topology view is handed — what crosses
 // the boundary, not what the panel draws with it afterwards. That distinction is
@@ -340,9 +341,8 @@ describe('the opt-out the author owns', () => {
   });
 
   it('names the setting with the key the manifest declares', () => {
-    const manifest = JSON.parse(
-      fs.readFileSync(path.join(EXTENSION_ROOT, 'package.json'), 'utf8'),
-    );
+    // Read with its text in place, as the editor draws it.
+    const manifest = readManifest();
     const declared = manifest.contributes.configuration.properties[
       `aggrega.graph.${SHOW_SENSITIVE_VALUES_KEY}`
     ];

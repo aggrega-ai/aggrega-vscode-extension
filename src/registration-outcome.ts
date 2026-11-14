@@ -3,6 +3,7 @@
 
 import type * as wire from '@aggrega-ai/aggrega-abi/dist/servewire_gen';
 import { ConfigWriteScope, reachPhrase } from './config-write-scope';
+import * as l10n from './l10n';
 import { couldNotBeReached } from './not-reached';
 
 // This module is the one rendering of what registering a registry produced.
@@ -90,47 +91,50 @@ export function trustPhrase(
   if (trust.pinned) {
     const count = trust.identities ?? 0;
     return count === 1
-      ? 'Its advertised signature trust policy was pinned, naming 1 identity.'
-      : `Its advertised signature trust policy was pinned, naming ${count} identities.`;
+      ? l10n.t('Its advertised signature trust policy was pinned, naming 1 identity.')
+      : l10n.t('Its advertised signature trust policy was pinned, naming {0} identities.', count);
   }
   if (trust.baseline) {
-    return 'The built-in trust baseline was pinned instead of an advertised policy.'
+    return l10n.t('The built-in trust baseline was pinned instead of an advertised policy.')
       + because;
   }
   if (trust.unreachable === true) {
-    return 'No signature trust policy could be fetched from it, and this registration names no '
-      + 'identity or key, so the entry carries none.'
+    return l10n.t('No signature trust policy could be fetched from it, and this registration names no identity or key, so the entry carries none.')
       + because;
   }
   if (trust.notAdvertised) {
-    return 'It advertises no signature trust policy, and this registration names no '
-      + 'identity or key, so the entry carries none.'
+    return l10n.t('It advertises no signature trust policy, and this registration names no identity or key, so the entry carries none.')
       + because;
   }
   if (trust.skipped) {
-    const supplied = byHand === null ? null : pinnedByHandPhrase(byHand);
-    return supplied === null
-      ? 'No advertised signature trust policy was fetched.'
-      : `Its signature trust policy is ${supplied} this registration supplied, so no `
-        + 'advertised policy was fetched.';
+    return (byHand === null ? null : pinnedByHandSentence(byHand))
+      ?? l10n.t('No advertised signature trust policy was fetched.');
   }
   // The answer reported none of the outcomes above. Saying so is the honest
   // reading: a surface that picked one of them would report a fact the compiler
   // did not send.
-  return 'The answer names no signature trust policy outcome.';
+  return l10n.t('The answer names no signature trust policy outcome.');
 }
 
-// pinnedByHandPhrase names the kinds of trust a registration pinned by hand, or
-// reports null where it pinned none.
-function pinnedByHandPhrase(byHand: PinnedByHand): string | null {
-  const identities = byHand.identities === 0
-    ? null
-    : byHand.identities === 1 ? 'the keyless identity' : 'the keyless identities';
-  const key = byHand.key ? 'the public key' : null;
-  if (identities !== null && key !== null) {
-    return `${identities} and ${key}`;
+// pinnedByHandSentence says what kinds of trust a registration pinned by hand, so
+// no advertised policy was fetched, or reports null where it pinned none.
+//
+// Each combination is its own whole sentence rather than a list of kinds joined
+// into one, so a translation can word each as its language needs.
+function pinnedByHandSentence(byHand: PinnedByHand): string | null {
+  if (byHand.identities === 0) {
+    return byHand.key
+      ? l10n.t('Its signature trust policy is the public key this registration supplied, so no advertised policy was fetched.')
+      : null;
   }
-  return identities ?? key;
+  if (byHand.identities === 1) {
+    return byHand.key
+      ? l10n.t('Its signature trust policy is the keyless identity and the public key this registration supplied, so no advertised policy was fetched.')
+      : l10n.t('Its signature trust policy is the keyless identity this registration supplied, so no advertised policy was fetched.');
+  }
+  return byHand.key
+    ? l10n.t('Its signature trust policy is the keyless identities and the public key this registration supplied, so no advertised policy was fetched.')
+    : l10n.t('Its signature trust policy is the keyless identities this registration supplied, so no advertised policy was fetched.');
 }
 
 // registrationSentence is what a completed registration reads as.
@@ -141,12 +145,18 @@ function pinnedByHandPhrase(byHand: PinnedByHand): string | null {
 // normalised one the compiler keyed the entry under, which is not always the
 // token that was typed, and the file is the one the write actually resolved to.
 // A registration that supplied a policy by hand says what kind it pinned.
+//
+// How far the file reaches fills a placeholder, as config-write-scope.ts words
+// it: it is a phrase standing alone after the file, carrying its own article, and
+// no word of this sentence agrees with it. Writing its words here instead would
+// tell a reader about one file in two sets of words, which that module exists to
+// prevent.
 export function registrationSentence(
   host: string,
   scope: ConfigWriteScope,
   trust: TrustFetchOutcome,
   byHand: PinnedByHand | null = null,
 ): string {
-  return `registered ${host} in ${scope.configFile}, ${reachPhrase(scope)}. `
+  return `${l10n.t('registered {0} in {1}, {2}.', host, scope.configFile, reachPhrase(scope))} `
     + trustPhrase(host, trust, byHand);
 }

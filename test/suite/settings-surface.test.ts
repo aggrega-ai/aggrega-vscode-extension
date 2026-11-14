@@ -11,11 +11,7 @@ import {
   USER_ONLY_SCOPES,
   extensionSettingsQuery,
 } from '../../src/settings';
-
-// The manifest is read and parsed rather than pattern-matched. A token census
-// over the file answers a question about the text; what is being asserted here
-// is a property of the declared properties, and only a parse can see that.
-const MANIFEST = path.resolve(__dirname, '../../../package.json');
+import { readManifest } from '../helpers/manifest';
 
 // PRODUCT_EDITOR_PAGE is the documentation's guide to this extension — the
 // manual a reader is sent to from this repository's README. It sits outside
@@ -29,6 +25,10 @@ interface ConfigProperty { scope?: unknown }
 interface MenuEntry { command?: unknown; when?: unknown; group?: unknown }
 interface CommandEntry { command?: unknown; title?: unknown; icon?: unknown }
 
+// The manifest is read and parsed rather than pattern-matched. A token census
+// over the file answers a question about the text; what is being asserted here
+// is a property of the declared properties, and only a parse can see that. It is
+// read with its text in place, as the editor draws it.
 function manifest(): {
   properties: Record<string, ConfigProperty>;
   viewTitleMenus: MenuEntry[];
@@ -36,7 +36,7 @@ function manifest(): {
   publisher: string;
   name: string;
 } {
-  const pkg = JSON.parse(fs.readFileSync(MANIFEST, 'utf8'));
+  const pkg = readManifest();
   return {
     properties: pkg.contributes.configuration.properties,
     viewTitleMenus: pkg.contributes.menus['view/title'],

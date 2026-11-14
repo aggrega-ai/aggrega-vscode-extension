@@ -14,10 +14,7 @@ import {
   settingsFromObject,
 } from '../../src/settings';
 import { buildServeArgs } from '../../src/daemon';
-
-// The manifest is read and parsed rather than pattern-matched, so what is
-// asserted is a property of the declared settings and commands.
-const MANIFEST = path.resolve(__dirname, '../../../package.json');
+import { readManifest } from '../helpers/manifest';
 
 // The command line's own source for `aggrega serve`, whose flag help is where the
 // setting's description takes its qualifier from. A checkout without the compiler
@@ -26,8 +23,11 @@ const SERVE_COMMAND_SOURCE = path.resolve(__dirname, '../../../../aggrega-cli/cm
 
 interface ManifestProperty { description?: unknown; markdownDescription?: unknown }
 
+// The manifest is read and parsed rather than pattern-matched, so what is
+// asserted is a property of the declared settings and commands. It is read with
+// its text in place, as the editor draws it.
 function manifest(): { properties: Record<string, ManifestProperty>; commands: { command?: unknown; title?: unknown }[] } {
-  const pkg = JSON.parse(fs.readFileSync(MANIFEST, 'utf8'));
+  const pkg = readManifest();
   return { properties: pkg.contributes.configuration.properties, commands: pkg.contributes.commands };
 }
 

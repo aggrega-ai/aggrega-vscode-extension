@@ -9,6 +9,7 @@ import { PANEL_ACTIONS, commandIdFor, commandsPanelOperations } from '../../src/
 import { REGISTRY_ROW_CONTEXT } from '../../src/registries-run';
 import {
   EXTENSION_ROOT,
+  TEXT_LOOKUP,
   WIRE_CONTRACT,
   assertCensusInstrumentFires,
   launchFacilityCount,
@@ -338,11 +339,13 @@ describe('the registries panel and the catalog search reach the compiler without
     // the claim, so it is measured too: it names the editor nowhere and starts
     // nothing, and the one module it reaches for a declaration is erased. The one
     // module it reaches for code renders a thrown value as a line, and it is held
-    // here to reaching nothing at runtime itself, so the claim stays whole.
+    // here to reaching nothing at runtime but the text lookup, so the claim stays
+    // whole.
     assert.deepStrictEqual(valueImports('src/config-change-watch.ts'), ['./error-text', 'path']);
     assert.deepStrictEqual(typeOnlyImports('src/config-change-watch.ts'), ['./binary-restart']);
     assert.strictEqual(launchFacilityCount('src/config-change-watch.ts'), 0);
-    assert.deepStrictEqual(valueImports('src/error-text.ts'), []);
+    // The text lookup is admitted by name, for the reason TEXT_LOOKUP carries.
+    assert.deepStrictEqual(valueImports('src/error-text.ts'), [TEXT_LOOKUP]);
     assert.strictEqual(launchFacilityCount('src/error-text.ts'), 0);
   });
 

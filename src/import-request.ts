@@ -4,6 +4,7 @@
 import type * as wire from '@aggrega-ai/aggrega-abi/dist/servewire_gen';
 import { CancellationSignal } from './cancellation';
 import { describeError, refusalCondition } from './error-text';
+import * as l10n from './l10n';
 import { OperationOutcome, outcomeOf } from './operation-outcome';
 import { withSubject } from './operation-groups';
 
@@ -18,6 +19,10 @@ import { withSubject } from './operation-groups';
 // mapping decision with the importer's own values, the closing sentence is
 // composed from the answer's own fields, and a refusal travels through the
 // extension's one rendering home with the compiler's text intact.
+//
+// The questions and sentences this side words are translated; the compiler's
+// words, and the lines that repeat the command line's own (the written-file,
+// mapping-decision and drift lines), are not.
 //
 // 🔴 THIS ONE CAN BE STOPPED, AND THAT IS READ OFF THE COMPILER RATHER THAN
 // ASSUMED. A stop is offered exactly where the compiler can honour one. Here it
@@ -43,11 +48,11 @@ import { withSubject } from './operation-groups';
 // compiler reads either — a folder into the files of it the importer's declared
 // file patterns select — so narrowing the question here would narrow the operation
 // to less than it performs.
-export const IMPORT_SOURCE_PROMPT = 'The file or the folder to import';
+export const IMPORT_SOURCE_PROMPT = l10n.t('The file or the folder to import');
 
 // IMPORT_SOURCE_TITLE is the heading over that question, and over the editor's open
 // dialog that follows it.
-export const IMPORT_SOURCE_TITLE = 'Aggrega: import source';
+export const IMPORT_SOURCE_TITLE = l10n.t('Aggrega: import source');
 
 // SourceKind is which of the two the reader chose to import.
 export type SourceKind = 'file' | 'folder';
@@ -61,8 +66,8 @@ export type SourceKind = 'file' | 'folder';
 // the source is a file or a folder on the machine the language server reads from,
 // and the dialog names any of those.
 export const IMPORT_SOURCE_KINDS: ReadonlyArray<{ label: string; kind: SourceKind }> = [
-  { label: 'File…', kind: 'file' },
-  { label: 'Folder…', kind: 'folder' },
+  { label: l10n.t('File…'), kind: 'file' },
+  { label: l10n.t('Folder…'), kind: 'folder' },
 ];
 
 // SourceDialog is the open dialog a chosen kind is asked through: one entry, of
@@ -107,10 +112,14 @@ export async function chooseSource(asks: SourceAsks): Promise<string | undefined
 // options that are on or off, each with the sentence saying what it does. Neither
 // is chosen until the reader chooses it, so leaving both off writes the drafts
 // whole, as `aggrega import` does with neither flag.
-export const IMPORT_OPTIONS_TITLE = 'Aggrega: import options';
+export const IMPORT_OPTIONS_TITLE = l10n.t('Aggrega: import options');
 export const IMPORT_OPTIONS: ReadonlyArray<{ label: string; detail: string; option: keyof ImportSwitches }> = [
-  { label: 'Preview', detail: 'Show the drafts without writing them', option: 'dryRun' },
-  { label: 'Sync', detail: 'Bring what an earlier import drafted up to date with the source', option: 'sync' },
+  { label: l10n.t('Preview'), detail: l10n.t('Show the drafts without writing them'), option: 'dryRun' },
+  {
+    label: l10n.t('Sync'),
+    detail: l10n.t('Bring what an earlier import drafted up to date with the source'),
+    option: 'sync',
+  },
 ];
 
 // switchesFrom reads the options question's answer: the labels the reader ticked,
@@ -125,7 +134,7 @@ export function switchesFrom(picked: readonly string[] | undefined): ImportSwitc
 // IMPORT_SUBJECT is the operation in the reader's terms, used for the sentence
 // every ending produces. One spelling, so a completion and a failure name the
 // same thing.
-export const IMPORT_SUBJECT = 'The import';
+export const IMPORT_SUBJECT = l10n.t('The import');
 
 // IMPORT_DESTINATION_TITLE and IMPORT_DESTINATION_PROMPT ask where the drafts go.
 //
@@ -138,9 +147,10 @@ export const IMPORT_SUBJECT = 'The import';
 // to and a written path is held to the workspace whatever a request sends. The
 // source is the other case entirely: it is read, it is a file or a directory the
 // reader chose, and it may name anywhere on the machine.
-export const IMPORT_DESTINATION_TITLE = 'Aggrega: import destination';
-export const IMPORT_DESTINATION_PROMPT =
-  'Folder inside the workspace to draft into, relative to its root. Leave it empty to draft beneath the workspace root';
+export const IMPORT_DESTINATION_TITLE = l10n.t('Aggrega: import destination');
+export const IMPORT_DESTINATION_PROMPT = l10n.t(
+  'Folder inside the workspace to draft into, relative to its root. Leave it empty to draft beneath the workspace root',
+);
 
 // IMPORT_TARGET_TITLE and IMPORT_TARGET_PROMPT ask for the provider capability to
 // draft a Manifest for.
@@ -152,16 +162,17 @@ export const IMPORT_DESTINATION_PROMPT =
 // sends no target: a plain import then drafts no Manifest, and a sync drafts for the
 // target the earlier import was given, which the record beside the drafts names. It
 // is asked after the sync choice whatever that answer was, so the prompt says both.
-export const IMPORT_TARGET_TITLE = 'Aggrega: import target';
-export const IMPORT_TARGET_PROMPT =
-  'Provider capability to draft a Manifest for, such as compose or helm. Leave it empty to draft none, or, for a sync, to keep the target the earlier import was given';
+export const IMPORT_TARGET_TITLE = l10n.t('Aggrega: import target');
+export const IMPORT_TARGET_PROMPT = l10n.t(
+  'Provider capability to draft a Manifest for, such as compose or helm. Leave it empty to draft none, or, for a sync, to keep the target the earlier import was given',
+);
 
 // IMPORT_FORMAT_TITLE and IMPORT_FORMAT_PLACEHOLDER ask for the format, after the
 // compiler refused to settle one from the source's shape. The question's prompt is
 // the refusal itself, in the compiler's words, because those words name the formats
 // a reader may send; the format is typed for the same reason the target is.
-export const IMPORT_FORMAT_TITLE = 'Aggrega: import format';
-export const IMPORT_FORMAT_PLACEHOLDER = 'The format to read the source as';
+export const IMPORT_FORMAT_TITLE = l10n.t('Aggrega: import format');
+export const IMPORT_FORMAT_PLACEHOLDER = l10n.t('The format to read the source as');
 
 // IMPORT_RECORD_FILE is the record every import that drafts anything writes beside
 // its drafts, which a later sync reads.
@@ -638,14 +649,15 @@ export async function answerOwedValues(deps: OwedAnsweringDeps, report: ImportRe
 }
 
 // IMPORT_OWED_ACTION is the one button the offer to answer owed values carries.
-export const IMPORT_OWED_ACTION = 'Answer them';
+export const IMPORT_OWED_ACTION = l10n.t('Answer them');
 
 // owedOffer is the sentence offering to answer the values an import still owes,
 // naming how many. It is this side's own sentence rather than the compiler's: what
 // each value is, the questions themselves say.
 export function owedOffer(count: number): string {
-  const values = count === 1 ? '1 value' : `${count} values`;
-  return `Aggrega: the drafts still owe ${values}. Answer them here, or leave them for the answers file.`;
+  return count === 1
+    ? l10n.t('Aggrega: the drafts still owe 1 value. Answer them here, or leave them for the answers file.')
+    : l10n.t('Aggrega: the drafts still owe {0} values. Answer them here, or leave them for the answers file.', count);
 }
 
 // remediesWithAFormat says whether a refusal names a condition whose remedy is
@@ -664,7 +676,7 @@ function remediesWithAFormat(err: unknown): boolean {
 // import from another. The leading blank line separates this run from the last, the
 // way every operation that writes here does.
 export function importOpeningLine(source: string): string {
-  return `\nImport of ${source}.`;
+  return `\n${l10n.t('Import of {0}.', source)}`;
 }
 
 // diagnosticLine renders one importer diagnostic for the channel.
@@ -683,7 +695,7 @@ export function diagnosticLine(diagnostic: ImportDiagnostic): string {
 }
 
 // writtenLine renders one drafted file's path for the channel, in the command
-// line's own words for the same fact.
+// line's own words for the same fact — which is why it is not translated.
 export function writtenLine(path: string): string {
   return `  wrote ${path}`;
 }
@@ -697,7 +709,7 @@ export function writtenLine(path: string): string {
 export function previewLines(file: ImportedFile): readonly string[] {
   const content = file.content.endsWith('\n') ? file.content.slice(0, -1) : file.content;
   const body = content === '' ? [] : content.split('\n').map((line) => `    ${line}`);
-  return [`  would write ${file.path}:`, ...body];
+  return [`  ${l10n.t('would write {0}:', file.path)}`, ...body];
 }
 
 // decisionLine renders one mapping decision for the channel, in the sentence the
@@ -868,20 +880,6 @@ export function importOutcome(result: ImportResult, preview = false): OperationO
   return { kind: 'ok', detail: importDetail(result, preview) };
 }
 
-// fileCount renders a count of drafted files as a phrase, so the zero case is a
-// sentence rather than an absence: an import that drafted nothing is a result, and
-// leaving it unsaid makes it read exactly like an import that never ran.
-function fileCount(count: number): string {
-  if (count === 0) { return 'no files'; }
-  if (count === 1) { return '1 file'; }
-  return `${count} files`;
-}
-
-// problemCount renders a count of importer diagnostics as a phrase.
-function problemCount(count: number): string {
-  return count === 1 ? '1 problem' : `${count} problems`;
-}
-
 // importDetail is the sentence a completed import ends in.
 //
 // 🔴 EVERY FACT IN IT IS READ OFF THE ANSWER RATHER THAN OFF THE REQUEST. What was
@@ -904,18 +902,35 @@ function problemCount(count: number): string {
 // answer names it among the files, so counting every path would report one draft
 // more than the import made. The lines above still name it, because it did reach
 // disk.
+//
+// 🔴 THE COUNT IS A SENTENCE OF ITS OWN FOR NO FILES, ONE FILE AND SEVERAL, so the
+// zero case is said rather than absent — an import that drafted nothing is a
+// result, and leaving it unsaid makes it read exactly like an import that never
+// ran — and so each count is worded whole in every language.
 export function importDetail(result: ImportResult, preview = false): string {
   if (preview) {
-    const files = answeredFiles(result).map((f) => f.path);
-    return `previewed ${fileCount(draftCount(files))}, recognised as ${result.format}, for ${result.outputDir},`
-      + ' and nothing was written.';
+    const count = draftCount(answeredFiles(result).map((f) => f.path));
+    if (count === 0) {
+      return l10n.t('previewed no files, recognised as {0}, for {1}, and nothing was written.', result.format, result.outputDir);
+    }
+    if (count === 1) {
+      return l10n.t('previewed 1 file, recognised as {0}, for {1}, and nothing was written.', result.format, result.outputDir);
+    }
+    return l10n.t('previewed {0} files, recognised as {1}, for {2}, and nothing was written.', count, result.format, result.outputDir);
   }
   const written = writtenPaths(result);
-  const drafted = `drafted ${fileCount(draftCount(written))}, recognised as ${result.format}`;
   if (written.length === 0) {
-    return `${drafted}, and nothing was written.`;
+    // Nothing written is no draft written, so the count is the zero case.
+    return l10n.t('drafted no files, recognised as {0}, and nothing was written.', result.format);
   }
-  return `${drafted}, in ${result.outputDir}.`;
+  const count = draftCount(written);
+  if (count === 0) {
+    return l10n.t('drafted no files, recognised as {0}, in {1}.', result.format, result.outputDir);
+  }
+  if (count === 1) {
+    return l10n.t('drafted 1 file, recognised as {0}, in {1}.', result.format, result.outputDir);
+  }
+  return l10n.t('drafted {0} files, recognised as {1}, in {2}.', count, result.format, result.outputDir);
 }
 
 // haltedMessage is what a reader is told when the importer could not convert all
@@ -926,15 +941,26 @@ export function importDetail(result: ImportResult, preview = false): string {
 // them. What is said here is the part the diagnostics do not say — that the run was
 // partial, and what was nonetheless written, because those files are on disk and a
 // reader needs to know before they run it again.
+//
+// It is two sentences, each worded whole for the count it carries: what could not
+// be converted, and what was nonetheless written.
 export function haltedMessage(result: ImportResult): string {
   const written = writtenPaths(result);
-  const problems = `${problemCount(draftingDiagnostics(result).length)} listed above`;
+  const problems = draftingDiagnostics(result).length;
   if (written.length === 0) {
-    return `the importer could not convert the source, recognised as ${result.format}`
-      + ` — ${problems}. Nothing was written.`;
+    const notConverted = problems === 1
+      ? l10n.t('the importer could not convert the source, recognised as {0} — 1 problem listed above.', result.format)
+      : l10n.t('the importer could not convert the source, recognised as {0} — {1} problems listed above.', result.format, problems);
+    return `${notConverted} ${l10n.t('Nothing was written.')}`;
   }
+  const notConverted = problems === 1
+    ? l10n.t('the importer could not convert all of the source, recognised as {0} — 1 problem listed above.', result.format)
+    : l10n.t('the importer could not convert all of the source, recognised as {0} — {1} problems listed above.', result.format, problems);
   const drafts = draftCount(written);
-  return `the importer could not convert all of the source, recognised as ${result.format}`
-    + ` — ${problems}. The ${fileCount(drafts)} it could draft`
-    + ` ${drafts === 1 ? 'was' : 'were'} written to ${result.outputDir}.`;
+  const drafted = drafts === 0
+    ? l10n.t('The no files it could draft were written to {0}.', result.outputDir)
+    : drafts === 1
+      ? l10n.t('The 1 file it could draft was written to {0}.', result.outputDir)
+      : l10n.t('The {0} files it could draft were written to {1}.', drafts, result.outputDir);
+  return `${notConverted} ${drafted}`;
 }

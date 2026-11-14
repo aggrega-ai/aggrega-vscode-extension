@@ -9,9 +9,9 @@ import {
   SWITCH_ANCHOR_COMMAND,
   activeWorkspaceLabel,
 } from './anchor-picker';
-import { SELECTOR_ROW_LABELS } from './selector-levels';
 import { AnchoredFolder } from './workspace';
 import { DaemonStatusItemLike } from './daemon-status';
+import * as l10n from './l10n';
 
 // STATUS_BAR_PRIORITY positions the Aggrega indicator on the right
 // side of the status bar at the typical "language indicator" tier.
@@ -87,7 +87,7 @@ export function createAggregaStatusBar(
       item.text = `Aggrega: ${metadata.configSource}`;
     }
     item.tooltip = metadata.workspaceMarker
-      ? `${metadata.workspaceRoot} (anchored by ${metadata.workspaceMarker})`
+      ? l10n.t('{0} (anchored by {1})', metadata.workspaceRoot, metadata.workspaceMarker)
       : metadata.workspaceRoot;
     item.show();
   };
@@ -136,8 +136,13 @@ export function createPendingChoiceStatusBar(
   // The count is not given, because this item is created without one and
   // asking for it would put a number here that the list opening underneath is
   // about to state exactly.
+  //
+  // The first sentence spells SELECTOR_ROW_LABELS.workspace (selector-levels.ts)
+  // inside its own message rather than taking it as a placeholder: the label is a
+  // noun after "one" there, so a translation has to give it the article and case
+  // the sentence needs.
   item.tooltip =
-    `More than one ${SELECTOR_ROW_LABELS.workspace} is available in this project. `
+    `${l10n.t('More than one Aggrega workspace is available in this project.')} `
     + CHOOSE_ANCHOR_INVITATION;
   // The command is read from the module that owns the choice, for the reason the
   // offer above it is: this item and the row that makes the same offer must not

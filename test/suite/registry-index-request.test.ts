@@ -19,6 +19,7 @@ import {
 import { CancellationSignal, OperationCancelled } from '../../src/cancellation';
 import { terminalLine } from '../../src/operation-outcome';
 import {
+  TEXT_LOOKUP,
   WIRE_CONTRACT,
   assertCensusInstrumentFires,
   launchFacilityCount,
@@ -627,7 +628,8 @@ describe('the index build reaches the compiler without a launch', () => {
     // The module it reaches for the reading and the wording of a registry not
     // reached is on the same side of the claim, so it is measured too.
     assert.deepStrictEqual(valueImports('src/not-reached.ts'), ['./error-text']);
-    assert.deepStrictEqual(valueImports('src/error-text.ts'), []);
+    // The text lookup is admitted by name, for the reason TEXT_LOOKUP carries.
+    assert.deepStrictEqual(valueImports('src/error-text.ts'), [TEXT_LOOKUP]);
     assert.strictEqual(launchFacilityCount('src/not-reached.ts'), 0);
     assert.deepStrictEqual(
       typeOnlyImports('src/registry-index-request.ts'),

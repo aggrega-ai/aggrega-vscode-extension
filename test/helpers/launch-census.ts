@@ -110,6 +110,19 @@ export function typeOnlyImports(relativePath: string): string[] {
 // neighbour.
 export const WIRE_CONTRACT = '@aggrega-ai/aggrega-abi/dist/servewire_gen';
 
+// TEXT_LOOKUP is the extension's text lookup, the one module a census of what a
+// module reaches admits by name although it reaches the editor.
+//
+// 🔴 IT IS ADMITTED BECAUSE ITS ONE REACH IS THE EDITOR'S TRANSLATIONS. It answers
+// a module's own words in the editor's language: in the editor it hands them to
+// the editor's lookup and takes nothing else from the editor, and with no editor it
+// answers the English itself, so a module importing it stays readable without a
+// host. That the lookup reaches no other module, starts nothing and loads the
+// editor once is held by the localization spec (l10n-bundles.test.ts); a census
+// lists this constant rather than the path, so the reason is read here once
+// however many modules come to import it.
+export const TEXT_LOOKUP = './l10n';
+
 // --- the whole-tree census -----------------------------------------------
 
 // SOURCE_DIR is the directory the census reads. It is the extension's own source

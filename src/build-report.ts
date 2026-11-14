@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cognitio s.r.l.
 
+import * as l10n from './l10n';
 import { BuildNotice, DependencyResolutionReport } from './types';
 
 // This module is the one description of what a build's answer puts on the
@@ -62,8 +63,10 @@ function noticeLine(notice: BuildNotice): string {
 // The closing line is the command line's own summary of a completed
 // resolution, in the same words, because the two surfaces perform one
 // operation: a reader who has run the same build in a terminal meets the same
-// report here. As there, the recorded plugin identities are counted only where
-// there are any, since a workspace that attaches none has none to report.
+// report here — so it, and the line on undiscovered external inputs the command
+// line prints beside it, stay untranslated. As there, the recorded plugin
+// identities are counted only where there are any, since a workspace that
+// attaches none has none to report.
 //
 // A build that did not resolve its dependencies carries no report, and nothing
 // is listed for it.
@@ -96,9 +99,22 @@ function dependencyResolutionLines(report: DependencyResolutionReport | undefine
 // `aggrega pull --detail` prints for the same resolution, and any word the
 // answer carries is printed: the set is the compiler's to extend, so a word
 // this surface has not met is shown rather than dropped.
+//
+// The reference, the version, the kind and the source word are the answer's own
+// values and fill placeholders; only the words and punctuation around them are
+// translated, each shape of the pinned clause a whole message of its own. The
+// source follows that clause through a message of its own, the clause filling it
+// as a whole.
 function pinnedLine(ref: PinnedReference): string {
-  const version = ref.version ? ` at ${ref.version}` : '';
-  const kind = ref.kind ? ` (${ref.kind})` : '';
-  const source = ref.source ? `, source: ${ref.source}` : '';
-  return `  pinned ${ref.uri}${version}${kind}${source}`;
+  let pinned: string;
+  if (ref.version && ref.kind) {
+    pinned = l10n.t('pinned {0} at {1} ({2})', ref.uri, ref.version, ref.kind);
+  } else if (ref.version) {
+    pinned = l10n.t('pinned {0} at {1}', ref.uri, ref.version);
+  } else if (ref.kind) {
+    pinned = l10n.t('pinned {0} ({1})', ref.uri, ref.kind);
+  } else {
+    pinned = l10n.t('pinned {0}', ref.uri);
+  }
+  return `  ${ref.source ? l10n.t('{0}, source: {1}', pinned, ref.source) : pinned}`;
 }

@@ -3,6 +3,7 @@
 
 import { CANCELLED_BY_READER, isCancellation } from './cancellation';
 import { describeError } from './error-text';
+import * as l10n from './l10n';
 
 // This module decides what a reader is told when an operation ends. It reaches
 // no editor type at runtime, so the sentence each of the three endings produces
@@ -21,7 +22,7 @@ import { describeError } from './error-text';
 // is often not the first — so the button takes the reader to the whole text
 // rather than to a summary of it. It adds a way to reach the compiler's words
 // and replaces none of them.
-export const SHOW_OUTPUT_ACTION = 'Show output';
+export const SHOW_OUTPUT_ACTION = l10n.t('Show output');
 
 // OperationOutcome is how an operation ended.
 //
@@ -68,14 +69,25 @@ export function outcomeOf(
 // what to run or what to fix; a re-wording would discard precisely that, which
 // is why nothing here rewrites it and the remedy is offered as a button beside
 // it instead.
+//
+// 🔴 THE COMPLETED AND THE STOPPED SENTENCES ARE A SUBJECT AND A PREDICATE WORDED
+// BY DIFFERENT MODULES, JOINED BY A MESSAGE OF THEIR OWN. The subject is the
+// operation's owner's and the predicate the ending's, so neither translator sees
+// the other half; the joining message is what a translation rewrites into the
+// shape its language needs — a label and a colon, say — where a verb would
+// otherwise have to agree with a subject it cannot see. A completed operation's
+// predicate closes its own sentence, so its joining is `{0} {1}`; the stop's
+// predicate is a phrase this module closes, so its joining carries the full
+// stop, `{0} {1}.`. The failed sentence's own words are this module's, and the
+// compiler's message fills its placeholder untranslated.
 export function terminalLine(what: string, outcome: OperationOutcome): string {
   switch (outcome.kind) {
     case 'ok':
-      return `${what} ${outcome.detail}`;
+      return l10n.t('{0} {1}', what, outcome.detail);
     case 'cancelled':
-      return `${what} ${CANCELLED_BY_READER}.`;
+      return l10n.t('{0} {1}.', what, CANCELLED_BY_READER);
     case 'failed':
-      return `${what} did not complete: ${outcome.message}`;
+      return l10n.t('{0} did not complete: {1}', what, outcome.message);
   }
 }
 
@@ -89,13 +101,21 @@ export function terminalLine(what: string, outcome: OperationOutcome): string {
 // this one.
 //
 // where names the place the findings landed, so a reader with a non-zero count
-// knows to go and look.
-export function countReport(what: string, count: number, where: string): string {
+// knows to go and look. It picks the sentence rather than filling one: each place
+// is its own pair of whole messages, so a translation gives the place the article
+// and case "see the …" needs. A place added to CountPlace without its sentences
+// does not compile.
+export function countReport(what: string, count: number, where: CountPlace): string {
   if (count === 0) {
-    return `${what}: no problems found.`;
+    return l10n.t('{0}: no problems found.', what);
   }
-  if (count === 1) {
-    return `${what}: 1 problem — see the ${where}.`;
+  switch (where) {
+    case 'Problems panel':
+      return count === 1
+        ? l10n.t('{0}: 1 problem — see the Problems panel.', what)
+        : l10n.t('{0}: {1} problems — see the Problems panel.', what, count);
   }
-  return `${what}: ${count} problems — see the ${where}.`;
 }
+
+// CountPlace is a place a run's findings land, by the editor's own name for it.
+export type CountPlace = 'Problems panel';

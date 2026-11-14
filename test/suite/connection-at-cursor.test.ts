@@ -22,6 +22,7 @@ import {
 } from '../../src/connection-at-cursor';
 import { CatalogIndexDoc } from '../../src/workspace-catalog-run';
 import { EXTENSION_ROOT } from '../helpers/launch-census';
+import { readManifest } from '../helpers/manifest';
 
 // The document-free half of attaching a Feature to the connection at the cursor,
 // driven without an editor: the question composed for the cursor, the reading of
@@ -306,7 +307,8 @@ describe('the documents the command is offered in', () => {
   });
 
   it('is offered under the names the manifest declares it under', () => {
-    const manifest = JSON.parse(fs.readFileSync(path.join(EXTENSION_ROOT, 'package.json'), 'utf8')) as {
+    // Read with its text in place, as the editor draws it.
+    const manifest = readManifest() as {
       contributes: {
         commands: Array<{ command: string; title: string; category?: string }>;
         menus: Record<string, Array<{ command: string; when?: string }>>;

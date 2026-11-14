@@ -5,6 +5,7 @@ import { spawn } from 'child_process';
 import * as vscode from 'vscode';
 import { CancellationSignal } from './cancellation';
 import { exitRefusal, runCliProcess } from './cli-run';
+import * as l10n from './l10n';
 import {
   OperationOutcome,
   SHOW_OUTPUT_ACTION,
@@ -125,6 +126,8 @@ export async function runCli(
   const bin = deps.getBinaryPath();
   const out = deps.output;
   out.show(true);
+  // The echoed command is a transcript of what runs, in a shell's own notation,
+  // so it is not translated.
   out.appendLine(`\n$ ${bin} ${args.join(' ')}   (cwd: ${root})`);
 
   try {
@@ -152,7 +155,7 @@ export async function runCli(
     await reportOutcome(
       deps,
       what,
-      { kind: 'ok', detail: options.detail ?? 'completed.' },
+      { kind: 'ok', detail: options.detail ?? l10n.t('completed.') },
       options.announce ?? false,
     );
   } catch (err) {

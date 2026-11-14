@@ -83,11 +83,8 @@ import {
   WORKSPACE_ANCHOR_CONFIG,
   findAggregaWorkspaceAnchor,
 } from '../../src/workspace';
+import { readManifest } from '../helpers/manifest';
 
-// The manifest is read and parsed rather than pattern-matched: what is asserted
-// below is a property of the declared contributions, and only a parse can see
-// that.
-const MANIFEST = path.resolve(__dirname, '../../../package.json');
 const EXTENSION_ROOT = path.resolve(__dirname, '../../..');
 
 // PRODUCT_README is the product documentation's own account of what Aggrega is,
@@ -237,6 +234,9 @@ interface ViewEntry { id?: unknown; name?: unknown; when?: unknown }
 interface CommandEntry { command?: unknown; title?: unknown; category?: unknown; icon?: unknown }
 interface MenuEntry { command?: unknown; when?: unknown; group?: unknown }
 
+// The manifest is read and parsed rather than pattern-matched: what is asserted
+// below is a property of the declared contributions, and only a parse can see
+// that. It is read with its text in place, as the editor draws it.
 function manifest(): {
   activationEvents: string[];
   walkthroughs: unknown[];
@@ -254,7 +254,7 @@ function manifest(): {
   }>;
   viewsWelcome: unknown[];
 } {
-  const pkg = JSON.parse(fs.readFileSync(MANIFEST, 'utf8'));
+  const pkg = readManifest();
   return {
     activationEvents: pkg.activationEvents ?? [],
     walkthroughs: pkg.contributes.walkthroughs ?? [],
