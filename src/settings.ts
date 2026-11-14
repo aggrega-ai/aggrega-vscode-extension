@@ -144,7 +144,7 @@ export const SETTINGS_COMMAND = 'aggrega.settings.open';
 // of the manifest and requires them to compose to exactly this, so renaming
 // either fails rather than leaving a lookup that returns nothing and a settings
 // page that opens empty.
-export const EXTENSION_ID = 'aggrega-ai.aggrega-vscode-extension';
+export const EXTENSION_ID = 'aggrega-ai.aggrega';
 
 // extensionSettingsQuery builds the filter that narrows the editor's settings to
 // one extension's own preferences.

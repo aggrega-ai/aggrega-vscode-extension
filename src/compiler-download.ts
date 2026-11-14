@@ -144,7 +144,12 @@ const REDIRECTS_FOLLOWED = 5;
 // a download that never finishes.
 const IDLE_LIMIT_MS = 30_000;
 
-const REQUEST_HEADERS = { 'User-Agent': 'aggrega-vscode-extension' };
+// REQUEST_HEADERS names the client making each request: this extension, by its
+// identifier — publisher and name joined by a dot — since `aggrega` alone is also
+// the compiler's name. It repeats the identifier settings.ts declares rather than
+// importing it, so this module's imports stay the few its own work needs; nothing
+// reads the header back, so the two can only disagree in a server's log.
+const REQUEST_HEADERS = { 'User-Agent': 'aggrega-ai.aggrega' };
 
 // open asks for one address and answers with the response that is not a
 // redirect, or refuses with the reason.

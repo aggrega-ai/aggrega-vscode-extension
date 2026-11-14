@@ -1,5 +1,5 @@
 {
-  "name": "aggrega-vscode-extension",
+  "name": "aggrega",
   "displayName": "Aggrega",
   "description": "Language support for Aggrega YAML — validation, navigation, hover, completion via the aggrega daemon.",
   "version": "0.1.0",

@@ -497,7 +497,7 @@ export const PLANTS: readonly Plant[] = [
   },
   {
     name: 'binary-path-button-opens-the-extensions-settings', scenario: 'storefront', checks: ['settings-that-are-wrong.missing-compiler-is-named'], moves: 'red', target: 'extension',
-    file: 'out/src/settings.js', find: '    return `@id:${key}`;', replace: "    return '@ext:aggrega-ai.aggrega-vscode-extension';",
+    file: 'out/src/settings.js', find: '    return `@id:${key}`;', replace: "    return '@ext:aggrega-ai.aggrega';",
     says: 'the button that opens the setting naming the compiler opens the settings narrowed to the extension instead of to that one setting',
   },
   {
