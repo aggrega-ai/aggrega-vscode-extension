@@ -35,15 +35,8 @@ import {
 } from '../../src/daemon-status';
 import { COMPILER_ANSWERABLE_CONTEXT_KEY } from '../../src/readiness';
 import { callArguments } from '../helpers/anchoring-census';
+import { editorGuide, editorGuidePresent } from '../helpers/editor-guide';
 import { readManifest } from '../helpers/manifest';
-
-// PRODUCT_EDITOR_PAGE is the documentation's guide to this extension — the
-// manual a reader is sent to from this repository's README. It sits outside
-// this repository, so it is reachable when the extension is checked out beside
-// the documentation and not when the extension is cloned alone; the assertions
-// that read it report themselves pending in the second case rather than
-// passing quietly.
-const PRODUCT_EDITOR_PAGE = path.resolve(__dirname, '../../../../aggrega-docs/authoring/editor.md');
 
 interface CommandEntry { command?: unknown; title?: unknown; enablement?: unknown }
 interface MenuEntry { command?: unknown; when?: unknown }
@@ -585,13 +578,13 @@ describe('what the editor guide teaches about the lifecycle indicator', () => {
   // having been told what it is, and the editor guide already lists the commands
   // and describes the status bar.
   it('describes the standing the indicator exists to report', function () {
-    if (!fs.existsSync(PRODUCT_EDITOR_PAGE)) {
+    if (!editorGuidePresent()) {
       // Checked out without the documentation beside it. Reported as pending
       // rather than passed: a silent skip would read as the guide holding.
       this.skip();
       return;
     }
-    const guide = fs.readFileSync(PRODUCT_EDITOR_PAGE, 'utf8');
+    const guide = editorGuide();
     assert.ok(
       guide.includes('not running'),
       'a reader who meets a red indicator has been told nothing about what it means',
@@ -602,11 +595,11 @@ describe('what the editor guide teaches about the lifecycle indicator', () => {
   // that stops at the manifest fails: a reader who finds a command in the
   // editor guide and then searches the palette for that name would find nothing.
   it('teaches the command that starts a language server under its declared title', function () {
-    if (!fs.existsSync(PRODUCT_EDITOR_PAGE)) {
+    if (!editorGuidePresent()) {
       this.skip();
       return;
     }
-    const guide = fs.readFileSync(PRODUCT_EDITOR_PAGE, 'utf8');
+    const guide = editorGuide();
     const title = String(declared(RESTART_COMMAND)?.title);
     assert.ok(
       guide.includes(`**${title}**`),

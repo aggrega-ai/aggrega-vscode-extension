@@ -2,8 +2,6 @@
 // Copyright 2026 Cognitio s.r.l.
 
 import * as assert from 'node:assert';
-import * as fs from 'node:fs';
-import * as path from 'node:path';
 import {
   EXTENSION_ID,
   SETTINGS_COMMAND,
@@ -11,15 +9,11 @@ import {
   USER_ONLY_SCOPES,
   extensionSettingsQuery,
 } from '../../src/settings';
+import { editorGuidePage, editorGuidePages, editorGuidePresent } from '../helpers/editor-guide';
 import { readManifest } from '../helpers/manifest';
 
-// PRODUCT_EDITOR_PAGE is the documentation's guide to this extension — the
-// manual a reader is sent to from this repository's README. It sits outside
-// this repository, so it is reachable when the extension is checked out beside
-// the documentation and not when the extension is cloned alone; the assertions
-// that read it report themselves pending in the second case rather than
-// passing quietly.
-const PRODUCT_EDITOR_PAGE = path.resolve(__dirname, '../../../../aggrega-docs/authoring/editor.md');
+// SETTINGS_PAGE is the page of the editor guide holding its table of settings.
+const SETTINGS_PAGE = 'settings.md';
 
 interface ConfigProperty { scope?: unknown }
 interface MenuEntry { command?: unknown; when?: unknown; group?: unknown }
@@ -140,16 +134,19 @@ describe('one settings surface, holding only user preferences', () => {
   // check than it looks: it sees whether a setting is named, never whether what
   // is said about it is still true, and only a reader can judge that.
   describe('the settings the editor guide teaches', () => {
+    // The table is read from the settings page up to its first section heading,
+    // so a table some later section of that page carries is not mistaken for it.
     function documentedSettings(): string[] {
-      const guide = fs.readFileSync(PRODUCT_EDITOR_PAGE, 'utf8');
-      const afterHeading = guide.split('## Settings')[1];
-      assert.ok(afterHeading, 'the editor guide has no Settings section to compare against');
-      const table = afterHeading.split('\n## ')[0];
+      assert.ok(
+        editorGuidePages().includes(SETTINGS_PAGE),
+        `the editor guide has no ${SETTINGS_PAGE} page to compare against`,
+      );
+      const table = editorGuidePage(SETTINGS_PAGE).split('\n## ')[0];
       return [...table.matchAll(/^\|\s*`(aggrega\.[^`]+)`/gm)].map((m) => m[1]);
     }
 
     it('names every setting the manifest contributes', function () {
-      if (!fs.existsSync(PRODUCT_EDITOR_PAGE)) {
+      if (!editorGuidePresent()) {
         // Checked out without the documentation beside it. Reported as pending
         // rather than passed: a silent skip would read as the guide holding.
         this.skip();
@@ -166,7 +163,7 @@ describe('one settings surface, holding only user preferences', () => {
     });
 
     it('names no setting the manifest does not contribute', function () {
-      if (!fs.existsSync(PRODUCT_EDITOR_PAGE)) {
+      if (!editorGuidePresent()) {
         this.skip();
         return;
       }
