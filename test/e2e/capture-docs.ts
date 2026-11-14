@@ -91,6 +91,10 @@ export interface CaptureOptions {
   // pageQuotes is the file naming what each import page quotes (PageQuotes),
   // which the import frames need.
   pageQuotes?: string;
+  // dockerConfig is a Docker configuration directory a registry credential is read
+  // from, handed on as DOCKER_CONFIG to every compiler run and every editor the
+  // capture starts. It is a path only: nothing here opens it.
+  dockerConfig?: string;
 }
 
 // Where the catalog is given (inputs.catalog), every editor and every compiler run
@@ -122,8 +126,8 @@ interface Run {
   frames: Frame[];
   forbidden: string[];
   log: string;
-  // catalogDirs is what every editor and compiler run is given as
-  // AGGREGA_CATALOG_DIRS, or empty where no catalog was given.
+  // catalogDirs is the standard catalog's copy, or empty where no catalog was
+  // given; importerDir is the importer catalog's copy, or empty where none was.
   catalogDirs: string;
   importerDir: string;
 }
@@ -152,9 +156,12 @@ export async function captureDocs(opts: CaptureOptions): Promise<CaptureReport> 
 }
 
 // forbiddenText is what no frame may draw: the home directory of whoever runs the
-// capture, and the checkouts it reads, which sit beside the extension's.
+// capture, the checkouts it reads, which sit beside the extension's, and the
+// Docker configuration directory a credential is read from, where one is given —
+// a compiler's message about a credential it could not read may name it, and a
+// frame drawing that message is not taken.
 function forbiddenText(opts: CaptureOptions): string[] {
-  const words = [os.homedir(), path.dirname(opts.inputs.extension.dir), opts.docs];
+  const words = [os.homedir(), path.dirname(opts.inputs.extension.dir), opts.docs, opts.dockerConfig ?? ''];
   return [...new Set(words.filter((w) => w.length > 1 && !opts.scratch.startsWith(w)))];
 }
 
@@ -175,7 +182,7 @@ async function withEditor(r: Run, name: string, folder: string, eo: EditorOption
   const root = createScenarioRoot(r.profiles, name);
   if (eo.prepare) { await eo.prepare(root); }
   const s = await bringUp(name, r.opts.inputs, r.profiles, 'playwright-devtools', {
-    root, folder, screen: WINDOW, installed: true, settings: eo.settings, environment: eo.environment ?? catalogEnvironment(r), afterProfile: eo.afterProfile,
+    root, folder, screen: WINDOW, installed: true, settings: eo.settings, environment: eo.environment ?? captureEnvironment(r, 'standard'), afterProfile: eo.afterProfile,
   });
   try {
     await body(makeContext(s, r.opts.inputs, new Checks(name)));
@@ -339,16 +346,32 @@ function committedCopy(dir: string, dest: string): void {
   if (fs.readdirSync(dest).length === 0) { throw new Error(`${tree} of ${dir} holds nothing`); }
 }
 
-// catalogEnvironment is what an editor or a compiler run is given so it reads the
-// catalog copy, or nothing where no catalog was given.
-function catalogEnvironment(r: Run): Record<string, string> {
-  return r.catalogDirs === '' ? {} : { AGGREGA_CATALOG_DIRS: r.catalogDirs };
+// CatalogRead is which catalogs a run reads: the standard catalog's copy alone, or
+// the importer catalog ahead of it, as an import reads them.
+type CatalogRead = 'standard' | 'importers-first';
+
+// captureEnvironment is what an editor or a compiler run is given beyond its
+// stated environment: the catalogs it reads, where a catalog was given, and, where
+// the capture was given a Docker configuration directory, its path as
+// DOCKER_CONFIG, so a compiler run and the language server read a registry
+// credential from it. The path is passed on and never read here.
+function captureEnvironment(r: Run, catalog: CatalogRead): Record<string, string> {
+  const env: Record<string, string> = {};
+  if (catalog === 'importers-first' && r.importerDir !== '') {
+    if (r.catalogDirs === '') { throw new Error('an importer catalog is read ahead of the standard catalog, and no catalog was given'); }
+    env.AGGREGA_CATALOG_DIRS = `${r.importerDir}:${r.catalogDirs}`;
+  } else if (r.catalogDirs !== '') {
+    env.AGGREGA_CATALOG_DIRS = r.catalogDirs;
+  }
+  const dockerConfig = r.opts.dockerConfig ?? '';
+  if (dockerConfig !== '') { env.DOCKER_CONFIG = dockerConfig; }
+  return env;
 }
 
 // compiler runs the compiler under test as a reader runs it at a terminal, with
 // the editor's own home, and refuses where it does not complete.
 async function compiler(r: Run, root: ScenarioRoot, args: string[], cwd: string): Promise<string> {
-  const ran = await runCompiler(r.opts.inputs.compiler.path, args, { cwd, home: scratchHomeOf(root), boundMs: 600000, log: r.log, env: catalogEnvironment(r) });
+  const ran = await runCompiler(r.opts.inputs.compiler.path, args, { cwd, home: scratchHomeOf(root), boundMs: 600000, log: r.log, env: captureEnvironment(r, 'standard') });
   if (ran.status !== 0) {
     throw new Error(`aggrega ${args.join(' ')} exited ${ran.status ?? ran.signal}: ${(ran.stderr || ran.stdout).trim().split('\n').slice(-3).join(' / ')}`);
   }
@@ -694,16 +717,15 @@ async function importFormat(r: Run, format: string, files: [string, string][]): 
   fs.mkdirSync(parent, { recursive: true });
   const top = path.join(parent, example);
   const sourceDir = path.join(top, 'source');
-  const env = catalogEnvironment(r);
-  if (r.importerDir !== '') {
-    if (r.catalogDirs === '') { throw new Error('an importer catalog is read ahead of the standard catalog, and no catalog was given'); }
-    env.AGGREGA_CATALOG_DIRS = `${r.importerDir}:${r.catalogDirs}`;
-  }
+  // The scaffold is given what the editor is: it reads the documentation bundle
+  // from the registry, never a catalog entity, so the catalogs named change nothing
+  // it reads, and the registry credential reaches it.
+  const env = captureEnvironment(r, 'importers-first');
   let how = '';
   await withEditor(r, `import-${format}`, sourceDir, {
     environment: env,
     prepare: async (root) => {
-      const scaffolded = await runCompiler(r.opts.inputs.compiler.path, ['scaffold', '--example', example], { cwd: parent, home: scratchHomeOf(root), boundMs: 120000, log: r.log });
+      const scaffolded = await runCompiler(r.opts.inputs.compiler.path, ['scaffold', '--example', example], { cwd: parent, home: scratchHomeOf(root), boundMs: 120000, log: r.log, env });
       if (scaffolded.status === 0 && fs.existsSync(sourceDir)) {
         how = `scaffolded with aggrega scaffold --example ${example}`;
       } else {

@@ -85,6 +85,10 @@ import { runSuite, SCENARIO_CHECKS } from './suite';
 //   --page-quotes <file>     capture-docs: what each import page marks — its
 //                            import command and the example files it quotes —
 //                            as the documentation's own block reader read it
+//   --docker-config <dir>    capture-docs: a Docker configuration directory a
+//                            registry credential is read from, handed on as
+//                            DOCKER_CONFIG to every compiler run and editor the
+//                            capture starts; never opened by the runner
 //
 // Exit status: 0 when every reading passed (for suite: when no check failed or
 // was not run, every fixture was built and no process it started outlived it, a
@@ -107,6 +111,7 @@ interface Options {
   docs?: string;
   importerCatalog?: string;
   pageQuotes?: string;
+  dockerConfig?: string;
   inputs: Omit<InputOptions, 'scratch'>;
 }
 
@@ -121,7 +126,7 @@ function parseArgs(argv: string[]): Options {
     flags[a.slice(2)] = rest[++i];
   }
   if (positional.length > 0 && command !== 'compare') { throw new Usage(`unexpected argument ${positional[0]}`); }
-  const known = new Set(['scratch', 'driver', 'only', 'plant', 'extension', 'compiler', 'compiler-commit', 'catalog', 'registry-server', 'editor', 'out', 'docs', 'importer-catalog', 'page-quotes']);
+  const known = new Set(['scratch', 'driver', 'only', 'plant', 'extension', 'compiler', 'compiler-commit', 'catalog', 'registry-server', 'editor', 'out', 'docs', 'importer-catalog', 'page-quotes', 'docker-config']);
   for (const k of Object.keys(flags)) { if (!known.has(k)) { throw new Usage(`unknown option --${k}`); } }
   if (flags.driver !== undefined && flags.driver !== 'all' && !DRIVERS.includes(flags.driver)) {
     throw new Usage(`unknown driver ${flags.driver}; the drivers are ${DRIVERS.join(', ')}, or all`);
@@ -139,6 +144,7 @@ function parseArgs(argv: string[]): Options {
     docs: resolved(flags.docs),
     importerCatalog: resolved(flags['importer-catalog']),
     pageQuotes: resolved(flags['page-quotes']),
+    dockerConfig: resolved(flags['docker-config']),
     inputs: {
       extension: path.resolve(pick('extension', INPUT_NAMES.extension.env) ?? REPO_ROOT),
       compiler: resolved(pick('compiler', INPUT_NAMES.compiler.env)),
@@ -477,7 +483,7 @@ async function commandCaptureDocs(opts: Options): Promise<number> {
   if (refusal !== null) { throw new Refused([`refused: ${refusal}`]); }
   const report = await captureDocs({
     inputs: checked.inputs, scratch, out: path.resolve(opts.out as string), docs: path.resolve(opts.docs as string),
-    groups: groups as Group[], importerCatalog: opts.importerCatalog, pageQuotes: opts.pageQuotes,
+    groups: groups as Group[], importerCatalog: opts.importerCatalog, pageQuotes: opts.pageQuotes, dockerConfig: opts.dockerConfig,
   });
   const taken = report.frames.filter((f) => f.written);
   const { extensionBuild, compiler, editor, catalog } = header(checked.inputs);
