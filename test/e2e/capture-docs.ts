@@ -718,7 +718,7 @@ async function importFormat(r: Run, format: string, files: [string, string][]): 
   fs.mkdirSync(parent, { recursive: true });
   const top = path.join(parent, example);
   const sourceDir = path.join(top, 'source');
-  // The scaffold is given what the editor is: it reads the documentation bundle
+  // The draft is given what the editor is: it reads the documentation bundle
   // from the registry, never a catalog entity, so the catalogs named change nothing
   // it reads, and the registry credential reaches it.
   const env = captureEnvironment(r, 'importers-first');
@@ -726,14 +726,14 @@ async function importFormat(r: Run, format: string, files: [string, string][]): 
   await withEditor(r, `import-${format}`, sourceDir, {
     environment: env,
     prepare: async (root) => {
-      const scaffolded = await runCompiler(r.opts.inputs.compiler.path, ['scaffold', '--example', example], { cwd: parent, home: scratchHomeOf(root), boundMs: 120000, log: r.log, env });
+      const scaffolded = await runCompiler(r.opts.inputs.compiler.path, ['draft', '--example', example], { cwd: parent, home: scratchHomeOf(root), boundMs: 120000, log: r.log, env });
       if (scaffolded.status === 0 && fs.existsSync(sourceDir)) {
-        how = `scaffolded with aggrega scaffold --example ${example}`;
+        how = `drafted with aggrega draft --example ${example}`;
       } else {
         fs.rmSync(top, { recursive: true, force: true });
         copyTracked(r.opts.docs, path.join('language-reference', 'examples', example), top);
         const said = ((scaffolded.stderr || scaffolded.stdout).trim().split('\n').slice(-1)[0] ?? '').trim();
-        how = `laid out from the documentation checkout, as the scaffold writes it: aggrega scaffold --example ${example} exited ${scaffolded.status}, ${said.length > 160 ? `${said.slice(0, 160)}…` : said}`;
+        how = `laid out from the documentation checkout, as aggrega draft --example writes it: aggrega draft --example ${example} exited ${scaffolded.status}, ${said.length > 160 ? `${said.slice(0, 160)}…` : said}`;
       }
     },
   }, async (ctx) => {

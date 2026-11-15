@@ -519,7 +519,7 @@ an extension. Its inputs differ from the suite's in three ways:
 - **The folders come from the documentation checkout** `--docs` names: the
   quickstart steps, a documentation example holding several Releases, and the
   import examples, each laid out as the files the checkout tracks. An import
-  example is scaffolded with `aggrega scaffold --example` where the compiler
+  example is drafted with `aggrega draft --example` where the compiler
   finds the documentation for its version, and laid out from the checkout
   otherwise; each import is the one the page's own marked import command runs.
   The capture reads no page itself: `--page-quotes` names a file listing, for
