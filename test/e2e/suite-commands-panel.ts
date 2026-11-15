@@ -23,7 +23,7 @@ import { WebviewDocument } from './drivers';
 import { fixturesDir } from './fixtures';
 import { chooser, LevelRow, levelRows, waitChooser } from './levels';
 import { dragSash } from './suite-above';
-import { capture, closeAllEditors, commandTitle, languageServers, open, ready, run, send, SuiteContext, theServer } from './suite-context';
+import { capture, closeAllEditors, commandTitle, IMPORT_COMMAND, languageServers, open, ready, run, send, SuiteContext, theServer } from './suite-context';
 import { paletteTitle } from './suite-first-day';
 import {
   codeIn, contextRowsCheck, declaredDescription, declaredMarkdown, drawnFromMarkdown, openSettingsOn, SETTING_LINK, SettingItem, settingLabel, settingsScreen, settingValue,
@@ -757,7 +757,7 @@ export async function commandsPanelChecks(ctx: SuiteContext, notABinary: string,
       }
     }
     await backOutOf('Deprecate');
-    await ask('aggrega.op.import', 'Import', `for its source ("${IMPORT_SOURCE_TITLE}")`, (q) => q.title === IMPORT_SOURCE_TITLE);
+    await ask(IMPORT_COMMAND, 'Import', `for its source ("${IMPORT_SOURCE_TITLE}")`, (q) => q.title === IMPORT_SOURCE_TITLE);
     await backOutOf('Import');
     // The rows at the head of the list panels that ask, each answered by its own
     // question.

@@ -13,7 +13,9 @@ import { Inputs } from './inputs';
 import { DiagnosticEntry, ProbeClient } from './probe-client';
 import { readCmdline } from './processes';
 import { relaunch, Relaunched, Scenario } from './scenario';
-import { commandsPanel, documentWith, drawnTreeRows, openTabs, OutputLog, RUNNING, scrollTreeToTop, toastWindowPassed, until, waitStatus } from './workbench';
+import {
+  commandsPanel, documentWith, drawnTreeRows, openTabs, OutputLog, QuickInput, RUNNING, scrollTreeToTop, toastWindowPassed, until, waitQuickInput, waitStatus,
+} from './workbench';
 
 // What every check body of the suite reaches: the launched editor, the probe,
 // the inputs, the output channel, and the scenario's contained home.
@@ -75,6 +77,40 @@ export function run<T = unknown>(ctx: SuiteContext, command: string, args: unkno
 // answered it.
 export async function send(ctx: SuiteContext, command: string, args: unknown[] = []): Promise<void> {
   await ctx.probe.request('command.run', { command, args }, 1500).catch(() => undefined);
+}
+
+// answerInput waits for the question `asked` says is drawn, types `text` into it
+// and accepts it. An empty text accepts the question as it stands.
+export async function answerInput(ctx: SuiteContext, what: string, asked: (q: QuickInput) => boolean, text: string): Promise<void> {
+  await waitQuickInput(ctx.d, what, asked, 30000);
+  if (text !== '') { await ctx.d.type(text); }
+  await ctx.d.press('Enter');
+}
+
+// IMPORT_COMMAND is the import's command, which the explorer runs with the file
+// or the folder it was opened on.
+export const IMPORT_COMMAND = 'aggrega.op.import';
+
+// ImportAnswers is what importing a clicked file answers: the destination and the
+// target, an empty text choosing none of either, and how each of the three
+// questions is recognised as drawn. The options are accepted as they stand, with
+// neither ticked.
+export interface ImportAnswers {
+  outputDir: string;
+  target: string;
+  asked: { destination: (q: QuickInput) => boolean; options: (q: QuickInput) => boolean; target: (q: QuickInput) => boolean };
+}
+
+// importClickedFile imports `source` as the explorer's own entry does, the
+// source carried by the invocation, and answers the questions that follow it:
+// the destination, the options, then the target. It returns once the target is
+// accepted; how the import ends is the caller's to wait for.
+export async function importClickedFile(ctx: SuiteContext, source: string, answers: ImportAnswers): Promise<void> {
+  await send(ctx, IMPORT_COMMAND, [{ $file: source }]);
+  await answerInput(ctx, 'the import\'s destination', answers.asked.destination, answers.outputDir);
+  await waitQuickInput(ctx.d, 'the import\'s options', answers.asked.options, 30000);
+  await ctx.d.press('Enter');
+  await answerInput(ctx, 'the import\'s target', answers.asked.target, answers.target);
 }
 
 // Server is the language server's process as the operating system reports it.

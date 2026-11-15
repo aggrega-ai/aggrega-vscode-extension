@@ -60,25 +60,36 @@ export function markStart(runDir: string): ContainmentStart {
   return { marker, startedAt: new Date().toISOString(), tmp: os.tmpdir(), home: os.homedir() };
 }
 
-// gitDirOf finds the directory git keeps a checkout's state in, for the checkout
-// holding `dir`, by reading the checkout's own `.git` entry rather than by asking
-// git: the directory itself, or the one a `gitdir:` line in the file names.
-function gitDirOf(dir: string): string | null {
+// checkoutTop finds the top of the checkout holding `dir` by its own `.git` entry
+// rather than by asking git: the nearest directory at or above `dir` holding one,
+// a directory or the file a submodule's checkout holds in its place, or null where
+// none does.
+export function checkoutTop(dir: string): string | null {
   for (let d = path.resolve(dir); ; d = path.dirname(d)) {
-    const dotGit = path.join(d, '.git');
-    if (fs.existsSync(dotGit)) {
-      if (fs.statSync(dotGit).isDirectory()) { return dotGit; }
-      const m = /^gitdir:\s*(.+)$/m.exec(fs.readFileSync(dotGit, 'utf8'));
-      return m ? path.resolve(d, m[1].trim()) : null;
-    }
+    if (fs.existsSync(path.join(d, '.git'))) { return d; }
     if (path.dirname(d) === d) { return null; }
   }
 }
 
+// gitDirOf finds the directory git keeps a checkout's state in, for the checkout
+// holding `dir`, by reading the checkout's own `.git` entry rather than by asking
+// git: the directory itself, or the one a `gitdir:` line in the file names.
+function gitDirOf(dir: string): string | null {
+  const top = checkoutTop(dir);
+  if (top === null) { return null; }
+  const dotGit = path.join(top, '.git');
+  if (fs.statSync(dotGit).isDirectory()) { return dotGit; }
+  const m = /^gitdir:\s*(.+)$/m.exec(fs.readFileSync(dotGit, 'utf8'));
+  return m ? path.resolve(top, m[1].trim()) : null;
+}
+
 // placesFor names the places a run reads. `top` places are read one level deep:
 // a leak there shows as a new or changed entry at the top, and reading deeper
-// would list the other work on the machine rather than this run's.
-export function placesFor(start: ContainmentStart, inputs: { extension: string; catalog: string; compiler: string; registryServer: string; editor: string; docsExamples: readonly string[] }): { place: string; depth: 'all' | 'top' }[] {
+// would list the other work on the machine rather than this run's. The importer
+// catalog, where the run was given one, is used in place as the catalog is, so it
+// is read as the catalog is: the folder whole, and the state of the checkout it
+// sits in, where it sits in one.
+export function placesFor(start: ContainmentStart, inputs: { extension: string; catalog: string; importerCatalog?: string; compiler: string; registryServer: string; editor: string; docsExamples: readonly string[] }): { place: string; depth: 'all' | 'top' }[] {
   const all = (p: string): { place: string; depth: 'all' } => ({ place: p, depth: 'all' });
   const top = (p: string): { place: string; depth: 'top' } => ({ place: p, depth: 'top' });
   const places: { place: string; depth: 'all' | 'top' }[] = [
@@ -88,6 +99,7 @@ export function placesFor(start: ContainmentStart, inputs: { extension: string; 
     top('/dev/shm'),
     all(inputs.extension),
     all(inputs.catalog),
+    ...(inputs.importerCatalog === undefined ? [] : [all(inputs.importerCatalog)]),
     ...inputs.docsExamples.map(all),
     // The editor build is read on its own only where it sits outside the
     // extension's directory, which is read whole above.
@@ -95,7 +107,7 @@ export function placesFor(start: ContainmentStart, inputs: { extension: string; 
     all(path.dirname(inputs.compiler)),
     all(path.dirname(inputs.registryServer)),
   ];
-  for (const repo of [inputs.extension, inputs.catalog, ...inputs.docsExamples]) {
+  for (const repo of [inputs.extension, inputs.catalog, ...(inputs.importerCatalog === undefined ? [] : [inputs.importerCatalog]), ...inputs.docsExamples]) {
     const g = gitDirOf(repo);
     if (g !== null) { places.push(top(g)); }
   }

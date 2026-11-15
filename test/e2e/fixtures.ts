@@ -6,7 +6,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { findAggregaWorkspaceAnchor } from '../../src/workspace';
-import { runCompiler, ScratchHome } from './cli';
+import { endingOf, runCompiler, ScratchHome } from './cli';
+import { Inputs } from './inputs';
 
 // The folders and states the checks run against, each built fresh for a scenario
 // and proven before anything rests on it.
@@ -170,9 +171,117 @@ export function copyLockfile(from: string, to: string, release: string): Fixture
   const source = path.join(from, name);
   if (!fs.existsSync(source)) { throw new FixtureError(fixture, `${source} is not there to copy`); }
   if (fs.readFileSync(source, 'utf8').includes(from)) { throw new FixtureError(fixture, `${source} names the folder it was written in`); }
-  fs.copyFileSync(source, path.join(to, name));
-  if (!fs.readFileSync(path.join(to, name)).equals(fs.readFileSync(source))) { throw new FixtureError(fixture, `${path.join(to, name)} does not read back as ${source}`); }
+  copyReadBack(fixture, source, path.join(to, name));
   return { fixture, built: true, proof: `${source}, which names no path of the folder it was written in, copied byte for byte to ${path.join(to, name)}` };
+}
+
+// copyReadBack copies one file and refuses the fixture unless the copy reads back
+// byte for byte as the file it was copied from.
+function copyReadBack(fixture: string, source: string, dest: string): void {
+  fs.copyFileSync(source, dest);
+  if (!fs.readFileSync(dest).equals(fs.readFileSync(source))) { throw new FixtureError(fixture, `${dest} does not read back as ${source}`); }
+}
+
+// IMPORT_ANSWERS_FILE is the answers file an import reads its owed values from and
+// keeps them in, beside the source it imports: the compiler's name for it.
+export const IMPORT_ANSWERS_FILE = 'import-answers.yaml';
+
+// IMPORT_DIFY_EXAMPLE is the documentation example whose source the import
+// scenario imports, by its path under the documentation checkout, and
+// IMPORT_DIFY_SOURCE that source's file name.
+export const IMPORT_DIFY_EXAMPLE = path.join('aggrega-docs', 'language-reference', 'examples', 'import-dify');
+export const IMPORT_DIFY_SOURCE = 'support-assistant.yml';
+
+// placeImportSource copies the documentation example's source into a placed
+// folder, so the import checked is the one the documentation walks through and no
+// copy of it can drift; it refuses where the documentation checkout does not hold
+// it.
+export function placeImportSource(docsCheckoutParent: string, folder: string): FixtureProof {
+  const from = path.join(docsCheckoutParent, IMPORT_DIFY_EXAMPLE, 'source', IMPORT_DIFY_SOURCE);
+  const fixture = `the import source ${IMPORT_DIFY_SOURCE}`;
+  if (!fs.existsSync(from)) { throw new FixtureError(fixture, `the documentation checkout holds no ${from}`); }
+  const to = path.join(folder, IMPORT_DIFY_SOURCE);
+  copyReadBack(fixture, from, to);
+  return { fixture, built: true, proof: `${from} copied byte for byte to ${to}` };
+}
+
+// ImporterRun is how proveImporterCatalog asks the compiler: the folder holding a
+// copy of the source and its name there, the target the import drafts for, the
+// environment the scenario's editor is given (offline, and the catalogs it reads),
+// how long the import is waited for, and a scratch home of the proof's own with
+// the log its run is recorded in. The two pieces of the compiler's wording the
+// proof reads are handed in by the scenario, so that wording has one home: the
+// start of the line naming the format the source was read as, and what each line
+// about a value still owed carries, which the scenario also reads on the editor's
+// channel. The compiler writes
+// both to standard error; under --dry-run its standard output is the drafts.
+export interface ImporterRun {
+  folder: string;
+  source: string;
+  target: string;
+  env: Readonly<Record<string, string>>;
+  boundMs: number;
+  formatOpening: string;
+  owedMarker: string;
+  home: ScratchHome;
+  log: string;
+}
+
+// proveImporterCatalog refuses a fixture unless the run was given an importer
+// catalog holding `importer`'s Plugin entity with its module beside it at exactly
+// one version, as the input check read it — more than one is refused, naming
+// them, since the proof could not then say which ran — and the compiler under
+// test runs it.
+//
+// 🔴 THE COMPILER IS ASKED, NOT PREDICTED. Which importer an import runs is the
+// compiler's to choose. It carries each core importer's entity but not its
+// module, which it fetches from a registry, and it weighs an importer laid in a
+// catalog folder against the entity of the same name it carries, so it is asked
+// rather than predicted: before the scenario starts, the compiler under test
+// imports a copy of the source once, offline, as a preview, with the catalogs the
+// scenario reads, and the fixture is refused unless the importer runs. The run's
+// home is the proof's own and starts empty, so offline no module is found
+// anywhere but beside the entities in the catalogs it reads: an import that says
+// on standard error that it read the source as the importer's format, and names
+// the values it still owes, ran the importer laid here.
+export async function proveImporterCatalog(inputs: Inputs, importer: string, run: ImporterRun): Promise<FixtureProof> {
+  const fixture = `the ${importer} importer in the importer catalog`;
+  if (inputs.importerCatalog === null) {
+    throw new FixtureError(fixture, 'no catalog folder holding the importers was given (--importer-catalog); the compiler carries each core importer\'s entity but not its module, which it fetches from a registry, and the scenario runs offline');
+  }
+  const found = inputs.importerCatalog.importers.find((i) => i.name === importer);
+  if (found === undefined) {
+    throw new FixtureError(fixture, `${inputs.importerCatalog.dir} holds no ${importer} importer under plugin/importer`);
+  }
+  const { dir, versions } = found;
+  if (versions.length === 0) {
+    throw new FixtureError(fixture, `${dir} holds no version with a Plugin entity and its module beside it`);
+  }
+  if (versions.length > 1) {
+    throw new FixtureError(fixture, `${dir} holds ${versions.length} versions with a Plugin entity and its module beside it, ${versions.join(', ')}, so which one an import runs could not be named; lay one`);
+  }
+  const [version] = versions;
+  const args = ['import', run.source, '--dry-run', '--target', run.target];
+  const ran = await runCompiler(inputs.compiler.path, args, { cwd: run.folder, home: run.home, boundMs: run.boundMs, log: run.log, env: { ...run.env } });
+  const said = ran.stderr.split('\n');
+  const formatLine = said.find((l) => l.startsWith(run.formatOpening));
+  const owed = said.filter((l) => l.includes(run.owedMarker)).length;
+  const command = `\`aggrega ${args.join(' ')}\`, run offline with the catalogs the scenario reads,`;
+  if (ran.status !== 0 || formatLine === undefined || owed === 0) {
+    // runCompiler kills a run at its bound with SIGKILL, and a run that could not
+    // be started has neither an exit status nor a signal.
+    const ending = ran.status !== null ? endingOf(ran)
+      : ran.signal === 'SIGKILL' ? `was killed at its bound of ${run.boundMs} ms`
+        : ran.signal !== null ? endingOf(ran) : 'could not be started';
+    const failed = [
+      ran.status !== 0 ? (ran.status === null ? 'it did not exit' : `it exited ${ran.status}, not 0`) : '',
+      formatLine === undefined ? `no line on standard error opens "${run.formatOpening}"` : '',
+      owed === 0 ? `no line on standard error carries "${run.owedMarker}"` : '',
+    ].filter((f) => f !== '');
+    const last = ran.stderr.trim().split('\n').filter((l) => l.trim() !== '').slice(-3).map((l) => l.trim()).join(' | ') || 'none';
+    throw new FixtureError(fixture, `${command} ${ending}; the line naming the format it read: ${formatLine === undefined ? 'none printed' : `"${formatLine.trim()}"`}; lines naming a value still owed: ${owed}; failed: ${failed.join('; ')}; so the compiler was not shown to run the ${importer} importer laid at ${version} in ${dir}; its last standard-error lines: ${last}; the run is recorded in ${run.log}`);
+  }
+  return { fixture, built: true, proof: `${command} ${endingOf(ran)}, said "${formatLine.trim()}" on standard error and named ${owed} value(s) still owed there: the compiler ran the ${importer} importer laid at ${version} in ${dir}` };
 }
 
 // DOCS_EXAMPLE is the documentation example the workspace-above layout holds,

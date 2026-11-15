@@ -37,6 +37,10 @@ export interface InputOptions {
   catalog?: string;
   registryServer?: string;
   editor?: string;
+  // importerCatalog is optional for every command: a catalog folder holding the
+  // core importers, read where a run imports with a compiler no registry holds
+  // the importers of.
+  importerCatalog?: string;
   // scratch is where the runner may write while it checks the inputs.
   scratch: string;
 }
@@ -50,6 +54,18 @@ export interface Inputs {
   catalog: { dir: string; commit: string; uncommitted: boolean };
   registryServer: { path: string; version: string };
   editor: { dir: string; executable: string; version: string; commit: string };
+  // importerCatalog is null where none was given; importers are what it holds, as
+  // importerVersions reads them.
+  importerCatalog: { dir: string; importers: readonly CatalogImporter[] } | null;
+}
+
+// CatalogImporter is one importer a catalog folder holds: its name, the directory
+// its versions sit in, and each version holding its Plugin entity with its module
+// beside it, sorted.
+export interface CatalogImporter {
+  name: string;
+  dir: string;
+  versions: readonly string[];
 }
 
 // Refusal names one input, why it cannot be used, and what would put it right.
@@ -69,6 +85,7 @@ export const INPUT_NAMES = {
   catalog: { subject: 'the standard-library catalog', option: '--catalog', env: 'AGGREGA_E2E_CATALOG' },
   registryServer: { subject: 'the registry server binary', option: '--registry-server', env: 'AGGREGA_E2E_REGISTRY_SERVER' },
   editor: { subject: 'the editor build', option: '--editor', env: 'AGGREGA_E2E_EDITOR' },
+  importerCatalog: { subject: 'the catalog folder holding the importers', option: '--importer-catalog', env: 'AGGREGA_E2E_IMPORTER_CATALOG' },
 } as const;
 
 type InputKey = keyof typeof INPUT_NAMES;
@@ -116,10 +133,54 @@ export function checkInputs(opts: InputOptions, needed: InputsNeeded = EVERY_INP
   const catalog = needed.catalog === 'optional' && opts.catalog === undefined ? NOT_GIVEN_CATALOG : checkCatalog(opts.catalog, refusals);
   const registryServer = needed.registryServer ? checkRegistryServer(opts.registryServer, refusals) : NOT_USED_REGISTRY_SERVER;
   const editor = checkEditor(opts.editor ?? defaultEditorDir(opts.extension), refusals);
-  if (refusals.length > 0 || !extension || !compiler || !catalog || !registryServer || !editor) {
+  const importerCatalog = opts.importerCatalog === undefined ? null : checkImporterCatalog(opts.importerCatalog, refusals);
+  if (refusals.length > 0 || !extension || !compiler || !catalog || !registryServer || !editor || (opts.importerCatalog !== undefined && !importerCatalog)) {
     return { refusals };
   }
-  return { inputs: { extension, compiler, catalog, registryServer, editor } };
+  return { inputs: { extension, compiler, catalog, registryServer, editor, importerCatalog } };
+}
+
+// importersAhead is the list of catalog directories an import reads with an
+// importer catalog: the importer catalog first, then the catalog a run otherwise
+// reads, as AGGREGA_CATALOG_DIRS spells a list.
+export function importersAhead(importerCatalog: string, catalog: string): string {
+  return `${importerCatalog}:${catalog}`;
+}
+
+// checkImporterCatalog accepts a catalog folder holding importers — a
+// plugin/importer directory, each importer under its name and version, as the
+// compiler's colocated-plugin catalog lays them — and reads what it holds. Which
+// version an import runs is the compiler's to decide; a scenario that needs one
+// importer asks the compiler itself.
+function checkImporterCatalog(dir: string, refusals: Refusal[]): NonNullable<Inputs['importerCatalog']> | null {
+  const importers = path.join(dir, 'plugin', 'importer');
+  if (fs.statSync(importers, { throwIfNoEntry: false })?.isDirectory() !== true) {
+    refusals.push(refusal('importerCatalog', `${dir} names no catalog folder holding importers (it holds no plugin/importer)`, 'name the folder aggrega-cli/scripts/gen-colocated-plugin-catalog.sh wrote: each importer under plugin/importer/<name>/<version>, its Plugin entity with its module beside it'));
+    return null;
+  }
+  return { dir, importers: importerVersions(importers) };
+}
+
+// importerVersions reads a plugin/importer directory: each importer by its name,
+// with the versions holding its Plugin entity (plugin.yaml) and a module (a .wasm
+// file) beside it, names and versions sorted. An entry that is not a directory is
+// neither an importer nor a version, and an importer with no such version is
+// listed with none. It is the one reading of that layout, for the report's header
+// and for a scenario's proof alike.
+function importerVersions(importers: string): CatalogImporter[] {
+  const subdirs = (dir: string): string[] => fs.readdirSync(dir)
+    .filter((n) => fs.statSync(path.join(dir, n), { throwIfNoEntry: false })?.isDirectory() === true).sort();
+  return subdirs(importers).map((name) => {
+    const dir = path.join(importers, name);
+    return {
+      name,
+      dir,
+      versions: subdirs(dir).filter((v) => {
+        const files = fs.readdirSync(path.join(dir, v));
+        return files.includes('plugin.yaml') && files.some((f) => f.endsWith('.wasm'));
+      }),
+    };
+  });
 }
 
 function isExecutable(file: string): boolean {

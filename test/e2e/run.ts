@@ -9,7 +9,7 @@ import { captureDocs, Group, GROUPS } from './capture-docs';
 import { declaredChecks, Judgement, VERDICTS } from './checks';
 import { containmentSummary, ContainmentStart, markStart, placesFor, readContainment } from './containment';
 import { markRunnerEnvironment } from './editor';
-import { DOCS_EXAMPLE, MYSQL_EXAMPLE, OWN_CATALOGS_EXAMPLE } from './fixtures';
+import { DOCS_EXAMPLE, IMPORT_DIFY_EXAMPLE, MYSQL_EXAMPLE, OWN_CATALOGS_EXAMPLE } from './fixtures';
 import { checkInputs, EDITOR_VERSION, INPUT_NAMES, InputOptions, Inputs, REPO_ROOT } from './inputs';
 import { POSTGRES_EXAMPLE } from './layouts';
 import { checkLibraries, libraryRefusal, LibraryReport } from './libraries';
@@ -78,10 +78,16 @@ import { runSuite, SCENARIO_CHECKS } from './suite';
 //   --docs <dir>             capture-docs: the documentation checkout
 //   --only <groups>          capture-docs: a comma-separated subset of manual,
 //                            quickstart and import
-//   --importer-catalog <dir> capture-docs: a catalog folder holding the
-//                            importers at the compiler's own version, read
-//                            ahead of --catalog by the import frames, for a
-//                            compiler built between releases
+//   --importer-catalog <dir> suite and capture-docs: a catalog folder holding
+//                            the importers, each Plugin entity with its module
+//                            beside it (AGGREGA_E2E_IMPORTER_CATALOG), read
+//                            ahead of --catalog by every import, for a compiler
+//                            built between releases; the suite's import
+//                            scenario is not run without it; before the
+//                            scenario starts, the compiler under test imports a
+//                            copy of the source once, offline, as a preview,
+//                            with the catalogs the scenario reads, and the
+//                            fixture is refused unless the Dify importer runs
 //   --page-quotes <file>     capture-docs: what each import page marks — its
 //                            import command and the example files it quotes —
 //                            as the documentation's own block reader read it
@@ -109,7 +115,6 @@ interface Options {
   plant?: string;
   out?: string;
   docs?: string;
-  importerCatalog?: string;
   pageQuotes?: string;
   dockerConfig?: string;
   inputs: Omit<InputOptions, 'scratch'>;
@@ -142,7 +147,6 @@ function parseArgs(argv: string[]): Options {
     plant: flags.plant,
     out: resolved(flags.out),
     docs: resolved(flags.docs),
-    importerCatalog: resolved(flags['importer-catalog']),
     pageQuotes: resolved(flags['page-quotes']),
     dockerConfig: resolved(flags['docker-config']),
     inputs: {
@@ -152,6 +156,7 @@ function parseArgs(argv: string[]): Options {
       catalog: resolved(pick('catalog', INPUT_NAMES.catalog.env)),
       registryServer: resolved(pick('registry-server', INPUT_NAMES.registryServer.env)),
       editor: resolved(pick('editor', INPUT_NAMES.editor.env)),
+      importerCatalog: resolved(pick('importer-catalog', INPUT_NAMES.importerCatalog.env)),
     },
   };
 }
@@ -206,6 +211,7 @@ export function header(inputs: Inputs): Record<string, string> {
     editor: `${inputs.editor.version} (commit ${inputs.editor.commit})`,
     catalog: `${inputs.catalog.commit}${inputs.catalog.uncommitted ? ', in a checkout with uncommitted changes' : ''}`,
     registryServer: inputs.registryServer.version,
+    importerCatalog: inputs.importerCatalog === null ? 'none given' : `${inputs.importerCatalog.dir} (${inputs.importerCatalog.importers.map((i) => `${i.name} at ${i.versions.join(', ') || 'no version with its module'}`).join('; ') || 'no importer'})`,
   };
 }
 
@@ -335,10 +341,11 @@ async function commandSuite(opts: Options): Promise<number> {
   const containment = readContainment(start, scratch, placesFor(start, {
     extension: inputs.extension.dir,
     catalog: inputs.catalog.dir,
+    importerCatalog: inputs.importerCatalog?.dir,
     compiler: inputs.compiler.path,
     registryServer: inputs.registryServer.path,
     editor: inputs.editor.dir,
-    docsExamples: [DOCS_EXAMPLE, OWN_CATALOGS_EXAMPLE, MYSQL_EXAMPLE, POSTGRES_EXAMPLE].map((e) => path.join(REPO_ROOT, '..', e)),
+    docsExamples: [DOCS_EXAMPLE, OWN_CATALOGS_EXAMPLE, MYSQL_EXAMPLE, POSTGRES_EXAMPLE, IMPORT_DIFY_EXAMPLE].map((e) => path.join(REPO_ROOT, '..', e)),
   }));
   const summary = [...report.summary, ...containmentSummary(containment)];
   writeReport(runDir, 'suite', { ...(report.data as Record<string, unknown>), containment }, summary);
@@ -456,9 +463,6 @@ async function commandCaptureDocs(opts: Options): Promise<number> {
   const groups = opts.only ?? [...GROUPS];
   const unknown = groups.filter((g) => !(GROUPS as readonly string[]).includes(g));
   if (unknown.length > 0) { refusals.push(`refused: --only names ${unknown.join(', ')}; the groups are ${GROUPS.join(', ')}`); }
-  if (opts.importerCatalog !== undefined && !fs.existsSync(path.join(opts.importerCatalog, 'plugin', 'importer'))) {
-    refusals.push('refused: --importer-catalog names no catalog folder holding importers (it holds no plugin/importer)');
-  }
   if (groups.includes('import') && (opts.pageQuotes === undefined || !fs.existsSync(opts.pageQuotes))) {
     refusals.push('refused: the import frames need the page quotes (--page-quotes), naming a file that exists');
   }
@@ -483,7 +487,7 @@ async function commandCaptureDocs(opts: Options): Promise<number> {
   if (refusal !== null) { throw new Refused([`refused: ${refusal}`]); }
   const report = await captureDocs({
     inputs: checked.inputs, scratch, out: path.resolve(opts.out as string), docs: path.resolve(opts.docs as string),
-    groups: groups as Group[], importerCatalog: opts.importerCatalog, pageQuotes: opts.pageQuotes, dockerConfig: opts.dockerConfig,
+    groups: groups as Group[], importerCatalog: checked.inputs.importerCatalog?.dir, pageQuotes: opts.pageQuotes, dockerConfig: opts.dockerConfig,
   });
   const taken = report.frames.filter((f) => f.written);
   const { extensionBuild, compiler, editor, catalog } = header(checked.inputs);

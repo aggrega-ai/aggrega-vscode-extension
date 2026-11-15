@@ -24,6 +24,19 @@ claims to be:
 - **A `zot` registry server binary**: `--registry-server <file>`. The suite
   starts its own registry on a free loopback port, with a data directory of its
   own and no authentication, for the checks that need one.
+- **The importers**: `--importer-catalog <dir>`, a catalog folder holding each
+  importer's Plugin entity with its module beside it, as
+  `aggrega-cli/scripts/gen-colocated-plugin-catalog.sh` lays them out from the
+  compiler's guests. The compiler carries each core importer's entity but not
+  its module, which it fetches from a registry, and a compiler built between
+  releases has a version no registry holds the importers of. Only the
+  import scenario reads it, and it takes the Dify importer at exactly one
+  version, refusing a folder holding more than one and naming them. Which
+  importer an import runs is the compiler's to choose, so it is asked rather
+  than predicted: before the scenario starts, the compiler under test imports a
+  copy of the source once, offline, as a preview, with the catalogs the scenario
+  reads, and the fixture is refused unless the Dify importer runs. A run given
+  none reports that scenario's checks as not run, naming it.
 - **The editor build** the runner drives, fetched once into `.vscode-test/` with
   `node out/test/e2e/run.js fetch-editor`.
 - **The editor's shared libraries.** Before the first launch the runner runs
@@ -38,7 +51,8 @@ npx tsc -p ./
 node build/stamp-build-version.js
 node out/test/e2e/run.js suite --scratch <dir> \
   --compiler <aggrega binary> --compiler-commit <commit> \
-  --catalog <aggrega-catalog directory> --registry-server <zot binary>
+  --catalog <aggrega-catalog directory> --registry-server <zot binary> \
+  --importer-catalog <importer catalog folder>
 ```
 
 `npm run test:e2e -- suite …` runs the same, and npm then writes a debug log of
@@ -398,7 +412,7 @@ serves:
   directory's configuration: the summary says no file contributed and draws no
   list of files, and every setting reads at its default.
 
-A last group reads the welcome page as a reader meets it, step by step:
+Another group reads the welcome page as a reader meets it, step by step:
 
 - `welcome-page-empty-folder` starts on a fresh profile, on a machine with no
   global configuration file, in a folder no workspace marker reaches: the page
@@ -425,6 +439,19 @@ A last group reads the welcome page as a reader meets it, step by step:
   high-contrast theme, a step's value set against its guidance, a step met while
   open staying open, and the arrangement kept through a refresh and decided
   again when the page is opened again.
+
+A last one follows an import through the editor:
+
+- `dify-import-answers` opens a workspace holding the documentation's Dify
+  example source, read from the documentation checkout beside the extension, and
+  imports it from the explorer's entry, offline, with the importers read from
+  `--importer-catalog`: the import drafts it, its lines name the three values it
+  still owes, and it offers to answer them; taking the offer asks each in an
+  input box of its own, titled with the drafted file and the key path, the
+  secret's box hiding what is typed. Once each is answered, the answers file
+  beside the source holds every answer under the drafted file and its key path,
+  and the import the editor sends again with them names no value still empty,
+  offers nothing more, and leaves every answer written into the drafted Release.
 
 The folders these open are built inside the scratch directory, and before any of
 them is opened the runner reads every directory above it for anything that marks
@@ -503,8 +530,8 @@ an extension. Its inputs differ from the suite's in three ways:
   library from a copy of what that catalog's commit holds**, laid out under the
   scratch directory, rather than from the registry the examples name — for a
   machine that registry does not serve. `--importer-catalog` adds a catalog
-  folder holding the importers at the compiler's own version, for a compiler
-  built between releases, whose importers no registry holds.
+  folder holding the importers, for a compiler built between releases, whose
+  importers no registry holds.
 
 It writes each frame under `--out`, one directory per group, and `capture.json`
 in the scratch directory, listing every frame with where it went, or why it was

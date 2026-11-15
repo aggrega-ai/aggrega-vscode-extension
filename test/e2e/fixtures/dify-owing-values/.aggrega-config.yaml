@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Cognitio s.r.l.
+
+# A folder that is a workspace root and nothing else: no entity, no answers file
+# and no catalog of its own. The scenario places the documentation's Dify example
+# source beside this file; an import of it drafts beneath this root and leaves
+# three values empty that the source cannot hold, one of them a secret's, which is
+# what the editor suite reads it for. The catalogs it reads are the scenario's to
+# give, in the editor's environment.
+workspace: {}

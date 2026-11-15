@@ -8,15 +8,17 @@ import * as path from 'path';
 
 import { Checks } from './checks';
 import { runCompiler } from './cli';
+import { checkoutTop } from './containment';
 import { Box } from './drivers';
 import { createScenarioRoot, ScenarioRoot, scratchHomeOf } from './editor';
+import { IMPORT_ANSWERS_FILE } from './fixtures';
 import { pressNode, putAwayNotifications, showGraph, graphState } from './graph-panel';
-import { catalogGiven, Inputs } from './inputs';
+import { catalogGiven, importersAhead, Inputs } from './inputs';
 import { bringUp, tearDown } from './scenario';
-import { closeAllEditors, makeContext, open, ready, run, send, SuiteContext } from './suite-context';
+import { closeAllEditors, IMPORT_COMMAND, importClickedFile, makeContext, open, ready, run, send, SuiteContext } from './suite-context';
 import { openMenuOf } from './commands-panel';
 import {
-  commandsPanel, drawnTreeRows, paneByTitle, paneState, pickQuickInputRow, pressPaneHeader, quickInput, quietReading, sleep, stated, toasts, until, waitQuickInput, waitStatus, waitToast, NOT_RUNNING,
+  commandsPanel, drawnTreeRows, paneByTitle, paneState, pickQuickInputRow, pressPaneHeader, QuickInput, quickInput, quietReading, sleep, stated, toasts, until, waitQuickInput, waitStatus, waitToast, NOT_RUNNING,
 } from './workbench';
 import { clearForCapture, describeSteps, frontPage, pageNow, PageSeen, pressCaret, registerWithNoTrust, welcomePage } from './welcome';
 
@@ -83,10 +85,9 @@ export interface CaptureOptions {
   // docs is the documentation checkout the examples and pages are read from.
   docs: string;
   groups: readonly Group[];
-  // importerCatalog is a catalog folder holding the importers at the compiler's
-  // own version, for a compiler built between releases, whose importers no
-  // registry holds; the import frames read the importers from a copy of it, ahead
-  // of the standard catalog.
+  // importerCatalog is a catalog folder holding the importers, for a compiler
+  // built between releases, whose importers no registry holds; the import frames
+  // read the importers from a copy of it, ahead of the standard catalog.
   importerCatalog?: string;
   // pageQuotes is the file naming what each import page quotes (PageQuotes),
   // which the import frames need.
@@ -332,10 +333,13 @@ function copyTracked(docs: string, rel: string, dest: string): void {
 // under `dir`: the catalog as its commit has it, whatever a working tree beside it
 // has changed since.
 function committedCopy(dir: string, dest: string): void {
-  const where = spawnSync('git', ['-C', dir, 'rev-parse', '--show-toplevel', '--show-prefix'], { encoding: 'utf8' });
-  if (where.status !== 0) { throw new Error(`${dir} is in no git checkout`); }
-  const [top, prefix = ''] = where.stdout.split('\n').map((l) => l.trim());
-  const tree = prefix === '' ? 'HEAD' : `HEAD:${prefix.replace(/\/$/, '')}`;
+  // The checkout is found by its own .git entry, with every link in the path
+  // resolved first, so the prefix below it is the one HEAD's tree holds `dir` at.
+  const real = fs.existsSync(dir) ? fs.realpathSync(dir) : null;
+  const top = real === null ? null : checkoutTop(real);
+  if (real === null || top === null) { throw new Error(`${dir} is in no git checkout`); }
+  const prefix = path.relative(top, real).split(path.sep).join('/');
+  const tree = prefix === '' ? 'HEAD' : `HEAD:${prefix}`;
   // Run from the checkout's top: run from below it, an archive holds only what is
   // beneath the directory it was run in, and a subtree named from there is empty.
   const archive = spawnSync('git', ['-C', top, 'archive', '--format=tar', tree], { maxBuffer: 1 << 30 });
@@ -359,7 +363,7 @@ function captureEnvironment(r: Run, catalog: CatalogRead): Record<string, string
   const env: Record<string, string> = {};
   if (catalog === 'importers-first' && r.importerDir !== '') {
     if (r.catalogDirs === '') { throw new Error('an importer catalog is read ahead of the standard catalog, and no catalog was given'); }
-    env.AGGREGA_CATALOG_DIRS = `${r.importerDir}:${r.catalogDirs}`;
+    env.AGGREGA_CATALOG_DIRS = importersAhead(r.importerDir, r.catalogDirs);
   } else if (r.catalogDirs !== '') {
     env.AGGREGA_CATALOG_DIRS = r.catalogDirs;
   }
@@ -383,12 +387,9 @@ async function compiler(r: Run, root: ScenarioRoot, args: string[], cwd: string)
 // stated rather than guarded.
 const ENDING_MS = 300000;
 
-// answerInput types `text` into the open question and accepts it.
-async function answerInput(ctx: SuiteContext, what: string, text: string): Promise<void> {
-  await waitQuickInput(ctx.d, what, (q) => q.title.length > 0 || q.placeholder.length > 0, 30000);
-  if (text !== '') { await ctx.d.type(text); }
-  await ctx.d.press('Enter');
-}
+// ANY_QUESTION recognises any question drawn with a title or a placeholder: the
+// import's questions are answered in the order the import asks them.
+const ANY_QUESTION = (q: QuickInput): boolean => q.title.length > 0 || q.placeholder.length > 0;
 
 // ---- the manual's frames ---------------------------------------------------------
 
@@ -528,7 +529,7 @@ async function manualFrames(r: Run): Promise<void> {
     await ctx.d.press('Escape');
     await takeFrame(r, ctx, imp[0], imp[1], async () => {
       await clearForCapture(ctx);
-      await send(ctx, 'aggrega.op.import');
+      await send(ctx, IMPORT_COMMAND);
       await waitQuickInput(ctx.d, 'the import\'s first question', (q) => q.rows.some((x) => x.label.startsWith('File')), 10000);
       await settleWindow(ctx);
     });
@@ -681,7 +682,7 @@ function shownFile(quotes: readonly string[], top: string, source: string): stri
   for (const q of quotes.filter((x) => x.startsWith('source/'))) {
     const quoted = path.join(top, q);
     const name = path.basename(quoted);
-    if (name !== '.aggrega-config.yaml' && name !== 'import-answers.yaml' && fs.existsSync(quoted)) { return quoted; }
+    if (name !== '.aggrega-config.yaml' && name !== IMPORT_ANSWERS_FILE && fs.existsSync(quoted)) { return quoted; }
   }
   const files = fs.readdirSync(source, { withFileTypes: true }).filter((e) => e.isFile() && !e.name.startsWith('.')).map((e) => e.name).sort();
   if (files.length === 0) { throw new Error(`${source} holds no file to show`); }
@@ -749,11 +750,10 @@ async function importFormat(r: Run, format: string, files: [string, string][]): 
     }, how);
     const importOk = await takeFrame(r, ctx, imported[0], imported[1], async () => {
       const mark = (await toasts(ctx.d)).length;
-      await send(ctx, 'aggrega.op.import', [{ $file: source }]);
-      await answerInput(ctx, 'the import\'s destination', cmd.outputDir);
-      await waitQuickInput(ctx.d, 'the import\'s options', (q) => q.rows.length > 0, 30000);
-      await ctx.d.press('Enter');
-      await answerInput(ctx, 'the import\'s target', cmd.target);
+      await importClickedFile(ctx, source, {
+        outputDir: cmd.outputDir, target: cmd.target,
+        asked: { destination: ANY_QUESTION, options: (q) => q.rows.length > 0, target: ANY_QUESTION },
+      });
       const t = await waitToast(ctx.d, 'the import\'s ending', mark, (x) => x.message.startsWith('The import'), stated(ENDING_MS));
       if (t.severity === 'error') { throw new Error(`the import ended: ${t.message}`); }
       await run(ctx, 'workbench.view.explorer');

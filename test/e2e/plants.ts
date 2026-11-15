@@ -2877,6 +2877,14 @@ export const PLANTS: readonly Plant[] = [
     file: CONFIG_RENDER, find: '    const layers = model.layers.length > 0\n', replace: '    const layers = true\n',
     says: 'the summary box draws its list of files whether or not a file contributed, so it draws an empty one',
   },
+  {
+    name: 'owed-answer-sent-under-another-key', scenario: 'dify-import-answers',
+    checks: ['import.owed-values-answered-in-the-editor-are-kept-in-the-answers-file', 'import.the-import-sent-with-the-answers-owes-nothing'],
+    moves: 'red', target: 'extension',
+    file: 'out/src/import-request.js', find: '            answered.push({ file: value.file, key: value.key, answer });',
+    replace: "            answered.push({ file: value.file, key: [...value.key, 'planted'], answer });",
+    says: 'each answer typed for an owed value is sent naming its value by one key more than the owed list named it by, so the compiler applies none of them and the import sent again still owes them all',
+  },
 ];
 
 // The edits two scenarios' plants make alike, each named once. They are function

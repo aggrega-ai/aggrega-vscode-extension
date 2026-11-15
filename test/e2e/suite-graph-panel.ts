@@ -194,7 +194,9 @@ function child(v: unknown, key: string): unknown {
   return typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>)[key] : undefined;
 }
 
-function dig(v: unknown, keys: string[]): unknown {
+// dig reads the value at a path of keys in a parsed document, or undefined where
+// the path leads nowhere.
+export function dig(v: unknown, keys: readonly string[]): unknown {
   return keys.reduce((x, k) => child(x, k), v);
 }
 

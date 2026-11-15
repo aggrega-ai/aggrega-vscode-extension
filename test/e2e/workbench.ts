@@ -719,7 +719,9 @@ export class OutputLog {
 // ---- quick input, dialogs, tree views ----------------------------------------
 
 export interface QuickInputRow { label: string; description: string; aria: string; text: string }
-export interface QuickInput { title: string; placeholder: string; value: string; rows: QuickInputRow[] }
+// hidden is whether the box hides what is typed into it, as an input box asking
+// for a password does.
+export interface QuickInput { title: string; placeholder: string; value: string; hidden: boolean; rows: QuickInputRow[] }
 
 const QUICK_INPUT = `(() => {
   const w = [...document.querySelectorAll('.quick-input-widget')].find((e) => e.style.display !== 'none' && e.getBoundingClientRect().height > 0);
@@ -732,7 +734,7 @@ const QUICK_INPUT = `(() => {
     text: (r.innerText || '').trim(),
   }));
   return { title: ((w.querySelector('.quick-input-title') || {}).innerText || '').trim(),
-    placeholder: input ? input.getAttribute('placeholder') || '' : '', value: input ? input.value : '', rows };
+    placeholder: input ? input.getAttribute('placeholder') || '' : '', value: input ? input.value : '', hidden: !!input && input.type === 'password', rows };
 })()`;
 
 export function quickInput(driver: UiDriver): Promise<QuickInput | null> {
@@ -1402,7 +1404,7 @@ export async function paletteRows(driver: UiDriver, send: (command: string) => P
   await driver.type(query);
   return waitQuickInput(driver, `the palette's rows for "${query}"`, (q) => q.value === `>${query}` && q.rows.length > 0).catch(async () => {
     const q = await quickInput(driver);
-    return q ?? { title: '', placeholder: '', value: '', rows: [] };
+    return q ?? { title: '', placeholder: '', value: '', hidden: false, rows: [] };
   });
 }
 

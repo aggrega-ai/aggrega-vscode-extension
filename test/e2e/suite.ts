@@ -8,8 +8,9 @@ import { CheckResult, Checks, EnoughReported, sealDeclarations, suitePassed, tal
 import { makeScratchHome, ScratchHome } from './cli';
 import { createScenarioRoot, ScenarioRoot, scratchHomeOf } from './editor';
 import {
-  copyLockfile, FixtureError, FixtureProof, MYSQL_EXAMPLE, placeDocsExample, placeEmptyBeneathWorkspace, placeFolder, placeOwnCatalogs, placeSecondAggregate,
-  placeSelectionReadings, placeUnanchored, placeWorkspaceAbove, proveMissing, proveUnreachable, readTree, Tree, UNREACHABLE_HOST, writeLockfile,
+  copyLockfile, FixtureError, FixtureProof, IMPORT_DIFY_SOURCE, MYSQL_EXAMPLE, placeDocsExample, placeEmptyBeneathWorkspace, placeFolder, placeImportSource, placeOwnCatalogs,
+  placeSecondAggregate, placeSelectionReadings, placeUnanchored, placeWorkspaceAbove, proveImporterCatalog, proveMissing, proveUnreachable, readTree, Tree,
+  UNREACHABLE_HOST, writeLockfile,
 } from './fixtures';
 import { Inputs, REPO_ROOT } from './inputs';
 import { placeLayouts, POSTGRES_EXAMPLE, proveNothingAbove } from './layouts';
@@ -65,6 +66,10 @@ import {
   nothingConfiguredChecks, OFFLINE, OFFLINE_IN_THE_ENVIRONMENT, proveNoGlobalFile, proveNothingSetIn, setListThroughItsCompanion,
 } from './suite-configuration-report';
 import { YML_RELEASE } from './suite-discovery';
+import {
+  IMPORT_ANSWERS_CHECKS, IMPORT_ANSWERS_FIXTURE, IMPORT_ANSWERS_IMPORTER, IMPORT_ANSWERS_SCENARIO, IMPORT_ANSWERS_TARGET, importAnswersChecks,
+  importAnswersEnvironment, formatOpening, IMPORT_ENDING_MS, STILL_EMPTY,
+} from './suite-import-answers';
 
 // The suite: the checks of which build is under test, of the build-analysis
 // setting and the two diagnostic layers it separates, and of the capabilities
@@ -119,6 +124,7 @@ export const SCENARIO_CHECKS: Readonly<Record<string, readonly string[]>> = {
   'gateway-configuration-report': CONFIGURATION_REPORT_CHECKS,
   'gateway-configuration-from-the-environment': CONFIGURATION_FROM_THE_ENVIRONMENT_CHECKS,
   'nothing-configured-configuration-report': NOTHING_CONFIGURED_CHECKS,
+  [IMPORT_ANSWERS_SCENARIO]: IMPORT_ANSWERS_CHECKS,
 };
 
 // ScenarioResult is one scenario as the report states it.
@@ -856,6 +862,32 @@ function plans(inputs: Inputs): ScenarioPlan[] {
         return { folder: path.join(layouts, YML_RELEASE.folder), fixtures };
       },
       body: (ctx) => nothingConfiguredChecks(ctx),
+    },
+    {
+      name: IMPORT_ANSWERS_SCENARIO,
+      checks: IMPORT_ANSWERS_CHECKS,
+      environment: importAnswersEnvironment(inputs),
+      prepare: async (root, _home, log) => {
+        const docs = path.resolve(REPO_ROOT, '..');
+        const folder = path.join(root.dir, 'workspace', IMPORT_ANSWERS_FIXTURE);
+        // The importer's proof imports a copy of the same folder, from a home of its
+        // own, so the scenario's folder and home are as untouched as before it ran.
+        const proof = path.join(root.dir, 'importer-proof');
+        const proofFolder = path.join(proof, IMPORT_ANSWERS_FIXTURE);
+        const fixtures = [
+          placeFolder(inputs.extension.dir, IMPORT_ANSWERS_FIXTURE, folder, null),
+          placeImportSource(docs, folder),
+          placeFolder(inputs.extension.dir, IMPORT_ANSWERS_FIXTURE, proofFolder, null),
+          placeImportSource(docs, proofFolder),
+        ];
+        fixtures.push(await proveImporterCatalog(inputs, IMPORT_ANSWERS_IMPORTER, {
+          folder: proofFolder, source: IMPORT_DIFY_SOURCE, target: IMPORT_ANSWERS_TARGET, env: importAnswersEnvironment(inputs),
+          boundMs: IMPORT_ENDING_MS, formatOpening: formatOpening(IMPORT_ANSWERS_IMPORTER), owedMarker: STILL_EMPTY,
+          home: makeScratchHome(proof), log,
+        }));
+        return { folder, fixtures };
+      },
+      body: (ctx) => importAnswersChecks(ctx),
     },
   ];
 }
