@@ -2320,11 +2320,27 @@ describe('the welcome panel', () => {
     // one, correct until the first release that forgot it. This is a census over
     // the whole source tree rather than a look at the one module that reads it,
     // because the copy worth catching is the one somebody adds elsewhere.
+    //
+    // The one declaration the census passes over is DRAFT_VERB_SINCE: it is the
+    // compiler release that first answers to `draft`, a compiler version and not
+    // the extension's own, so it equals the manifest's only in a release where
+    // the two coincide. Only the line declaring it is passed over, by name; the
+    // same version quoted anywhere else in that file is still a copy.
+    const withoutDraftVerbDeclaration = (source: string): string =>
+      source
+        .split('\n')
+        .filter((line) => !/^\s*(export\s+)?const\s+DRAFT_VERB_SINCE\s*=\s*(['"])[^'"]*\2\s*;?\s*$/.test(line))
+        .join('\n');
+    const holdsVersionLiteral = (source: string, version: string): boolean => {
+      const rest = withoutDraftVerbDeclaration(source);
+      return rest.includes(`'${version}'`) || rest.includes(`"${version}"`);
+    };
+
     it('holds no copy of its own version anywhere in the source', () => {
       const declared = manifest().version;
       assert.match(declared, /^\d+\.\d+\.\d+/, 'the manifest declares no version to compare against');
       const copies = readSourceTree()
-        .filter(([, source]) => source.includes(`'${declared}'`) || source.includes(`"${declared}"`))
+        .filter(([, source]) => holdsVersionLiteral(source, declared))
         .map(([file]) => file);
       assert.deepStrictEqual(
         copies,
@@ -2332,6 +2348,14 @@ describe('the welcome panel', () => {
         `these hold the manifest's own version as a literal, so a release moves one of the two and `
         + `leaves the other: ${copies.join(', ')}`,
       );
+    });
+
+    it('passes over the draft release declaration and nothing else that holds the version', () => {
+      const declaration = "const DRAFT_VERB_SINCE = '1.2.3';";
+      assert.strictEqual(holdsVersionLiteral(declaration, '1.2.3'), false);
+      assert.strictEqual(holdsVersionLiteral(`${declaration}\nconst other = '1.2.3';`, '1.2.3'), true);
+      assert.strictEqual(holdsVersionLiteral(`${declaration}\nconst other = "1.2.3";`, '1.2.3'), true);
+      assert.strictEqual(holdsVersionLiteral("const OTHER_SINCE = '1.2.3';", '1.2.3'), true);
     });
 
     // The page's last line says whether the language server is running and,
