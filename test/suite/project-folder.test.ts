@@ -875,10 +875,13 @@ describe('the two last entries are wired to the editor and to nothing else', () 
     ]) {
       assert.ok(acts.includes(act), `the sequence is not handed ${act}; it was handed:\n${acts}`);
     }
+    // The one other route is the Draft button's offer to open the folder an
+    // example was just written into, admitted by naming it so a further route
+    // still fails this.
     assert.deepStrictEqual(
       callSites('openFolderInWindow').map((site) => [site.module, site.args]),
-      [['extension.ts', ['folder']]],
-      'a folder is opened in the window by some route other than the open entry',
+      [['draft-chooser.ts', ['vscode.Uri.file(written)']], ['extension.ts', ['folder']]],
+      'a folder is opened in the window by some route other than the open entry and the drafted example\'s offer',
     );
   });
 

@@ -37,6 +37,8 @@ import { dialsTurnedOn } from './build-dials';
 import { buildReportLines } from './build-report';
 import { CancellationSignal } from './cancellation';
 import { reportOutcome, runWatchableCli } from './cli-operation';
+import { DRAFT_COMMAND, runDraft } from './draft-chooser';
+import { SpawnFn } from './version-check';
 import { DaemonErrorRouting, WhoAsked } from './error-surfaces';
 import {
   IMPORT_DESTINATION_PROMPT,
@@ -182,6 +184,9 @@ export interface OperationDeps extends RendersOnReady {
   onSelectionChange(listener: () => void): void;
   getBinaryPath(): string;
   output: vscode.OutputChannel;
+  // runVersion runs the compiler with arguments and answers with what it
+  // printed; the Draft button reads the compiler's version through it.
+  runVersion: SpawnFn;
   validateActiveDocument(): Promise<void>;
   // selectedRelease is the editor's one selected Release, workspace-relative,
   // or null when none is selected. Build, preview build and pull each act on a
@@ -834,6 +839,13 @@ export function activateOperations(
   // explorer passes the file or the folder it was opened on — and asks for one
   // otherwise.
   reg('import', (clicked) => { void runImport(deps, clickedSource(clicked)); });
+  // The Draft button opens the list of what can be drafted. It is registered
+  // apart from the entries above because it is no entry of either panel: it is
+  // drawn in the title bars, including the Explorer's, and its example choices
+  // run with no Aggrega folder open.
+  context.subscriptions.push(
+    vscode.commands.registerCommand(DRAFT_COMMAND, () => { void runDraft(deps); }),
+  );
   reg('inspect', (chosen) => {
     void runInspect(deps, provider.chosenSubject('inspect', chosen));
   });

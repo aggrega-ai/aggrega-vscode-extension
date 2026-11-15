@@ -4,7 +4,7 @@
 import * as assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { COMMANDS_TITLE_BAR_ENTRIES, commandsPanelTitleBar } from '../helpers/title-bar';
+import { COMMANDS_TITLE_BAR_ENTRIES, DRAFT_BUTTON, commandsPanelTitleBar } from '../helpers/title-bar';
 import {
   CATALOG_ENTITY_ROW_CONTEXT,
   CATALOG_ROW_OPERATIONS,
@@ -151,7 +151,7 @@ describe('the operations the workspace-catalog panel contributes', () => {
     const entries = titleBarEntries();
     assert.deepStrictEqual(
       entries.map((m) => m.command),
-      ['aggrega.workspaceCatalog.refresh'],
+      [DRAFT_BUTTON, 'aggrega.workspaceCatalog.refresh'],
       'an operation is still a hover-revealed icon in this panel\'s title bar',
     );
     assert.strictEqual(entries[0].group, 'navigation');

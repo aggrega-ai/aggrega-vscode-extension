@@ -5,7 +5,7 @@ import * as assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { readManifest } from '../helpers/manifest';
-import { COMMANDS_TITLE_BAR_ENTRIES, commandsPanelTitleBar } from '../helpers/title-bar';
+import { COMMANDS_TITLE_BAR_ENTRIES, DRAFT_BUTTON, commandsPanelTitleBar } from '../helpers/title-bar';
 
 // Imported as a namespace as well as by name, so the export surface itself can
 // be censused: a claim that no cache operation composes an argument list is a
@@ -501,21 +501,27 @@ describe('the surface the manifest actually contributes', () => {
     // button. A refresh is not an operation in that sense — it re-reads a list
     // rather than acting on the thing listed — so it stays, and the sweep is of
     // operations rather than of every entry.
+    // The Draft button sits beside each refresh: it acts on nothing a panel
+    // holds, and it is drawn in every title bar, the Explorer's included.
     const byView = new Map<string, string[]>();
     for (const entry of manifest.contributes.menus['view/title']) {
       byView.set(entry.when, [...(byView.get(entry.when) ?? []), entry.command]);
     }
     assert.deepStrictEqual(
       byView.get('view == aggrega.registries'),
-      ['aggrega.registries.refresh'],
+      [DRAFT_BUTTON, 'aggrega.registries.refresh'],
     );
     assert.deepStrictEqual(
       byView.get('view == aggrega.workspaceCatalog'),
-      ['aggrega.workspaceCatalog.refresh'],
+      [DRAFT_BUTTON, 'aggrega.workspaceCatalog.refresh'],
     );
     assert.deepStrictEqual(
       byView.get('view == aggrega.plugins'),
-      ['aggrega.plugins.refresh'],
+      [DRAFT_BUTTON, 'aggrega.plugins.refresh'],
+    );
+    assert.deepStrictEqual(
+      byView.get('view == workbench.explorer.fileView'),
+      [DRAFT_BUTTON],
     );
     // And nothing else is bound to a title bar at all, so an operation cannot
     // return to one under a `when` clause this check did not name.
@@ -526,6 +532,7 @@ describe('the surface the manifest actually contributes', () => {
         'view == aggrega.plugins',
         'view == aggrega.registries',
         'view == aggrega.workspaceCatalog',
+        'view == workbench.explorer.fileView',
       ],
     );
   });
@@ -673,7 +680,8 @@ describe('the surface the manifest actually contributes', () => {
     );
     // Both descriptions, because an operation this surface registers may be
     // drawn at a list panel's head as well as on the Commands panel.
-    const onAPanel = new Set(everyOperation().map(commandIdFor));
+    // The Draft button is drawn in the title bars rather than as an entry.
+    const onAPanel = new Set([...everyOperation().map(commandIdFor), DRAFT_BUTTON]);
     assert.deepStrictEqual(
       contributed.filter((c) => !onAPanel.has(c)),
       [],

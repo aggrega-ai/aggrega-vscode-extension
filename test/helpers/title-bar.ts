@@ -33,10 +33,20 @@ export const COMMANDS_PANEL_VIEW = 'view == aggrega.operations';
 // So a new entry here is not automatically wrong — it is a claim to check against
 // that test. What the comparison catches is the entry added without anyone
 // checking.
+//
+// The Draft button passes the same test: it acts on nothing a panel holds — it
+// writes a new document or a new folder — and it is drawn in every Aggrega
+// panel's title bar and the Explorer's alike, so a reader meets it wherever they
+// start, including in a window with no Aggrega folder open.
 export const COMMANDS_TITLE_BAR_ENTRIES: readonly string[] = [
   'aggrega.getStarted.open',
+  'aggrega.op.draft',
   'aggrega.settings.open',
 ];
+
+// DRAFT_BUTTON is the Draft button's command, which every Aggrega panel's title
+// bar carries beside what belongs to that view.
+export const DRAFT_BUTTON = 'aggrega.op.draft';
 
 // MenuContribution is the shape a `view/title` entry is read back as. It is
 // declared here rather than in each caller so the four readings of one

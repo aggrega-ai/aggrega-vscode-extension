@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- A Draft button in the Aggrega panels' and the Explorer's title bars drafts an entity, an example, a quickstart or an import.
+
 ### Fixed
 
 - The welcome page marks the compiler step done once the configured compiler runs, even before an Aggrega folder is open.

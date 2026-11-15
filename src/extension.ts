@@ -811,6 +811,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     onReady: ready.onReady,
     getBinaryPath: () => getSettings().binaryPath,
     output: outputChannel,
+    runVersion: spawnForCompat,
     validateActiveDocument,
     selectedRelease,
     requireSelectedRelease,

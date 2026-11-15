@@ -149,6 +149,31 @@
       ],
       "view/title": [
         {
+          "command": "aggrega.op.draft",
+          "when": "view == aggrega.operations",
+          "group": "navigation"
+        },
+        {
+          "command": "aggrega.op.draft",
+          "when": "view == aggrega.registries",
+          "group": "navigation"
+        },
+        {
+          "command": "aggrega.op.draft",
+          "when": "view == aggrega.workspaceCatalog",
+          "group": "navigation"
+        },
+        {
+          "command": "aggrega.op.draft",
+          "when": "view == aggrega.plugins",
+          "group": "navigation"
+        },
+        {
+          "command": "aggrega.op.draft",
+          "when": "view == workbench.explorer.fileView",
+          "group": "navigation"
+        },
+        {
           "command": "aggrega.getStarted.open",
           "when": "view == aggrega.operations",
           "group": "navigation"
@@ -444,6 +469,12 @@
         "title": "%command.aggrega.op.scaffold.title%",
         "category": "%command.category%",
         "icon": "$(new-file)"
+      },
+      {
+        "command": "aggrega.op.draft",
+        "title": "%command.aggrega.op.draft.title%",
+        "category": "%command.category%",
+        "icon": "$(edit)"
       },
       {
         "command": "aggrega.op.import",

@@ -4,7 +4,7 @@
 import * as assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { COMMANDS_TITLE_BAR_ENTRIES, commandsPanelTitleBar } from '../helpers/title-bar';
+import { COMMANDS_TITLE_BAR_ENTRIES, DRAFT_BUTTON, commandsPanelTitleBar } from '../helpers/title-bar';
 import { PANEL_ACTIONS, commandIdFor, commandsPanelOperations } from '../../src/operation-groups';
 import {
   PLUGIN_CONFIG_ENTRY_ROW_CONTEXT,
@@ -109,7 +109,7 @@ describe('the operations the plugins panel contributes', () => {
     // title bar carries only what belongs to the view.
     assert.deepStrictEqual(
       titleBarEntries().map((m) => m.command),
-      ['aggrega.plugins.refresh'],
+      [DRAFT_BUTTON, 'aggrega.plugins.refresh'],
       'an operation is still a hover-revealed icon in this panel\'s title bar',
     );
   });

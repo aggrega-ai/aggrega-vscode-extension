@@ -45,6 +45,7 @@
   "command.aggrega.op.lint.title": "Lint",
   "command.aggrega.op.pull.title": "Pull",
   "command.aggrega.op.scaffold.title": "Draft entity…",
+  "command.aggrega.op.draft.title": "Draft",
   "command.aggrega.op.import.title": "Import into Aggrega",
   "command.aggrega.op.inspect.title": "Inspect…",
   "command.aggrega.op.push.title": "Push…",

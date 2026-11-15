@@ -163,6 +163,51 @@ export async function runCli(
   }
 }
 
+// CliCapture is how a run in a named directory ended: the status, and the text
+// of each of the child's two streams.
+export interface CliCapture {
+  code: number | null;
+  stdout: string;
+  stderr: string;
+}
+
+// runCliIn spawns `aggrega <args>` in cwd and answers with how it ended, both
+// streams included, leaving the ending's wording to the caller.
+//
+// It exists beside runCli for the operations that run with no Aggrega folder
+// open — drafting an example into a folder the reader chose — so it takes the
+// working directory rather than reading the anchored root, and a caller that
+// reads what the compiler printed gets the standard output back. The channel
+// keeps the same transcript runCli writes: the echoed command, then both
+// streams as they arrive. It rejects as runCliProcess does: with the
+// stopped-by-the-reader rejection, or with the failure to start the child.
+export async function runCliIn(
+  deps: Pick<CliOperationDeps, 'getBinaryPath' | 'output'>,
+  cwd: string,
+  what: string,
+  args: string[],
+  signal?: CancellationSignal,
+): Promise<CliCapture> {
+  const bin = deps.getBinaryPath();
+  const out = deps.output;
+  out.appendLine(`\n$ ${bin} ${args.join(' ')}   (cwd: ${cwd})`);
+  const standardOutput: Buffer[] = [];
+  const exit = await runCliProcess(
+    {
+      spawn: () => {
+        const child = spawn(bin, args, { cwd });
+        child.stdout?.on('data', (chunk: Buffer) => standardOutput.push(chunk));
+        return child;
+      },
+      append: (text) => out.append(text),
+      appendLine: (text) => out.appendLine(text),
+    },
+    what,
+    signal,
+  );
+  return { code: exit.code, stdout: Buffer.concat(standardOutput).toString('utf8'), stderr: exit.stderr };
+}
+
 // runWatchableCli runs a command-line-backed operation behind the progress
 // indicator, so it can be watched and stopped.
 //
