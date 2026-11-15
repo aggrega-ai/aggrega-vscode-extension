@@ -523,6 +523,10 @@ describe('the surface the manifest actually contributes', () => {
       byView.get('view == workbench.explorer.fileView'),
       [DRAFT_BUTTON],
     );
+    assert.deepStrictEqual(
+      byView.get('view == workbench.explorer.emptyView'),
+      [DRAFT_BUTTON],
+    );
     // And nothing else is bound to a title bar at all, so an operation cannot
     // return to one under a `when` clause this check did not name.
     assert.deepStrictEqual(
@@ -532,6 +536,7 @@ describe('the surface the manifest actually contributes', () => {
         'view == aggrega.plugins',
         'view == aggrega.registries',
         'view == aggrega.workspaceCatalog',
+        'view == workbench.explorer.emptyView',
         'view == workbench.explorer.fileView',
       ],
     );

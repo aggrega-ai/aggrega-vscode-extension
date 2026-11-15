@@ -174,6 +174,11 @@
           "group": "navigation"
         },
         {
+          "command": "aggrega.op.draft",
+          "when": "view == workbench.explorer.emptyView",
+          "group": "navigation"
+        },
+        {
           "command": "aggrega.getStarted.open",
           "when": "view == aggrega.operations",
           "group": "navigation"

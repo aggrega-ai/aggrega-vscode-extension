@@ -38,7 +38,6 @@ import { buildReportLines } from './build-report';
 import { CancellationSignal } from './cancellation';
 import { reportOutcome, runWatchableCli } from './cli-operation';
 import { DRAFT_COMMAND, runDraft } from './draft-chooser';
-import { SpawnFn } from './version-check';
 import { DaemonErrorRouting, WhoAsked } from './error-surfaces';
 import {
   IMPORT_DESTINATION_PROMPT,
@@ -119,6 +118,7 @@ import {
   CacheStatusResponse,
   ScaffoldEntityResponse,
 } from './types';
+import { SpawnFn } from './version-check';
 import { CatalogIndexDoc } from './workspace-catalog-run';
 import { NO_ANCHORED_WORKSPACE_MESSAGE } from './workspace';
 

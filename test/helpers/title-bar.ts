@@ -46,6 +46,11 @@ export const COMMANDS_TITLE_BAR_ENTRIES: readonly string[] = [
 
 // DRAFT_BUTTON is the Draft button's command, which every Aggrega panel's title
 // bar carries beside what belongs to that view.
+//
+// It is written out rather than imported from the module that registers it, as
+// a deliberate independent cross-check: the manifest and the registration are
+// each compared against this spelling, so a change to one alone fails. The
+// module that registers it also reaches the editor, which this helper does not.
 export const DRAFT_BUTTON = 'aggrega.op.draft';
 
 // MenuContribution is the shape a `view/title` entry is read back as. It is

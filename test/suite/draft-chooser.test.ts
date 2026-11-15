@@ -350,6 +350,22 @@ describe('drafting an example into a folder, with no Aggrega folder open', () =>
     assert.strictEqual(fs.readFileSync(path.join(dir, 'terraform-rds', 'keep.txt'), 'utf8'), 'mine');
   });
 
+  it('tells the reader where the editor refuses to open the written folder', async () => {
+    const dir = fs.realpathSync(tmp());
+    const { bin } = fakeCompiler(dir, '0.9.2');
+    const met = freshMet();
+    const probe = loadAgainstEditorStub<DraftChooser>(editorStub(freshMet(), [], undefined), 'draft-chooser');
+    const stub = editorStub(met, [labelOf(probe, 'Example'), 'terraform-rds'], dir, 'Open Folder') as {
+      commands: { executeCommand: (...args: unknown[]) => Promise<void> };
+    };
+    stub.commands.executeCommand = async () => { throw new Error('the folder could not be opened'); };
+    const { runDraft } = loadAgainstEditorStub<DraftChooser>(stub, 'draft-chooser');
+    await runDraft({ getBinaryPath: () => bin, output: channel() as never, runVersion, getWorkspaceRoot: () => null });
+    assert.strictEqual(met.errors.length, 1, JSON.stringify(met.errors));
+    assert.ok(met.errors[0].includes('the folder could not be opened'), met.errors[0]);
+    assert.ok(met.errors[0].includes(path.join(dir, 'terraform-rds')), met.errors[0]);
+  });
+
   it('writes nothing where the reader closes the folder dialog', async () => {
     const dir = fs.realpathSync(tmp());
     const { bin, calls } = fakeCompiler(dir, '0.9.2');
@@ -369,6 +385,8 @@ describe('drafting an example into a folder, with no Aggrega folder open', () =>
 describe('where the Draft button is drawn', () => {
   const manifest = readManifest();
 
+  // The Explorer draws one view with a folder open and another with none, and
+  // the button is in both, since the example choices are for the empty window.
   it('is in the title bar of the four Aggrega panels and of the Explorer, and nowhere else', () => {
     const entries = (manifest.contributes.menus['view/title'] as Array<{ command: string; when: string; group?: string }>)
       .filter((m) => m.command === 'aggrega.op.draft');
@@ -379,6 +397,7 @@ describe('where the Draft button is drawn', () => {
         'view == aggrega.plugins',
         'view == aggrega.registries',
         'view == aggrega.workspaceCatalog',
+        'view == workbench.explorer.emptyView',
         'view == workbench.explorer.fileView',
       ],
     );

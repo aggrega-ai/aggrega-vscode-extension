@@ -308,6 +308,7 @@
   "The example {0}": "The example {0}",
   "Writing the example {0}": "Writing the example {0}",
   "is written into {0}.": "is written into {0}.",
+  "Opening the folder {0}": "Opening the folder {0}",
   "The entity-kind read": "The entity-kind read",
   "Name for the new entity — leave empty for a placeholder": "Name for the new entity — leave empty for a placeholder",
   "Name for the new {0} — leave empty for a placeholder": "Name for the new {0} — leave empty for a placeholder",

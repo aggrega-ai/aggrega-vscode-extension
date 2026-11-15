@@ -154,7 +154,9 @@ describe('the operations the workspace-catalog panel contributes', () => {
       [DRAFT_BUTTON, 'aggrega.workspaceCatalog.refresh'],
       'an operation is still a hover-revealed icon in this panel\'s title bar',
     );
-    assert.strictEqual(entries[0].group, 'navigation');
+    const refresh = entries.find((m) => m.command === 'aggrega.workspaceCatalog.refresh');
+    assert.ok(refresh, 'the catalog refresh is no longer on the catalog panel');
+    assert.strictEqual(refresh.group, 'navigation');
   });
 
   it('heads this panel with the search and then the drafting entry, and leaves neither on the Commands panel', () => {

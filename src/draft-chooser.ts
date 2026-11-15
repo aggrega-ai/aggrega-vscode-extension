@@ -236,6 +236,12 @@ async function draftExample(deps: DraftDeps, quickstartsOnly: boolean): Promise<
   await reportOutcome(deps, what, done, false);
   const choice = await vscode.window.showInformationMessage(terminalLine(what, done), OPEN_FOLDER_ACTION);
   if (choice === OPEN_FOLDER_ACTION) {
-    await openFolderInWindow(vscode.Uri.file(written));
+    // The editor's refusal to open the folder comes back as a rejection, told
+    // here because the command's handler discards what it settles with.
+    try {
+      await openFolderInWindow(vscode.Uri.file(written));
+    } catch (err) {
+      await reportOutcome(deps, l10n.t('Opening the folder {0}', written), outcomeOf(err), true);
+    }
   }
 }
