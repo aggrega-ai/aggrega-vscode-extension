@@ -2160,7 +2160,7 @@ export const PLANTS: readonly Plant[] = [
   },
   {
     name: 'dismissal-says-nothing', scenario: 'welcome-page-empty-folder', checks: ['welcome-page.foot-checkbox-untick-says-how-to-bring-it-back'], moves: 'red', target: 'extension',
-    file: 'out/src/get-started.js', find: '    await setShown(false);\n    void vscode.window.showInformationMessage(get_started_steps_1.DISMISSED_CONFIRMATION);', replace: '    await setShown(false);',
+    file: 'out/src/get-started.js', find: '    void vscode.window.showInformationMessage((0, get_started_steps_1.dismissedConfirmation)(showTitle));', replace: '    void showTitle;',
     says: 'turning the page off on startup raises no notification naming the way back',
   },
   {
