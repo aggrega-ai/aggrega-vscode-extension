@@ -11,6 +11,7 @@ import {
   ReleaseSource,
   ReleaseTarget,
   compatibleVersions,
+  newestIncompatibleVersion,
   installRelease,
   installedFileName,
   listReleases,
@@ -233,9 +234,10 @@ export function keptSentence(reason: string): string {
 }
 
 // OfferedVersions is the versions a reader may be offered, newest first and
-// never none, or the reason there are none to offer.
+// never none, with the newest newer release outside the range when there is
+// one, or the reason there are none to offer.
 export type OfferedVersions =
-  | { kind: 'offered'; versions: [string, ...string[]] }
+  | { kind: 'offered'; versions: [string, ...string[]]; incompatible?: string }
   | { kind: 'kept'; reason: string };
 
 // offeredVersions reads the release list, while the reader can watch and stop
@@ -249,12 +251,14 @@ export async function offeredVersions(
   prompts: Pick<DownloadPrompts, 'withProgress'>,
 ): Promise<OfferedVersions> {
   let versions: string[];
+  let incompatible: string | undefined;
   try {
     const releases = await prompts.withProgress(
       l10n.t('Aggrega: reading the list of compiler releases'),
       (signal) => listReleases(source, signal),
     );
     versions = compatibleVersions(releases, compatibilityRange, target);
+    incompatible = newestIncompatibleVersion(releases, compatibilityRange, target);
   } catch (err) {
     return { kind: 'kept', reason: describeError(err) };
   }
@@ -267,7 +271,9 @@ export async function offeredVersions(
         : l10n.t('no published release carries a compiler for {0}', targetWords(target)),
     };
   }
-  return { kind: 'offered', versions: [newest, ...older] };
+  return incompatible === undefined
+    ? { kind: 'offered', versions: [newest, ...older] }
+    : { kind: 'offered', versions: [newest, ...older], incompatible };
 }
 
 // Destination is where a download may go: the file, the reader declining the

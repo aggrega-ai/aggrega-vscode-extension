@@ -16,6 +16,7 @@ import {
   downloadCompiler,
   mayReplace,
   newerVersionToMention,
+  offeredVersions,
   noteNewerRelease,
   samePath,
   sharedLocation,
@@ -468,5 +469,31 @@ describe('compiler-provision: (g) it never upgrades on its own, and says once pe
     assert.strictEqual(await noteNewerRelease(noticeDeps(mine, memoryOf(), informed)), null);
     assert.deepStrictEqual(informed, []);
     assert.deepStrictEqual(server.requests, []);
+  });
+});
+
+describe('compiler-provision: the versions offered', () => {
+  let server: ReleaseServer;
+  beforeEach(async () => { server = await startReleaseServer(); });
+  afterEach(async () => { await server.close(); });
+
+  const one = (version: string): ServedRelease => ({
+    version,
+    prerelease: false,
+    files: [{ name: releaseFileName({ os: 'linux', arch: 'amd64' }, version), body: 'x' }],
+  });
+  const progress = { withProgress: <T>(_title: string, work: (signal: AbortSignal) => Promise<T>) => work(new AbortController().signal) };
+  const target: ReleaseTarget = { os: 'linux', arch: 'amd64' };
+
+  it('names the newest newer release outside the range beside the versions inside it', async () => {
+    serveReleases(server, [one('0.10.0'), one('0.9.1'), one('0.8.11')]);
+    const offered = await offeredVersions(server.source, '>=0.9.0 <0.10.0', target, progress);
+    assert.deepStrictEqual(offered, { kind: 'offered', versions: ['0.9.1'], incompatible: '0.10.0' });
+  });
+
+  it('names none when every release is inside the range or below it', async () => {
+    serveReleases(server, [one('0.9.1'), one('0.8.11')]);
+    const offered = await offeredVersions(server.source, '>=0.9.0 <0.10.0', target, progress);
+    assert.deepStrictEqual(offered, { kind: 'offered', versions: ['0.9.1'] });
   });
 });

@@ -9,11 +9,14 @@ import * as path from 'node:path';
 import { ReleaseTarget, releaseFileName } from '../../src/compiler-download';
 import { CompilerMemory, SHARED_INSTEAD_GO } from '../../src/compiler-provision';
 import {
+  IncompatibleVersion,
   SWITCH_GO,
   ServerStart,
   VersionDeps,
   VersionPrompts,
   candidateFor,
+  incompatibleChoice,
+  incompatibleNote,
   selectCompilerVersion,
   versionDescription,
   versionWarning,
@@ -56,7 +59,7 @@ function releases(newestServes = true): ServedRelease[] {
 }
 
 interface Seen {
-  offered: Array<{ versions: readonly string[]; current: string | null }>;
+  offered: Array<{ versions: readonly string[]; current: string | null; incompatible?: IncompatibleVersion }>;
   confirms: string[];
   informed: string[];
   warned: string[];
@@ -125,12 +128,14 @@ describe('compiler-version: (e) choosing the version', () => {
   // records every question, every message and every start.
   async function run(
     configuredPath: string,
-    answers: { pick?: string; confirm?: (question: string) => boolean; noServer?: boolean } = {},
+    answers: { pick?: string; confirm?: (question: string) => boolean; noServer?: boolean; range?: string } = {},
   ) {
     const seen: Seen = { offered: [], confirms: [], informed: [], warned: [], started: [], heldAtStart: [], restored: 0 };
     const prompts: VersionPrompts = {
-      pickVersion: async (versions, current) => {
-        seen.offered.push({ versions: [...versions], current });
+      pickVersion: async (versions, current, incompatible) => {
+        seen.offered.push(incompatible === undefined
+          ? { versions: [...versions], current }
+          : { versions: [...versions], current, incompatible });
         return answers.pick;
       },
       confirm: async (question) => {
@@ -144,7 +149,7 @@ describe('compiler-version: (e) choosing the version', () => {
     const deps: VersionDeps = {
       source: server.source,
       host: { platform: 'linux', arch: 'x64', home, env: { PATH: '' } },
-      compatibilityRange: RANGE,
+      compatibilityRange: answers.range ?? RANGE,
       configuredPath,
       memory: memoryOf(),
       runVersion,
@@ -171,8 +176,54 @@ describe('compiler-version: (e) choosing the version', () => {
     serveReleases(server, releases());
     const { outcome, seen } = await run(shared);
     assert.deepStrictEqual(outcome, { kind: 'declined' });
-    assert.deepStrictEqual(seen.offered, [{ versions: ['0.9.1', '0.9.0'], current: '0.9.0' }]);
+    assert.deepStrictEqual(seen.offered, [{
+      versions: ['0.9.1', '0.9.0'],
+      current: '0.9.0',
+      incompatible: { version: '1.0.0', range: RANGE },
+    }]);
     assert.ok(!server.requests.some((r) => r.startsWith('/releases/')), 'a release file was fetched before a version was chosen');
+  });
+
+  describe('a newer release outside the range', () => {
+    const NARROW = '>=0.9.0 <0.10.0';
+    const one = (version: string): ServedRelease => ({
+      version,
+      prerelease: false,
+      files: [{ name: releaseFileName(LINUX, version), body: fakeServingCompiler(version, true) }],
+    });
+
+    it('is passed with the range when a release above the range is published', async function () {
+      needsPosix(this);
+      serveReleases(server, [one('0.10.0'), one('0.9.1'), one('0.9.0')]);
+      const { seen } = await run(shared, { range: NARROW });
+      assert.deepStrictEqual(seen.offered, [{
+        versions: ['0.9.1', '0.9.0'],
+        current: '0.9.0',
+        incompatible: { version: '0.10.0', range: NARROW },
+      }]);
+    });
+
+    it('is not passed when only releases inside the range are published', async function () {
+      needsPosix(this);
+      serveReleases(server, [one('0.9.1'), one('0.9.0')]);
+      const { seen } = await run(shared, { range: NARROW });
+      assert.deepStrictEqual(seen.offered, [{ versions: ['0.9.1', '0.9.0'], current: '0.9.0' }]);
+    });
+
+    it('is not passed for a release below the range', async function () {
+      needsPosix(this);
+      serveReleases(server, [one('0.9.1'), one('0.9.0'), one('0.8.11')]);
+      const { seen } = await run(shared, { range: NARROW });
+      assert.deepStrictEqual(seen.offered, [{ versions: ['0.9.1', '0.9.0'], current: '0.9.0' }]);
+    });
+
+    it('is described by a note and a message that name the range and the upgrade', () => {
+      assert.strictEqual(incompatibleNote(), 'not compatible with this extension — upgrade the extension to use it');
+      assert.strictEqual(
+        incompatibleChoice({ version: '0.10.0', range: NARROW }),
+        'Aggrega: this extension drives compilers in >=0.9.0 <0.10.0, so aggrega 0.10.0 cannot be used with it. Upgrade the extension to use that version.',
+      );
+    });
   });
 
   it('warns and asks for confirmation, and changes nothing when the reader declines', async function () {

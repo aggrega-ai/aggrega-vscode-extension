@@ -10,6 +10,7 @@ import {
   ReleaseFetchError,
   ReleaseTarget,
   compatibleVersions,
+  newestIncompatibleVersion,
   installRelease,
   installedFileName,
   listReleases,
@@ -122,6 +123,41 @@ describe('compiler-download: choosing among releases', () => {
       { tag: 'v1.0.0', draft: false, prerelease: false, assets: carrying('1.0.0') },
     ], undefined, LINUX);
     assert.deepStrictEqual(versions, ['1.0.0']);
+  });
+});
+
+describe('compiler-download: the newer release outside the range', () => {
+  const carrying = (version: string): string[] => [releaseFileName(LINUX, version), 'SHA256SUMS'];
+  const published = (version: string, extra: { draft?: boolean; prerelease?: boolean } = {}) =>
+    ({ tag: `v${version}`, draft: false, prerelease: false, assets: carrying(version), ...extra });
+  const RANGE = '>=0.9.0 <0.10.0';
+
+  it('answers with the newest release above the range', () => {
+    const releases = [published('0.9.1'), published('0.10.0'), published('0.10.1'), published('0.9.0')];
+    assert.strictEqual(newestIncompatibleVersion(releases, RANGE, LINUX), '0.10.1');
+  });
+
+  it('answers with nothing when only releases inside the range are published', () => {
+    assert.strictEqual(newestIncompatibleVersion([published('0.9.1'), published('0.9.0')], RANGE, LINUX), undefined);
+  });
+
+  it('never answers with a release below the range', () => {
+    assert.strictEqual(newestIncompatibleVersion([published('0.9.1'), published('0.8.11')], RANGE, LINUX), undefined);
+  });
+
+  it('applies the filters of the offered versions', () => {
+    const releases = [
+      published('0.9.1'),
+      published('0.10.3', { draft: true }),
+      published('0.10.2', { prerelease: true }),
+      { tag: 'v0.10.1', draft: false, prerelease: false, assets: [releaseFileName(LINUX, '0.10.1')] },
+      { tag: 'v0.10.0', draft: false, prerelease: false, assets: [releaseFileName({ os: 'darwin', arch: 'arm64' }, '0.10.0'), 'SHA256SUMS'] },
+    ];
+    assert.strictEqual(newestIncompatibleVersion(releases, RANGE, LINUX), undefined);
+  });
+
+  it('answers with nothing when no range is declared', () => {
+    assert.strictEqual(newestIncompatibleVersion([published('1.0.0')], undefined, LINUX), undefined);
   });
 });
 

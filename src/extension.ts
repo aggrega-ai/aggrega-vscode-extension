@@ -2451,7 +2451,7 @@ async function runCompatibilityCheck(): Promise<void> {
       return;
     case 'mismatch':
       void vscode.window.showWarningMessage(
-        l10n.t("Aggrega daemon version {0} is outside the extension's declared compatibility range ({1}). Behavior may be unstable; consider upgrading the daemon or downgrading the extension.", result.version, result.range),
+        l10n.t("Aggrega daemon version {0} is outside the extension's declared compatibility range ({1}). Behavior may be unstable; switch the daemon to a version inside that range, or the extension to one that drives this daemon.", result.version, result.range),
       );
       outputChannel?.appendLine(l10n.t('Aggrega daemon version {0} outside compatibility range {1}.', result.version, result.range));
       return;

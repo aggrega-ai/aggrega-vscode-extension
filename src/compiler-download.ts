@@ -303,30 +303,52 @@ export async function listReleases(source: ReleaseSource, signal?: AbortSignal):
   });
 }
 
-// compatibleVersions answers with the versions of the releases this extension
-// works with that carry a default binary for the target and a checksum list,
-// newest first.
+// releaseVersions answers with the versions of the releases that carry a default
+// binary for the target and a checksum list, whatever range they fall in.
 //
 // A draft and a pre-release are never offered: neither is a release a reader
 // is meant to run without asking for it by name. A release whose tag is not
 // v followed by a version is not one the install scripts could fetch either, so
-// it is not offered. A range that is absent offers every release.
-export function compatibleVersions(
-  releases: readonly PublishedRelease[],
-  range: string | undefined,
-  target: ReleaseTarget,
-): string[] {
+// it is not offered. It is the one home of these filters, shared by the
+// versions offered and the one newer version that is named but not offered.
+function releaseVersions(releases: readonly PublishedRelease[], target: ReleaseTarget): string[] {
   const versions = releases.flatMap((release) => {
     if (release.draft || release.prerelease || !release.tag.startsWith('v')) { return []; }
     const version = release.tag.slice(1);
     if (semver.valid(version) === null) { return []; }
-    if (range !== undefined && !semver.satisfies(version, range)) { return []; }
     if (!release.assets.includes(releaseFileName(target, version)) || !release.assets.includes(CHECKSUM_LIST)) {
       return [];
     }
     return [version];
   });
   return [...new Set(versions)].sort(semver.rcompare);
+}
+
+// compatibleVersions answers with the versions of the releases this extension
+// works with that carry a default binary for the target and a checksum list,
+// newest first. A range that is absent offers every release.
+export function compatibleVersions(
+  releases: readonly PublishedRelease[],
+  range: string | undefined,
+  target: ReleaseTarget,
+): string[] {
+  return releaseVersions(releases, target).filter((version) => range === undefined || semver.satisfies(version, range));
+}
+
+// newestIncompatibleVersion answers with the newest release that carries a
+// binary for the target and lies outside the range while being newer than every
+// release inside it, or undefined when there is none. A release below the range
+// is never answered, and neither is anything when no range is declared.
+export function newestIncompatibleVersion(
+  releases: readonly PublishedRelease[],
+  range: string | undefined,
+  target: ReleaseTarget,
+): string | undefined {
+  if (range === undefined) { return undefined; }
+  const all = releaseVersions(releases, target);
+  const newestCompatible = all.find((version) => semver.satisfies(version, range));
+  return all.find((version) => !semver.satisfies(version, range)
+    && (newestCompatible === undefined || semver.gt(version, newestCompatible)));
 }
 
 // parseChecksums reads a SHA256SUMS list into the digest it names for each

@@ -10,7 +10,7 @@
     "url": "https://github.com/aggrega-ai/aggrega-vscode-extension"
   },
   "icon": "media/listing-icon.png",
-  "aggregaCompatibility": ">=0.1.0",
+  "aggregaCompatibility": ">=0.9.0 <0.10.0",
   "extensionKind": [
     "workspace"
   ],

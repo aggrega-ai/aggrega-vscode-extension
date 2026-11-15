@@ -52,11 +52,38 @@ export const SELECT_COMPILER_VERSION_COMMAND = 'aggrega.compiler.selectVersion';
 // SWITCH_GO is the button the warning carries.
 export const SWITCH_GO = l10n.t('Download and switch');
 
+// IncompatibleVersion is a newer release this extension does not drive, with the
+// range of compilers it does.
+export interface IncompatibleVersion {
+  version: string;
+  range: string;
+}
+
+// incompatibleNote is what the entry of a release outside the range says beside
+// it.
+export function incompatibleNote(): string {
+  return l10n.t('not compatible with this extension — upgrade the extension to use it');
+}
+
+// incompatibleChoice is what a reader is told on choosing the entry of a release
+// outside the range. Choosing it changes nothing.
+export function incompatibleChoice(item: IncompatibleVersion): string {
+  return l10n.t('Aggrega: this extension drives compilers in {0}, so aggrega {1} cannot be used with it. Upgrade the extension to use that version.', item.range, item.version);
+}
+
 // VersionPrompts is every question the change puts to the reader.
 export interface VersionPrompts extends Pick<DownloadPrompts, 'confirm' | 'withProgress' | 'inform' | 'warn'> {
   // pickVersion offers the versions, newest first, saying which one the
   // compiler in use reports. Undefined is the reader declining.
-  pickVersion(versions: readonly string[], current: string | null): PromiseLike<string | undefined>;
+  //
+  // A newer release outside the range is passed as `incompatible`, with the
+  // range: it is shown but cannot be chosen, so what pickVersion answers is
+  // always one of `versions`.
+  pickVersion(
+    versions: readonly string[],
+    current: string | null,
+    incompatible?: IncompatibleVersion,
+  ): PromiseLike<string | undefined>;
 }
 
 // ServerStart is how starting the language server from one compiler file went:
@@ -154,7 +181,10 @@ export async function selectCompilerVersion(deps: VersionDeps): Promise<VersionO
 
   const offered = await offeredVersions(deps.source, deps.compatibilityRange, target, prompts);
   if (offered.kind === 'kept') { return kept(offered.reason); }
-  const version = await prompts.pickVersion(offered.versions, currentVersion);
+  const incompatible = offered.incompatible !== undefined && deps.compatibilityRange !== undefined
+    ? { version: offered.incompatible, range: deps.compatibilityRange }
+    : undefined;
+  const version = await prompts.pickVersion(offered.versions, currentVersion, incompatible);
   if (version === undefined) { return { kind: 'declined' }; }
   if (current !== null && currentVersion !== null && sameVersion(version, currentVersion)) {
     prompts.inform(l10n.t('Aggrega: the compiler at {0} is already aggrega {1}.', current, currentVersion));

@@ -23,6 +23,8 @@ import {
   SELECT_COMPILER_VERSION_COMMAND,
   ServerStart,
   VersionPrompts,
+  incompatibleChoice,
+  incompatibleNote,
   selectCompilerVersion,
   versionDescription,
 } from './compiler-version';
@@ -1227,18 +1229,29 @@ async function downloadCompilerHere(
 function versionPrompts(): VersionPrompts {
   return {
     ...downloadPrompts(),
-    pickVersion: async (versions, current) => {
+    pickVersion: async (versions, current, incompatible) => {
+      const items: vscode.QuickPickItem[] = versions.map((version, at) => ({
+        label: version,
+        description: versionDescription(version, current, at === 0),
+      }));
+      if (incompatible !== undefined) {
+        items.push(
+          { label: '', kind: vscode.QuickPickItemKind.Separator },
+          { label: `$(circle-slash) ${incompatible.version}`, description: incompatibleNote() },
+        );
+      }
       const picked = await vscode.window.showQuickPick(
-        versions.map((version, at) => ({
-          label: version,
-          description: versionDescription(version, current, at === 0),
-        })),
+        items,
         {
           title: l10n.t('Aggrega: choose the compiler version'),
           placeHolder: l10n.t('The version every workspace on this machine runs'),
           ignoreFocusOut: true,
         },
       );
+      if (picked !== undefined && incompatible !== undefined && picked.label === `$(circle-slash) ${incompatible.version}`) {
+        void vscode.window.showInformationMessage(incompatibleChoice(incompatible));
+        return undefined;
+      }
       return picked?.label;
     },
   };
