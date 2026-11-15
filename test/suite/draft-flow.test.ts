@@ -19,6 +19,7 @@ import * as path from 'path';
 
 import { draftNamePrompt, draftSubjectFor } from '../../src/entity-kinds';
 import { SELECTOR_ROW_LABELS } from '../../src/selector-levels';
+import { loadAgainstEditorStub } from '../helpers/editor-stub';
 
 const EXTENSION_ROOT = path.resolve(__dirname, '../../..');
 
@@ -194,10 +195,6 @@ const editorHostStub = {
   ProgressLocation: { Notification: 15, Window: 10 },
 };
 
-type ModuleLoader = {
-  _load: (request: string, ...rest: unknown[]) => unknown;
-};
-
 type RunScaffold = (
   deps: unknown,
   chosen?: unknown,
@@ -205,39 +202,8 @@ type RunScaffold = (
 ) => Promise<void>;
 
 // The flow is loaded against the stub above rather than against whatever some
-// other file left in the module cache, and the cache is put back exactly as it
-// was found afterwards. The rule is the tree the modules live in rather than a
-// list of their names, because a list would be a second statement of which
-// modules reach the editor and would go stale the first time one did.
-function loadFlowAgainstStub(): RunScaffold {
-  const nodeModule = require('module') as ModuleLoader;
-  const restoreLoad = nodeModule._load;
-  nodeModule._load = function (this: unknown, request: string, ...rest: unknown[]): unknown {
-    if (request === 'vscode') { return editorHostStub; }
-    return restoreLoad.apply(this, [request, ...rest]);
-  };
-
-  const compiledSrc = path.resolve(__dirname, '..', '..', 'src') + path.sep;
-  const displaced = new Map<string, NodeModule>();
-  for (const id of Object.keys(require.cache)) {
-    if (id.startsWith(compiledSrc)) {
-      displaced.set(id, require.cache[id] as NodeModule);
-      delete require.cache[id];
-    }
-  }
-
-  const { runScaffold } = require('../../src/operations') as { runScaffold: RunScaffold };
-
-  for (const id of Object.keys(require.cache)) {
-    if (id.startsWith(compiledSrc)) { delete require.cache[id]; }
-  }
-  for (const [id, held] of displaced) { require.cache[id] = held; }
-  nodeModule._load = restoreLoad;
-
-  return runScaffold;
-}
-
-const runScaffold = loadFlowAgainstStub();
+// other file left in the module cache; loadAgainstEditorStub says how.
+const { runScaffold } = loadAgainstEditorStub<{ runScaffold: RunScaffold }>(editorHostStub, 'operations');
 
 // drafted records what the flow asked the compiler to draft.
 function depsAnswering(answer: unknown, drafted: { kind: string; name: string }[]): unknown {

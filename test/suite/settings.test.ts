@@ -172,9 +172,13 @@ describe('settings', () => {
     // 🔴 ONE READ, RESOLVED THERE. The reader that resolves is the one module
     // importing the editor, so it cannot be called here; what can be read is that
     // the setting's key is read in exactly one place across the extension's
-    // sources, and that this place passes it through the resolution.
+    // sources, and that this place passes it through the resolution. A read is a
+    // get or an inspect, by the key within its section or by the setting's whole
+    // name, spelled out or through either of the constants that hold it: an
+    // inspect answers the value as written, so a reader taking it would launch
+    // the path unresolved as surely as a second get.
     it('is read in one place, which resolves it', () => {
-      const READ = /\.get(?:<[^>]*>)?\(\s*(?:'binaryPath'|BINARY_PATH_KEY\b)/g;
+      const READ = /\.(?:get|inspect)(?:<[^>]*>)?\(\s*(?:'binaryPath'|"binaryPath"|'aggrega\.server\.binaryPath'|"aggrega\.server\.binaryPath"|BINARY_PATH_KEY\b|BINARY_PATH_SETTING\b)/g;
       const reads = readSourceTree().flatMap(([file, source]) => [...source.matchAll(READ)].map(() => file));
       assert.deepStrictEqual(reads, ['settings-vscode.ts'], `the compiler path setting is read in: ${reads.join(', ')}`);
       const reader = readSourceTree().find(([file]) => file === 'settings-vscode.ts')?.[1] ?? '';

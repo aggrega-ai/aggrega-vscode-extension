@@ -29,6 +29,7 @@ import {
   selectorRows,
 } from '../../src/selector-rows';
 import { EXTENSION_ROOT } from '../helpers/launch-census';
+import { selectorValuesIn } from '../helpers/selector-values';
 import { cssRuleBody, declarationOf } from '../helpers/stylesheet';
 
 // The composer holds no editor type, so every assertion here reads back exactly
@@ -773,8 +774,7 @@ describe('the Commands panel document', () => {
     // crossed pair visible.
     const rows = selectorRows('/work/demo', '/work/demo/services/api', '/work/demo/services/api', SELECTED, SEVERAL);
     const html = operationsBodyHtml(body({ selectors: rows }));
-    const values = Array.from(html.matchAll(/<span class="selector-value">([^<]*)<\/span>/g))
-      .map((m) => m[1]);
+    const values = selectorValuesIn(html);
     assert.deepStrictEqual(values, ['api', 'demo', 'releases/prod.yaml']);
     assert.strictEqual(
       new Set(values).size, values.length,

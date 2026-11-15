@@ -219,6 +219,7 @@ import {
   CHOOSE_ANCHOR_ACTION,
   CHOOSE_ANCHOR_PLACEHOLDER,
   SWITCH_ANCHOR_COMMAND,
+  AnchorChoiceOutcome,
   anchorChoiceOutcome,
   anchorOffers,
   anchorSwitchMessage,
@@ -226,7 +227,6 @@ import {
   classifyActivation,
   readSavedAnchor,
   rememberAnchorChoice,
-  staysAttached,
 } from './anchor-picker';
 import { openWorkspaceRootInvocation } from './selector-rows';
 import { FoldersTold, tellWorkspaceAboveIfDue } from './workspace-above';
@@ -1440,10 +1440,16 @@ async function notifyMultipleAnchors(count: number): Promise<void> {
 // match the given anchored folder. If the daemon is already running
 // at this anchor, this is a no-op. If running at a different anchor,
 // the daemon is cooperatively stopped and restarted at the new root.
+//
+// It answers what it decided: to stay, because the editor already works there,
+// with the sentence saying so, or to move. The answer is the decision and not
+// whether a move then succeeded — a start that fails reports itself. The
+// decision is made once, here, so a caller that tells the reader about it tells
+// them what this attach decided rather than a second reading of its own.
 async function ensureDaemonAt(
   context: vscode.ExtensionContext,
   target: AnchoredFolder<vscode.WorkspaceFolder>,
-): Promise<void> {
+): Promise<AnchorChoiceOutcome> {
   // Both facts are taken together, from the one module that owns them. The
   // server is started at the workspace root and the opened folder is kept
   // beside it, because a window opened on a subdirectory has two true answers
@@ -1453,9 +1459,11 @@ async function ensureDaemonAt(
   // The guard returns early only where the folder the workspace is reached from
   // AND the workspace itself are both the ones already in use. isAttachedTo says
   // what each half of that comparison catches that the other misses, and
-  // staysAttached is the one home of the decision the chooser also reads.
-  if (staysAttached(activeAnchored, daemon !== null, target)) {
-    return;
+  // anchorChoiceOutcome is the one home of the decision and of what it tells the
+  // reader.
+  const outcome = anchorChoiceOutcome(activeAnchored, daemon !== null, target);
+  if (outcome.kind === 'alreadyAttached') {
+    return outcome;
   }
 
   if (daemon) {
@@ -1592,7 +1600,7 @@ async function ensureDaemonAt(
     // is what goes on saying it, for the reason droppedStartFailure states.
     droppedStartFailure = failure;
     activeAnchored = null;
-    return;
+    return outcome;
   }
 
   void runCompatibilityCheck();
@@ -1604,6 +1612,7 @@ async function ensureDaemonAt(
   // The anchored folder is only known once the handshake has answered, and the
   // rows that name it were drawn before that.
   operationsView?.refresh();
+  return outcome;
 }
 
 async function stopDaemon(): Promise<void> {
@@ -1779,13 +1788,11 @@ function registerSwitchAnchorCommand(context: vscode.ExtensionContext): void {
       return;
     }
     if (!extensionContext) { return; }
-    // Decided before the attach, against the window the reader chose in.
-    // Choosing the workspace already in use still lands on ensureDaemonAt's own
-    // early return, so nothing is stopped or restarted, and the reader is then
-    // told the editor already works there rather than left with a chooser that
-    // closed on nothing.
-    const outcome = anchorChoiceOutcome(activeAnchored, daemon !== null, choice.offer.anchored);
-    await ensureDaemonAt(extensionContext, choice.offer.anchored);
+    // The attach answers what it decided. Choosing the workspace already in use
+    // lands on its early return, so nothing is stopped or restarted, and the
+    // reader is then told the editor already works there rather than left with a
+    // chooser that closed on nothing.
+    const outcome = await ensureDaemonAt(extensionContext, choice.offer.anchored);
     if (outcome.kind === 'alreadyAttached') {
       void vscode.window.showInformationMessage(outcome.message);
     }

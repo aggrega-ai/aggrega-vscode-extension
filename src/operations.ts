@@ -453,6 +453,50 @@ class OperationsViewProvider implements vscode.WebviewViewProvider {
       this.holdsFocus = false;
     });
     view.webview.onDidReceiveMessage((message: unknown) => this.receive(message));
+    // The panel going out of sight is when its document is let go of, so the
+    // document it will be drawn from on its return is composed then, from what
+    // is true at that moment. compose says why a later change cannot reach it any
+    // other way.
+    view.onDidChangeVisibility(() => {
+      if (!view.visible) { this.compose(view); }
+    });
+    this.compose(view);
+  }
+
+  // refresh re-composes the panel from what is true now: the open document is
+  // handed the new body, and a panel out of sight is given a new document to be
+  // drawn from when it comes back.
+  refresh(): void {
+    // Nothing is composed for a panel that is not there.
+    if (this.view === null) { return; }
+    if (!this.view.visible) {
+      this.compose(this.view);
+      return;
+    }
+    // Handing the open document its new body rather than a new document keeps
+    // the reader's place, the menu they have open and the focus where they are;
+    // a new document would draw from the top and correct itself after.
+    void this.view.webview.postMessage({
+      type: 'panel',
+      html: operationsBodyHtml(this.body()),
+      scrollTop: this.state.scrollTop,
+    });
+  }
+
+  // compose assigns the panel's whole document.
+  //
+  // 🔴 THE DOCUMENT ASSIGNED LAST IS THE ONE THE EDITOR DRAWS EACH TIME THE PANEL
+  // COMES BACK INTO SIGHT. The panel's context is not retained while it is hidden
+  // (activateOperations says why), so the editor lets the document go and, on the
+  // panel's return, draws a new one from the last document assigned here — it does
+  // not ask this provider to resolve the view again, and a body posted while the
+  // panel was out of sight reached no document. A panel composed only when the
+  // view was first resolved therefore comes back showing that first moment for
+  // the rest of the session: an Aggrega workspace row reading none selected and
+  // a Release row reading unavailable beside a language server reported running.
+  // So whatever changes while the panel is out of sight is composed into the
+  // document it will be drawn from.
+  private compose(view: vscode.WebviewView): void {
     view.webview.html = operationsDocumentHtml({
       nonce: makeNonce(),
       styleUri: this.resource(view.webview, 'operations.css'),
@@ -466,18 +510,6 @@ class OperationsViewProvider implements vscode.WebviewViewProvider {
       // The panel's words are in the editor's language, so the document says so.
       language: vscode.env.language,
       ...this.body(),
-    });
-  }
-
-  refresh(): void {
-    // Nothing is composed for a panel that is not there. A view whose document
-    // the editor has deallocated composes afresh when it comes back, from state
-    // read at that moment, so a refresh in between has nothing to carry.
-    if (this.view === null) { return; }
-    void this.view.webview.postMessage({
-      type: 'panel',
-      html: operationsBodyHtml(this.body()),
-      scrollTop: this.state.scrollTop,
     });
   }
 
@@ -625,8 +657,8 @@ class OperationsViewProvider implements vscode.WebviewViewProvider {
 
   private post(message: { type: string; command: string; options?: MenuOption[] }): void {
     // Nothing is posted to a panel that is not there. A view whose document the
-    // editor has deallocated composes afresh when it comes back, and a menu is
-    // opened by a press that has not happened yet.
+    // editor has let go of comes back with no menu open, and a menu is opened by a
+    // press that has not happened yet.
     if (this.view === null) { return; }
     void this.view.webview.postMessage(message);
   }
@@ -709,10 +741,11 @@ export function activateOperations(
   context.subscriptions.push(
     // The panel's context is NOT retained while the view is hidden. The editor
     // deallocates the document of a view the reader has collapsed or navigated
-    // away from, and recreates it on return — which costs a reload where a tree
-    // costs a redraw, and is the right trade against holding a document in
-    // memory for a panel nobody is looking at. What the reader would otherwise
-    // lose is carried by the state the panel records instead.
+    // away from, and recreates it on return from the last document assigned —
+    // which costs a reload where a tree costs a redraw, and is the right trade
+    // against holding a document in memory for a panel nobody is looking at. What
+    // the reader would otherwise lose is carried by the state the panel records
+    // instead, and what the panel shows by the document compose keeps current.
     vscode.window.registerWebviewViewProvider('aggrega.operations', provider, {
       webviewOptions: { retainContextWhenHidden: false },
     }),

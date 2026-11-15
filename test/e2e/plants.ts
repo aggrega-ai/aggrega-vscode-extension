@@ -1743,8 +1743,8 @@ export const PLANTS: readonly Plant[] = [
   },
   {
     name: 'choice-of-the-workspace-in-use-restarts', scenario: 'two-releases-context-rows', checks: ['context-rows.choosing-where-you-are-restarts-nothing'], moves: 'red', target: 'extension',
-    file: EXTENSION, find: '        await ensureDaemonAt(extensionContext, choice.offer.anchored);',
-    replace: '        await vscode.commands.executeCommand(daemon_status_1.RESTART_COMMAND);\n        await ensureDaemonAt(extensionContext, choice.offer.anchored);',
+    file: EXTENSION, find: '        const outcome = await ensureDaemonAt(extensionContext, choice.offer.anchored);',
+    replace: '        await vscode.commands.executeCommand(daemon_status_1.RESTART_COMMAND);\n        const outcome = await ensureDaemonAt(extensionContext, choice.offer.anchored);',
     says: 'a choice on the Aggrega workspace row restarts the language server, the workspace already in use included',
   },
   {

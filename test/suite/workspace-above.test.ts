@@ -27,6 +27,7 @@ import { commandsPanelOperations, OperationId } from '../../src/operation-groups
 import { callArguments, functionBody } from '../helpers/anchoring-census';
 import { callSites, tokenModules } from '../helpers/open-folder-census';
 import { EXTENSION_ROOT } from '../helpers/launch-census';
+import { selectorValuesIn } from '../helpers/selector-values';
 
 // 🔴 THE FIXTURE PUTS THE WORKSPACE THREE DIRECTORIES ABOVE THE FOLDER, and that
 // is not a detail of the arrangement. The walk that finds an Aggrega workspace
@@ -853,8 +854,6 @@ describe('the mark is drawn as a mark and not as part of the value', () => {
   });
 
   it('draws the mark beside the value, leaving the value itself untouched', () => {
-    const values = (html: string): string[] =>
-      Array.from(html.matchAll(/<span class="selector-value">([^<]*)<\/span>/g)).map((m) => m[1]);
     // The two documents are the same window with the marker in a different
     // place, so the row that reports the workspace names one folder in both and
     // the rows around it legitimately do not — which is why the reading is
@@ -863,8 +862,8 @@ describe('the mark is drawn as a mark and not as part of the value', () => {
     const at = selectorRows(ROOT, DEEP, DEEP, { kind: 'unknown' }, CANDIDATES)
       .findIndex((row) => row.key === 'workspace');
     assert.notStrictEqual(at, -1, 'there is no workspace row to read');
-    const marked = values(document(ROOT, DEEP));
-    const plain = values(document(ROOT, ROOT));
+    const marked = selectorValuesIn(document(ROOT, DEEP));
+    const plain = selectorValuesIn(document(ROOT, ROOT));
     // 🔴 THE VALUE IS THE SAME TEXT EITHER WAY. A pictograph written into it
     // would be drawn where the value is drawn and read as the first character of
     // the folder's name, which is the one thing this clause refuses.

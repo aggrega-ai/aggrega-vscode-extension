@@ -26,6 +26,7 @@ import type {
   CachePruneResponse,
   CacheStatusResponse,
 } from '../../src/types';
+import { loadAgainstEditorStub } from '../helpers/editor-stub';
 
 // The editor host stood in for, so the module under test can be loaded outside
 // the editor. Only module load reads it; the exercised path does not.
@@ -37,28 +38,15 @@ const editorHostStub = {
   ProgressLocation: { Notification: 15, Window: 10 },
 };
 
-type ModuleLoader = {
-  _load: (request: string, ...rest: unknown[]) => unknown;
-};
-
-const nodeModule = require('module') as ModuleLoader;
-const originalLoad = nodeModule._load;
-nodeModule._load = function (this: unknown, request: string, ...rest: unknown[]): unknown {
-  if (request === 'vscode') {
-    return editorHostStub;
-  }
-  return originalLoad.apply(this, [request, ...rest]);
-};
-
 type PerformCacheOperation = (
   deps: unknown,
   operation: string,
   maxSize: string,
 ) => Promise<string>;
 
-const { performCacheOperation } = require('../../src/operations') as {
+const { performCacheOperation } = loadAgainstEditorStub<{
   performCacheOperation: PerformCacheOperation;
-};
+}>(editorHostStub, 'operations');
 
 // Every size below pairs a byte count with the rendering the compiler produces
 // for that exact count, so a fixture cannot drift into asserting a spelling the

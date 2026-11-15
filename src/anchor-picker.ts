@@ -135,11 +135,11 @@ export function isAttachedTo<F extends FolderLike>(
 // leave everything as it is: a language server is there, and it is attached
 // where `target` asks for it.
 //
-// 🔴 IT IS THE ONE HOME OF THAT DECISION. The attach returns early on it, and the
-// chooser reads it to tell a reader who picked the workspace already in use that
-// the editor already works there; two copies of the test could come to disagree,
-// and the chooser would then say "already there" over a restart, or restart
-// nothing while saying nothing.
+// 🔴 IT IS THE ONE HOME OF THAT DECISION. The attach returns early on it, through
+// anchorChoiceOutcome, and answers the chooser with that same outcome, so a reader
+// who picked the workspace already in use is told the editor already works there;
+// two copies of the test could come to disagree, and the chooser would then say
+// "already there" over a restart, or restart nothing while saying nothing.
 export function staysAttached<F extends FolderLike>(
   active: AnchoredFolder<F> | null,
   serverPresent: boolean,
@@ -148,14 +148,15 @@ export function staysAttached<F extends FolderLike>(
   return serverPresent && isAttachedTo(active, target);
 }
 
-// AnchorChoiceOutcome is what choosing a workspace in the chooser does: tell the
-// reader the editor already works there, or move the language server to it.
+// AnchorChoiceOutcome is what attaching at a workspace decided, on every path that
+// attaches: the editor already works there, with the sentence saying so, or the
+// language server moves to it. Only the chooser tells the reader the first.
 export type AnchorChoiceOutcome =
   | { kind: 'alreadyAttached'; message: string }
   | { kind: 'move' };
 
-// anchorChoiceOutcome decides what choosing `target` does, before anything is
-// attached, so the answer describes the window the reader chose in.
+// anchorChoiceOutcome decides what attaching at `target` does, before anything is
+// attached, so the answer describes the window as it stood.
 //
 // A CHOICE THAT CHANGES NOTHING IS STILL ANSWERED. The reader asked to work in a
 // workspace, and a chooser that closes with nothing said leaves them unable to
