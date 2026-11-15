@@ -472,7 +472,9 @@ export const WELCOME_SHOW_COMMAND = 'aggrega.getStarted.show';
 //
 // It and the other command titles below are the manifest's own titles, which the
 // editor draws from the manifest and its translations; they are not looked up
-// here, because nothing draws them from this module.
+// here, because nothing draws them from this module. A sentence quoting the way
+// back takes the title the palette lists, read from the manifest the editor
+// loaded — see dismissedConfirmation below.
 export const SHOW_COMMAND_TITLE = 'Aggrega: Get started';
 
 // WELCOME_OPEN_COMMAND opens the page and changes nothing else.
@@ -513,12 +515,20 @@ export const OPEN_COMMAND_TITLE = 'Open the welcome page';
 // this one command, so neither can come to mean something the other does not.
 export const DISMISS_COMMAND_TITLE = 'Aggrega: Stop opening the welcome page on startup';
 
-// DISMISSED_CONFIRMATION is what the reader is told once the panel is put away.
+// dismissedConfirmation is what the reader is told once the panel is put away.
 // It names the way back, because a control that removes something permanently
 // and says nothing leaves a reader with no way to find out that it can be
 // brought back.
-export const DISMISSED_CONFIRMATION =
-  l10n.t('Aggrega: the welcome page will not open on startup again. Run "{0}" from the Command Palette to bring it back.', SHOW_COMMAND_TITLE);
+//
+// 🔴 THE WAY BACK IS NAMED AS THE PALETTE LISTS IT, SO THE TITLE IS HANDED IN.
+// Showing another language, the palette lists the manifest's translation of the
+// title rather than SHOW_COMMAND_TITLE's English, and a sentence quoting the
+// English would send a reader looking for an entry worded differently. The title
+// is read from the manifest the editor loaded, which this module does not reach
+// for, so whoever raises the confirmation reads it and passes it here.
+export function dismissedConfirmation(showTitle: string): string {
+  return l10n.t('Aggrega: the welcome page will not open on startup again. Run "{0}" from the Command Palette to bring it back.', showTitle);
+}
 
 // StepAction is one way through a step: the words on the control, and the
 // command pressing it runs.

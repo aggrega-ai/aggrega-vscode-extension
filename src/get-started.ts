@@ -26,7 +26,7 @@ import {
   selectCompilerVersion,
   versionDescription,
 } from './compiler-version';
-import { RESTART_COMMAND } from './daemon-status';
+import { RESTART_COMMAND, commandTitle } from './daemon-status';
 import { SpawnFn, readDaemonVersion } from './version-check';
 import { describeError } from './error-surfaces';
 import { makeNonce } from './html';
@@ -54,7 +54,6 @@ import { AddingWindow, addFolderWithAnswer } from './project-folder';
 import {
   CHOOSE_WORKSPACE_COMMAND,
   CREATE_WORKSPACE_COMMAND,
-  DISMISSED_CONFIRMATION,
   DISMISS_COMMAND,
   DOWNLOAD_COMPILER_COMMAND,
   DRAFT_RELEASE_COMMAND,
@@ -63,6 +62,7 @@ import {
   OPEN_ON_STARTUP_COMMAND,
   SEED_NAMED_REGISTRY_COMMAND,
   SEED_REGISTRY_COMMAND,
+  SHOW_COMMAND_TITLE,
   StepId,
   StepReading,
   USE_COMPILER_ON_PATH_COMMAND,
@@ -71,6 +71,7 @@ import {
   WELCOME_SHOW_COMMAND,
   WELCOME_SHOW_SETTING,
   WELCOME_VIEW_TYPE,
+  dismissedConfirmation,
   isWelcomePageTab,
   panelControlCommands,
   readCollapsedSteps,
@@ -627,7 +628,7 @@ export function activateGetStarted(
     // one writer, and no opening — the page is the one being pressed on, and
     // bringing it forward would take the keyboard focus off the box.
     vscode.commands.registerCommand(OPEN_ON_STARTUP_COMMAND, () => setShown(true)),
-    vscode.commands.registerCommand(DISMISS_COMMAND, () => putAway()),
+    vscode.commands.registerCommand(DISMISS_COMMAND, () => putAway(context.extension.packageJSON)),
     vscode.commands.registerCommand(CREATE_WORKSPACE_COMMAND, () => createWorkspace(deps, refresh)),
     vscode.commands.registerCommand(CHOOSE_WORKSPACE_COMMAND, () => chooseWorkspace(deps, refresh)),
     vscode.commands.registerCommand(USE_COMPILER_ON_PATH_COMMAND, () => useCompilerOnPath(deps, refresh)),
@@ -871,9 +872,15 @@ async function bringBack(openPanel: () => Promise<void>): Promise<void> {
 // putAway stops the panel opening. The preference is the reader's own and is
 // never written into a project, so one person's dismissal never travels to
 // whoever else opens the repository.
-async function putAway(): Promise<void> {
+//
+// The confirmation names the way back as the palette lists it, read from the
+// manifest the editor loaded. Where that manifest declares no title for it, the
+// English title stands in; a conformance assertion holds that title to the one
+// the manifest declares.
+async function putAway(manifest: unknown): Promise<void> {
   await setShown(false);
-  void vscode.window.showInformationMessage(DISMISSED_CONFIRMATION);
+  const showTitle = commandTitle(manifest, WELCOME_SHOW_COMMAND) ?? SHOW_COMMAND_TITLE;
+  void vscode.window.showInformationMessage(dismissedConfirmation(showTitle));
 }
 
 async function setShown(shown: boolean): Promise<void> {
