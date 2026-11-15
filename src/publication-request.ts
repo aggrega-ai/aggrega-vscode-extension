@@ -274,9 +274,12 @@ export function withdrawalOpeningLine(reference: string): string {
   return `\n${l10n.t('Withdrawal of {0}.', reference)}`;
 }
 
-// publicationLines is everything one publication puts on the channel, in the
-// command line's own words for the same facts — which is why they stay
-// untranslated.
+// publicationLines is everything one publication puts on the channel. The
+// `kind:`, `mediatype:` and `size:` labels are the command line's own words for
+// those facts and stay as the command line prints them; the labels the command
+// line does not print (a dry run, an already-published tag, a published tag, the
+// executable's size, an attached signature) are this editor's own and are
+// translated.
 //
 // The compiler prints `Push complete: <reference>:<tag> (<digest>)` followed by
 // the kind, the media type and the size, and its dry run prints the same
@@ -289,11 +292,11 @@ export function withdrawalOpeningLine(reference: string): string {
 export function publicationLines(result: PublishEntityResult): readonly string[] {
   const lines: string[] = [];
   if (result.dryRun) {
-    lines.push(`  dry run: ${result.reference}:${result.tag} (${result.digest}) — nothing was published`);
+    lines.push(`  ${l10n.t('dry run:')} ${result.reference}:${result.tag} (${result.digest}) — ${l10n.t('nothing was published')}`);
   } else if (result.alreadyPublished) {
-    lines.push(`  already published: ${result.reference}:${result.tag} (${result.digest})`);
+    lines.push(`  ${l10n.t('already published:')} ${result.reference}:${result.tag} (${result.digest})`);
   } else {
-    lines.push(`  published: ${result.reference}:${result.tag} (${result.digest})`);
+    lines.push(`  ${l10n.t('published:')} ${result.reference}:${result.tag} (${result.digest})`);
   }
   lines.push(`  kind: ${result.kind}`);
   lines.push(`  mediatype: ${result.mediaType}`);
@@ -302,17 +305,16 @@ export function publicationLines(result: PublishEntityResult): readonly string[]
   // rendered only where the compiler reported one — a reader never meets a
   // labelled size with nothing beside it.
   if (result.pluginSizeText) {
-    lines.push(`  executable size: ${result.pluginSizeText}`);
+    lines.push(`  ${l10n.t('executable size:')} ${result.pluginSizeText}`);
   }
   if (result.signed) {
-    lines.push(`  signature attached: ${result.reference}:${result.tag}`);
+    lines.push(`  ${l10n.t('signature attached:')} ${result.reference}:${result.tag}`);
   }
   return lines;
 }
 
 // signatureLines lists each reference the batch signed with the digest its
-// signature commits to, in the command line's own form for the same fact, so
-// it stays untranslated as the publication's lines do.
+// signature commits to. The labels are this editor's own words, translated.
 //
 // The label is read off the reach: a batch that attached nothing found every
 // reference already signed, and one reference alone that reached past this
@@ -321,8 +323,8 @@ export function publicationLines(result: PublishEntityResult): readonly string[]
 export function signatureLines(result: SignArtifactsResult): readonly string[] {
   const signed = signedArtifacts(result);
   const label = !result.reach.beyondThisMachine
-    ? 'already signed'
-    : signed.length === 1 ? 'signature attached' : 'signed';
+    ? l10n.t('already signed')
+    : signed.length === 1 ? l10n.t('signature attached') : l10n.t('signed');
   return signed.map((a) => `  ${label}: ${a.reference} (${a.digest})`);
 }
 

@@ -725,10 +725,13 @@ export interface CacheConfirmation {
 // single store a trim addresses, machine-wide without qualification: every
 // project on the machine draws on that one store, so trimming it reaches
 // workspaces this editor has never opened.
-const COMPILED_MODULE_CACHE = 'compiled-module cache';
-const PLUGIN_DESCRIBE_CACHE = 'plugin-describe cache';
-const DOCS_BUNDLE_CACHE = 'docs-bundle cache';
-const CLI_PLUGIN_CACHE = 'cli-plugin cache';
+//
+// Each store's name is one translatable message, read when a sentence is built,
+// so a translated reader meets one name per store in every sentence that names it.
+const compiledModuleCache = (): string => l10n.t('compiled-module cache');
+const pluginDescribeCache = (): string => l10n.t('plugin-describe cache');
+const docsBundleCache = (): string => l10n.t('docs-bundle cache');
+const cliPluginCache = (): string => l10n.t('cli-plugin cache');
 
 // cacheConfirmation reports what to ask before a cache operation runs, or null
 // where nothing is removed and there is nothing to confirm.
@@ -748,19 +751,19 @@ export function cacheConfirmation(operation: CacheOperation): CacheConfirmation 
     case 'prune':
       return {
         question: l10n.t('Remove cache entries no lockfile references?'),
-        scope: l10n.t("This reaches this workspace's own entity, source-artifact and external-input caches, and the {0}, the {1} and the {2}, which every project on this machine shares. Entries still referenced are kept.", COMPILED_MODULE_CACHE, PLUGIN_DESCRIBE_CACHE, CLI_PLUGIN_CACHE),
+        scope: l10n.t("This reaches this workspace's own entity, source-artifact and external-input caches, and the {0}, the {1} and the {2}, which every project on this machine shares. Entries still referenced are kept.", compiledModuleCache(), pluginDescribeCache(), cliPluginCache()),
         confirmLabel: CACHE_CONFIRM_LABEL_PRUNE,
       };
     case 'evict':
       return {
         question: l10n.t('Trim the compiled-module cache to the size cap?'),
-        scope: l10n.t("This reaches the {0}, which every project on this machine shares. Nothing under this workspace's own cache directory is touched. What is removed is rebuilt on the next build that needs it.", COMPILED_MODULE_CACHE),
+        scope: l10n.t("This reaches the {0}, which every project on this machine shares. Nothing under this workspace's own cache directory is touched. What is removed is rebuilt on the next build that needs it.", compiledModuleCache()),
         confirmLabel: CACHE_CONFIRM_LABEL_EVICT,
       };
     case 'clear':
       return {
         question: l10n.t('Empty every cache?'),
-        scope: l10n.t("This empties this workspace's own entity, source-artifact and external-input caches, and the {0}, the {1}, the {2} and the {3}, which every project on this machine shares. The caches repopulate on the next build.", COMPILED_MODULE_CACHE, PLUGIN_DESCRIBE_CACHE, DOCS_BUNDLE_CACHE, CLI_PLUGIN_CACHE),
+        scope: l10n.t("This empties this workspace's own entity, source-artifact and external-input caches, and the {0}, the {1}, the {2} and the {3}, which every project on this machine shares. The caches repopulate on the next build.", compiledModuleCache(), pluginDescribeCache(), docsBundleCache(), cliPluginCache()),
         confirmLabel: CACHE_CONFIRM_LABEL_CLEAR,
       };
   }
