@@ -11,9 +11,11 @@ import {
   SERVER_CONFIG_SECTION,
   buildOnInspectConfirmation,
   buildOnInspectMenuDescription,
+  resolveBinaryPath,
   settingsFromObject,
 } from '../../src/settings';
 import { buildServeArgs } from '../../src/daemon';
+import { readSourceTree } from '../helpers/launch-census';
 import { readManifest } from '../helpers/manifest';
 
 // The command line's own source for `aggrega serve`, whose flag help is where the
@@ -122,6 +124,63 @@ describe('settings', () => {
       assert.deepStrictEqual(
         buildServeArgs(settingsFromObject({ buildOnInspect: true })),
         ['serve', '--build-on-inspect'],
+      );
+    });
+  });
+
+  // 🔴 THE SETTING NAMING THE COMPILER IS RESOLVED AGAINST THE HOME FOLDER BEFORE
+  // ANYTHING LOOKS FOR OR STARTS IT, because the operating system does not expand
+  // `~` and a reader typing one would otherwise be told the compiler is missing
+  // from a path that holds it. Each case is by equality on the whole path.
+  describe('the compiler path read from the setting', () => {
+    const HOME = '/home/reader';
+
+    it('resolves a path beginning ~/ against the home folder', () => {
+      assert.strictEqual(resolveBinaryPath('~/.local/bin/aggrega', HOME, 'linux'), '/home/reader/.local/bin/aggrega');
+      assert.strictEqual(resolveBinaryPath('~/.local/bin/aggrega', HOME, 'darwin'), '/home/reader/.local/bin/aggrega');
+    });
+
+    it('resolves the editor\'s ${userHome} against the home folder', () => {
+      assert.strictEqual(resolveBinaryPath('${userHome}/.local/bin/aggrega', HOME, 'linux'), '/home/reader/.local/bin/aggrega');
+    });
+
+    it('resolves ~\\ and ~/ on Windows, and ~\\ nowhere else', () => {
+      const WIN_HOME = 'C:\\Users\\reader';
+      assert.strictEqual(resolveBinaryPath('~\\bin\\aggrega.exe', WIN_HOME, 'win32'), 'C:\\Users\\reader\\bin\\aggrega.exe');
+      assert.strictEqual(resolveBinaryPath('~/bin/aggrega.exe', WIN_HOME, 'win32'), 'C:\\Users\\reader\\bin\\aggrega.exe');
+      // A backslash is an ordinary character in a file name outside Windows.
+      assert.strictEqual(resolveBinaryPath('~\\bin', HOME, 'linux'), '~\\bin');
+    });
+
+    it('leaves an absolute path, a relative path and a plain name as written', () => {
+      assert.strictEqual(resolveBinaryPath('/opt/aggrega/bin/aggrega', HOME, 'linux'), '/opt/aggrega/bin/aggrega');
+      assert.strictEqual(resolveBinaryPath('C:\\tools\\aggrega.exe', 'C:\\Users\\reader', 'win32'), 'C:\\tools\\aggrega.exe');
+      assert.strictEqual(resolveBinaryPath('bin/aggrega', HOME, 'linux'), 'bin/aggrega');
+      assert.strictEqual(resolveBinaryPath(DEFAULT_SETTINGS.binaryPath, HOME, 'linux'), 'aggrega');
+    });
+
+    it('reads a bare ~ as the home folder, and leaves ~name/ and a name holding ~ as written', () => {
+      assert.strictEqual(resolveBinaryPath('~', HOME, 'linux'), HOME);
+      assert.strictEqual(resolveBinaryPath('~other/bin/aggrega', HOME, 'linux'), '~other/bin/aggrega');
+      assert.strictEqual(resolveBinaryPath('/opt/~/aggrega', HOME, 'linux'), '/opt/~/aggrega');
+    });
+
+    it('leaves the value as written where the home folder is unknown', () => {
+      assert.strictEqual(resolveBinaryPath('~/.local/bin/aggrega', '', 'linux'), '~/.local/bin/aggrega');
+    });
+
+    // 🔴 ONE READ, RESOLVED THERE. The reader that resolves is the one module
+    // importing the editor, so it cannot be called here; what can be read is that
+    // the setting's key is read in exactly one place across the extension's
+    // sources, and that this place passes it through the resolution.
+    it('is read in one place, which resolves it', () => {
+      const READ = /\.get(?:<[^>]*>)?\(\s*(?:'binaryPath'|BINARY_PATH_KEY\b)/g;
+      const reads = readSourceTree().flatMap(([file, source]) => [...source.matchAll(READ)].map(() => file));
+      assert.deepStrictEqual(reads, ['settings-vscode.ts'], `the compiler path setting is read in: ${reads.join(', ')}`);
+      const reader = readSourceTree().find(([file]) => file === 'settings-vscode.ts')?.[1] ?? '';
+      assert.ok(
+        /binaryPath:\s*resolveBinaryPath\(\s*serverCfg\.get<string>\('binaryPath'/.test(reader),
+        'settings-vscode.ts reads the compiler path without passing it through resolveBinaryPath',
       );
     });
   });

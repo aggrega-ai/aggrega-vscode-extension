@@ -148,18 +148,27 @@ describe('attaching returns early only where nothing would change', () => {
       body.includes('const anchoring = windowAnchoring(target);'),
       `the scanned body does not begin where the function does; it was:\n${body}`,
     );
-    // 🔴 ONE CALL, WITH THE TWO ATTACHMENTS. isAttachedTo is where both halves of the
-    // comparison are, and they are driven there; this is what says the early return
-    // is that comparison rather than one written beside it.
+    // 🔴 ONE CALL, WITH THE TWO ATTACHMENTS. staysAttached is the one home of the
+    // decision — a language server there, attached where the target asks — and
+    // isAttachedTo, which holds both halves of the comparison, is reached only
+    // through it, where both are driven; this is what says the early return is
+    // that decision rather than one written beside it. The chooser reads the same
+    // decision through anchorChoiceOutcome, which is held by the reading below.
     assert.deepStrictEqual(
-      callArguments('src/extension.ts', 'isAttachedTo'),
-      [['activeAnchored', 'target']],
-      'the guard against attaching again is not the one comparison of the attachment in use and '
+      callArguments('src/extension.ts', 'staysAttached'),
+      [['activeAnchored', 'daemon !== null', 'target']],
+      'the guard against attaching again is not the one decision over the attachment in use and '
       + 'the one asked for',
     );
+    assert.deepStrictEqual(
+      callArguments('src/extension.ts', 'isAttachedTo'),
+      [],
+      'the comparison of the attachment in use and the one asked for is made outside the one '
+      + 'decision that holds it',
+    );
     assert.ok(
-      body.includes('if (daemon && isAttachedTo(activeAnchored, target)) {'),
-      `attaching does not return early on that comparison; the body was:\n${body}`,
+      body.includes('if (staysAttached(activeAnchored, daemon !== null, target)) {'),
+      `attaching does not return early on that decision; the body was:\n${body}`,
     );
     // And no half of it is made again here: a comparison of the folder or the
     // marker in use written beside the guard is how one half would come to be
@@ -167,6 +176,40 @@ describe('attaching returns early only where nothing would change', () => {
     for (const half of ['activeAnchored?.folder', 'activeAnchored?.anchorPath', 'activeAnchored.folder', 'activeAnchored.anchorPath']) {
       assert.ok(!body.includes(half), `${half} is compared beside the guard; the body was:\n${body}`);
     }
+  });
+});
+
+describe('choosing the Aggrega workspace already in use says so', () => {
+  it('decides before attaching, and shows the decision\'s message where nothing would change', () => {
+    const body = functionBody('src/extension.ts', 'function registerSwitchAnchorCommand(');
+    // The needle on the block: the scanned body is the command's own.
+    assert.ok(
+      body.includes('registerCommand(SWITCH_ANCHOR_COMMAND'),
+      `the scanned body is not the Aggrega workspace row's command; it was:\n${body}`,
+    );
+    // 🔴 ONE DECISION, OVER THE ATTACHMENT IN USE, THE SERVER'S PRESENCE AND THE
+    // FOLDER CHOSEN — the same three the attach's own early return reads — so the
+    // chooser cannot say "already there" over a move, nor move while saying it.
+    assert.deepStrictEqual(
+      callArguments('src/extension.ts', 'anchorChoiceOutcome'),
+      [['activeAnchored', 'daemon !== null', 'choice.offer.anchored']],
+      'the chooser decides what a choice does from something other than the attachment in use, the '
+      + 'server\'s presence and the folder chosen',
+    );
+    // Decided BEFORE the attach: afterwards the attachment in use is the one chosen,
+    // and every choice would read as already in effect.
+    const decided = body.indexOf('const outcome = anchorChoiceOutcome(');
+    const attached = body.indexOf('await ensureDaemonAt(extensionContext, choice.offer.anchored);');
+    assert.ok(decided >= 0, `the command decides nothing about the choice; the body was:\n${body}`);
+    assert.ok(attached > decided, `the choice is decided after the attach, or nothing is attached; the body was:\n${body}`);
+    // And the decision's own message is what the reader is shown, on that branch.
+    const branch = body.indexOf('if (outcome.kind === \'alreadyAttached\') {');
+    assert.ok(branch > decided, `the command does not branch on the decision; the body was:\n${body}`);
+    const branchBody = body.slice(branch, body.indexOf('}', branch));
+    assert.ok(
+      branchBody.includes('vscode.window.showInformationMessage(outcome.message)'),
+      `choosing the workspace already in use shows the reader nothing; the branch was:\n${branchBody}`,
+    );
   });
 });
 

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cognitio s.r.l.
 
+import * as path from 'path';
 import * as l10n from './l10n';
 import { DEFAULT_OPERATIONS_LAYOUT, OperationsLayout } from './operation-groups';
 import type { PanelActionPress } from './panel-actions';
@@ -38,6 +39,42 @@ export const DEFAULT_SETTINGS: Settings = {
 // vscode-coupled reader in settings-vscode.ts).
 export function settingsFromObject(input: Partial<Settings>): Settings {
   return { ...DEFAULT_SETTINGS, ...input };
+}
+
+// USER_HOME_VARIABLE is the editor's own spelling for the home folder inside a
+// setting's value, which this extension honours in the setting naming the
+// compiler alongside the shell's `~`.
+export const USER_HOME_VARIABLE = '${userHome}';
+
+// resolveBinaryPath turns the setting naming the compiler into the path the
+// extension looks for and starts: `${userHome}` anywhere in it becomes the home
+// folder, and a leading `~/` — or `~\` on Windows — names a file under the home
+// folder. A bare `~` is the home folder itself, as a shell reads it. Every other
+// value is answered as written: a plain name such as `aggrega`, which is looked
+// up on PATH; an absolute or relative path; and `~name/…`, which names another
+// account's home that nothing here can read.
+//
+// 🔴 IT IS APPLIED ONCE, WHERE THE SETTING IS READ, AND NOWHERE ELSE. The language
+// server's start, the commands run beside it, the download and the change of
+// version all receive the path from that one read, so each looks for and names
+// the same file — and a failure to start names the path that was actually tried
+// rather than the `~` the reader typed. Nothing hands a `~` to the operating
+// system, which does not expand it.
+//
+// The home folder and the platform are handed in, so the resolution can be
+// driven for any machine; the reader passes those of the machine the extension
+// runs on, which in a window opened on a remote machine is that machine. An
+// empty home leaves the value as written rather than turning `~/x` into a path
+// at the root of the file system.
+export function resolveBinaryPath(configured: string, home: string, platform: string): string {
+  if (home === '') { return configured; }
+  const expanded = configured.split(USER_HOME_VARIABLE).join(home);
+  if (expanded === '~') { return home; }
+  const windows = platform === 'win32';
+  if (expanded.startsWith('~/') || (windows && expanded.startsWith('~\\'))) {
+    return (windows ? path.win32 : path.posix).join(home, expanded.slice(2));
+  }
+  return expanded;
 }
 
 // SERVER_CONFIG_SECTION is the configuration section every aggrega.server.*

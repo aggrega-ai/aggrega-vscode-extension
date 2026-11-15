@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cognitio s.r.l.
 
+import * as os from 'os';
 import * as vscode from 'vscode';
 import { readLayout } from './operation-groups';
 import {
@@ -12,6 +13,7 @@ import {
   SERVER_CONFIG_SECTION,
   SHOW_SENSITIVE_VALUES_KEY,
   Settings,
+  resolveBinaryPath,
   showsSensitiveValues,
 } from './settings';
 
@@ -25,7 +27,9 @@ export function getSettings(): Settings {
   const graphCfg = vscode.workspace.getConfiguration(GRAPH_CONFIG_SECTION);
   const operationsCfg = vscode.workspace.getConfiguration(OPERATIONS_CONFIG_SECTION);
   return {
-    binaryPath: serverCfg.get<string>('binaryPath', DEFAULT_SETTINGS.binaryPath),
+    // Resolved here, at the one read, so every reader of the setting receives the
+    // same path; resolveBinaryPath says why it is applied nowhere else.
+    binaryPath: resolveBinaryPath(serverCfg.get<string>('binaryPath', DEFAULT_SETTINGS.binaryPath), os.homedir(), process.platform),
     buildOnInspect: serverCfg.get<boolean>(BUILD_ON_INSPECT_KEY, DEFAULT_SETTINGS.buildOnInspect),
     debounceMs: serverCfg.get<number>('debounceMs', DEFAULT_SETTINGS.debounceMs),
     respawnAttempts: serverCfg.get<number>('respawnAttempts', DEFAULT_SETTINGS.respawnAttempts),

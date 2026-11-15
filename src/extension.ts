@@ -219,13 +219,14 @@ import {
   CHOOSE_ANCHOR_ACTION,
   CHOOSE_ANCHOR_PLACEHOLDER,
   SWITCH_ANCHOR_COMMAND,
+  anchorChoiceOutcome,
   anchorOffers,
   anchorSwitchMessage,
   anchorsAvailableSentence,
   classifyActivation,
-  isAttachedTo,
   readSavedAnchor,
   rememberAnchorChoice,
+  staysAttached,
 } from './anchor-picker';
 import { openWorkspaceRootInvocation } from './selector-rows';
 import { FoldersTold, tellWorkspaceAboveIfDue } from './workspace-above';
@@ -1451,8 +1452,9 @@ async function ensureDaemonAt(
 
   // The guard returns early only where the folder the workspace is reached from
   // AND the workspace itself are both the ones already in use. isAttachedTo says
-  // what each half of that comparison catches that the other misses.
-  if (daemon && isAttachedTo(activeAnchored, target)) {
+  // what each half of that comparison catches that the other misses, and
+  // staysAttached is the one home of the decision the chooser also reads.
+  if (staysAttached(activeAnchored, daemon !== null, target)) {
     return;
   }
 
@@ -1777,10 +1779,16 @@ function registerSwitchAnchorCommand(context: vscode.ExtensionContext): void {
       return;
     }
     if (!extensionContext) { return; }
-    // Choosing the folder already attached lands on ensureDaemonAt's own
-    // no-op guard and returns before anything is stopped, so a reader
-    // confirming where they already are does not pay for a restart.
+    // Decided before the attach, against the window the reader chose in.
+    // Choosing the workspace already in use still lands on ensureDaemonAt's own
+    // early return, so nothing is stopped or restarted, and the reader is then
+    // told the editor already works there rather than left with a chooser that
+    // closed on nothing.
+    const outcome = anchorChoiceOutcome(activeAnchored, daemon !== null, choice.offer.anchored);
     await ensureDaemonAt(extensionContext, choice.offer.anchored);
+    if (outcome.kind === 'alreadyAttached') {
+      void vscode.window.showInformationMessage(outcome.message);
+    }
   }));
 }
 

@@ -11,6 +11,8 @@ import {
   CHOOSE_ANCHOR_PLACEHOLDER,
   STATE_KEY,
   WorkspaceStateLike,
+  alreadyWorkingHereMessage,
+  anchorChoiceOutcome,
   anchorOffers,
   anchorSwitchMessage,
   anchorsAvailableSentence,
@@ -21,6 +23,7 @@ import {
   readSavedAnchor,
   rememberAnchorChoice,
   activeWorkspaceLabel,
+  staysAttached,
   widenAnchorOfferDetail,
   widenAnchorOfferLabel,
 } from '../../src/anchor-picker';
@@ -213,6 +216,59 @@ describe('isAttachedTo', () => {
 
   it('does not hold where nothing is in use', () => {
     assert.strictEqual(isAttachedTo(null, fakeAnchor('/ws/a', '/ws/a/.aggrega-config.yaml')), false);
+  });
+});
+
+// What choosing a workspace in the chooser does: tell the reader the editor
+// already works there, or move. The attach's own early return reads the same
+// predicate, so these hold the two together.
+describe('choosing the workspace already in use', () => {
+  const inUse = fakeAnchor('/ws/a', '/ws/a/.aggrega-config.yaml');
+
+  // By EQUALITY on the whole sentence, so a dropped path, a dropped prefix or a
+  // sentence about something else each changes the comparison.
+  it('says the editor already works there, naming the workspace root in full', () => {
+    assert.deepStrictEqual(
+      anchorChoiceOutcome(inUse, true, fakeAnchor('/ws/a', '/ws/a/.aggrega-config.yaml')),
+      { kind: 'alreadyAttached', message: 'Aggrega: the editor already works in /ws/a.' },
+    );
+    assert.strictEqual(alreadyWorkingHereMessage('/ws/a'), 'Aggrega: the editor already works in /ws/a.');
+  });
+
+  it('names the workspace root rather than the folder it was reached from', () => {
+    // The marker sits above the opened folder: the root is /ws, the folder /ws/x.
+    const reachedFromBelow = fakeAnchor('/ws/x', '/ws/.aggrega-config.yaml');
+    const outcome = anchorChoiceOutcome(reachedFromBelow, true, fakeAnchor('/ws/x', '/ws/.aggrega-config.yaml'));
+    assert.deepStrictEqual(outcome, { kind: 'alreadyAttached', message: `Aggrega: the editor already works in ${workspaceRootOf(reachedFromBelow)}.` });
+    assert.strictEqual(workspaceRootOf(reachedFromBelow), '/ws');
+  });
+
+  it('moves for another workspace, and for another folder beneath the same one', () => {
+    assert.deepStrictEqual(anchorChoiceOutcome(inUse, true, fakeAnchor('/ws/b', '/ws/b/.aggrega-config.yaml')), { kind: 'move' });
+    const below = fakeAnchor('/ws/x', '/ws/.aggrega-config.yaml');
+    assert.deepStrictEqual(anchorChoiceOutcome(below, true, fakeAnchor('/ws/y', '/ws/.aggrega-config.yaml')), { kind: 'move' });
+  });
+
+  it('moves where no language server is there, since the attach then starts one', () => {
+    const same = fakeAnchor('/ws/a', '/ws/a/.aggrega-config.yaml');
+    assert.strictEqual(staysAttached(inUse, false, same), false);
+    assert.deepStrictEqual(anchorChoiceOutcome(inUse, false, same), { kind: 'move' });
+    assert.deepStrictEqual(anchorChoiceOutcome(null, false, same), { kind: 'move' });
+  });
+
+  it('agrees with the attach\'s early return in every case above', () => {
+    const cases: Array<[AnchoredFolder | null, boolean, AnchoredFolder]> = [
+      [inUse, true, fakeAnchor('/ws/a', '/ws/a/.aggrega-config.yaml')],
+      [inUse, true, fakeAnchor('/ws/b', '/ws/b/.aggrega-config.yaml')],
+      [inUse, false, fakeAnchor('/ws/a', '/ws/a/.aggrega-config.yaml')],
+      [null, true, fakeAnchor('/ws/a', '/ws/a/.aggrega-config.yaml')],
+    ];
+    for (const [active, present, target] of cases) {
+      assert.strictEqual(
+        anchorChoiceOutcome(active, present, target).kind === 'alreadyAttached',
+        staysAttached(active, present, target),
+      );
+    }
   });
 });
 

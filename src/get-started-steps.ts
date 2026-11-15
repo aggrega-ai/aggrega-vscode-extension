@@ -55,6 +55,7 @@ import { panelActionLabel } from './operation-groups';
 import { SELECT_RELEASE_COMMAND } from './release-selection';
 import { REGISTRY_ADD_COMMAND } from './registry-configure';
 import { SELECTOR_ROW_DRAWN_LABELS, SELECTOR_ROW_LABELS } from './selector-levels';
+import { USER_HOME_VARIABLE } from './settings';
 import { DOWNLOAD_COMPILER_ACTION } from './start-failure';
 
 // WELCOME_SHOW_SETTING is the preference that decides whether the panel opens
@@ -682,7 +683,9 @@ export const STEP_CONTENT: readonly StepContent[] = [
       },
       {
         paragraph:
-          l10n.t('Which binary runs is the `aggrega.server.binaryPath` setting. A plain name is looked up on your `PATH`; an absolute or relative path is honoured as written.'),
+          // The editor's home-folder variable is a placeholder argument rather than
+          // written in the message: its braces would otherwise read as a placeholder.
+          l10n.t('Which binary runs is the `aggrega.server.binaryPath` setting. A plain name is looked up on your `PATH`; a path starting with `~/` (or `~\\` on Windows) or with `{0}` is read from your home folder on the machine the editor runs its extensions on; any other path is honoured as written.', USER_HOME_VARIABLE),
       },
       {
         paragraph:

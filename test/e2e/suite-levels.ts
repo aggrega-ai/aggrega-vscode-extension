@@ -4,6 +4,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
+import { alreadyWorkingHereMessage } from '../../src/anchor-picker';
 import { RESTART_COMMAND } from '../../src/daemon-status';
 import { ActiveReleaseResponse } from '../../src/types';
 import { CONFIG_FILENAME } from '../../src/workspace';
@@ -230,8 +231,11 @@ export async function levelsChecks(ctx: SuiteContext, missing: string, reference
     };
   });
 
+  // Choosing the Aggrega workspace already in use is answered with the one
+  // notification saying so; choosing the Project folder already in use, with none.
+  const alreadyHere = alreadyWorkingHereMessage(ctx.folder);
   await c.run('context-rows.choosing-where-you-are-restarts-nothing', {
-    expected: `with the language server running and ${STAGING} selected, choosing on the Aggrega workspace row the entry it already names, and then on the Project folder row the folder it already names, each opens its chooser and then stops nothing and starts nothing — the same language server process throughout, no "starting" reading on the status bar, no language server start on the output channel, no notification, watched for ${QUIET_MS} ms — and ${STAGING} is still selected; in the same check a restart asked for with the restart command shows each of those observations firing`,
+    expected: `with the language server running and ${STAGING} selected, choosing on the Aggrega workspace row the entry it already names, and then on the Project folder row the folder it already names, each opens its chooser and then stops nothing and starts nothing — the same language server process throughout, no "starting" reading on the status bar, no language server start on the output channel, and one notification, reading "${alreadyHere}", watched for ${QUIET_MS} ms — and ${STAGING} is still selected; in the same check a restart asked for with the restart command shows each of those observations firing`,
     plant: 'in the scratch copy, out/src/extension.js with a choice on the Aggrega workspace row restarting the language server, whichever workspace is chosen',
   }, async () => {
     const rowsBefore = keep(await rowsNow(ctx));
@@ -253,7 +257,8 @@ export async function levelsChecks(ctx: SuiteContext, missing: string, reference
       starts: serverStarts(ctx.out.since(chan)),
       told: (await toastsSince(ctx.d, toastMark)).map((t) => t.message),
     });
-    const quiet = await holds(QUIET_MS, reading, (v) => v.pids.length === 1 && v.pids[0] === srv.pid && !v.starting && v.starts === 0 && v.told.length === 0);
+    const quiet = await holds(QUIET_MS, reading, (v) => v.pids.length === 1 && v.pids[0] === srv.pid && !v.starting && v.starts === 0 && v.told.every((m) => m === alreadyHere));
+    const told = (await toastsSince(ctx.d, toastMark)).map((t) => t.message);
     const pickers = (await pickersSeen(ctx.d)).slice(pickMark).map((p) => p.placeholder);
     const rows = keep(await rowsNow(ctx));
     // The control: a restart asked for, read the same way, against the process
@@ -273,8 +278,8 @@ export async function levelsChecks(ctx: SuiteContext, missing: string, reference
     need(next !== null && (cStarting || cStarts > 0), `its positive control did not fire: the restart asked for gave ${next === null ? 'no new process' : `process ${next}`}, ${cStarting ? 'a' : 'no'} "starting" reading and ${cStarts} start(s) on the channel`);
     const bothOpened = pickers.includes(PLACEHOLDER.workspace) && pickers.includes(PLACEHOLDER.project);
     return {
-      passed: quiet.held && bothOpened && rows[2]?.value === STAGING,
-      seen: `${quiet.held ? `the same process ${srv.pid}, no "starting" reading, no start on the channel and no notification for ${QUIET_MS} ms` : `at ${quiet.atMs} ms: ${JSON.stringify(quiet.broke)}`}; the choosers drawn ${JSON.stringify(pickers)}; the Release row "${rows[2]?.value ?? ''}"; the control restarted into process ${next}, with ${cStarting ? 'a' : 'no'} "starting" reading and ${cStarts} start(s) on the channel`,
+      passed: quiet.held && JSON.stringify(told) === JSON.stringify([alreadyHere]) && bothOpened && rows[2]?.value === STAGING,
+      seen: `${quiet.held ? `the same process ${srv.pid}, no "starting" reading, no start on the channel and no notification but the one saying so for ${QUIET_MS} ms` : `at ${quiet.atMs} ms: ${JSON.stringify(quiet.broke)}`}; the notifications ${JSON.stringify(told)}; the choosers drawn ${JSON.stringify(pickers)}; the Release row "${rows[2]?.value ?? ''}"; the control restarted into process ${next}, with ${cStarting ? 'a' : 'no'} "starting" reading and ${cStarts} start(s) on the channel`,
     };
   });
 

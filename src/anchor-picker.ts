@@ -131,6 +131,46 @@ export function isAttachedTo<F extends FolderLike>(
     && active.anchorPath === target.anchorPath;
 }
 
+// staysAttached reports whether attaching the language server at `target` would
+// leave everything as it is: a language server is there, and it is attached
+// where `target` asks for it.
+//
+// 🔴 IT IS THE ONE HOME OF THAT DECISION. The attach returns early on it, and the
+// chooser reads it to tell a reader who picked the workspace already in use that
+// the editor already works there; two copies of the test could come to disagree,
+// and the chooser would then say "already there" over a restart, or restart
+// nothing while saying nothing.
+export function staysAttached<F extends FolderLike>(
+  active: AnchoredFolder<F> | null,
+  serverPresent: boolean,
+  target: AnchoredFolder<F>,
+): boolean {
+  return serverPresent && isAttachedTo(active, target);
+}
+
+// AnchorChoiceOutcome is what choosing a workspace in the chooser does: tell the
+// reader the editor already works there, or move the language server to it.
+export type AnchorChoiceOutcome =
+  | { kind: 'alreadyAttached'; message: string }
+  | { kind: 'move' };
+
+// anchorChoiceOutcome decides what choosing `target` does, before anything is
+// attached, so the answer describes the window the reader chose in.
+//
+// A CHOICE THAT CHANGES NOTHING IS STILL ANSWERED. The reader asked to work in a
+// workspace, and a chooser that closes with nothing said leaves them unable to
+// tell a choice already in effect from one that was ignored. Nothing is stopped
+// or restarted for it.
+export function anchorChoiceOutcome<F extends FolderLike>(
+  active: AnchoredFolder<F> | null,
+  serverPresent: boolean,
+  target: AnchoredFolder<F>,
+): AnchorChoiceOutcome {
+  return staysAttached(active, serverPresent, target)
+    ? { kind: 'alreadyAttached', message: alreadyWorkingHereMessage(workspaceRootOf(target)) }
+    : { kind: 'move' };
+}
+
 // classifyActivation returns the four-way decision used by the
 // extension activation path and the workspaceFolders change handler.
 // Both call sites share this function so one-workspace activation,
@@ -337,6 +377,16 @@ export function anchorOffers<F extends FolderLike>(
 // disambiguates, and a message is read without the picker's side-by-side context.
 export function anchorSwitchMessage(workspaceRoot: string): string {
   return l10n.t('Aggrega: now working in {0}. The language server is restarting there.', workspaceRoot);
+}
+
+// alreadyWorkingHereMessage is what a reader is told when they choose the
+// workspace the editor already works in. It names the full path for the reason
+// anchorSwitchMessage does.
+//
+// It says nothing about the language server's state: the choice leaves the server
+// as it was, and whether that is running or stopped is the status bar's to say.
+export function alreadyWorkingHereMessage(workspaceRoot: string): string {
+  return l10n.t('Aggrega: the editor already works in {0}.', workspaceRoot);
 }
 
 // activeWorkspaceLabel renders the status-bar text for an attached language
