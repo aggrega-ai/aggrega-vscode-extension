@@ -678,9 +678,9 @@ export interface ContainerManifest {
   };
 }
 
-// containerManifest is the context's own reading of that manifest — the copy under
-// test's package.json, parsed once as the scenario starts — typed for the fields
-// these checks read beside the ones every scenario does.
+// containerManifest is the context's own reading of that manifest — the launched
+// copy's manifest as an editor showing English draws it, read once as the scenario
+// starts — typed for the fields these checks read beside the ones every scenario does.
 export function containerManifest(ctx: SuiteContext): ContainerManifest {
   return ctx.manifest as unknown as ContainerManifest;
 }

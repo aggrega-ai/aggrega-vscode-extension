@@ -6,8 +6,10 @@ import * as path from 'node:path';
 import { EXTENSION_ROOT } from './launch-census';
 
 // This helper reads the extension's manifest as the editor draws it, and it is the
-// one place a spec does that — and the one place the shape of a text key in the
-// manifest is written.
+// one place a spec or the end-to-end harness does that — and the one place the
+// shape of a text key in the manifest is written. Each reading takes the root of
+// the extension it reads: the repository by default, or a copy of it, such as the
+// one the end-to-end harness launches.
 //
 // The manifest names each piece of its text — a command's title, a setting's
 // description, a view's name — by a key written `%key%`, whose English is held in
@@ -42,9 +44,6 @@ export interface BundleGenerator {
 // re-implemented, so every spec reads the files the build reads and writes.
 export const bundleGenerator = require(path.join(EXTENSION_ROOT, 'build', 'l10n-bundle.js')) as BundleGenerator;
 
-const MANIFEST = path.join(EXTENSION_ROOT, 'package.json');
-const MANIFEST_ENGLISH = path.join(EXTENSION_ROOT, bundleGenerator.manifestFile());
-
 // MANIFEST_TEXT_KEY is a manifest string standing for a piece of text: the whole
 // value is a key between two percent signs, the key spelled as the editor reads
 // one.
@@ -68,14 +67,27 @@ function withKeys(value: unknown, text: (key: string) => unknown): unknown {
 }
 
 // readRawManifest answers package.json as written, its text keys unreplaced.
-export function readRawManifest(): unknown {
-  return JSON.parse(fs.readFileSync(MANIFEST, 'utf8'));
+export function readRawManifest(root: string = EXTENSION_ROOT): unknown {
+  return JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
 }
 
 // readManifestEnglish answers package.json's English text by key, or an empty
 // set where the manifest keeps no text apart.
-export function readManifestEnglish(): Record<string, unknown> {
-  return fs.existsSync(MANIFEST_ENGLISH) ? JSON.parse(fs.readFileSync(MANIFEST_ENGLISH, 'utf8')) : {};
+export function readManifestEnglish(root: string = EXTENSION_ROOT): Record<string, unknown> {
+  const english = path.join(root, bundleGenerator.manifestFile());
+  return fs.existsSync(english) ? JSON.parse(fs.readFileSync(english, 'utf8')) : {};
+}
+
+// localizationPaths lists, relative to an extension's root and in a fixed order,
+// what carries the extension's text apart from its code: the manifest's English
+// and its translations beside package.json, then the directory of runtime bundles
+// the manifest's `l10n` field names. A copy of the extension without them draws
+// the manifest's keys in place of its text, and no translation.
+export function localizationPaths(root: string = EXTENSION_ROOT): string[] {
+  const manifestText = fs.readdirSync(root)
+    .filter((name) => name === bundleGenerator.manifestFile() || bundleGenerator.translationOf(name)?.kind === 'manifest')
+    .sort();
+  return [...manifestText, path.relative(EXTENSION_ROOT, bundleGenerator.L10N_DIR)];
 }
 
 // manifestTextKeys lists every text key a parsed manifest names, in the order the
@@ -89,9 +101,9 @@ export function manifestTextKeys(manifest: unknown): string[] {
 // readManifest answers the manifest with every `%key%` replaced by its English.
 // It is typed as loosely as a parse is, because each caller states the shape it
 // reads, as it did when it parsed the file itself.
-export function readManifest(): any {
-  const english = readManifestEnglish();
-  return withKeys(readRawManifest(), (key) => {
+export function readManifest(root: string = EXTENSION_ROOT): any {
+  const english = readManifestEnglish(root);
+  return withKeys(readRawManifest(root), (key) => {
     if (!Object.prototype.hasOwnProperty.call(english, key)) {
       throw new Error(`package.json names %${key}%, which package.nls.json does not hold`);
     }

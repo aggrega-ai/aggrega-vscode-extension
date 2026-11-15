@@ -147,7 +147,7 @@ export async function welcomeMixedChecks(ctx: SuiteContext): Promise<void> {
   const declared = ctx.manifest.contributes.configuration.properties[SHOW_SETTING]?.description ?? '';
   await c.run('settings.get-started-show-label-and-description', {
     expected: `searching the settings screen for "getStarted" draws the label "${label}", derived from the key, and the description the manifest declares, which names the two standings ("${DESCRIBED_STANDINGS}") and never "${WORD_NO_STANDING_READS}"`,
-    plant: 'in the scratch copy\'s package.json, the description naming a lapsed step outstanding',
+    plant: 'in the scratch copy\'s package.nls.json, the description naming a lapsed step outstanding',
   }, async () => {
     const item = await openSettingsOn(ctx, 'getStarted', label);
     await run(ctx, 'workbench.action.closeActiveEditor');

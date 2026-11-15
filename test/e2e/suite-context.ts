@@ -4,6 +4,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
+import { readManifest } from '../helpers/manifest';
 import { Checks, need } from './checks';
 import { ScratchHome } from './cli';
 import { UiDriver } from './drivers';
@@ -34,6 +35,8 @@ export interface SuiteContext {
   home: ScratchHome;
   cliLog: string;
   folder: string;
+  // manifest is the launched copy's manifest as an editor showing English draws
+  // it, so a plant on the copy's text moves what a check calls declared.
   manifest: Manifest;
   // shots is where the captures a person is asked to judge are written.
   shots: string;
@@ -49,7 +52,7 @@ export function makeContext(s: Scenario, inputs: Inputs, checks: Checks): SuiteC
     home: scratchHomeOf(s.root),
     cliLog: path.join(s.root.logs, 'cli.log'),
     folder: s.folder,
-    manifest: JSON.parse(fs.readFileSync(path.join(s.root.extensionCopy, 'package.json'), 'utf8')) as Manifest,
+    manifest: readManifest(s.root.extensionCopy) as Manifest,
     shots,
   };
 }

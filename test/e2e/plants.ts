@@ -72,18 +72,19 @@ const BY_HAND_REFUSAL = '(registrationDetail(answer, request), inEffect) };\n   
 
 const CONTEXT_ROW_LABEL = {
   file: 'out/src/selector-levels.js',
-  find: "    project: 'Project folder',",
-  replace: "    project: 'Project directory',",
+  find: "    project: l10n.t('Project folder'),",
+  replace: "    project: l10n.t('Project directory'),",
   says: 'the first context row is labelled "Project directory"',
 } as const;
 
-// The compiled line ending a run of the compiler as a command that it refused,
-// made to name the exit status alone — the edit two scenarios' refusals are each
-// read against.
+// The compiled line deciding whether a run of the compiler as a command that it
+// refused wrote any words, made to read every such run as silent, so its ending
+// names the exit status alone — the edit two scenarios' refusals are each read
+// against.
 const EXIT_STATUS_ALONE = {
   file: 'out/src/cli-run.js',
-  find: "    return said.trim() === '' ? `${status}.` : `${status}: ${said}`;",
-  replace: '    return `${status}.`;',
+  find: "    const silent = said.trim() === '';",
+  replace: '    const silent = true;',
   says: 'an operation run as a command that the compiler refuses ends by naming the exit status alone, dropping the words the compiler wrote to its error stream',
 } as const;
 
@@ -143,7 +144,7 @@ const REFUSAL_ENTRY_WITHOUT_ITS_CODES = {
 // command doing it, and the line of the ending a refused write is shown with.
 const DEFAULT_RELEASE = 'three-releases-default-release';
 const DEFAULT_RELEASE_COMMAND = '        await (0, release_actions_1.createActiveReleaseMarker)(selectedRelease(), requestSetActiveRelease);';
-const MARKER_NOT_WRITTEN = '            message: `Aggrega: could not write ${workspace_1.AGGREGA_DIR}/${workspace_1.ACTIVE_RELEASE_MARKER_BASENAME}: ${(0, error_text_1.describeError)(err)}`,';
+const MARKER_NOT_WRITTEN = "            message: l10n.t('Aggrega: could not write {0}/{1}: {2}', workspace_1.AGGREGA_DIR, workspace_1.ACTIVE_RELEASE_MARKER_BASENAME, (0, error_text_1.describeError)(err)),";
 
 // The module deciding whether an action opens the workspace's configuration file,
 // and its compiled line deciding it from the language server's answer.
@@ -244,29 +245,29 @@ export const PLANTS: readonly Plant[] = [
   {
     name: 'setting-drawn-with-another-description', scenario: 'gateway', checks: ['settings.build-on-inspect-label-is-derived-from-its-key'], moves: 'red', target: 'extension',
     file: 'package.json',
-    find: '          "markdownDescription": "When true, the language server runs the artifact-rendering stage while inspecting an IR graph',
-    replace: '          "description": "When true, the language server runs the artifact-rendering stage while inspecting an IR graph',
+    find: '          "markdownDescription": "%configuration.aggrega.server.buildOnInspect.markdownDescription%"',
+    replace: '          "description": "%configuration.aggrega.server.buildOnInspect.markdownDescription%"',
     says: 'the setting\'s description is declared as a plain description, which the settings editor draws with its backticks rather than as Markdown',
   },
   {
     name: 'setting-on-by-default', scenario: 'gateway', checks: ['settings.build-on-inspect-toggle-is-kept-in-the-user-settings'], moves: 'red', target: 'extension',
     file: 'package.json',
-    find: '          "default": false,\n          "markdownDescription": "When true, the language server runs the artifact-rendering stage while inspecting an IR graph',
-    replace: '          "default": true,\n          "markdownDescription": "When true, the language server runs the artifact-rendering stage while inspecting an IR graph',
+    find: '          "default": false,\n          "markdownDescription": "%configuration.aggrega.server.buildOnInspect.markdownDescription%"',
+    replace: '          "default": true,\n          "markdownDescription": "%configuration.aggrega.server.buildOnInspect.markdownDescription%"',
     says: 'the build-on-inspect setting is declared on by default',
   },
   {
     name: 'setting-description-without-its-qualifier', scenario: 'gateway', checks: ['settings.build-on-inspect-says-what-it-adds-in-the-command-lines-words'], moves: 'red', target: 'extension',
-    file: 'package.json',
+    file: 'package.nls.json',
     find: ' raises while rendering also appear as editor problems. It adds none of the checks a build halts on. Inspecting',
     replace: ' raises while rendering also appear as editor problems. Inspecting',
     says: 'the setting\'s description leaves out the command line\'s qualifier, that it adds none of the checks a build halts on',
   },
   {
     name: 'toggle-titled-in-other-terms', scenario: 'gateway', checks: ['settings.build-on-inspect-says-what-it-adds-in-the-command-lines-words'], moves: 'red', target: 'extension',
-    file: 'package.json',
-    find: '        "title": "Aggrega: Toggle the artifact-rendering stage while inspecting"',
-    replace: '        "title": "Aggrega: Toggle the build\'s analysis while inspecting"',
+    file: 'package.nls.json',
+    find: '"command.aggrega.server.toggleBuildOnInspect.title": "Aggrega: Toggle the artifact-rendering stage while inspecting"',
+    replace: '"command.aggrega.server.toggleBuildOnInspect.title": "Aggrega: Toggle the build\'s analysis while inspecting"',
     says: 'the toggle command is titled in terms other than the setting\'s description, as the build\'s analysis',
   },
   {
@@ -362,7 +363,7 @@ export const PLANTS: readonly Plant[] = [
   {
     name: 'facet-row-dropped', scenario: 'storefront', checks: ['catalog-search.palette-shows-its-facets'], moves: 'red', target: 'extension',
     file: SEARCH_RUN,
-    find: "        {\n            action: 'pluginType',\n            label: 'Plugin type',\n            description: pluginType || exports.ANY_VALUE_LABEL,\n            detail: 'Keep plugins attached at this socket',\n        },\n",
+    find: "        {\n            action: 'pluginType',\n            label: 'Plugin type',\n            description: pluginType || exports.ANY_VALUE_LABEL,\n            detail: l10n.t('Keep plugins attached at this socket'),\n        },\n",
     replace: '',
     says: 'the search palette\'s Plugin type row is dropped',
   },
@@ -456,8 +457,8 @@ export const PLANTS: readonly Plant[] = [
   {
     name: 'draft-left-on-the-commands-panel', scenario: 'storefront', checks: ['commands-panel.holds-none-of-the-list-panels-operations-and-keeps-its-order-and-walk'], moves: 'red', target: 'extension',
     file: 'out/src/operation-groups.js',
-    find: "        heading: 'Author',\n        operations: [\n",
-    replace: "        heading: 'Author',\n        operations: [\n            {\n                id: 'scaffold',\n                label: 'Draft entity',\n                detail: 'Draft a starter document for an entity kind, opened in a new editor tab',\n                icon: 'new-file',\n            },\n",
+    find: "        heading: l10n.t('Author'),\n        operations: [\n",
+    replace: "        heading: l10n.t('Author'),\n        operations: [\n            {\n                id: 'scaffold',\n                label: l10n.t('Draft entity'),\n                detail: l10n.t('Draft a starter document for an entity kind, opened in a new editor tab'),\n                icon: 'new-file',\n            },\n",
     says: 'Draft entity is drawn on the Commands panel, first in its Author group, as well as at the head of the Catalog panel',
   },
   {
@@ -470,15 +471,15 @@ export const PLANTS: readonly Plant[] = [
   {
     name: 'lint-without-count', scenario: 'storefront', checks: ['operations.lint-ends-in-a-sentence'], moves: 'red', target: 'extension',
     file: 'out/src/lint-run.js',
-    find: "        : (typeof checked === 'number' ? ` across ${checked} entities checked` : '');",
-    replace: "        : '';",
+    find: '    const checked = counts.checked;',
+    replace: '    const checked = undefined;',
     says: 'the lint\'s closing sentence omits how many entities were checked',
   },
   {
     name: 'build-notification-miscounts', scenario: 'storefront', checks: ['operations.build-ends-in-words-and-writes-its-files'], moves: 'red', target: 'extension',
     file: OPERATIONS,
-    find: 'void vscode.window.showInformationMessage(`Aggrega: built ${release} — ${files.length} file(s) written to',
-    replace: 'void vscode.window.showInformationMessage(`Aggrega: built ${release} — ${files.length + 1} file(s) written to',
+    find: "void vscode.window.showInformationMessage(l10n.t('Aggrega: built {0} — {1} file(s) written to {2}/.', release, files.length,",
+    replace: "void vscode.window.showInformationMessage(l10n.t('Aggrega: built {0} — {1} file(s) written to {2}/.', release, files.length + 1,",
     says: 'the build\'s notification counts one file more than the build wrote',
   },
   {
@@ -597,15 +598,15 @@ export const PLANTS: readonly Plant[] = [
   {
     name: 'options-control-named-adjustments', scenario: 'workspace-above', checks: ['build-options.control-is-named-build-options', 'build-options.name-carries-no-count'], moves: 'red', target: 'extension',
     file: RENDER,
-    find: '    const label = `${op.label} options`;',
-    replace: '    const label = `${op.label} adjustments`;',
+    find: "            return l10n.t('Build options');",
+    replace: "            return l10n.t('Build adjustments');",
     says: 'the control beside Build is named "Build adjustments", with nothing ticked and with an option ticked alike',
   },
   {
     name: 'options-menu-named-adjustments', scenario: 'workspace-above', checks: ['build-options.menu-opens-below-the-chevron-aligned-right'], moves: 'red', target: 'extension',
     file: 'out/src/operation-menus.js',
-    find: "const BUILD_DIALS_MENU_LABEL = 'Options for the next build';",
-    replace: "const BUILD_DIALS_MENU_LABEL = 'Adjustments for the next build';",
+    find: "const BUILD_DIALS_MENU_LABEL = l10n.t('Options for the next build');",
+    replace: "const BUILD_DIALS_MENU_LABEL = l10n.t('Adjustments for the next build');",
     says: 'the menu beside Build is named "Adjustments for the next build"',
   },
   {
@@ -644,8 +645,8 @@ export const PLANTS: readonly Plant[] = [
   {
     name: 'refusal-raised-twice', scenario: 'workspace-above', checks: ['build.missing-lockfile-refusal-offers-the-remedy'], moves: 'red', target: 'extension',
     file: OPERATIONS,
-    find: "await (0, cli_operation_1.reportOutcome)(deps, 'The build', outcome, true, { notified: routed === 'notified' });",
-    replace: "await (0, cli_operation_1.reportOutcome)(deps, 'The build', outcome, true, { notified: false });",
+    find: "await (0, cli_operation_1.reportOutcome)(deps, l10n.t('The build'), outcome, true, { notified: routed === 'notified' });",
+    replace: "await (0, cli_operation_1.reportOutcome)(deps, l10n.t('The build'), outcome, true, { notified: false });",
     says: 'a build refused for a missing lockfile raises its own failure notification beside the notice, two notifications for one fault',
   },
   {
@@ -670,8 +671,8 @@ export const PLANTS: readonly Plant[] = [
   {
     name: 'resolution-source-not-named', scenario: 'workspace-above', checks: ['build.auto-pull-fills-the-lockfile-then-builds'], moves: 'red', target: 'extension',
     file: 'out/src/build-report.js',
-    find: "    const source = ref.source ? `, source: ${ref.source}` : '';",
-    replace: "    const source = '';",
+    find: "    return `  ${ref.source ? l10n.t('{0}, source: {1}', pinned, ref.source) : pinned}`;",
+    replace: '    return `  ${pinned}`;',
     says: 'each reference a build\'s resolution pinned is listed without where the resolution took it from, although the answer names it',
   },
   {
@@ -705,8 +706,8 @@ export const PLANTS: readonly Plant[] = [
   {
     name: 'build-writes-a-command-line', scenario: 'workspace-above', checks: ['output-channel.server-operations-write-no-dollar-line'], moves: 'red', target: 'extension',
     file: OPERATIONS,
-    find: '    out.appendLine(`\\nBuild of ${release}.`);',
-    replace: '    out.appendLine(`\\n$ aggrega build --release ${release}\\nBuild of ${release}.`);',
+    find: "    out.appendLine(`\\n${l10n.t('Build of {0}.', release)}`);",
+    replace: "    out.appendLine(`\\n$ aggrega build --release ${release}\\n${l10n.t('Build of {0}.', release)}`);",
     says: 'a build writes a command line to the channel before its report, as an operation run as a command does',
   },
   // ---- the language server killed from outside ----
@@ -785,7 +786,7 @@ export const PLANTS: readonly Plant[] = [
   {
     name: 'build-advice-left-off-its-line', scenario: 'storefront-with-registries', checks: ['catalog-search.index-freshness-is-named-in-the-channel'], moves: 'red', target: 'extension',
     file: SEARCH_RUN,
-    find: '    for (const host of doc.missingIndexHosts ?? []) {\n        lines.push(`${notSearched([host])}.`);\n    }',
+    find: "    for (const host of doc.missingIndexHosts ?? []) {\n        lines.push(l10n.t('{0}.', notSearched([host])));\n    }",
     replace: '    for (const host of doc.missingIndexHosts ?? []) {\n        lines.push(`registry ${host}: no local index has been built.`);\n    }\n    if ((doc.missingIndexHosts ?? []).length > 0) {\n        lines.push(\'Refresh with “Update index” in the Registries panel.\');\n    }',
     says: 'a registry with no index is named on a line of its own and the advice to refresh follows every per-registry line, so it reads as advice about the healthy registry\'s index',
   },
@@ -1020,7 +1021,7 @@ export const PLANTS: readonly Plant[] = [
   },
   {
     name: 'graph-failure-line-without-the-reason', scenario: SELECTED_RELEASE, checks: ['graph.refused-for-a-catalog-file-leading-out-in-the-compilers-words'], moves: 'red', target: 'extension',
-    file: GRAPH_FAILURE, find: '    return `The topology of ${release} could not be drawn: ${message}`;', replace: '    return `The topology of ${release} could not be drawn.`;',
+    file: GRAPH_FAILURE, find: "    return l10n.t('The topology of {0} could not be drawn: {1}', release, message);", replace: "    return l10n.t('The topology of {0} could not be drawn.', release);",
     says: 'the line for a drawing that could not be made, on the channel and in a panel with nothing drawn, leaves out the compiler\'s words for why',
   },
   // The condition a refusal names, carried onto the Problems entry it is filed as.
@@ -1039,7 +1040,7 @@ export const PLANTS: readonly Plant[] = [
     name: 'default-release-refusal-in-the-extensions-words', scenario: DEFAULT_RELEASE,
     checks: ['default-release.refused-where-its-directory-leads-out', 'default-release.refused-where-the-marker-leads-out', 'default-release.refused-where-the-marker-leads-nowhere-outside'],
     moves: 'red', target: 'extension',
-    file: 'out/src/active-release-marker.js', find: MARKER_NOT_WRITTEN, replace: MARKER_NOT_WRITTEN.replace('${(0, error_text_1.describeError)(err)}', 'the language server refused it'),
+    file: 'out/src/active-release-marker.js', find: MARKER_NOT_WRITTEN, replace: MARKER_NOT_WRITTEN.replace('(0, error_text_1.describeError)(err)', "'the language server refused it'"),
     says: 'a refused write of the marker ends in words of the extension\'s own in place of the compiler\'s',
   },
   {
@@ -1445,12 +1446,12 @@ export const PLANTS: readonly Plant[] = [
   { name: 'context-row-renamed-cache', scenario: 'gateway-cache', checks: ['commands-panel.context-rows-name-the-opened-folder'], moves: 'red', target: 'extension', ...CONTEXT_ROW_LABEL },
   {
     name: 'cache-list-placeholder-reworded', scenario: 'gateway-cache', checks: ['cache.palette-asks-which-operation-as-a-list'], moves: 'red', target: 'extension',
-    file: OPERATIONS, find: "{ placeHolder: 'Aggrega: choose a cache operation' }", replace: "{ placeHolder: 'Aggrega: pick one' }",
+    file: OPERATIONS, find: "{ placeHolder: l10n.t('Aggrega: choose a cache operation') }", replace: "{ placeHolder: l10n.t('Aggrega: pick one') }",
     says: 'the list of cache operations the palette opens is headed with other words',
   },
   {
     name: 'report-counts-one-entry-more', scenario: 'gateway-cache', checks: ['cache.status-reports-the-compilers-figures-on-the-channel-alone'], moves: 'red', target: 'extension',
-    file: OPERATIONS, find: "return `listed ${countOf(result.totalCount, 'entry', 'entries')} holding ${result.totalSizeText}.`;", replace: "return `listed ${countOf(result.totalCount + 1, 'entry', 'entries')} holding ${result.totalSizeText}.`;",
+    file: OPERATIONS, find: "return result.totalCount === 1\n                ? l10n.t('listed 1 entry holding {0}.', result.totalSizeText)\n                : l10n.t('listed {0} entries holding {1}.', result.totalCount, result.totalSizeText);", replace: "return result.totalCount + 1 === 1\n                ? l10n.t('listed 1 entry holding {0}.', result.totalSizeText)\n                : l10n.t('listed {0} entries holding {1}.', result.totalCount + 1, result.totalSizeText);",
     says: 'the cache report\'s closing line counts one entry more than the answer',
   },
   {
@@ -1470,27 +1471,27 @@ export const PLANTS: readonly Plant[] = [
   },
   {
     name: 'total-size-printed-in-words', scenario: 'gateway-cache', checks: ['cache.a-size-the-report-shows-is-accepted-as-the-cap'], moves: 'red', target: 'extension',
-    file: OPERATIONS, find: 'holding ${result.totalSizeText}.`;', replace: "holding ${result.totalSizeText.replace('iB', 'ibibytes')}.`;",
+    file: OPERATIONS, find: "? l10n.t('listed 1 entry holding {0}.', result.totalSizeText)\n                : l10n.t('listed {0} entries holding {1}.', result.totalCount, result.totalSizeText);", replace: "? l10n.t('listed 1 entry holding {0}.', result.totalSizeText.replace('iB', 'ibibytes'))\n                : l10n.t('listed {0} entries holding {1}.', result.totalCount, result.totalSizeText.replace('iB', 'ibibytes'));",
     says: 'the report\'s total size is printed with its unit spelled out, a figure the trim does not read',
   },
   {
     name: 'within-cap-reported-bare', scenario: 'gateway-cache', checks: ['cache.trim-to-a-cap-trims-or-says-it-was-within'], moves: 'red', target: 'extension',
-    file: OPERATIONS, find: 'return `removed nothing: the cache held ${result.totalBeforeText}, already within the ${result.capBytesText} cap.`;', replace: "return 'removed nothing.';",
+    file: OPERATIONS, find: "return l10n.t('removed nothing: the cache held {0}, already within the {1} cap.', result.totalBeforeText, result.capBytesText);", replace: "return l10n.t('removed nothing.');",
     says: 'a trim already within its cap ends without saying what the cache held or what the cap was',
   },
   {
     name: 'trim-counts-one-entry-more-left-in-place', scenario: 'gateway-cache', checks: ['cache.trim-that-removes-with-nothing-held-open-says-nothing-of-it'], moves: 'red', target: 'extension',
-    file: OPERATIONS, find: "${heldOpenSentence(operation, evictedHeld.length, 'entry')}", replace: "${heldOpenSentence(operation, evictedHeld.length + 1, 'entry')}",
+    file: OPERATIONS, find: '${heldOpenSentence(operation, evictedHeld.length)}', replace: '${heldOpenSentence(operation, evictedHeld.length + 1)}',
     says: 'a trim that removed entries ends saying one entry more was left in place, because another process has it open, than its answer names — one, where it names none',
   },
   {
     name: 'kept-line-left-out', scenario: 'gateway-cache', checks: ['cache.prune-ends-in-what-it-removed-and-kept'], moves: 'red', target: 'extension',
-    file: OPERATIONS, find: "            out.appendLine(`  kept, still referenced: ${countOf(result.retainedCount, 'entry', 'entries')}`);", replace: '',
+    file: OPERATIONS, find: "            out.appendLine(`  ${l10n.t('kept, still referenced: {0}', entryCount(result.retainedCount))}`);", replace: '',
     says: 'the prune writes nothing about the entries it kept as still referenced',
   },
   {
     name: 'prune-counts-one-entry-more-left-in-place', scenario: 'gateway-cache', checks: ['cache.prune-with-nothing-held-open-says-nothing-of-it'], moves: 'red', target: 'extension',
-    file: OPERATIONS, find: "${heldOpenSentence(operation, prunedHeld.length, 'entry')}", replace: "${heldOpenSentence(operation, prunedHeld.length + 1, 'entry')}",
+    file: OPERATIONS, find: '${heldOpenSentence(operation, prunedHeld.length)}', replace: '${heldOpenSentence(operation, prunedHeld.length + 1)}',
     says: 'the prune ends saying one entry more was left in place, because another process has it open, than its answer names — one, where it names none',
   },
   {
@@ -1500,19 +1501,19 @@ export const PLANTS: readonly Plant[] = [
   },
   {
     name: 'wipe-counts-one-cache-more', scenario: 'gateway-cache', checks: ['cache.clear-completes-and-says-what-it-emptied'], moves: 'red', target: 'extension',
-    file: OPERATIONS, find: "return `emptied ${countOf(cleared.length, 'cache', 'caches')}", replace: "return `emptied ${countOf(cleared.length + 1, 'cache', 'caches')}",
+    file: OPERATIONS, find: "const emptied = cleared.length === 1\n                ? l10n.t('emptied 1 cache and reclaimed {0}. They repopulate on the next build.', result.reclaimedBytesText)\n                : l10n.t('emptied {0} caches and reclaimed {1}. They repopulate on the next build.', cleared.length, result.reclaimedBytesText);", replace: "const emptied = cleared.length + 1 === 1\n                ? l10n.t('emptied 1 cache and reclaimed {0}. They repopulate on the next build.', result.reclaimedBytesText)\n                : l10n.t('emptied {0} caches and reclaimed {1}. They repopulate on the next build.', cleared.length + 1, result.reclaimedBytesText);",
     says: 'the wipe\'s notification counts one cache more than it emptied',
   },
   {
     name: 'wipe-counts-one-file-more-left-in-place', scenario: 'gateway-cache', checks: ['cache.clear-with-nothing-held-open-says-nothing-of-it'], moves: 'red', target: 'extension',
-    file: OPERATIONS, find: "${heldOpenSentence(operation, heldFiles, 'file')}", replace: "${heldOpenSentence(operation, heldFiles + 1, 'file')}",
+    file: OPERATIONS, find: '${heldOpenSentence(operation, heldFiles)}', replace: '${heldOpenSentence(operation, heldFiles + 1)}',
     says: 'the wipe ends saying one file more was left in place, because another process has it open, than its answer names — one, where it names none',
   },
   {
     name: 'trim-confirmation-names-both-scopes', scenario: 'gateway-cache', checks: ['cache.each-removal-confirms-first-naming-the-caches-it-reaches'], moves: 'red', target: 'extension',
     file: 'out/src/operation-groups.js',
-    find: "scope: `This reaches ${THE_COMPILED_MODULE_CACHE}. Nothing under this workspace's own cache directory is touched. What is removed is rebuilt on the next build that needs it.`,",
-    replace: 'scope: `This reaches ${THIS_WORKSPACE_CACHES}, and ${THIS_MACHINE_CACHES}. What is removed is rebuilt on the next build that needs it.`,',
+    find: `scope: l10n.t("This reaches the {0}, which every project on this machine shares. Nothing under this workspace's own cache directory is touched. What is removed is rebuilt on the next build that needs it.", COMPILED_MODULE_CACHE),`,
+    replace: `scope: l10n.t("This reaches this workspace's own entity, source-artifact and external-input caches, and the {0}, which every project on this machine shares. What is removed is rebuilt on the next build that needs it.", COMPILED_MODULE_CACHE),`,
     says: 'the trim\'s confirmation names this workspace\'s caches as well as the shared one, as the other two removals do',
   },
   {
@@ -1523,7 +1524,7 @@ export const PLANTS: readonly Plant[] = [
   },
   {
     name: 'workspace-line-names-the-parent', scenario: 'gateway-cache', checks: ['cache.operations-reach-only-this-scenarios-caches'], moves: 'red', target: 'extension',
-    file: OPERATIONS, find: '        out.appendLine(`  Workspace: ${scope.workspaceRoot}`);', replace: "        out.appendLine(`  Workspace: ${require('path').dirname(scope.workspaceRoot)}`);",
+    file: OPERATIONS, find: "        out.appendLine(`  ${l10n.t('Workspace: {0}', scope.workspaceRoot)}`);", replace: "        out.appendLine(`  ${l10n.t('Workspace: {0}', require('path').dirname(scope.workspaceRoot))}`);",
     says: 'each cache answer\'s "Workspace:" line names the folder above the workspace root',
   },
   {
@@ -1603,29 +1604,29 @@ export const PLANTS: readonly Plant[] = [
   {
     name: 'status-bar-menu-listed-with-no-server', scenario: 'no-workspace-first-day', checks: ['palette.status-bar-menu-is-left-out-with-no-server'], moves: 'red', target: 'extension',
     file: 'package.json',
-    find: '        "title": "Aggrega: Open status bar menu",\n        "enablement": "aggrega.compilerAnswerable"',
-    replace: '        "title": "Aggrega: Open status bar menu"',
+    find: '        "title": "%command.aggrega.statusBar.openMenu.title%",\n        "enablement": "aggrega.compilerAnswerable"',
+    replace: '        "title": "%command.aggrega.statusBar.openMenu.title%"',
     says: 'the status bar menu command carries no enablement condition, so the palette lists it whether or not a language server answers',
   },
   {
     name: 'status-bar-menu-gated-on-a-condition-nothing-publishes', scenario: 'no-workspace-first-day', checks: ['palette.status-bar-menu-is-listed-once-a-server-answers'], moves: 'red', target: 'extension',
     file: 'package.json',
-    find: '        "title": "Aggrega: Open status bar menu",\n        "enablement": "aggrega.compilerAnswerable"',
-    replace: '        "title": "Aggrega: Open status bar menu",\n        "enablement": "aggrega.compilerAnswered"',
+    find: '        "title": "%command.aggrega.statusBar.openMenu.title%",\n        "enablement": "aggrega.compilerAnswerable"',
+    replace: '        "title": "%command.aggrega.statusBar.openMenu.title%",\n        "enablement": "aggrega.compilerAnswered"',
     says: 'the status bar menu command is gated on an editor condition the extension never publishes, so it stays unavailable once a language server answers',
   },
   {
     name: 'toggle-unavailable-while-nothing-answers', scenario: 'no-workspace-first-day', checks: ['palette.build-analysis-toggle-works-with-no-server'], moves: 'red', target: 'extension',
     file: 'package.json',
-    find: '        "command": "aggrega.server.toggleBuildOnInspect",\n        "title": "Aggrega: Toggle the artifact-rendering stage while inspecting"',
-    replace: '        "command": "aggrega.server.toggleBuildOnInspect",\n        "title": "Aggrega: Toggle the artifact-rendering stage while inspecting",\n        "enablement": "aggrega.compilerAnswerable"',
+    find: '        "command": "aggrega.server.toggleBuildOnInspect",\n        "title": "%command.aggrega.server.toggleBuildOnInspect.title%"',
+    replace: '        "command": "aggrega.server.toggleBuildOnInspect",\n        "title": "%command.aggrega.server.toggleBuildOnInspect.title%",\n        "enablement": "aggrega.compilerAnswerable"',
     says: 'the build-on-inspect toggle is made unavailable while nothing is answerable',
   },
   {
     name: 'item-says-no-root-as-if-anchored', scenario: 'no-workspace-first-day', checks: ['status-bar.lifecycle-item-says-there-is-nothing-to-attach-to'], moves: 'red', target: 'extension',
     file: DAEMON_STATUS,
-    find: "                : 'No folder in this window is one Aggrega recognises as a workspace, so there is nothing for the language server to attach to. Click to look again.';",
-    replace: "                : 'The Aggrega language server is not running, so the operations that ask it a question are unavailable. Click to start it.';",
+    find: "                : l10n.t('No folder in this window is one Aggrega recognises as a workspace, so there is nothing for the language server to attach to. Click to look again.');",
+    replace: "                : l10n.t('The Aggrega language server is not running, so the operations that ask it a question are unavailable. Click to start it.');",
     says: 'the item\'s hover in a window no workspace marker reaches reads as it does in an anchored one',
   },
   {
@@ -1665,21 +1666,21 @@ export const PLANTS: readonly Plant[] = [
   {
     name: 'reach-left-out-of-a-publication', scenario: 'gateway-endings', checks: ['publication.ends-naming-what-others-now-resolve'], moves: 'red', target: 'extension',
     file: 'out/src/publication-request.js',
-    find: '        detail: `published ${result.reference}:${result.tag} as ${result.digest}${signature}.`\n            + ` ${reachPhrase(result.reach)}`,',
-    replace: '        detail: `published ${result.reference}:${result.tag} as ${result.digest}${signature}.`,',
+    find: "    return { kind: 'ok', detail: `${published} ${reachPhrase(result.reach)}` };",
+    replace: "    return { kind: 'ok', detail: published };",
     says: 'a publication ends without the sentence saying who now resolves it',
   },
   {
     name: 'already-published-read-as-a-publication', scenario: 'gateway-endings', checks: ['publication.identical-bytes-again-publish-nothing'], moves: 'red', target: 'extension',
-    file: 'out/src/publication-request.js', find: '    if (result.alreadyPublished) {\n        return {', replace: '    if (false) {\n        return {',
+    file: 'out/src/publication-request.js', find: '    if (result.alreadyPublished) {\n        // A re-publication', replace: '    if (false) {\n        // A re-publication',
     says: 'an answer that found the same bytes already published is read as a publication',
   },
   // ---- a documentation example with two Releases, watched and stopped ----
   { name: 'context-row-renamed-watch-and-stop', scenario: 'mysql-watch-and-stop', checks: ['commands-panel.context-rows-name-the-folder-and-no-release'], moves: 'red', target: 'extension', ...CONTEXT_ROW_LABEL },
   {
     name: 'selection-raises-a-notification', scenario: 'mysql-watch-and-stop', checks: ['release-selection.choosing-a-release-updates-the-indicator-and-raises-no-notification'], moves: 'red', target: 'extension',
-    file: EXTENSION, find: '        outputChannel?.appendLine(`selected Release: ${chosen}`);',
-    replace: '        outputChannel?.appendLine(`selected Release: ${chosen}`);\n        void vscode.window.showInformationMessage(`Aggrega: now working on ${chosen}.`);',
+    file: EXTENSION, find: "        outputChannel?.appendLine(l10n.t('selected Release: {0}', chosen));",
+    replace: "        outputChannel?.appendLine(l10n.t('selected Release: {0}', chosen));\n        void vscode.window.showInformationMessage(`Aggrega: now working on ${chosen}.`);",
     says: 'choosing a Release raises a notification naming it',
   },
   {
@@ -1732,8 +1733,8 @@ export const PLANTS: readonly Plant[] = [
   },
   {
     name: 'workspace-chooser-titled-as-the-release-chooser', scenario: 'two-releases-context-rows', checks: ['context-rows.each-row-opens-its-own-chooser'], moves: 'red', target: 'extension',
-    file: 'out/src/anchor-picker.js', find: 'exports.CHOOSE_ANCHOR_PLACEHOLDER = `Aggrega: choose which ${selector_levels_1.SELECTOR_ROW_LABELS.workspace} the editor works in`;',
-    replace: "exports.CHOOSE_ANCHOR_PLACEHOLDER = 'Aggrega: choose the Release to work on';",
+    file: 'out/src/anchor-picker.js', find: "exports.CHOOSE_ANCHOR_PLACEHOLDER = l10n.t('Aggrega: choose which Aggrega workspace the editor works in');",
+    replace: "exports.CHOOSE_ANCHOR_PLACEHOLDER = l10n.t('Aggrega: choose the Release to work on');",
     says: 'the Aggrega workspace row\'s chooser carries the Release chooser\'s placeholder, so one placeholder serves two rows',
   },
   {
@@ -1748,7 +1749,7 @@ export const PLANTS: readonly Plant[] = [
   },
   {
     name: 'release-hover-ends-lowercase', scenario: 'two-releases-context-rows', checks: ['context-rows.hovers-promise-a-choice'], moves: 'red', target: 'extension',
-    file: 'out/src/release-selection.js', find: 'Click to choose a different ${selector_levels_1.SELECTOR_ROW_LABELS.release}.`,', replace: 'Click to choose a different release.`,',
+    file: 'out/src/release-selection.js', find: "l10n.t('Click to choose a different Release.')", replace: "l10n.t('Click to choose a different release.')",
     says: 'the Release row\'s hover closes with a lowercase "release."',
   },
   {
@@ -1760,7 +1761,7 @@ export const PLANTS: readonly Plant[] = [
   },
   {
     name: 'workspace-label-drawn-long', scenario: 'two-releases-context-rows', checks: ['context-rows.workspace-label-drawn-short-giving-the-values-room'], moves: 'red', target: 'extension',
-    file: 'out/src/selector-levels.js', find: "    workspace: 'Agg. worksp.',", replace: "    workspace: 'Aggrega workspace',",
+    file: 'out/src/selector-levels.js', find: "    workspace: l10n.t('Agg. worksp.'),", replace: "    workspace: l10n.t('Aggrega workspace'),",
     says: 'the Aggrega workspace row draws the level\'s whole name as its label, so the label column takes the room the values would have had',
   },
   {
@@ -1771,19 +1772,19 @@ export const PLANTS: readonly Plant[] = [
   {
     name: 'dropped-release-not-said', scenario: 'two-releases-context-rows', checks: ['release-selection.one-no-longer-offered-falls-back-and-says-so'], moves: 'red', target: 'extension',
     file: 'out/src/release-selection.js',
-    find: "            deps.reportInfo(`Aggrega: ${remembered} is no longer offered in this workspace, so the previous selection was dropped. Falling back to this workspace's default.`);",
+    find: '            deps.reportInfo(l10n.t("Aggrega: {0} is no longer offered in this workspace, so the previous selection was dropped. Falling back to this workspace\'s default.", remembered));',
     replace: '            void 0;',
     says: 'a remembered Release that is no longer offered is dropped without a word',
   },
   {
     name: 'unanswered-server-read-as-none-selected', scenario: 'two-releases-context-rows', checks: ['release-row.reads-unavailable-with-the-server-stopped'], moves: 'red', target: 'extension',
-    file: 'out/src/release-selection.js', find: "                value: 'unavailable',", replace: "                value: 'none selected',",
+    file: 'out/src/release-selection.js', find: "            const value = l10n.t('unavailable');", replace: "            const value = l10n.t('none selected');",
     says: 'the Release row reads "none selected" where no language server answers which Release is selected',
   },
   {
     name: 'workspace-hover-promises-a-switch', scenario: 'two-releases-context-rows', checks: ['context-rows.no-surface-refuses-a-sole-candidate-or-promises-a-switch'], moves: 'red', target: 'extension',
-    file: 'out/src/anchor-picker.js', find: 'exports.CHOOSE_ANCHOR_INVITATION = `Click to choose which ${selector_levels_1.SELECTOR_ROW_LABELS.workspace} the editor works in.`;',
-    replace: "exports.CHOOSE_ANCHOR_INVITATION = 'Click to switch the anchored folder.';",
+    file: 'out/src/anchor-picker.js', find: "exports.CHOOSE_ANCHOR_INVITATION = l10n.t('Click to choose which Aggrega workspace the editor works in.');",
+    replace: "exports.CHOOSE_ANCHOR_INVITATION = l10n.t('Click to switch the anchored folder.');",
     says: 'the Aggrega workspace row\'s hover closes by promising a switch',
   },
   // ---- two Aggrega workspaces reached in one window ----
@@ -1834,7 +1835,7 @@ export const PLANTS: readonly Plant[] = [
   // ---- the Project folder row's opens and adds ----
   {
     name: 'add-entry-labelled-otherwise', scenario: 'project-folder-adds', checks: ['project-folder.chooser-offers-two-ways-to-reach-another'], moves: 'red', target: 'extension',
-    file: 'out/src/project-folder.js', find: "exports.ADD_FOLDER_ENTRY_LABEL = 'Add folder to this window…';", replace: "exports.ADD_FOLDER_ENTRY_LABEL = 'Add folder…';",
+    file: 'out/src/project-folder.js', find: "exports.ADD_FOLDER_ENTRY_LABEL = l10n.t('Add folder to this window…');", replace: "exports.ADD_FOLDER_ENTRY_LABEL = l10n.t('Add folder…');",
     says: 'the Project folder chooser\'s add entry is labelled "Add folder…", which says nothing of which folders it is added beside',
   },
   {
@@ -1844,12 +1845,12 @@ export const PLANTS: readonly Plant[] = [
   },
   {
     name: 'open-dialog-button-reads-add', scenario: 'project-folder-adds', checks: ['project-folder.open-dialog-names-its-act-lists-folders-and-cancels-quietly'], moves: 'red', target: 'extension',
-    file: 'out/src/project-folder.js', find: "    openLabel: 'Open',", replace: "    openLabel: 'Add',",
+    file: 'out/src/project-folder.js', find: "    openLabel: l10n.t('Open'),", replace: "    openLabel: l10n.t('Add'),",
     says: 'the open entry\'s dialog names the other act on its button',
   },
   {
     name: 'add-dialog-titled-as-the-open-dialog', scenario: 'project-folder-adds', checks: ['project-folder.add-dialog-names-its-act-and-cancels-quietly'], moves: 'red', target: 'extension',
-    file: 'out/src/project-folder.js', find: "    title: 'Aggrega: select a folder to add to this window',", replace: "    title: 'Aggrega: select a folder to open in this window',",
+    file: 'out/src/project-folder.js', find: "    title: l10n.t('Aggrega: select a folder to add to this window'),", replace: "    title: l10n.t('Aggrega: select a folder to open in this window'),",
     says: 'the add entry\'s dialog is titled as the open entry\'s',
   },
   {
@@ -1984,7 +1985,7 @@ export const PLANTS: readonly Plant[] = [
   // ---- the interruption for a workspace above the folder opened ----
   {
     name: 'dialog-labels-the-workspace-bare', scenario: 'workspace-above-interruption', checks: ['workspace-above.dialog-says-only-the-two-paths'], moves: 'red', target: 'extension',
-    file: 'out/src/workspace-above.js', find: '        workspace: `${selector_levels_1.SELECTOR_ROW_LABELS.workspace}: ${anchoredRoot}`,', replace: '        workspace: `Workspace: ${anchoredRoot}`,',
+    file: 'out/src/workspace-above.js', find: "        workspace: l10n.t('{0}: {1}', selector_levels_1.SELECTOR_ROW_LABELS.workspace, anchoredRoot),", replace: "        workspace: l10n.t('{0}: {1}', 'Workspace', anchoredRoot),",
     says: 'the dialog labels the workspace\'s line "Workspace:"',
   },
   {
@@ -2002,8 +2003,8 @@ export const PLANTS: readonly Plant[] = [
     // decides what a dismissal does.
     name: 'escape-read-as-silence', scenario: 'workspace-above-interruption', checks: ['workspace-above.escape-on-the-dialog-is-continue-here'], moves: 'red', target: 'extension',
     file: 'out/src/workspace-above.js',
-    find: "            { title: 'Continue here', isCloseAffordance: true, choice: 'continue' },\n            { title: 'Don\\'t show again for this folder', choice: 'silence' },",
-    replace: "            { title: 'Continue here', choice: 'continue' },\n            { title: 'Don\\'t show again for this folder', isCloseAffordance: true, choice: 'silence' },",
+    find: "            { title: l10n.t('Continue here'), isCloseAffordance: true, choice: 'continue' },\n            { title: l10n.t('Don\\'t show again for this folder'), choice: 'silence' },",
+    replace: "            { title: l10n.t('Continue here'), choice: 'continue' },\n            { title: l10n.t('Don\\'t show again for this folder'), isCloseAffordance: true, choice: 'silence' },",
     says: 'the dialog dismissed with Escape answers as "Don\'t show again for this folder", its close affordance declared there rather than on "Continue here"',
   },
   {
@@ -2034,7 +2035,7 @@ export const PLANTS: readonly Plant[] = [
   },
   {
     name: 'welcome-page-tab-titled-welcome', scenario: 'welcome-page-empty-folder', checks: ['welcome-page.is-a-tab-of-its-own'], moves: 'red', target: 'extension',
-    file: 'out/src/get-started-steps.js', find: "exports.WELCOME_PANEL_TITLE = 'Welcome to Aggrega';", replace: "exports.WELCOME_PANEL_TITLE = 'Welcome';",
+    file: 'out/src/get-started-steps.js', find: "exports.WELCOME_PANEL_TITLE = l10n.t('Welcome to Aggrega');", replace: "exports.WELCOME_PANEL_TITLE = l10n.t('Welcome');",
     says: 'the page\'s tab is titled "Welcome", which names nobody\'s page',
   },
   {
@@ -2043,7 +2044,7 @@ export const PLANTS: readonly Plant[] = [
   },
   {
     name: 'compiler-step-offers-one-way-through', scenario: 'welcome-page-empty-folder', checks: ['welcome-page.every-step-offers-its-ways-through'], moves: 'red', target: 'extension',
-    file: 'out/src/get-started-steps.js', find: "            { label: 'Point at a compiler I have', command: exports.LOCATE_COMPILER_COMMAND },\n", replace: '',
+    file: 'out/src/get-started-steps.js', find: '            { label: LOCATE_COMPILER_LABEL, command: exports.LOCATE_COMPILER_COMMAND },\n', replace: '',
     says: 'the compiler step offers one way through, the way to point at a compiler of the reader\'s own left out',
   },
   {
@@ -2064,12 +2065,12 @@ export const PLANTS: readonly Plant[] = [
   },
   {
     name: 'workspace-step-respells-its-row', scenario: 'welcome-page-empty-folder', checks: ['welcome-page.workspace-step-names-the-rows-it-points-at'], moves: 'red', target: 'extension',
-    file: 'out/src/get-started-steps.js', find: 'The **${selector_levels_1.SELECTOR_ROW_LABELS.workspace} (${selector_levels_1.SELECTOR_ROW_DRAWN_LABELS.workspace})** row at the top of the Commands panel', replace: 'The **Aggrega workspace (Workspace)** row at the top of the Commands panel',
+    file: 'out/src/get-started-steps.js', find: "row at the top of the Commands panel always names the folder that was actually anchored, so when it differs from what you opened you can see why.', selector_levels_1.SELECTOR_ROW_LABELS.workspace, selector_levels_1.SELECTOR_ROW_DRAWN_LABELS.workspace)", replace: "row at the top of the Commands panel always names the folder that was actually anchored, so when it differs from what you opened you can see why.', 'Aggrega workspace', 'Workspace')",
     says: 'the workspace step names the row that says which folder was anchored in a spelling of its own, while the panel draws the row by its label',
   },
   {
     name: 'global-file-said-to-keep-credentials-out', scenario: 'welcome-page-empty-folder', checks: ['welcome-page.workspace-step-says-nothing-of-credentials'], moves: 'red', target: 'extension',
-    file: 'out/src/get-started-steps.js', find: 'It loads automatically when it is there, and nothing breaks when it is not.\',', replace: 'It loads automatically when it is there, and nothing breaks when it is not. It is there so credentials need not be committed.\',',
+    file: 'out/src/get-started-steps.js', find: 'It loads automatically when it is there, and nothing breaks when it is not.\'),', replace: 'It loads automatically when it is there, and nothing breaks when it is not. It is there so credentials need not be committed.\'),',
     says: 'the workspace step says the global file is there so credentials need not be committed',
   },
   {
@@ -2086,8 +2087,8 @@ export const PLANTS: readonly Plant[] = [
   {
     name: 'nothing-recognised-offered-as-an-empty-chooser', scenario: 'welcome-page-empty-folder', checks: ['welcome-page.use-a-folder-with-none-recognised-says-so'], moves: 'red', target: 'extension',
     file: 'out/src/get-started.js',
-    find: "    if (candidates.length === 0) {\n        void vscode.window.showInformationMessage('Aggrega: no folder in this workspace carries anything",
-    replace: "    if (false) {\n        void vscode.window.showInformationMessage('Aggrega: no folder in this workspace carries anything",
+    find: "    if (candidates.length === 0) {\n        void vscode.window.showInformationMessage(l10n.t('Aggrega: no folder in this workspace carries anything",
+    replace: "    if (false) {\n        void vscode.window.showInformationMessage(l10n.t('Aggrega: no folder in this workspace carries anything",
     says: 'a search that recognised nothing is offered as an empty chooser rather than answered in words',
   },
   {
@@ -2106,7 +2107,7 @@ export const PLANTS: readonly Plant[] = [
   },
   {
     name: 'refusal-words-dropped', scenario: 'welcome-page-empty-folder', checks: ['welcome-page.seeding-the-hub-over-a-file-is-refused-in-the-compilers-words'], moves: 'red', target: 'extension',
-    file: 'out/src/operation-outcome.js', find: '            return `${what} did not complete: ${outcome.message}`;', replace: '            return `${what} did not complete.`;',
+    file: 'out/src/operation-outcome.js', find: "            return l10n.t('{0} did not complete: {1}', what, outcome.message);", replace: "            return l10n.t('{0} did not complete.', what);",
     says: 'a refusal ends in its subject alone, none of the compiler\'s words carried',
   },
   {
@@ -2235,12 +2236,12 @@ export const PLANTS: readonly Plant[] = [
   },
   {
     name: 'unmet-standing-outstanding', scenario: 'welcome-page-mixed-workspace', checks: ['welcome-page.standings-read-met-and-to-do'], moves: 'red', target: 'extension',
-    file: 'out/src/welcome-render.js', find: "exports.UNMET_LABEL = 'To do';", replace: "exports.UNMET_LABEL = 'Outstanding';",
+    file: 'out/src/welcome-render.js', find: "exports.UNMET_LABEL = l10n.t('To do');", replace: "exports.UNMET_LABEL = l10n.t('Outstanding');",
     says: 'a step still to do stands as "Outstanding"',
   },
   {
     name: 'description-names-a-lapse-outstanding', scenario: 'welcome-page-mixed-workspace', checks: ['settings.get-started-show-label-and-description'], moves: 'red', target: 'extension',
-    file: 'package.json', find: 'marking it to do again if it later lapses', replace: 'marking it outstanding again if it later lapses',
+    file: 'package.nls.json', find: 'marking it to do again if it later lapses', replace: 'marking it outstanding again if it later lapses',
     says: 'the setting\'s description names a step that lapses outstanding',
   },
   {
@@ -2304,14 +2305,14 @@ export const PLANTS: readonly Plant[] = [
   },
   {
     name: 'other-shape-by-default', scenario: 'gateway-commands-panel', checks: ['commands-panel.default-shape-is-one-flow-with-no-group-titles'], moves: 'red', target: 'extension',
-    file: 'package.json', find: '          "default": "buttons",\n          "description": "How the Commands panel draws its groups.', replace: '          "default": "sections",\n          "description": "How the Commands panel draws its groups.',
+    file: 'package.json', find: '          "default": "buttons",\n          "description": "%configuration.aggrega.operations.layout.description%"', replace: '          "default": "sections",\n          "description": "%configuration.aggrega.operations.layout.description%"',
     says: 'the shape setting is declared with the section shape as its default',
   },
   {
     name: 'show-config-labelled-as-asking', scenario: 'gateway-commands-panel', checks: ['commands-panel.groups-in-order-labels-named-and-explained-on-the-hover'], moves: 'red', target: 'extension',
     file: 'out/src/operation-groups.js',
-    find: "                label: 'Show config',\n                detail: 'Every setting the schema declares, with the value in force and where it came from',",
-    replace: "                label: 'Show config…',\n                detail: 'Open the configuration panel',",
+    find: "                label: l10n.t('Show config'),\n                detail: l10n.t('Every setting the schema declares, with the value in force and where it came from'),",
+    replace: "                label: l10n.t('Show config…'),\n                detail: l10n.t('Open the configuration panel'),",
     says: 'Show config\'s label carries a trailing ellipsis and its hover an explanation other than the one declared for it',
   },
   {
@@ -2348,7 +2349,7 @@ export const PLANTS: readonly Plant[] = [
   },
   {
     name: 'pull-without-its-release', scenario: 'gateway-commands-panel', checks: ['commands-panel.every-entry-runs-or-asks-and-none-fails-on-its-arguments'], moves: 'red', target: 'extension',
-    file: OPERATIONS, find: '(0, operation_groups_1.releaseScopedArgs)(verb, release), `resolved the dependencies', replace: '[verb], `resolved the dependencies',
+    file: OPERATIONS, find: "(0, operation_groups_1.releaseScopedArgs)(verb, release), l10n.t('resolved the dependencies", replace: "[verb], l10n.t('resolved the dependencies",
     says: 'Pull runs the command line with the Release left out of its arguments',
   },
   {
@@ -2370,7 +2371,7 @@ export const PLANTS: readonly Plant[] = [
   },
   {
     name: 'sections-value-undescribed', scenario: 'gateway-commands-panel', checks: ['settings.layout-values-carry-their-descriptions'], moves: 'red', target: 'extension',
-    file: 'package.json', find: '            "Each group is a section you open, under its own title, so the panel shows as much as you keep open."', replace: '            ""',
+    file: 'package.json', find: '            "%configuration.aggrega.operations.layout.enumDescriptions.1%"', replace: '            ""',
     says: 'the section shape\'s value is declared with an empty description',
   },
   {
@@ -2412,23 +2413,23 @@ export const PLANTS: readonly Plant[] = [
   },
   {
     name: 'shape-a-workspace-may-set', scenario: 'gateway-commands-panel', checks: ['settings.preference-is-the-users-and-a-workspace-value-is-ignored'], moves: 'red', target: 'extension',
-    file: 'package.json', find: 'never which operations exist or what they do. Changing it redraws the open panel; nothing restarts.",\n          "scope": "machine"',
-    replace: 'never which operations exist or what they do. Changing it redraws the open panel; nothing restarts.",\n          "scope": "window"',
+    file: 'package.json', find: '          "description": "%configuration.aggrega.operations.layout.description%",\n          "scope": "machine"',
+    replace: '          "description": "%configuration.aggrega.operations.layout.description%",\n          "scope": "window"',
     says: 'the shape setting is declared with a scope a workspace may set',
   },
   {
     name: 'binary-path-says-machine-wide', scenario: 'gateway-commands-panel', checks: ['settings.binary-path-description-names-the-two-files'], moves: 'red', target: 'extension',
-    file: 'package.json', find: '`~/.config/aggrega/config.yaml`, the global file on your machine,', replace: '`~/.config/aggrega/config.yaml`, the machine-wide file,',
+    file: 'package.nls.json', find: '`~/.config/aggrega/config.yaml`, the global file on your machine,', replace: '`~/.config/aggrega/config.yaml`, the machine-wide file,',
     says: 'the binary path\'s description calls the file on the machine the machine-wide file',
   },
   {
     name: 'binary-path-description-declared-plain', scenario: 'gateway-commands-panel', checks: ['settings.binary-path-description-draws-its-code-as-code'], moves: 'red', target: 'extension',
-    file: 'package.json', find: '          "markdownDescription": "Path to the `aggrega` binary.', replace: '          "description": "Path to the `aggrega` binary.',
+    file: 'package.json', find: '          "markdownDescription": "%configuration.aggrega.server.binaryPath.markdownDescription%"', replace: '          "description": "%configuration.aggrega.server.binaryPath.markdownDescription%"',
     says: 'the binary path\'s description is declared as a plain description, which the settings screen draws with its backticks and no code',
   },
   {
     name: 'restart-grace-names-the-setting-by-its-id', scenario: 'gateway-commands-panel', checks: ['settings.restart-grace-names-the-binary-path-as-the-settings-screen-does'], moves: 'red', target: 'extension',
-    file: 'package.json', find: 'after a change to `#aggrega.server.binaryPath#`. The status bar', replace: 'after a binaryPath change. The status bar',
+    file: 'package.nls.json', find: 'after a change to `#aggrega.server.binaryPath#`. The status bar', replace: 'after a binaryPath change. The status bar',
     says: 'the restart grace\'s description names the binary path by its id rather than by the editor\'s link to it',
   },
   {
@@ -2611,13 +2612,13 @@ export const PLANTS: readonly Plant[] = [
   {
     name: 'credential-removal-asks-a-file', scenario: 'gateway-list-panel-operations', checks: ['registries-panel.credential-removal-asks-no-file-and-consents-naming-the-shared-store'], moves: 'red', target: 'extension',
     file: 'out/src/registries-view.js',
-    find: "    vscode.commands.registerCommand('aggrega.registries.logout', (node) => runOnRow(node, async (host) => {\n        const consented",
-    replace: "    vscode.commands.registerCommand('aggrega.registries.logout', (node) => runOnRow(node, async (host) => {\n        if (!(await askWriteDestination(registry_configure_1.REMOVAL_DESTINATION_PROMPT))) {\n            return;\n        }\n        const consented",
+    find: "    vscode.commands.registerCommand('aggrega.registries.logout', (node) => runOnRow(node, async (host) => {\n        const remove = l10n.t('Remove');",
+    replace: "    vscode.commands.registerCommand('aggrega.registries.logout', (node) => runOnRow(node, async (host) => {\n        if (!(await askWriteDestination(registry_configure_1.REMOVAL_DESTINATION_PROMPT))) {\n            return;\n        }\n        const remove = l10n.t('Remove');",
     says: 'the credential removal asks first which configuration file to remove it from',
   },
   {
     name: 'publication-goes-ahead-whatever-the-answer', scenario: 'gateway-list-panel-operations', checks: ['catalog-view.publication-confirms-naming-the-entity-and-a-decline-publishes-nothing'], moves: 'red', target: 'extension',
-    file: CATALOG_VIEW, find: "        if (consented !== 'Publish') {\n            return;\n        }", replace: '',
+    file: CATALOG_VIEW, find: '        if (consented !== publish) {\n            return;\n        }', replace: '',
     says: 'a row\'s publication goes ahead whatever the answer to its consent',
   },
   {
@@ -2643,7 +2644,7 @@ export const PLANTS: readonly Plant[] = [
   },
   {
     name: 'generation-goes-ahead-whatever-the-answer', scenario: 'gateway-list-panel-operations', checks: ['plugins-panel.generation-asks-scope-overlay-and-directory-and-writes-only-once-confirmed'], moves: 'red', target: 'extension',
-    file: 'out/src/plugins-view.js', find: "        if (consented !== 'Write') {\n            return;\n        }", replace: '',
+    file: 'out/src/plugins-view.js', find: '        if (consented !== write) {\n            return;\n        }', replace: '',
     says: 'generating Plugin entities goes ahead whatever the answer to its consent',
   },
   {
@@ -2653,7 +2654,7 @@ export const PLANTS: readonly Plant[] = [
   },
   {
     name: 'removal-consent-says-every-project', scenario: 'gateway-list-panel-operations', checks: ['registries-panel.removal-asks-which-file-before-consent-and-names-what-each-reaches'], moves: 'red', target: 'extension',
-    file: REGISTRY_CONFIGURE, find: "    const consequence = destination === 'global'", replace: '    const consequence = true',
+    file: REGISTRY_CONFIGURE, find: "    const removed = destination === 'global'", replace: '    const removed = true',
     says: 'the registry removal\'s consent says every project resolving through the entry is affected, whichever file was chosen',
   },
   {
@@ -2679,8 +2680,8 @@ export const PLANTS: readonly Plant[] = [
   {
     name: 'refusal-given-a-note-of-its-own', scenario: 'mysql-inspection-by-name', checks: ['inspect.declared-entity-the-catalog-cannot-resolve-says-why-and-what-to-change', 'inspect.no-note-where-the-workspace-lists-no-catalog-directory'], moves: 'red', target: 'extension',
     file: 'out/src/inspection-request.js',
-    find: '        const line = `${name} cannot be inspected because of the document that declares it: ${err.message}`;',
-    replace: '        const line = `${name} cannot be inspected because of the document that declares it: ${err.message}; note: its catalog directories are listed elsewhere`;',
+    find: "        const line = l10n.t('{0} cannot be inspected because of the document that declares it: {1}', name, err.message);",
+    replace: "        const line = `${l10n.t('{0} cannot be inspected because of the document that declares it: {1}', name, err.message)}; note: its catalog directories are listed elsewhere`;",
     says: 'a refusal naming the declaring document is shown with a note of the extension\'s own after the compiler\'s sentence',
   },
 
@@ -2716,7 +2717,7 @@ export const PLANTS: readonly Plant[] = [
   // ---- the gateway folder: the configuration panel as a reader meets it ----
   {
     name: 'configuration-panel-under-another-title', scenario: 'gateway-configuration-report', checks: ['config-panel.opens-as-a-table-in-its-own-tab'], moves: 'red', target: 'extension',
-    file: CONFIG_VIEW, find: "vscode.window.createWebviewPanel('aggrega.config', 'Aggrega configuration',", replace: "vscode.window.createWebviewPanel('aggrega.config', 'Aggrega settings',",
+    file: CONFIG_VIEW, find: "vscode.window.createWebviewPanel('aggrega.config', l10n.t('Aggrega configuration'),", replace: "vscode.window.createWebviewPanel('aggrega.config', l10n.t('Aggrega settings'),",
     says: 'the configuration panel is created under the title "Aggrega settings"',
   },
   {
@@ -2743,12 +2744,12 @@ export const PLANTS: readonly Plant[] = [
   },
   {
     name: 'first-heading-reads-config-keyword', scenario: 'gateway-configuration-report', checks: ['config-panel.columns-read-in-order-under-visible-headings'], moves: 'red', target: 'extension',
-    file: CONFIG_RENDER, find: "const TABLE_COLUMNS = ['Setting',", replace: "const TABLE_COLUMNS = ['config keyword',",
+    file: CONFIG_RENDER, find: "const TABLE_COLUMNS = [l10n.t('Setting'),", replace: "const TABLE_COLUMNS = [l10n.t('config keyword'),",
     says: 'the table\'s first heading reads "config keyword"',
   },
   {
     name: 'last-heading-drawn-silent', scenario: 'gateway-configuration-report', checks: ['config-panel.columns-read-in-order-under-visible-headings'], moves: 'red', target: 'extension',
-    file: CONFIG_RENDER, find: "const LAST_COLUMN = 'Description';", replace: "const LAST_COLUMN = '';",
+    file: CONFIG_RENDER, find: "const LAST_COLUMN = l10n.t('Description');", replace: "const LAST_COLUMN = '';",
     says: 'the heading over the column of circles draws no words',
   },
   {
@@ -2758,7 +2759,7 @@ export const PLANTS: readonly Plant[] = [
   },
   {
     name: 'none-drawn-as-nothing', scenario: 'gateway-configuration-report', checks: ['config-panel.none-where-no-value-is-in-force'], moves: 'red', target: 'extension',
-    file: CONFIG_RENDER, find: "const NONE = 'none';", replace: "const NONE = '';",
+    file: CONFIG_RENDER, find: "const NONE = l10n.t('none');", replace: "const NONE = '';",
     says: 'a setting with no value in force draws nothing in its value cell',
   },
   {
@@ -2778,7 +2779,7 @@ export const PLANTS: readonly Plant[] = [
   },
   {
     name: 'reach-note-labelled-machine-wide', scenario: 'gateway-configuration-report', checks: ['config-panel.reach-note-on-the-machine-wide-settings-alone'], moves: 'red', target: 'extension',
-    file: CONFIG_RENDER, find: '`${GLOBAL}: ${row.scope.evidence}`', replace: '`Machine-wide: ${row.scope.evidence}`',
+    file: CONFIG_RENDER, find: "l10n.t('{0}: {1}', GLOBAL, row.scope.evidence)", replace: "l10n.t('{0}: {1}', 'Machine-wide', row.scope.evidence)",
     says: 'the reach note opens with the label "Machine-wide:"',
   },
   {
@@ -2831,8 +2832,8 @@ export const PLANTS: readonly Plant[] = [
   {
     name: 'file-named-by-its-base-name', scenario: 'gateway-configuration-report', checks: ['config-panel.setting-in-the-folders-file-reads-in-every-column-of-both-shapes'], moves: 'red', target: 'extension',
     file: CONFIG_MODEL,
-    find: "        case 'file':\n            return provenance.path;\n        case 'environment':\n            return `environment: ${provenance.variable}`;",
-    replace: "        case 'file':\n            return require('path').basename(provenance.path);\n        case 'environment':\n            return `environment: ${provenance.variable}`;",
+    find: "        case 'file':\n            return provenance.path;\n        case 'environment':\n            return l10n.t('environment: {0}', provenance.variable);",
+    replace: "        case 'file':\n            return require('path').basename(provenance.path);\n        case 'environment':\n            return l10n.t('environment: {0}', provenance.variable);",
     says: 'the table\'s Source cell names a file by its base name alone',
   },
   {
@@ -2857,8 +2858,8 @@ export const PLANTS: readonly Plant[] = [
     ],
     moves: 'red', target: 'extension',
     file: CONFIG_RENDER,
-    find: '            ? { label: daemon_status_1.DAEMON_ACTION_LABEL[(0, daemon_status_1.daemonStandingAction)(standing)], command: daemon_status_1.RESTART_COMMAND }',
-    replace: '            ? null',
+    find: '                action: { label: daemon_status_1.DAEMON_ACTION_LABEL[(0, daemon_status_1.daemonStandingAction)(standing)], command: daemon_status_1.RESTART_COMMAND },',
+    replace: '                action: null,',
     says: 'the notification saying the language server is not running offers nothing',
   },
   {

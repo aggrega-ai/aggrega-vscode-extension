@@ -5,6 +5,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { DAEMON_STANDING_WORDS, RESTART_COMMAND } from '../../src/daemon-status';
+import { readManifest } from '../helpers/manifest';
 import { UiDriver, WebviewDocument } from './drivers';
 import { ProbeClient } from './probe-client';
 import { statusObserver } from './workbench';
@@ -136,8 +137,10 @@ function pngSize(file: string): { width: number; height: number } | null {
   return { width: b.readUInt32BE(16), height: b.readUInt32BE(20) };
 }
 
+// viewContainerTitle is the Aggrega view container's title as an editor showing
+// English draws it.
 function viewContainerTitle(extensionDir: string): string {
-  const manifest = JSON.parse(fs.readFileSync(path.join(extensionDir, 'package.json'), 'utf8')) as {
+  const manifest = readManifest(extensionDir) as {
     contributes: { viewsContainers: { activitybar: { id: string; title: string }[] } };
   };
   const c = manifest.contributes.viewsContainers.activitybar.find((x) => x.id === 'aggrega');

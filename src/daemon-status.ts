@@ -66,12 +66,23 @@ export function commandTitle(manifest: unknown, command: string): string | null 
     if (!entry || typeof entry !== 'object') { continue; }
     const declared = entry as { command?: unknown; title?: unknown; category?: unknown };
     if (declared.command !== command) { continue; }
-    if (typeof declared.title !== 'string' || declared.title === '') { return null; }
-    return typeof declared.category === 'string' && declared.category !== ''
-      ? `${declared.category}: ${declared.title}`
-      : declared.title;
+    const title = shownText(declared.title);
+    if (title === '') { return null; }
+    const category = shownText(declared.category);
+    return category !== '' ? `${category}: ${title}` : title;
   }
   return null;
+}
+
+// shownText is the text the editor shows for a command's title or category as the
+// loaded manifest holds it, or '' where it holds none. Showing English, the editor
+// hands the manifest over with the text in place; showing another language whose
+// translation differs from the English, it hands over the pair
+// `{ value, original }` instead, and `value` is what the palette lists.
+function shownText(held: unknown): string {
+  if (typeof held === 'string') { return held; }
+  const value = held !== null && typeof held === 'object' ? (held as { value?: unknown }).value : undefined;
+  return typeof value === 'string' ? value : '';
 }
 
 // stoppedRespondingMessage is what the notification raised once the language

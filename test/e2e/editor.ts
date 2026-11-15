@@ -7,6 +7,7 @@ import * as net from 'net';
 import * as os from 'os';
 import * as path from 'path';
 
+import { localizationPaths } from '../helpers/manifest';
 import { ScratchHome } from './cli';
 import { Inputs } from './inputs';
 import { PROBE_PORT_ENV } from './probe/protocol';
@@ -81,11 +82,15 @@ export function scratchHomeOf(root: ScenarioRoot): ScratchHome {
 // copyExtension copies the compiled extension into the scratch root, so another
 // actor rebuilding the repository's output mid-run cannot change what is under
 // test. It copies what the packaged extension carries from the compiled output —
-// everything under out/ except the test outputs — with the manifest, the media
-// and the build stamp, and links the dependencies rather than copying them.
+// everything under out/ except the test outputs — with the manifest, the
+// manifest's text and its translations, the runtime bundles, the media and the
+// build stamp, and links the dependencies rather than copying them.
 export function copyExtension(extensionDir: string, dest: string): void {
   fs.mkdirSync(dest, { recursive: true });
   fs.copyFileSync(path.join(extensionDir, 'package.json'), path.join(dest, 'package.json'));
+  for (const carried of localizationPaths(extensionDir)) {
+    fs.cpSync(path.join(extensionDir, carried), path.join(dest, carried), { recursive: true });
+  }
   fs.cpSync(path.join(extensionDir, 'media'), path.join(dest, 'media'), { recursive: true });
   const out = path.join(extensionDir, 'out');
   const skipped = new Set([path.join(out, 'test'), path.join(out, 'test-fixtures')]);

@@ -1,7 +1,7 @@
 {
   "name": "aggrega",
-  "displayName": "Aggrega",
-  "description": "Language support for Aggrega YAML — validation, navigation, hover, completion via the aggrega daemon.",
+  "displayName": "%displayName%",
+  "description": "%description%",
   "version": "0.1.0",
   "publisher": "aggrega-ai",
   "license": "Apache-2.0",
@@ -33,7 +33,7 @@
       "activitybar": [
         {
           "id": "aggrega",
-          "title": "Aggrega",
+          "title": "%viewsContainers.activitybar.aggrega.title%",
           "icon": "media/aggrega.svg"
         }
       ]
@@ -42,21 +42,21 @@
       "aggrega": [
         {
           "id": "aggrega.operations",
-          "name": "Commands",
+          "name": "%views.aggrega.operations.name%",
           "type": "webview",
           "initialSize": 50
         },
         {
           "id": "aggrega.registries",
-          "name": "Registries"
+          "name": "%views.aggrega.registries.name%"
         },
         {
           "id": "aggrega.workspaceCatalog",
-          "name": "Catalog"
+          "name": "%views.aggrega.workspaceCatalog.name%"
         },
         {
           "id": "aggrega.plugins",
-          "name": "Plugins"
+          "name": "%views.aggrega.plugins.name%"
         }
       ]
     },
@@ -244,341 +244,341 @@
     "commands": [
       {
         "command": "aggrega.getStarted.show",
-        "title": "Aggrega: Get started"
+        "title": "%command.aggrega.getStarted.show.title%"
       },
       {
         "command": "aggrega.getStarted.open",
-        "title": "Open the welcome page",
-        "category": "Aggrega",
+        "title": "%command.aggrega.getStarted.open.title%",
+        "category": "%command.category%",
         "icon": "$(home)"
       },
       {
         "command": "aggrega.getStarted.dismiss",
-        "title": "Aggrega: Stop opening the welcome page on startup"
+        "title": "%command.aggrega.getStarted.dismiss.title%"
       },
       {
         "command": "aggrega.getStarted.openOnStartup",
-        "title": "Aggrega: Open the welcome page on startup"
+        "title": "%command.aggrega.getStarted.openOnStartup.title%"
       },
       {
         "command": "aggrega.getStarted.createWorkspace",
-        "title": "Aggrega: Create a workspace configuration"
+        "title": "%command.aggrega.getStarted.createWorkspace.title%"
       },
       {
         "command": "aggrega.getStarted.chooseWorkspace",
-        "title": "Aggrega: Use a folder that Aggrega already recognises"
+        "title": "%command.aggrega.getStarted.chooseWorkspace.title%"
       },
       {
         "command": "aggrega.getStarted.useCompilerOnPath",
-        "title": "Aggrega: Use the compiler on my PATH"
+        "title": "%command.aggrega.getStarted.useCompilerOnPath.title%"
       },
       {
         "command": "aggrega.getStarted.locateCompiler",
-        "title": "Aggrega: Point at a compiler I have"
+        "title": "%command.aggrega.getStarted.locateCompiler.title%"
       },
       {
         "command": "aggrega.getStarted.downloadCompiler",
-        "title": "Aggrega: Download the compiler"
+        "title": "%command.aggrega.getStarted.downloadCompiler.title%"
       },
       {
         "command": "aggrega.compiler.selectVersion",
-        "title": "Aggrega: Select Compiler Version"
+        "title": "%command.aggrega.compiler.selectVersion.title%"
       },
       {
         "command": "aggrega.getStarted.draftRelease",
-        "title": "Aggrega: Draft a Release"
+        "title": "%command.aggrega.getStarted.draftRelease.title%"
       },
       {
         "command": "aggrega.getStarted.seedRegistry",
-        "title": "Aggrega: Seed the official hub"
+        "title": "%command.aggrega.getStarted.seedRegistry.title%"
       },
       {
         "command": "aggrega.getStarted.seedNamedRegistry",
-        "title": "Aggrega: Seed a registry I name"
+        "title": "%command.aggrega.getStarted.seedNamedRegistry.title%"
       },
       {
         "command": "aggrega.settings.open",
-        "title": "Open settings",
-        "category": "Aggrega",
+        "title": "%command.aggrega.settings.open.title%",
+        "category": "%command.category%",
         "icon": "$(gear)"
       },
       {
         "command": "aggrega.graph.show",
-        "title": "Show topology graph",
-        "category": "Aggrega",
+        "title": "%command.aggrega.graph.show.title%",
+        "category": "%command.category%",
         "icon": "$(type-hierarchy)"
       },
       {
         "command": "aggrega.graph.attachToConnectionAtCursor",
-        "title": "Attach a Feature to the connection at the cursor",
-        "category": "Aggrega"
+        "title": "%command.aggrega.graph.attachToConnectionAtCursor.title%",
+        "category": "%command.category%"
       },
       {
         "command": "aggrega.catalog.searchPublished",
-        "title": "Search published catalog",
-        "category": "Aggrega",
+        "title": "%command.aggrega.catalog.searchPublished.title%",
+        "category": "%command.category%",
         "icon": "$(cloud)"
       },
       {
         "command": "aggrega.plugins.refresh",
-        "title": "Refresh plugins",
-        "category": "Aggrega",
+        "title": "%command.aggrega.plugins.refresh.title%",
+        "category": "%command.category%",
         "icon": "$(refresh)"
       },
       {
         "command": "aggrega.plugins.add",
-        "title": "Add plugin",
-        "category": "Aggrega",
+        "title": "%command.aggrega.plugins.add.title%",
+        "category": "%command.category%",
         "icon": "$(add)"
       },
       {
         "command": "aggrega.plugins.genCatalog",
-        "title": "Generate Plugin entities",
-        "category": "Aggrega",
+        "title": "%command.aggrega.plugins.genCatalog.title%",
+        "category": "%command.category%",
         "icon": "$(export)"
       },
       {
         "command": "aggrega.plugins.remove",
-        "title": "Remove plugin",
-        "category": "Aggrega",
+        "title": "%command.aggrega.plugins.remove.title%",
+        "category": "%command.category%",
         "icon": "$(trash)"
       },
       {
         "command": "aggrega.registries.refresh",
-        "title": "Refresh registries",
-        "category": "Aggrega",
+        "title": "%command.aggrega.registries.refresh.title%",
+        "category": "%command.category%",
         "icon": "$(refresh)"
       },
       {
         "command": "aggrega.registries.add",
-        "title": "Add registry",
-        "category": "Aggrega",
+        "title": "%command.aggrega.registries.add.title%",
+        "category": "%command.category%",
         "icon": "$(add)"
       },
       {
         "command": "aggrega.registries.update",
-        "title": "Update the searchable index",
-        "category": "Aggrega",
+        "title": "%command.aggrega.registries.update.title%",
+        "category": "%command.category%",
         "icon": "$(cloud-download)"
       },
       {
         "command": "aggrega.registries.updateOne",
-        "title": "Update the searchable index for this registry",
-        "category": "Aggrega",
+        "title": "%command.aggrega.registries.updateOne.title%",
+        "category": "%command.category%",
         "icon": "$(cloud-download)"
       },
       {
         "command": "aggrega.registries.remove",
-        "title": "Remove registry",
-        "category": "Aggrega",
+        "title": "%command.aggrega.registries.remove.title%",
+        "category": "%command.category%",
         "icon": "$(trash)"
       },
       {
         "command": "aggrega.registries.logout",
-        "title": "Remove stored credential",
-        "category": "Aggrega",
+        "title": "%command.aggrega.registries.logout.title%",
+        "category": "%command.category%",
         "icon": "$(sign-out)"
       },
       {
         "command": "aggrega.workspaceCatalog.refresh",
-        "title": "Refresh workspace catalog",
-        "category": "Aggrega",
+        "title": "%command.aggrega.workspaceCatalog.refresh.title%",
+        "category": "%command.category%",
         "icon": "$(refresh)"
       },
       {
         "command": "aggrega.workspaceCatalog.inspect",
-        "title": "Inspect this entity",
-        "category": "Aggrega",
+        "title": "%command.aggrega.workspaceCatalog.inspect.title%",
+        "category": "%command.category%",
         "icon": "$(list-tree)"
       },
       {
         "command": "aggrega.workspaceCatalog.validate",
-        "title": "Validate this entity",
-        "category": "Aggrega",
+        "title": "%command.aggrega.workspaceCatalog.validate.title%",
+        "category": "%command.category%",
         "icon": "$(check)"
       },
       {
         "command": "aggrega.workspaceCatalog.lint",
-        "title": "Lint this entity",
-        "category": "Aggrega",
+        "title": "%command.aggrega.workspaceCatalog.lint.title%",
+        "category": "%command.category%",
         "icon": "$(search)"
       },
       {
         "command": "aggrega.workspaceCatalog.push",
-        "title": "Publish this entity",
-        "category": "Aggrega",
+        "title": "%command.aggrega.workspaceCatalog.push.title%",
+        "category": "%command.category%",
         "icon": "$(cloud-upload)"
       },
       {
         "command": "aggrega.op.validate",
-        "title": "Validate active file",
-        "category": "Aggrega",
+        "title": "%command.aggrega.op.validate.title%",
+        "category": "%command.category%",
         "icon": "$(check)"
       },
       {
         "command": "aggrega.op.build",
-        "title": "Build",
-        "category": "Aggrega",
+        "title": "%command.aggrega.op.build.title%",
+        "category": "%command.category%",
         "icon": "$(package)"
       },
       {
         "command": "aggrega.op.preview",
-        "title": "Preview build",
-        "category": "Aggrega",
+        "title": "%command.aggrega.op.preview.title%",
+        "category": "%command.category%",
         "icon": "$(eye)"
       },
       {
         "command": "aggrega.op.lint",
-        "title": "Lint",
-        "category": "Aggrega",
+        "title": "%command.aggrega.op.lint.title%",
+        "category": "%command.category%",
         "icon": "$(search)"
       },
       {
         "command": "aggrega.op.pull",
-        "title": "Pull",
-        "category": "Aggrega",
+        "title": "%command.aggrega.op.pull.title%",
+        "category": "%command.category%",
         "icon": "$(cloud-download)"
       },
       {
         "command": "aggrega.op.scaffold",
-        "title": "Draft entity…",
-        "category": "Aggrega",
+        "title": "%command.aggrega.op.scaffold.title%",
+        "category": "%command.category%",
         "icon": "$(new-file)"
       },
       {
         "command": "aggrega.op.import",
-        "title": "Import into Aggrega",
-        "category": "Aggrega",
+        "title": "%command.aggrega.op.import.title%",
+        "category": "%command.category%",
         "icon": "$(arrow-into)"
       },
       {
         "command": "aggrega.op.inspect",
-        "title": "Inspect…",
-        "category": "Aggrega",
+        "title": "%command.aggrega.op.inspect.title%",
+        "category": "%command.category%",
         "icon": "$(list-tree)"
       },
       {
         "command": "aggrega.op.push",
-        "title": "Push…",
-        "category": "Aggrega",
+        "title": "%command.aggrega.op.push.title%",
+        "category": "%command.category%",
         "icon": "$(cloud-upload)"
       },
       {
         "command": "aggrega.op.sign",
-        "title": "Sign…",
-        "category": "Aggrega",
+        "title": "%command.aggrega.op.sign.title%",
+        "category": "%command.category%",
         "icon": "$(verified)"
       },
       {
         "command": "aggrega.op.deprecate",
-        "title": "Deprecate…",
-        "category": "Aggrega",
+        "title": "%command.aggrega.op.deprecate.title%",
+        "category": "%command.category%",
         "icon": "$(warning)"
       },
       {
         "command": "aggrega.config.open",
-        "title": "Show config",
-        "category": "Aggrega",
+        "title": "%command.aggrega.config.open.title%",
+        "category": "%command.category%",
         "icon": "$(settings-gear)"
       },
       {
         "command": "aggrega.op.cache",
-        "title": "Cache…",
-        "category": "Aggrega",
+        "title": "%command.aggrega.op.cache.title%",
+        "category": "%command.category%",
         "icon": "$(database)"
       },
       {
         "command": "aggrega.server.restart",
-        "title": "Aggrega: Start or restart the language server"
+        "title": "%command.aggrega.server.restart.title%"
       },
       {
         "command": "aggrega.server.lifecycleActions",
-        "title": "Aggrega: Language server actions"
+        "title": "%command.aggrega.server.lifecycleActions.title%"
       },
       {
         "command": "aggrega.server.toggleBuildOnInspect",
-        "title": "Aggrega: Toggle the artifact-rendering stage while inspecting"
+        "title": "%command.aggrega.server.toggleBuildOnInspect.title%"
       },
       {
         "command": "aggrega.statusBar.openMenu",
-        "title": "Aggrega: Open status bar menu",
+        "title": "%command.aggrega.statusBar.openMenu.title%",
         "enablement": "aggrega.compilerAnswerable"
       },
       {
         "command": "aggrega.workspace.switchAnchor",
-        "title": "Aggrega: Choose the Aggrega workspace…"
+        "title": "%command.aggrega.workspace.switchAnchor.title%"
       },
       {
         "command": "aggrega.project.selectFolder",
-        "title": "Aggrega: Choose Project folder…"
+        "title": "%command.aggrega.project.selectFolder.title%"
       },
       {
         "command": "aggrega.release.select",
-        "title": "Aggrega: Select Release…"
+        "title": "%command.aggrega.release.select.title%"
       },
       {
         "command": "aggrega.workspace.openRootFolder",
-        "title": "Aggrega: Open the Aggrega workspace as the Project folder"
+        "title": "%command.aggrega.workspace.openRootFolder.title%"
       },
       {
         "command": "aggrega.workspace.openAuthoringReleaseConfig",
-        "title": "Aggrega: Set authoring_release in .aggrega-config.yaml…"
+        "title": "%command.aggrega.workspace.openAuthoringReleaseConfig.title%"
       },
       {
         "command": "aggrega.workspace.createActiveReleaseMarker",
-        "title": "Aggrega: Set the selected Release as this workspace's default"
+        "title": "%command.aggrega.workspace.createActiveReleaseMarker.title%"
       }
     ],
     "configuration": {
-      "title": "Aggrega",
+      "title": "%configuration.title%",
       "properties": {
         "aggrega.getStarted.show": {
           "type": "boolean",
           "default": true,
-          "description": "Whether the Aggrega welcome page opens on startup. The page opens in its own tab, says what Aggrega is, then lists what it needs in this workspace — a workspace it recognises, a compiler it can run, a Release to act on, a registry to resolve from — marking each one already met, and marking it to do again if it later lapses. The page carries this same switch at its foot, so it can be turned off from where it is read. Turning it off is also what \"Aggrega: Stop opening the welcome page on startup\" does, and it stops the page opening by itself rather than putting it out of reach. Turning it back on, and opening it, is what \"Aggrega: Get started\" does.",
+          "description": "%configuration.aggrega.getStarted.show.description%",
           "scope": "machine"
         },
         "aggrega.server.binaryPath": {
           "type": "string",
           "default": "aggrega",
-          "markdownDescription": "Path to the `aggrega` binary. Plain name resolves via `PATH`; absolute or relative paths are honored as written. This is an editor preference rather than Aggrega's own configuration. That is two files, and most projects need nothing else: `.aggrega-config.yaml` at your project root, whose `workspace:` block marks the directory as that root, and `~/.config/aggrega/config.yaml`, the global file on your machine, for settings that belong to the machine rather than to any one project. Between the two, your project's file wins.",
+          "markdownDescription": "%configuration.aggrega.server.binaryPath.markdownDescription%",
           "scope": "machine"
         },
         "aggrega.server.buildOnInspect": {
           "type": "boolean",
           "default": false,
-          "markdownDescription": "When true, the language server runs the artifact-rendering stage while inspecting an IR graph, so the advisories `aggrega build` raises while rendering also appear as editor problems. It adds none of the checks a build halts on. Inspecting a graph costs more when that stage runs than when it does not. Nothing is written to disk: no rendered artifacts, no output directory, no lockfile. Off by default, matching `aggrega inspect`, which raises no such advisory either. When true, the extension passes `--build-on-inspect` to `aggrega serve`.",
+          "markdownDescription": "%configuration.aggrega.server.buildOnInspect.markdownDescription%",
           "scope": "machine"
         },
         "aggrega.server.debounceMs": {
           "type": "number",
           "default": 300,
-          "description": "Debounce window in milliseconds for proactive validate-on-change.",
+          "description": "%configuration.aggrega.server.debounceMs.description%",
           "scope": "machine"
         },
         "aggrega.server.respawnAttempts": {
           "type": "number",
           "default": 5,
-          "description": "Maximum daemon respawn attempts within the sliding window before the extension surfaces a stopped-responding notification.",
+          "description": "%configuration.aggrega.server.respawnAttempts.description%",
           "scope": "machine"
         },
         "aggrega.server.respawnWindowSeconds": {
           "type": "number",
           "default": 180,
-          "description": "Sliding window in seconds for counting daemon respawn attempts.",
+          "description": "%configuration.aggrega.server.respawnWindowSeconds.description%",
           "scope": "machine"
         },
         "aggrega.server.restartGraceSeconds": {
           "type": "number",
           "default": 5,
           "minimum": 0,
-          "markdownDescription": "Grace window in seconds before the extension automatically restarts the daemon after a change to `#aggrega.server.binaryPath#`. The status bar surfaces a countdown during the window; the quick-action menu offers Restart now and Cancel restart.",
+          "markdownDescription": "%configuration.aggrega.server.restartGraceSeconds.markdownDescription%",
           "scope": "machine"
         },
         "aggrega.graph.showSensitiveValues": {
           "type": "boolean",
           "default": false,
-          "description": "When true, the topology graph shows every value an attachment authors, including the ones a Feature declares sensitive: a credential an Aggregate authors by value is displayed in the clear, and is readable by anyone who can see the editor window or a screen recording of it. When false, those values are removed before the graph is drawn and the panel names each withheld field and says why it is withheld. Values no sensitivity declaration covers are shown either way.",
+          "description": "%configuration.aggrega.graph.showSensitiveValues.description%",
           "scope": "machine"
         },
         "aggrega.operations.layout": {
@@ -588,11 +588,11 @@
             "sections"
           ],
           "enumDescriptions": [
-            "Every operation is a labelled button, and the buttons wrap with nothing drawn between one group and the next, so everything is in one flow, without opening anything.",
-            "Each group is a section you open, under its own title, so the panel shows as much as you keep open."
+            "%configuration.aggrega.operations.layout.enumDescriptions.0%",
+            "%configuration.aggrega.operations.layout.enumDescriptions.1%"
           ],
           "default": "buttons",
-          "description": "How the Commands panel draws its groups. Both shapes carry the same groups with the same operations — the setting changes how a group is drawn, never which operations exist or what they do. Changing it redraws the open panel; nothing restarts.",
+          "description": "%configuration.aggrega.operations.layout.description%",
           "scope": "machine"
         },
         "aggrega.notifications.toastDebounceMode": {
@@ -602,14 +602,14 @@
             "session"
           ],
           "default": "time",
-          "markdownDescription": "How often the notice that a Release has no lockfile is shown again for work you did not ask for, such as an open graph redrawn after a save. `time` shows it again once the seconds set in `#aggrega.notifications.toastThrottleSeconds#` have passed since the last one closed, however it closed. `session` shows it once until the language server restarts. A Build, a Preview or a graph you open that is refused for a missing lockfile always shows the notice.",
+          "markdownDescription": "%configuration.aggrega.notifications.toastDebounceMode.markdownDescription%",
           "scope": "machine"
         },
         "aggrega.notifications.toastThrottleSeconds": {
           "type": "number",
           "default": 300,
           "minimum": 0,
-          "markdownDescription": "Seconds after the missing-lockfile notice closes before it is shown again for work you did not ask for. Read only when `#aggrega.notifications.toastDebounceMode#` is `time`.",
+          "markdownDescription": "%configuration.aggrega.notifications.toastThrottleSeconds.markdownDescription%",
           "scope": "machine"
         }
       }

@@ -1086,7 +1086,7 @@ export async function commandsPanelChecks(ctx: SuiteContext, notABinary: string,
   let binaryItem: SettingItem | null = null;
   await c.run('settings.binary-path-description-names-the-two-files', {
     expected: `the settings screen draws "${binaryLabel}" with the description the manifest declares, which names the project's \`.aggrega-config.yaml\` and its \`workspace:\` block, calls the file on the machine the global file and gives its location — the location the welcome page's workspace step gives — and says nothing of credentials or of a machine-wide file`,
-    plant: 'in the scratch copy\'s package.json, the binary path\'s description calling the file on the machine machine-wide',
+    plant: 'in the scratch copy\'s package.nls.json, the binary path\'s description calling the file on the machine machine-wide',
   }, async () => {
     const item = await openSettingsOn(ctx, 'binaryPath', binaryLabel);
     binaryDrawn = item.description;
@@ -1137,7 +1137,7 @@ export async function commandsPanelChecks(ctx: SuiteContext, notABinary: string,
   const graceLabel = settingLabel(settingsTitle, RESTART_GRACE);
   await c.run('settings.restart-grace-names-the-binary-path-as-the-settings-screen-does', {
     expected: `the settings screen draws "${graceLabel}" with its Markdown description, as declared, naming the setting whose change it waits on by the editor's own link: a link reading the label the screen draws for ${BINARY_PATH} — read above — and leading to that setting; no drawn word of it is that setting's id, whole or by its last segment, and none a backtick`,
-    plant: 'in the scratch copy\'s package.json, the restart grace\'s description naming the binary path by its id',
+    plant: 'in the scratch copy\'s package.nls.json, the restart grace\'s description naming the binary path by its id',
   }, async () => {
     const binary = binaryItem as SettingItem | null;
     need(binary !== null, 'the binary path\'s entry was not drawn above, so the label the screen gives it is not known');

@@ -333,7 +333,7 @@ export async function gatewayChecks(ctx: SuiteContext, referenceFolder: string):
   const toggleTitle = commandTitle(ctx.manifest, TOGGLE_BUILD_ON_INSPECT_COMMAND);
   await c.run('settings.build-on-inspect-says-what-it-adds-in-the-command-lines-words', {
     expected: `the setting's drawn description holds "${QUALIFIER}" as a sentence of its own — the command line's help for ${INSPECTION_FLAG} saying what the stage does not add — and names what the setting runs "${STAGE}", as that help does; and the command palette, searched for the toggle's title "${toggleTitle}" (the manifest's title for ${TOGGLE_BUILD_ON_INSPECT_COMMAND}), draws that row, naming "${STAGE}" too`,
-    plant: 'in the scratch copy\'s package.json, the qualifier taken out of the setting\'s description; or the toggle titled in other words',
+    plant: 'in the scratch copy\'s package.nls.json, the qualifier taken out of the setting\'s description; or the toggle titled in other words',
   }, async () => {
     need(drawnDescription !== '', 'the setting was not drawn above, so there is no description to read');
     const sentences = sentencesOf(drawnDescription);

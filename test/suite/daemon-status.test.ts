@@ -487,6 +487,31 @@ describe('the notification raised when the language server stops responding', ()
     assert.strictEqual(commandTitle(categorised, RESTART_COMMAND), 'Aggrega: Start or restart the language server');
   });
 
+  // An editor showing a language whose translation of the title or the category
+  // differs from the English hands the manifest over holding each as the pair
+  // `{ value, original }`; the palette lists `value`, so that is the name read.
+  it('names the command as the palette lists it where the editor hands over a translated title', () => {
+    const translated = {
+      contributes: {
+        commands: [{
+          command: RESTART_COMMAND,
+          title: { value: 'Sprachserver starten oder neu starten', original: 'Start or restart the language server' },
+          category: { value: 'Aggrega (de)', original: 'Aggrega' },
+        }],
+      },
+    };
+    assert.strictEqual(commandTitle(translated, RESTART_COMMAND), 'Aggrega (de): Sprachserver starten oder neu starten');
+    const titleOnly = {
+      contributes: {
+        commands: [{
+          command: RESTART_COMMAND,
+          title: { value: 'Aggrega: Sprachserver starten oder neu starten', original: 'Aggrega: Start or restart the language server' },
+        }],
+      },
+    };
+    assert.strictEqual(commandTitle(titleOnly, RESTART_COMMAND), 'Aggrega: Sprachserver starten oder neu starten');
+  });
+
   // 🔴 A COMMAND THE MANIFEST DOES NOT NAME IS NEVER NAMED. Where no title can be
   // read the sentence says the server stopped and names nothing, because a name
   // written in its place is exactly the defect of sending a reader to a command
@@ -501,6 +526,7 @@ describe('the notification raised when the language server stops responding', ()
       { contributes: { commands: [] } },
       { contributes: { commands: [{ command: RESTART_COMMAND }] } },
       { contributes: { commands: [{ command: RESTART_COMMAND, title: '' }] } },
+      { contributes: { commands: [{ command: RESTART_COMMAND, title: { original: 'Aggrega: Start or restart the language server' } }] } },
       { contributes: { commands: [{ command: 'aggrega.another', title: 'Aggrega: Another' }] } },
     ];
     for (const manifest of untitled) {
