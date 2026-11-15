@@ -61,18 +61,31 @@ export const USER_HOME_VARIABLE = '${userHome}';
 // rather than the `~` the reader typed. Nothing hands a `~` to the operating
 // system, which does not expand it.
 //
+// A relative path that names a file is resolved against the first workspace
+// folder, handed in as `folder`, in the same one read.
+//
 // The home folder and the platform are handed in, so the resolution can be
 // driven for any machine; the reader passes those of the machine the extension
 // runs on, which in a window opened on a remote machine is that machine. An
 // empty home leaves the value as written rather than turning `~/x` into a path
 // at the root of the file system.
-export function resolveBinaryPath(configured: string, home: string, platform: string): string {
-  if (home === '') { return configured; }
-  const expanded = configured.split(USER_HOME_VARIABLE).join(home);
-  if (expanded === '~') { return home; }
+export function resolveBinaryPath(configured: string, home: string, platform: string, folder?: string): string {
   const windows = platform === 'win32';
-  if (expanded.startsWith('~/') || (windows && expanded.startsWith('~\\'))) {
-    return (windows ? path.win32 : path.posix).join(home, expanded.slice(2));
+  const flavour = windows ? path.win32 : path.posix;
+  const expanded = home === '' ? configured : configured.split(USER_HOME_VARIABLE).join(home);
+  if (home !== '') {
+    if (expanded === '~') { return home; }
+    if (expanded.startsWith('~/') || (windows && expanded.startsWith('~\\'))) {
+      return flavour.join(home, expanded.slice(2));
+    }
+  }
+  // A relative value naming a path means the file under the first folder of the
+  // workspace, whichever process reads it: the server is started there, and the
+  // commands and the welcome page's checks start elsewhere. A plain name stays a
+  // PATH lookup, and with no folder open the value stays as written.
+  const relative = /[\\/]/.test(expanded) && !expanded.startsWith('~') && !flavour.isAbsolute(expanded);
+  if (relative && folder !== undefined && folder !== '') {
+    return flavour.join(folder, expanded);
   }
   return expanded;
 }

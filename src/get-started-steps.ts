@@ -705,7 +705,7 @@ export const STEP_CONTENT: readonly StepContent[] = [
         paragraph:
           // The editor's home-folder variable is a placeholder argument rather than
           // written in the message: its braces would otherwise read as a placeholder.
-          l10n.t('Which binary runs is the `aggrega.server.binaryPath` setting. A plain name is looked up on your `PATH`; a path starting with `~/` (or `~\\` on Windows) or with `{0}` is read from your home folder on the machine the editor runs its extensions on; any other path is honoured as written.', USER_HOME_VARIABLE),
+          l10n.t('Which binary runs is the `aggrega.server.binaryPath` setting. A plain name is looked up on your `PATH`; a path starting with `~/` (or `~\\` on Windows) or with `{0}` is read from your home folder on the machine the editor runs its extensions on; a relative path is resolved against the first folder of the workspace; any other path is honoured as written.', USER_HOME_VARIABLE),
       },
       {
         paragraph:

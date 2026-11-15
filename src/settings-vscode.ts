@@ -29,7 +29,7 @@ export function getSettings(): Settings {
   return {
     // Resolved here, at the one read, so every reader of the setting receives the
     // same path; resolveBinaryPath says why it is applied nowhere else.
-    binaryPath: resolveBinaryPath(serverCfg.get<string>('binaryPath', DEFAULT_SETTINGS.binaryPath), os.homedir(), process.platform),
+    binaryPath: resolveBinaryPath(serverCfg.get<string>('binaryPath', DEFAULT_SETTINGS.binaryPath), os.homedir(), process.platform, vscode.workspace.workspaceFolders?.[0]?.uri.fsPath),
     buildOnInspect: serverCfg.get<boolean>(BUILD_ON_INSPECT_KEY, DEFAULT_SETTINGS.buildOnInspect),
     debounceMs: serverCfg.get<number>('debounceMs', DEFAULT_SETTINGS.debounceMs),
     respawnAttempts: serverCfg.get<number>('respawnAttempts', DEFAULT_SETTINGS.respawnAttempts),

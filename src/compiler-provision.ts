@@ -79,7 +79,8 @@ export function samePath(a: string, b: string, platform: string): boolean {
 // namesAPath reports whether the setting naming the compiler names a path rather
 // than a plain name. A plain name is looked up on PATH, exactly as the language
 // server is started from it; anything carrying a folder separator is used as
-// written.
+// written, which is the setting after resolveBinaryPath has made a relative one
+// absolute.
 export function namesAPath(configured: string): boolean {
   return configured.includes('/') || configured.includes('\\');
 }
@@ -99,8 +100,7 @@ export type CompilerSituation =
 // names.
 export async function compilerSituation(configured: string, host: HostFacts): Promise<CompilerSituation> {
   if (namesAPath(configured)) {
-    const file = path.resolve(configured);
-    return (await isFile(file)) ? { kind: 'chosen', path: file } : { kind: 'chosenMissing', path: file };
+    return (await isFile(configured)) ? { kind: 'chosen', path: configured } : { kind: 'chosenMissing', path: configured };
   }
   const found = await findOnPath(configured, host);
   return found === null ? { kind: 'notFound', name: configured } : { kind: 'onPath', name: configured, path: found };

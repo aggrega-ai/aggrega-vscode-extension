@@ -159,6 +159,31 @@ describe('settings', () => {
       assert.strictEqual(resolveBinaryPath(DEFAULT_SETTINGS.binaryPath, HOME, 'linux'), 'aggrega');
     });
 
+    it('resolves a relative path that names a file against the first workspace folder', () => {
+      assert.strictEqual(resolveBinaryPath('bin/aggrega', HOME, 'linux', '/w'), '/w/bin/aggrega');
+      assert.strictEqual(resolveBinaryPath('./bin/aggrega', HOME, 'linux', '/w'), '/w/bin/aggrega');
+      assert.strictEqual(resolveBinaryPath('bin/aggrega', '', 'linux', '/w'), '/w/bin/aggrega');
+    });
+
+    it('resolves a relative Windows path with either separator against the folder', () => {
+      const WIN_HOME = 'C:\\Users\\reader';
+      assert.strictEqual(resolveBinaryPath('.\\x\\aggrega.exe', WIN_HOME, 'win32', 'C:\\w'), path.win32.join('C:\\w', 'x', 'aggrega.exe'));
+      assert.strictEqual(resolveBinaryPath('bin/aggrega.exe', WIN_HOME, 'win32', 'C:\\w'), 'C:\\w\\bin\\aggrega.exe');
+    });
+
+    it('leaves a bare name, an absolute path and a home path unaffected by the folder', () => {
+      assert.strictEqual(resolveBinaryPath('aggrega', HOME, 'linux', '/w'), 'aggrega');
+      assert.strictEqual(resolveBinaryPath('/opt/aggrega', HOME, 'linux', '/w'), '/opt/aggrega');
+      assert.strictEqual(resolveBinaryPath('C:\\tools\\aggrega.exe', 'C:\\Users\\reader', 'win32', '/w'), 'C:\\tools\\aggrega.exe');
+      assert.strictEqual(resolveBinaryPath('~/x', HOME, 'linux', '/w'), '/home/reader/x');
+      assert.strictEqual(resolveBinaryPath('${userHome}/x', HOME, 'linux', '/w'), '/home/reader/x');
+    });
+
+    it('leaves a relative path as written when no folder is open', () => {
+      assert.strictEqual(resolveBinaryPath('bin/aggrega', HOME, 'linux', undefined), 'bin/aggrega');
+      assert.strictEqual(resolveBinaryPath('bin/aggrega', HOME, 'linux', ''), 'bin/aggrega');
+    });
+
     it('reads a bare ~ as the home folder, and leaves ~name/ and a name holding ~ as written', () => {
       assert.strictEqual(resolveBinaryPath('~', HOME, 'linux'), HOME);
       assert.strictEqual(resolveBinaryPath('~other/bin/aggrega', HOME, 'linux'), '~other/bin/aggrega');

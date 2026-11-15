@@ -128,6 +128,10 @@ describe('compiler-provision: which situation holds', () => {
     assert.deepStrictEqual(await compilerSituation(mine, host('')), { kind: 'chosen', path: mine });
   });
 
+  it('reads the configured path as given, without resolving it against the process directory', async () => {
+    assert.deepStrictEqual(await compilerSituation('rel/aggrega', host('')), { kind: 'chosenMissing', path: 'rel/aggrega' });
+  });
+
   it('(b) reads a path set with nothing there as a missing one', async () => {
     const missing = path.join(dir, 'nowhere', 'aggrega');
     assert.deepStrictEqual(await compilerSituation(missing, host('')), { kind: 'chosenMissing', path: missing });
