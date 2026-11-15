@@ -1059,11 +1059,11 @@ async function runPreview(deps: OperationDeps): Promise<void> {
 // positionless advisories reach, and for the same reason. The ending is composed
 // from the answer's own fields.
 //
-// Where the answer lists values the drafts still owe, the reader is offered to
-// answer them here, one input box each; the answers are sent back on the same
-// request and the compiler keeps them. When to offer, when to stop and what is
-// sent are decided in import-request.ts (answerOwedValues); this binds the offer,
-// the boxes, the watch and the report to the editor.
+// Where the answer to an import that is not a preview lists values the drafts
+// still owe, the reader is offered to answer them here, one input box each; the
+// answers go back on the same request as a sync and the compiler keeps them. When
+// to offer, when to stop and what is sent are decided in import-request.ts
+// (answerOwedValues); this binds the offer, the boxes, the watch and the report.
 async function runImport(deps: OperationDeps, clicked: string | null): Promise<void> {
   const choices = await askImport(IMPORT_QUESTIONS, clicked);
   if (choices === null) { return; }

@@ -573,26 +573,22 @@ export async function askOwed(asks: OwedAsks, owed: readonly ImportOwed[]): Prom
 }
 
 // answeredRequest is the request that sends the reader's answers: the request as
-// it was last sent, carrying them.
+// it was last sent, carrying them, as a sync.
 //
-// 🔴 A WRITE IS RE-SENT AS A SYNC, AND A PREVIEW AS A PREVIEW. A request that wrote
-// its drafts has left them on disk, and a plain import over drafts already written
-// is refused — bringing them up to date is what a sync is, so the answers go on a
-// sync. A preview wrote nothing, so it is re-sent as the preview it was, and
-// writes nothing again. Every other choice — the format named after a refusal
-// among them — is sent as it was.
+// 🔴 THE ANSWERS GO ON A SYNC. Only an import that was not a preview is answered
+// (answerOwedValues), so its drafts are on disk, where a plain import over drafts
+// already written is refused — bringing them up to date is what a sync is.
+// Every other choice — the format named after a refusal among them — is sent as it
+// was.
 //
 // Answers an earlier re-send carried travel again, with each new answer replacing
-// one for the same value. A preview kept none of them, so leaving them out would
-// list them as owed once more; a write kept them, and the compiler applies an
-// answer only to a value its drafts still leave empty.
+// one for the same value. The compiler applies an answer only to a value its
+// drafts still leave empty, so one it already kept changes nothing.
 export function answeredRequest(sent: ImportParams, answered: readonly ImportAnswered[]): ImportParams {
   const same = (a: ImportAnswered, b: ImportAnswered): boolean =>
     a.file === b.file && a.key.length === b.key.length && a.key.every((k, i) => k === b.key[i]);
   const earlier = (sent.answered ?? []).filter((a) => !answered.some((b) => same(a, b)));
-  const params: ImportParams = { ...sent, answered: [...earlier, ...answered] };
-  if (sent.dryRun !== true) { params.sync = true; }
-  return params;
+  return { ...sent, answered: [...earlier, ...answered], sync: true };
 }
 
 // OwedAnsweringDeps is what answering an import's owed values needs from the
@@ -615,17 +611,24 @@ export interface OwedAnsweringDeps {
 // answerOwedValues offers to answer what an import still owes and, round by round,
 // sends the import again with the reader's answers.
 //
-// A round is offered only where the compiler answered and its answer lists owed
-// values; the offer is made once per round, naming how many. Declining it,
-// dismissing a question, and leaving every question empty each end the answering
-// with nothing sent. Otherwise the answers go on the request that was last sent
+// A round is offered only where the compiler answered a request that was not a
+// preview and its answer lists owed values; the offer is made once per round,
+// naming how many. Declining it, dismissing a question, and leaving every
+// question empty each end the answering with nothing sent.
+//
+// 🔴 A PREVIEW IS OFFERED NOTHING. The compiler asks nobody under a preview and
+// applies no answer sent with one, as the command line asks nothing under
+// --dry-run, so an answer collected after a preview would change nothing; its
+// lines on the channel still name each value still empty.
+//
+// Otherwise the answers go on the request that was last sent
 // (answeredRequest), under the same watch the first import ran under, and the
 // report is shown as the first one was. What that answer still owes — a refused
 // answer among it — is offered again the same way, and the next round's answers
 // go on the request this round sent, so the answers given before travel with them.
 export async function answerOwedValues(deps: OwedAnsweringDeps, report: ImportReport): Promise<void> {
   let last = report;
-  while (last.sent !== undefined && last.owed.length > 0) {
+  while (last.sent !== undefined && last.sent.dryRun !== true && last.owed.length > 0) {
     const sent = last.sent;
     if (!(await deps.offer(last.owed.length))) { return; }
     const answered = await askOwed(deps.asks, last.owed);

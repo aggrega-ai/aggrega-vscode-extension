@@ -959,6 +959,24 @@ describe('the answering round offers only what an answer owes, and ends with not
     }
   });
 
+  it('offers nothing after a preview, whatever it owes, and sends nothing', async () => {
+    // The compiler applies no answer sent with a preview, as the command line asks
+    // nothing under --dry-run, so its owed values stay listed and are not asked.
+    // 🔴 PLANTED DEFECT: drop the preview test in answerOwedValues and this offers
+    // the two values and sends a second request.
+    const r = recorder(OWING_PREVIEW, PREVIEWED);
+    const report = await runImport(r.deps, { source: './flow.json', dryRun: true });
+    assert.deepStrictEqual(report.owed, [OWED_HOST, OWED_SECRET]);
+    assert.deepStrictEqual(report.sent, { source: './flow.json', dryRun: true });
+    const a = answering(r, [true], 'db.internal', 'API_KEY');
+    await answerOwedValues(a.deps, report);
+    assert.deepStrictEqual(a.offered, []);
+    assert.deepStrictEqual(a.asked, []);
+    assert.deepStrictEqual(a.watched, []);
+    assert.deepStrictEqual(a.shown, []);
+    assert.strictEqual(r.sent.length, 1);
+  });
+
   it('offers once, naming the count, and a declined offer asks nothing and sends nothing', async () => {
     // 🔴 PLANTED DEFECT: ask whatever the offer answered and this asks two boxes and
     // sends a second request.
@@ -1057,16 +1075,6 @@ describe('an answered round is sent again on the request that was last sent, and
     assert.strictEqual(a.shown.length, 2);
   });
 
-  it('re-sends a preview as a preview, which turns on no sync', async () => {
-    // 🔴 PLANTED DEFECT: turn sync on whatever the request was, and the preview's
-    // re-send asks for a sync of drafts that were never written.
-    const r = recorder(OWING_PREVIEW, PREVIEWED);
-    const report = await runImport(r.deps, { source: './flow.json', dryRun: true });
-    const a = answering(r, [true], 'db.internal', '');
-    await answerOwedValues(a.deps, report);
-    assert.deepStrictEqual(r.sent[1], { source: './flow.json', dryRun: true, answered: [HOST_ANSWER] });
-  });
-
   it('carries a format named after a refusal into the re-send', async () => {
     // 🔴 PLANTED DEFECT: report the request composed from the reader's first
     // choices rather than the one last sent, and the re-send loses the format —
@@ -1096,16 +1104,28 @@ describe('an answered round is sent again on the request that was last sent, and
     assert.deepStrictEqual(a.offered, [2]);
   });
 
-  it('sends earlier answers again, a new answer for the same value replacing the earlier one', () => {
-    // A preview keeps no answer, so a round leaving one out would list it as owed
-    // once more; a refused answer answered again is sent once, as answered last.
+  it('sends earlier answers again on a sync, a new answer for the same value replacing the earlier one', () => {
+    // A refused answer answered again is sent once, as answered last, and the
+    // answer kept before it travels with it.
+    // 🔴 PLANTED DEFECT: send only the new answers in answeredRequest and the host's
+    // answer is missing; append without replacing and the refused one is sent twice.
     const earlier: ImportAnswered[] = [HOST_ANSWER, { ...SECRET_ANSWER, answer: 'sk-literal' }];
-    const params = answeredRequest({ source: './flow.json', dryRun: true, answered: earlier }, [SECRET_ANSWER]);
+    const params = answeredRequest({ source: './flow.json', sync: true, answered: earlier }, [SECRET_ANSWER]);
     assert.deepStrictEqual(params, {
       source: './flow.json',
-      dryRun: true,
+      sync: true,
       answered: [HOST_ANSWER, SECRET_ANSWER],
     });
+  });
+
+  it('sends the answers on a sync whatever the request it answers chose', () => {
+    // 🔴 PLANTED DEFECT: carry the sync over from the request as it was, and a write
+    // re-sent with answers is a plain import over drafts already written, which the
+    // compiler refuses.
+    assert.deepStrictEqual(
+      answeredRequest({ source: './flow.json', target: 'compose' }, [HOST_ANSWER]),
+      { source: './flow.json', target: 'compose', answered: [HOST_ANSWER], sync: true },
+    );
   });
 });
 
