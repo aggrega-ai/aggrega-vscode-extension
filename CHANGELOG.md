@@ -4,6 +4,13 @@ All notable changes to the Aggrega VS Code extension are recorded in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.9.1] - 2026-11-15
+
+### Fixed
+
+- `aggrega.server.binaryPath` accepts a path starting with `~/` (`~\` on Windows) or containing `${userHome}`, and a failed start names the path it tried.
+- The Commands panel shows the attached workspace and Release after it has been hidden, and choosing the workspace already in use says so.
+
 ## [0.9.0] - 2026-11-15
 
 ### Added
