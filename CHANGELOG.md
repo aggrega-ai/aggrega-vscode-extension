@@ -9,6 +9,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 
 - A Draft button in the Aggrega panels' and the Explorer's title bars drafts an entity, an example, a quickstart or an import.
+- The compiler picker shows compilers newer than the extension's supported range as not selectable, and says to upgrade the extension.
+- A relative `aggrega.server.binaryPath` is resolved against the first workspace folder.
+- The publication and signature lines the editor writes, and the cache names, are translated into all 15 languages.
 
 ### Fixed
 

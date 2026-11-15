@@ -276,10 +276,11 @@ export function withdrawalOpeningLine(reference: string): string {
 
 // publicationLines is everything one publication puts on the channel. The
 // `kind:`, `mediatype:` and `size:` labels are the command line's own words for
-// those facts and stay as the command line prints them; the labels the command
-// line does not print (a dry run, an already-published tag, a published tag, the
-// executable's size, an attached signature) are this editor's own and are
-// translated.
+// those facts and stay as the command line prints them. The other labels (a dry
+// run, an already-published tag, a published tag, the executable's size, an
+// attached signature) are this editor's own lowercase wording: they differ from
+// the command line's (which capitalises `Already published:` and
+// `Signature attached:`) and are translated.
 //
 // The compiler prints `Push complete: <reference>:<tag> (<digest>)` followed by
 // the kind, the media type and the size, and its dry run prints the same
