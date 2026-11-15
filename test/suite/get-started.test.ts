@@ -31,6 +31,7 @@ import {
   WELCOME_SHOW_COMMAND,
   WELCOME_SHOW_SETTING,
   WELCOME_VIEW_TYPE,
+  compilerRunsAt,
   isWelcomePageTab,
   panelControlCommands,
   readCollapsedSteps,
@@ -346,6 +347,7 @@ const MIXED = stepReadings({
   workspaceRoot: '/work/demo',
   workspaceCandidates: 1,
   compilerAnswering: false,
+  compilerRuns: false,
   compilerPath: 'aggrega',
   release: 'releases/prod.yaml',
   releaseCandidates: 1,
@@ -589,6 +591,61 @@ describe('the welcome panel', () => {
     });
   });
 
+  // 🔴 A COMPILER THAT RUNS IS A COMPILER THIS EDITOR CAN RUN, WHETHER OR NOT A
+  // LANGUAGE SERVER IS UP. The language server starts only once a folder is
+  // anchored, so a reader who downloaded or named a working compiler before
+  // opening an Aggrega folder has a compiler that answers `version` and no
+  // server — and the step must read met for them, on open and after the press.
+  describe('the compiler step is met by a compiler that runs', () => {
+    const DOWNLOADED = '/home/reader/.local/bin/aggrega';
+
+    it('is met for a downloaded compiler that runs while no language server is up', () => {
+      const facts: GetStartedFacts = {
+        ...NOTHING_MET,
+        compilerPath: DOWNLOADED,
+        compilerRuns: true,
+      };
+      const reading = stepReadings(facts).compiler;
+      assert.deepStrictEqual(reading, { met: true, value: { chosen: DOWNLOADED } });
+      assert.ok(!unmetStepIds(facts).includes('compiler'), 'a compiler that runs left the step still to do');
+    });
+
+    it('is still to do where the named compiler does not run and nothing answers', () => {
+      const facts: GetStartedFacts = { ...NOTHING_MET, compilerPath: DOWNLOADED, compilerRuns: false };
+      assert.strictEqual(stepMet('compiler', facts), false);
+    });
+
+    it('counts a compiler as running exactly when it answers `version -o json` with a version', async () => {
+      const asked: Array<[string, string[]]> = [];
+      const answers = (stdout: string) => async (bin: string, args: string[]): Promise<string> => {
+        asked.push([bin, args]);
+        return stdout;
+      };
+      assert.strictEqual(await compilerRunsAt(DOWNLOADED, answers('{"version":"0.9.1","commit":"c","goVersion":"g","platform":"p"}')), true);
+      assert.deepStrictEqual(asked, [[DOWNLOADED, ['version', '-o', 'json']]]);
+      assert.strictEqual(await compilerRunsAt(DOWNLOADED, answers('not json')), false);
+      assert.strictEqual(
+        await compilerRunsAt(DOWNLOADED, async () => { throw new Error('ENOENT'); }),
+        false,
+      );
+      const before = asked.length;
+      assert.strictEqual(await compilerRunsAt('', answers('{"version":"0.9.1"}')), false);
+      assert.strictEqual(asked.length, before, 'a blank path was run');
+    });
+
+    // The reading is composed in the module that holds the editor, which does
+    // not start in a headless run, so its wiring is read from the source: the
+    // step's fact asks the named compiler itself, through the runner every
+    // version reading takes, on every reading of the page.
+    it('reads the fact from the named compiler on every reading of the page', () => {
+      const body = functionBody('src/get-started.ts', 'async function readFacts(');
+      assert.ok(
+        body.includes('compilerRuns: await compilerRunsAt(compilerPath, deps.runVersion)'),
+        'the compiler step no longer asks the named compiler whether it runs',
+      );
+    });
+  });
+
   // 🔴 THE DEFECT THE MOVE EXISTS TO FIX, ASSERTED IN BOTH DIRECTIONS.
   //
   // The editor's own step completion is monotonic and persisted: once a step is
@@ -622,7 +679,7 @@ describe('the welcome panel', () => {
       assert.ok(held.includes('class="step step-met" data-step="compiler"'));
 
       const lapsed = stepsHtml(
-        stepReadings({ ...EVERYTHING_MET, compilerAnswering: false }),
+        stepReadings({ ...EVERYTHING_MET, compilerAnswering: false, compilerRuns: false }),
         [],
       );
       assert.ok(

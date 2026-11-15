@@ -4,6 +4,12 @@ All notable changes to the Aggrega VS Code extension are recorded in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Fixed
+
+- The welcome page marks the compiler step done once the configured compiler runs, even before an Aggrega folder is open.
+
 ## [0.9.1] - 2026-11-15
 
 ### Fixed

@@ -71,6 +71,7 @@ import {
   WELCOME_SHOW_COMMAND,
   WELCOME_SHOW_SETTING,
   WELCOME_VIEW_TYPE,
+  compilerRunsAt,
   dismissedConfirmation,
   isWelcomePageTab,
   panelControlCommands,
@@ -746,6 +747,7 @@ function welcomeHtml(
 async function readFacts(deps: GetStartedDeps): Promise<GetStartedFacts> {
   const compilerAnswering = deps.isCompilerAnswering();
   const workspaceRoot = deps.getWorkspaceRoot();
+  const compilerPath = deps.getBinaryPath();
   return {
     workspaceRoot,
     // What the workspace step's own chooser would offer, and it is looked for
@@ -757,6 +759,11 @@ async function readFacts(deps: GetStartedDeps): Promise<GetStartedFacts> {
     // to select, which is the safe direction to be wrong in.
     workspaceCandidates: workspaceRoot === null ? await offerableFolders(deps) : null,
     compilerAnswering,
+    // Whether the compiler the reader named runs, asked of that binary itself
+    // rather than of the language server: the server starts only once a folder
+    // is anchored, so a reader who downloaded or named a working compiler before
+    // opening one would otherwise be told they still have none.
+    compilerRuns: await compilerRunsAt(compilerPath, deps.runVersion),
     // The compiler the READER NAMED, which is the preference the step's own two
     // ways through write. It is deliberately not the binary a running language
     // server was started from: those diverge while a preference change waits
@@ -765,7 +772,7 @@ async function readFacts(deps: GetStartedDeps): Promise<GetStartedFacts> {
     // right beside it. It is also absent wherever nothing is running, which is
     // exactly the state the step exists for — so the reader who most needs to
     // see what they named would be shown nothing.
-    compilerPath: deps.getBinaryPath(),
+    compilerPath,
     release: deps.selectedRelease(),
     releaseCandidates: deps.offerableReleases(),
     // The registry question is asked of the compiler, so it is asked only once

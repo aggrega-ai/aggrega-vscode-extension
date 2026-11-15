@@ -2206,7 +2206,7 @@ export const PLANTS: readonly Plant[] = [
   },
   {
     name: 'compiler-step-met-whatever-answers', scenario: 'welcome-page-configured-workspace', checks: ['welcome-page.compiler-step-goes-back-to-do-when-the-compiler-stops'], moves: 'red', target: 'extension',
-    file: 'out/src/get-started-steps.js', find: '            return facts.compilerAnswering;', replace: '            return true;',
+    file: 'out/src/get-started-steps.js', find: '            return facts.compilerAnswering || facts.compilerRuns;', replace: '            return true;',
     says: 'the compiler step is met whether or not the compiler answers',
   },
   {

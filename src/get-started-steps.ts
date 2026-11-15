@@ -57,6 +57,7 @@ import { REGISTRY_ADD_COMMAND } from './registry-configure';
 import { SELECTOR_ROW_DRAWN_LABELS, SELECTOR_ROW_LABELS } from './selector-levels';
 import { USER_HOME_VARIABLE } from './settings';
 import { DOWNLOAD_COMPILER_ACTION } from './start-failure';
+import { SpawnFn, readDaemonVersion } from './version-check';
 
 // WELCOME_SHOW_SETTING is the preference that decides whether the panel opens
 // by itself. It is the reader's own, like every other preference here, and it is
@@ -155,11 +156,14 @@ export const STEP_IDS: readonly StepId[] = ['workspace', 'compiler', 'release', 
 // for, or name one under a step it called still to do.
 //
 // 🔴 THE COMPILER IS THE EXCEPTION AND IT IS A REAL ONE. Whether the language
-// server answers and which binary the reader has named are independent: a
-// reader who has named a compiler that will not start has a value and no
-// answer, and the plain name the preference defaults to means the value is
-// never absent merely because nothing is running. So that step carries both,
-// and neither is derivable from the other.
+// server answers, whether the named compiler runs, and which binary the reader
+// has named are independent: a reader who has named a compiler that will not
+// start has a value and no answer, and the plain name the preference defaults to
+// means the value is never absent merely because nothing is running. A compiler
+// that runs with no language server answering is the ordinary state of a reader
+// who has not yet opened a folder Aggrega recognises, because the server is
+// started only once one is anchored. So that step carries all three, and none is
+// derivable from another.
 //
 // 🔴 TWO STEPS CARRY A THIRD KIND OF FACT — HOW MANY THERE ARE TO CHOOSE FROM —
 // AND IT IS NEITHER THEIR CONDITION NOR THEIR VALUE. It decides only which
@@ -186,6 +190,11 @@ export interface GetStartedFacts {
   workspaceCandidates: number | null;
   // compilerAnswering is whether the language server can be asked right now.
   compilerAnswering: boolean;
+  // compilerRuns is whether the compiler the reader has named, run on this
+  // machine and asked for its version, answered with one. It is what the step's
+  // condition rests on where no language server is answering, so a compiler
+  // that works is counted as one before any folder is anchored.
+  compilerRuns: boolean;
   // compilerPath is the compiler the reader has named for the editor to start.
   // It is the preference itself rather than the binary a running language
   // server happens to have been started from: this is the value the step's own
@@ -219,12 +228,21 @@ export function stepMet(id: StepId, facts: GetStartedFacts): boolean {
     case 'workspace':
       return facts.workspaceRoot !== null;
     case 'compiler':
-      return facts.compilerAnswering;
+      return facts.compilerAnswering || facts.compilerRuns;
     case 'release':
       return facts.release !== null;
     case 'registry':
       return (facts.registries ?? []).length > 0;
   }
+}
+
+// compilerRunsAt reports whether one compiler, asked for its version, answered
+// with one. It reads through the one place a compiler's version is obtained, so
+// the step and every other surface naming a version agree about what the same
+// binary did. A blank path names nothing and is not run.
+export async function compilerRunsAt(binaryPath: string, spawn: SpawnFn): Promise<boolean> {
+  if (binaryPath === '') { return false; }
+  return (await readDaemonVersion({ binaryPath, spawn })).kind === 'reported';
 }
 
 // The words a step shows where it has no value to name. Each says what is not
@@ -407,6 +425,7 @@ export const EVERYTHING_MET: GetStartedFacts = {
   workspaceRoot: '/work/demo',
   workspaceCandidates: 1,
   compilerAnswering: true,
+  compilerRuns: true,
   compilerPath: 'aggrega',
   release: 'releases/prod.yaml',
   releaseCandidates: 1,
@@ -430,6 +449,7 @@ export const NOTHING_MET: GetStartedFacts = {
   workspaceRoot: null,
   workspaceCandidates: 0,
   compilerAnswering: false,
+  compilerRuns: false,
   compilerPath: '',
   release: null,
   releaseCandidates: null,
