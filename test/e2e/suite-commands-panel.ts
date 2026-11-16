@@ -47,7 +47,7 @@ import {
 
 export const COMMANDS_PANEL_CHECKS = [
   'commands-panel.context-rows-name-the-opened-folder',
-  'side-bar.panels-in-order-each-list-title-bar-holding-only-its-refresh',
+  'side-bar.panels-in-order-each-list-title-bar-holding-draft-and-its-refresh',
   'commands-panel.title-bar-draws-the-house-and-the-cog-at-rest',
   'commands-panel.cog-opens-the-editors-settings-narrowed-to-this-extension',
   'commands-panel.default-shape-is-one-flow-with-no-group-titles',
@@ -342,8 +342,9 @@ export async function commandsPanelChecks(ctx: SuiteContext, notABinary: string,
   // ---- the container's panels, and their title bars ----
   const views = containerViews(ctx);
   const listViews = views.filter((v) => v.name !== PANEL_ORDER[0]);
-  await c.run('side-bar.panels-in-order-each-list-title-bar-holding-only-its-refresh', {
-    expected: `the container's panels read, top to bottom, ${PANEL_ORDER.join(' · ')}; and each list panel's title bar, drawn once its header is pointed at, holds exactly one action, its own refresh (${listViews.map((v) => `"${commandTitle(ctx.manifest, `${v.id}.refresh`)}"`).join(', ')}), watched for ${ABSENCE_MS} ms each — no operation among them`,
+  const draft = commandTitle(ctx.manifest, 'aggrega.op.draft');
+  await c.run('side-bar.panels-in-order-each-list-title-bar-holding-draft-and-its-refresh', {
+    expected: `the container's panels read, top to bottom, ${PANEL_ORDER.join(' · ')}; and each list panel's title bar, drawn once its header is pointed at, holds exactly two actions, in this order, the "${draft}" button and its own refresh (${listViews.map((v) => `"${commandTitle(ctx.manifest, `${v.id}.refresh`)}"`).join(', ')}), watched for ${ABSENCE_MS} ms each — no operation among them`,
     plant: 'in the scratch copy\'s package.json, the published-catalog search added to the Catalog panel\'s title bar',
   }, async () => {
     const at = await panesOf(ctx);
@@ -351,13 +352,14 @@ export async function commandsPanelChecks(ctx: SuiteContext, notABinary: string,
     const bars: string[] = [];
     let only = true;
     for (const v of listViews) {
-      const refresh = commandTitle(ctx.manifest, `${v.id}.refresh`);
+      const want = [draft, commandTitle(ctx.manifest, `${v.id}.refresh`)];
+      const exact = (a: string[]): boolean => JSON.stringify(a) === JSON.stringify(want);
       const first = await until(`the ${v.name} panel's header`, 10000, () => paneTitleActions(ctx, v.name), (t) => t !== null);
       if (first === null) { throw new Error(`unreachable: the ${v.name} panel's header`); }
       await ctx.d.moveTo({ x: first.header.x + 40, y: first.header.y + first.header.height / 2 });
       const drawn = await until(`the ${v.name} panel's title bar drawn under the pointer`, 5000, async () => drawnActions(await paneTitleActions(ctx, v.name)), (a) => a.length > 0).catch(() => [] as string[]);
-      const kept = await holds(ABSENCE_MS, async () => drawnActions(await paneTitleActions(ctx, v.name)), (a) => a.length === 1 && a[0] === refresh, 150);
-      only = only && kept.held && drawn.length === 1 && drawn[0] === refresh;
+      const kept = await holds(ABSENCE_MS, async () => drawnActions(await paneTitleActions(ctx, v.name)), exact, 150);
+      only = only && kept.held && exact(drawn);
       bars.push(`${v.name}: ${JSON.stringify(kept.held ? drawn : kept.broke)}`);
     }
     await ctx.d.moveTo({ x: 1, y: 1 });
@@ -368,15 +370,16 @@ export async function commandsPanelChecks(ctx: SuiteContext, notABinary: string,
   // ---- the house and the cog ----
   const house = commandTitle(ctx.manifest, 'aggrega.getStarted.open');
   const cog = commandTitle(ctx.manifest, SETTINGS_COMMAND);
-  const wantIcons: Record<string, string> = { [house]: iconOfCommand(ctx, 'aggrega.getStarted.open'), [cog]: iconOfCommand(ctx, SETTINGS_COMMAND) };
+  const wantIcons: Record<string, string> = { [draft]: iconOfCommand(ctx, 'aggrega.op.draft'), [house]: iconOfCommand(ctx, 'aggrega.getStarted.open'), [cog]: iconOfCommand(ctx, SETTINGS_COMMAND) };
+  const wantBar = [draft, cog, house];
   await c.run('commands-panel.title-bar-draws-the-house-and-the-cog-at-rest', {
-    expected: `with the pointer away from the side bar, the Commands panel's title bar draws exactly two actions, "${house}" (${wantIcons[house]}) and "${cog}" (${wantIcons[cog]}), each with a width, over ${ABSENCE_MS} ms; while the same reading of the ${listViews[0]?.name ?? 'first list'} panel's title bar draws nothing at rest and draws its refresh once its header is pointed at`,
+    expected: `with the pointer away from the side bar, the Commands panel's title bar draws exactly three actions, in this order, ${wantBar.map((l) => `"${l}" (${wantIcons[l]})`).join(', ')}, each with a width, over ${ABSENCE_MS} ms; while the same reading of the ${listViews[0]?.name ?? 'first list'} panel's title bar draws nothing at rest and draws the "${draft}" button and its refresh once its header is pointed at`,
     plant: 'in the scratch copy\'s package.json, the cog taken off the Commands panel\'s title bar',
   }, async () => {
     await ctx.d.moveTo({ x: 1, y: 1 });
     const read = async (): Promise<{ label: string; icon: string; width: number }[]> => ((await paneTitleActions(ctx, PANEL_ORDER[0]))?.actions ?? []).map((a) => ({ label: a.label, icon: a.icon, width: a.box.width }));
     const first = await until('the Commands panel\'s title bar', 10000, read, (a) => a.length > 0);
-    const ok = (a: { label: string; icon: string; width: number }[]): boolean => a.length === 2 && [house, cog].every((l) => a.some((x) => x.label === l && x.icon === wantIcons[l] && x.width > 0));
+    const ok = (a: { label: string; icon: string; width: number }[]): boolean => a.length === wantBar.length && wantBar.every((l, i) => a[i].label === l && a[i].icon === wantIcons[l] && a[i].width > 0);
     const kept = await holds(ABSENCE_MS, read, ok, 150);
     // The control: a tree panel's bar, read the same way, at rest and pointed at.
     const list = listViews[0];

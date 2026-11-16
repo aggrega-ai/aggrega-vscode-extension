@@ -2285,7 +2285,7 @@ export const PLANTS: readonly Plant[] = [
   // ---- the gateway folder: the Commands panel and the panels beside it ----
   { name: 'context-row-renamed-commands-panel', scenario: 'gateway-commands-panel', checks: ['commands-panel.context-rows-name-the-opened-folder'], moves: 'red', target: 'extension', ...CONTEXT_ROW_LABEL },
   {
-    name: 'catalog-search-on-the-catalog-title-bar', scenario: 'gateway-commands-panel', checks: ['side-bar.panels-in-order-each-list-title-bar-holding-only-its-refresh'], moves: 'red', target: 'extension',
+    name: 'catalog-search-on-the-catalog-title-bar', scenario: 'gateway-commands-panel', checks: ['side-bar.panels-in-order-each-list-title-bar-holding-draft-and-its-refresh'], moves: 'red', target: 'extension',
     file: 'package.json',
     find: '          "command": "aggrega.workspaceCatalog.refresh",\n          "when": "view == aggrega.workspaceCatalog",\n          "group": "navigation"\n        }\n      ],',
     replace: '          "command": "aggrega.workspaceCatalog.refresh",\n          "when": "view == aggrega.workspaceCatalog",\n          "group": "navigation"\n        },\n        {\n          "command": "aggrega.catalog.searchPublished",\n          "when": "view == aggrega.workspaceCatalog",\n          "group": "navigation"\n        }\n      ],',
