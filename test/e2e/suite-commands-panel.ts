@@ -48,7 +48,7 @@ import {
 export const COMMANDS_PANEL_CHECKS = [
   'commands-panel.context-rows-name-the-opened-folder',
   'side-bar.panels-in-order-each-list-title-bar-holding-draft-and-its-refresh',
-  'commands-panel.title-bar-draws-the-house-and-the-cog-at-rest',
+  'commands-panel.title-bar-draws-draft-the-cog-and-the-house-at-rest',
   'commands-panel.cog-opens-the-editors-settings-narrowed-to-this-extension',
   'commands-panel.default-shape-is-one-flow-with-no-group-titles',
   'commands-panel.groups-in-order-labels-named-and-explained-on-the-hover',
@@ -372,7 +372,7 @@ export async function commandsPanelChecks(ctx: SuiteContext, notABinary: string,
   const cog = commandTitle(ctx.manifest, SETTINGS_COMMAND);
   const wantIcons: Record<string, string> = { [draft]: iconOfCommand(ctx, 'aggrega.op.draft'), [house]: iconOfCommand(ctx, 'aggrega.getStarted.open'), [cog]: iconOfCommand(ctx, SETTINGS_COMMAND) };
   const wantBar = [draft, cog, house];
-  await c.run('commands-panel.title-bar-draws-the-house-and-the-cog-at-rest', {
+  await c.run('commands-panel.title-bar-draws-draft-the-cog-and-the-house-at-rest', {
     expected: `with the pointer away from the side bar, the Commands panel's title bar draws exactly three actions, in this order, ${wantBar.map((l) => `"${l}" (${wantIcons[l]})`).join(', ')}, each with a width, over ${ABSENCE_MS} ms; while the same reading of the ${listViews[0]?.name ?? 'first list'} panel's title bar draws nothing at rest and draws the "${draft}" button and its refresh once its header is pointed at`,
     plant: 'in the scratch copy\'s package.json, the cog taken off the Commands panel\'s title bar',
   }, async () => {

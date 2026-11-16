@@ -1512,8 +1512,8 @@ export const PLANTS: readonly Plant[] = [
   {
     name: 'trim-confirmation-names-both-scopes', scenario: 'gateway-cache', checks: ['cache.each-removal-confirms-first-naming-the-caches-it-reaches'], moves: 'red', target: 'extension',
     file: 'out/src/operation-groups.js',
-    find: `scope: l10n.t("This reaches the {0}, which every project on this machine shares. Nothing under this workspace's own cache directory is touched. What is removed is rebuilt on the next build that needs it.", COMPILED_MODULE_CACHE),`,
-    replace: `scope: l10n.t("This reaches this workspace's own entity, source-artifact and external-input caches, and the {0}, which every project on this machine shares. What is removed is rebuilt on the next build that needs it.", COMPILED_MODULE_CACHE),`,
+    find: `scope: l10n.t("This reaches the {0}, which every project on this machine shares. Nothing under this workspace's own cache directory is touched. What is removed is rebuilt on the next build that needs it.", compiledModuleCache()),`,
+    replace: `scope: l10n.t("This reaches this workspace's own entity, source-artifact and external-input caches, and the {0}, which every project on this machine shares. What is removed is rebuilt on the next build that needs it.", compiledModuleCache()),`,
     says: 'the trim\'s confirmation names this workspace\'s caches as well as the shared one, as the other two removals do',
   },
   {
@@ -2292,7 +2292,7 @@ export const PLANTS: readonly Plant[] = [
     says: 'the published-catalog search is put on the Catalog panel\'s title bar beside its refresh',
   },
   {
-    name: 'cog-off-the-commands-title-bar', scenario: 'gateway-commands-panel', checks: ['commands-panel.title-bar-draws-the-house-and-the-cog-at-rest'], moves: 'red', target: 'extension',
+    name: 'cog-off-the-commands-title-bar', scenario: 'gateway-commands-panel', checks: ['commands-panel.title-bar-draws-draft-the-cog-and-the-house-at-rest'], moves: 'red', target: 'extension',
     file: 'package.json',
     find: '        {\n          "command": "aggrega.settings.open",\n          "when": "view == aggrega.operations",\n          "group": "navigation"\n        },\n',
     replace: '',
