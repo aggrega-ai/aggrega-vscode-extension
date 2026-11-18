@@ -108,6 +108,7 @@
   "the downloaded {0} did not answer `version -o json` ({1}), so it was deleted": "il file {0} scaricato non ha risposto a `version -o json` ({1}), quindi è stato eliminato",
   "the downloaded {0} reports version {1} rather than {2}, so it was deleted": "il file {0} scaricato riporta la versione {1} anziché {2}, quindi è stato eliminato",
   "the downloaded {0} could not be put in place at {1} ({2}), so it was deleted": "impossibile collocare il file {0} scaricato in {1} ({2}), quindi è stato eliminato",
+  "Aggrega: could not read the third-party licenses from the compiler at {0}: {1}": "Aggrega: impossibile leggere le licenze di terze parti dal compilatore in {0}: {1}",
   "Aggrega: using the compiler found on PATH at {0}, version not reported.": "Aggrega: si usa il compilatore trovato nel PATH in {0}, versione non indicata.",
   "Aggrega: using the compiler found on PATH at {0}, version {1}.": "Aggrega: si usa il compilatore trovato nel PATH in {0}, versione {1}.",
   "Download": "Scarica",

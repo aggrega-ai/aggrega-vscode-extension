@@ -17,6 +17,7 @@
   "command.aggrega.getStarted.locateCompiler.title": "Aggrega: Вказати наявний у мене компілятор",
   "command.aggrega.getStarted.downloadCompiler.title": "Aggrega: Завантажити компілятор",
   "command.aggrega.compiler.selectVersion.title": "Aggrega: Вибрати версію компілятора",
+  "command.aggrega.compiler.showLicenses.title": "Aggrega: Показати ліцензії сторонніх компонентів компілятора",
   "command.aggrega.getStarted.draftRelease.title": "Aggrega: Створити чернетку сутності Release",
   "command.aggrega.getStarted.seedRegistry.title": "Aggrega: Налаштувати офіційний хаб",
   "command.aggrega.getStarted.seedNamedRegistry.title": "Aggrega: Налаштувати вказаний мною реєстр",

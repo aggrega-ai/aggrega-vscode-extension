@@ -17,6 +17,7 @@
   "command.aggrega.getStarted.locateCompiler.title": "Aggrega: 手元のコンパイラを指定",
   "command.aggrega.getStarted.downloadCompiler.title": "Aggrega: コンパイラをダウンロード",
   "command.aggrega.compiler.selectVersion.title": "Aggrega: コンパイラのバージョンを選択",
+  "command.aggrega.compiler.showLicenses.title": "Aggrega: コンパイラのサードパーティライセンスを表示",
   "command.aggrega.getStarted.draftRelease.title": "Aggrega: Release の下書きを作成",
   "command.aggrega.getStarted.seedRegistry.title": "Aggrega: 公式ハブを初期登録",
   "command.aggrega.getStarted.seedNamedRegistry.title": "Aggrega: 指定したレジストリを初期登録",

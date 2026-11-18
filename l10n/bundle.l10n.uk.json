@@ -108,6 +108,7 @@
   "the downloaded {0} did not answer `version -o json` ({1}), so it was deleted": "завантажений файл {0} не відповів на `version -o json` ({1}), тому його видалено",
   "the downloaded {0} reports version {1} rather than {2}, so it was deleted": "завантажений файл {0} повідомляє версію {1} замість {2}, тому його видалено",
   "the downloaded {0} could not be put in place at {1} ({2}), so it was deleted": "завантажений файл {0} не вдалося розмістити в {1} ({2}), тому його видалено",
+  "Aggrega: could not read the third-party licenses from the compiler at {0}: {1}": "Aggrega: не вдалося прочитати ліцензії сторонніх компонентів у компілятора за шляхом {0}: {1}",
   "Aggrega: using the compiler found on PATH at {0}, version not reported.": "Aggrega: використовується компілятор, знайдений у PATH за шляхом {0}, версію не повідомлено.",
   "Aggrega: using the compiler found on PATH at {0}, version {1}.": "Aggrega: використовується компілятор, знайдений у PATH за шляхом {0}, версія {1}.",
   "Download": "Завантажити",

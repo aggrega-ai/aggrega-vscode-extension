@@ -17,6 +17,7 @@
   "command.aggrega.getStarted.locateCompiler.title": "Aggrega: Point at a compiler I have",
   "command.aggrega.getStarted.downloadCompiler.title": "Aggrega: Download the compiler",
   "command.aggrega.compiler.selectVersion.title": "Aggrega: Select Compiler Version",
+  "command.aggrega.compiler.showLicenses.title": "Aggrega: Show Compiler Third-Party Licenses",
   "command.aggrega.getStarted.draftRelease.title": "Aggrega: Draft a Release",
   "command.aggrega.getStarted.seedRegistry.title": "Aggrega: Seed the official hub",
   "command.aggrega.getStarted.seedNamedRegistry.title": "Aggrega: Seed a registry I name",

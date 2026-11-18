@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 
 - The extension's own words show in Hindi when VS Code runs in Hindi.
+- The command "Aggrega: Show Compiler Third-Party Licenses" opens the third-party notices of the configured compiler.
 
 ## [0.9.3] - 2026-11-17
 

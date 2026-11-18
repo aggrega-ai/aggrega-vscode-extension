@@ -315,6 +315,10 @@
         "title": "%command.aggrega.compiler.selectVersion.title%"
       },
       {
+        "command": "aggrega.compiler.showLicenses",
+        "title": "%command.aggrega.compiler.showLicenses.title%"
+      },
+      {
         "command": "aggrega.getStarted.draftRelease",
         "title": "%command.aggrega.getStarted.draftRelease.title%"
       },

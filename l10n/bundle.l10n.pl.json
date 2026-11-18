@@ -108,6 +108,7 @@
   "the downloaded {0} did not answer `version -o json` ({1}), so it was deleted": "pobrany plik {0} nie odpowiedział na `version -o json` ({1}), więc został usunięty",
   "the downloaded {0} reports version {1} rather than {2}, so it was deleted": "pobrany plik {0} zgłasza wersję {1} zamiast {2}, więc został usunięty",
   "the downloaded {0} could not be put in place at {1} ({2}), so it was deleted": "nie można umieścić pobranego pliku {0} w {1} ({2}), więc został usunięty",
+  "Aggrega: could not read the third-party licenses from the compiler at {0}: {1}": "Aggrega: nie można odczytać licencji zewnętrznych z kompilatora w {0}: {1}",
   "Aggrega: using the compiler found on PATH at {0}, version not reported.": "Aggrega: używany jest kompilator znaleziony w PATH: {0}, wersja nie została podana.",
   "Aggrega: using the compiler found on PATH at {0}, version {1}.": "Aggrega: używany jest kompilator znaleziony w PATH: {0}, wersja {1}.",
   "Download": "Pobierz",

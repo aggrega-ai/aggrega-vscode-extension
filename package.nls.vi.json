@@ -17,6 +17,7 @@
   "command.aggrega.getStarted.locateCompiler.title": "Aggrega: Trỏ tới một trình biên dịch tôi đã có",
   "command.aggrega.getStarted.downloadCompiler.title": "Aggrega: Tải xuống trình biên dịch",
   "command.aggrega.compiler.selectVersion.title": "Aggrega: Chọn phiên bản trình biên dịch",
+  "command.aggrega.compiler.showLicenses.title": "Aggrega: Hiển thị giấy phép bên thứ ba của trình biên dịch",
   "command.aggrega.getStarted.draftRelease.title": "Aggrega: Soạn nháp một Release",
   "command.aggrega.getStarted.seedRegistry.title": "Aggrega: Khởi tạo sẵn hub chính thức",
   "command.aggrega.getStarted.seedNamedRegistry.title": "Aggrega: Khởi tạo sẵn một registry do tôi chỉ định",

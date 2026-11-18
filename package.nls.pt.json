@@ -17,6 +17,7 @@
   "command.aggrega.getStarted.locateCompiler.title": "Aggrega: Apontar para um compilador que já tenho",
   "command.aggrega.getStarted.downloadCompiler.title": "Aggrega: Descarregar o compilador",
   "command.aggrega.compiler.selectVersion.title": "Aggrega: Selecionar a versão do compilador",
+  "command.aggrega.compiler.showLicenses.title": "Aggrega: Mostrar as licenças de terceiros do compilador",
   "command.aggrega.getStarted.draftRelease.title": "Aggrega: Criar o rascunho de uma Release",
   "command.aggrega.getStarted.seedRegistry.title": "Aggrega: Fazer a configuração inicial do hub oficial",
   "command.aggrega.getStarted.seedNamedRegistry.title": "Aggrega: Fazer a configuração inicial de um registry que eu indicar",

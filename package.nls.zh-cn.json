@@ -17,6 +17,7 @@
   "command.aggrega.getStarted.locateCompiler.title": "Aggrega: 指向我已有的编译器",
   "command.aggrega.getStarted.downloadCompiler.title": "Aggrega: 下载编译器",
   "command.aggrega.compiler.selectVersion.title": "Aggrega: 选择编译器版本",
+  "command.aggrega.compiler.showLicenses.title": "Aggrega: 显示编译器的第三方许可证",
   "command.aggrega.getStarted.draftRelease.title": "Aggrega: 草拟一个 Release",
   "command.aggrega.getStarted.seedRegistry.title": "Aggrega: 初始化官方 hub",
   "command.aggrega.getStarted.seedNamedRegistry.title": "Aggrega: 初始化我指定的注册表",

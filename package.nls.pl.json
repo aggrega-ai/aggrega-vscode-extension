@@ -17,6 +17,7 @@
   "command.aggrega.getStarted.locateCompiler.title": "Aggrega: Wskaż kompilator, który już mam",
   "command.aggrega.getStarted.downloadCompiler.title": "Aggrega: Pobierz kompilator",
   "command.aggrega.compiler.selectVersion.title": "Aggrega: Wybierz wersję kompilatora",
+  "command.aggrega.compiler.showLicenses.title": "Aggrega: Pokaż licencje zewnętrzne kompilatora",
   "command.aggrega.getStarted.draftRelease.title": "Aggrega: Utwórz szkic encji Release",
   "command.aggrega.getStarted.seedRegistry.title": "Aggrega: Zainicjalizuj oficjalny hub",
   "command.aggrega.getStarted.seedNamedRegistry.title": "Aggrega: Zainicjalizuj wskazany przeze mnie rejestr",

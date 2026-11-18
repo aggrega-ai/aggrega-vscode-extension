@@ -108,6 +108,7 @@
   "the downloaded {0} did not answer `version -o json` ({1}), so it was deleted": "{0} yang diunduh tidak menjawab `version -o json` ({1}), sehingga dihapus",
   "the downloaded {0} reports version {1} rather than {2}, so it was deleted": "{0} yang diunduh melaporkan versi {1}, bukan {2}, sehingga dihapus",
   "the downloaded {0} could not be put in place at {1} ({2}), so it was deleted": "{0} yang diunduh tidak dapat ditempatkan di {1} ({2}), sehingga dihapus",
+  "Aggrega: could not read the third-party licenses from the compiler at {0}: {1}": "Aggrega: tidak dapat membaca lisensi pihak ketiga dari kompiler di {0}: {1}",
   "Aggrega: using the compiler found on PATH at {0}, version not reported.": "Aggrega: menggunakan kompiler yang ditemukan di PATH pada {0}, versi tidak dilaporkan.",
   "Aggrega: using the compiler found on PATH at {0}, version {1}.": "Aggrega: menggunakan kompiler yang ditemukan di PATH pada {0}, versi {1}.",
   "Download": "Unduh",

@@ -108,6 +108,7 @@
   "the downloaded {0} did not answer `version -o json` ({1}), so it was deleted": "下载的 {0} 未响应 `version -o json`（{1}），因此已将其删除",
   "the downloaded {0} reports version {1} rather than {2}, so it was deleted": "下载的 {0} 报告的版本为 {1} 而不是 {2}，因此已将其删除",
   "the downloaded {0} could not be put in place at {1} ({2}), so it was deleted": "无法将下载的 {0} 放置到 {1}（{2}），因此已将其删除",
+  "Aggrega: could not read the third-party licenses from the compiler at {0}: {1}": "Aggrega：无法从位于 {0} 的编译器读取第三方许可证：{1}",
   "Aggrega: using the compiler found on PATH at {0}, version not reported.": "Aggrega：正在使用在 PATH 中找到的位于 {0} 的编译器，版本未报告。",
   "Aggrega: using the compiler found on PATH at {0}, version {1}.": "Aggrega：正在使用在 PATH 中找到的位于 {0} 的编译器，版本 {1}。",
   "Download": "下载",

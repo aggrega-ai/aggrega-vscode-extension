@@ -108,6 +108,7 @@
   "the downloaded {0} did not answer `version -o json` ({1}), so it was deleted": "{0} đã tải xuống không trả lời `version -o json` ({1}), nên đã bị xóa",
   "the downloaded {0} reports version {1} rather than {2}, so it was deleted": "{0} đã tải xuống báo cáo phiên bản {1} thay vì {2}, nên đã bị xóa",
   "the downloaded {0} could not be put in place at {1} ({2}), so it was deleted": "không thể đặt {0} đã tải xuống vào vị trí {1} ({2}), nên đã bị xóa",
+  "Aggrega: could not read the third-party licenses from the compiler at {0}: {1}": "Aggrega: không thể đọc giấy phép bên thứ ba từ trình biên dịch tại {0}: {1}",
   "Aggrega: using the compiler found on PATH at {0}, version not reported.": "Aggrega: đang dùng trình biên dịch tìm thấy trên PATH tại {0}, không báo cáo phiên bản.",
   "Aggrega: using the compiler found on PATH at {0}, version {1}.": "Aggrega: đang dùng trình biên dịch tìm thấy trên PATH tại {0}, phiên bản {1}.",
   "Download": "Tải xuống",

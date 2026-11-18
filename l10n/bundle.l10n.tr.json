@@ -108,6 +108,7 @@
   "the downloaded {0} did not answer `version -o json` ({1}), so it was deleted": "indirilen {0} dosyası `version -o json` komutuna yanıt vermedi ({1}); bu nedenle silindi",
   "the downloaded {0} reports version {1} rather than {2}, so it was deleted": "indirilen {0} dosyası {2} yerine {1} sürümünü bildiriyor; bu nedenle silindi",
   "the downloaded {0} could not be put in place at {1} ({2}), so it was deleted": "indirilen {0} dosyası {1} konumuna yerleştirilemedi ({2}); bu nedenle silindi",
+  "Aggrega: could not read the third-party licenses from the compiler at {0}: {1}": "Aggrega: {0} konumundaki derleyiciden üçüncü taraf lisansları okunamadı: {1}",
   "Aggrega: using the compiler found on PATH at {0}, version not reported.": "Aggrega: PATH üzerinde {0} konumunda bulunan derleyici kullanılıyor; sürüm bildirilmedi.",
   "Aggrega: using the compiler found on PATH at {0}, version {1}.": "Aggrega: PATH üzerinde {0} konumunda bulunan derleyici kullanılıyor, sürüm {1}.",
   "Download": "İndir",

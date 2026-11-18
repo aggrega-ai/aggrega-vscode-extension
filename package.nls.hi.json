@@ -17,6 +17,7 @@
   "command.aggrega.getStarted.locateCompiler.title": "Aggrega: मेरे पास मौजूद किसी कंपाइलर की ओर इंगित करें",
   "command.aggrega.getStarted.downloadCompiler.title": "Aggrega: कंपाइलर डाउनलोड करें",
   "command.aggrega.compiler.selectVersion.title": "Aggrega: कंपाइलर संस्करण चुनें",
+  "command.aggrega.compiler.showLicenses.title": "Aggrega: कंपाइलर के थर्ड-पार्टी लाइसेंस दिखाएँ",
   "command.aggrega.getStarted.draftRelease.title": "Aggrega: Release ड्राफ़्ट करें",
   "command.aggrega.getStarted.seedRegistry.title": "Aggrega: आधिकारिक हब सीड करें",
   "command.aggrega.getStarted.seedNamedRegistry.title": "Aggrega: मेरे द्वारा नामित रजिस्ट्री सीड करें",

@@ -17,6 +17,7 @@
   "command.aggrega.getStarted.locateCompiler.title": "Aggrega: 가지고 있는 컴파일러 지정",
   "command.aggrega.getStarted.downloadCompiler.title": "Aggrega: 컴파일러 다운로드",
   "command.aggrega.compiler.selectVersion.title": "Aggrega: 컴파일러 버전 선택",
+  "command.aggrega.compiler.showLicenses.title": "Aggrega: 컴파일러 서드파티 라이선스 표시",
   "command.aggrega.getStarted.draftRelease.title": "Aggrega: Release 초안 작성",
   "command.aggrega.getStarted.seedRegistry.title": "Aggrega: 공식 허브 시드",
   "command.aggrega.getStarted.seedNamedRegistry.title": "Aggrega: 지정한 레지스트리 시드",

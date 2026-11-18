@@ -28,11 +28,13 @@ import {
   selectCompilerVersion,
   versionDescription,
 } from './compiler-version';
+import { SHOW_COMPILER_LICENSES_COMMAND, showCompilerLicenses } from './compiler-licenses';
 import { RESTART_COMMAND, commandTitle } from './daemon-status';
 import { SpawnFn, readDaemonVersion } from './version-check';
 import { describeError } from './error-surfaces';
 import { makeNonce } from './html';
 import * as l10n from './l10n';
+import { openDocument } from './open-document';
 import { panelControlCommand } from './panel-control';
 import { RendersOnReady } from './readiness';
 import { RegistryListDoc } from './registries-run';
@@ -638,6 +640,12 @@ export function activateGetStarted(
     vscode.commands.registerCommand(LOCATE_COMPILER_COMMAND, () => locateCompiler(deps, refresh)),
     vscode.commands.registerCommand(DOWNLOAD_COMPILER_COMMAND, () => downloadCompilerHere(deps, refresh, memory)),
     vscode.commands.registerCommand(SELECT_COMPILER_VERSION_COMMAND, () => selectCompilerVersionHere(deps, refresh, memory)),
+    vscode.commands.registerCommand(SHOW_COMPILER_LICENSES_COMMAND, () => showCompilerLicenses({
+      binaryPath: deps.getBinaryPath(),
+      run: deps.runVersion,
+      open: openDocument,
+      showError: (message) => void vscode.window.showErrorMessage(message),
+    })),
     vscode.commands.registerCommand(DRAFT_RELEASE_COMMAND, () => draftRelease()),
     vscode.commands.registerCommand(SEED_REGISTRY_COMMAND, () => seedRegistry(deps, refresh, null)),
     vscode.commands.registerCommand(SEED_NAMED_REGISTRY_COMMAND, () => seedNamedRegistry(deps, refresh)),

@@ -17,6 +17,7 @@
   "command.aggrega.getStarted.locateCompiler.title": "Aggrega: Tunjuk kompiler yang saya miliki",
   "command.aggrega.getStarted.downloadCompiler.title": "Aggrega: Unduh kompiler",
   "command.aggrega.compiler.selectVersion.title": "Aggrega: Pilih versi kompiler",
+  "command.aggrega.compiler.showLicenses.title": "Aggrega: Tampilkan lisensi pihak ketiga kompiler",
   "command.aggrega.getStarted.draftRelease.title": "Aggrega: Susun draf Release",
   "command.aggrega.getStarted.seedRegistry.title": "Aggrega: Inisialisasi hub resmi",
   "command.aggrega.getStarted.seedNamedRegistry.title": "Aggrega: Inisialisasi registri yang saya sebutkan",

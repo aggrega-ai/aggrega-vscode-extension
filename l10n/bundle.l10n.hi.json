@@ -108,6 +108,7 @@
   "the downloaded {0} did not answer `version -o json` ({1}), so it was deleted": "डाउनलोड किए गए {0} ने `version -o json` का उत्तर नहीं दिया ({1}), इसलिए उसे हटा दिया गया",
   "the downloaded {0} reports version {1} rather than {2}, so it was deleted": "डाउनलोड किया गया {0} संस्करण {2} के बजाय {1} बताता है, इसलिए उसे हटा दिया गया",
   "the downloaded {0} could not be put in place at {1} ({2}), so it was deleted": "डाउनलोड किए गए {0} को {1} पर उसकी जगह नहीं रखा जा सका ({2}), इसलिए उसे हटा दिया गया",
+  "Aggrega: could not read the third-party licenses from the compiler at {0}: {1}": "Aggrega: {0} पर मौजूद कंपाइलर से थर्ड-पार्टी लाइसेंस नहीं पढ़े जा सके: {1}",
   "Aggrega: using the compiler found on PATH at {0}, version not reported.": "Aggrega: PATH पर {0} में मिले कंपाइलर का उपयोग हो रहा है, संस्करण नहीं बताया गया।",
   "Aggrega: using the compiler found on PATH at {0}, version {1}.": "Aggrega: PATH पर {0} में मिले कंपाइलर का उपयोग हो रहा है, संस्करण {1}।",
   "Download": "डाउनलोड करें",

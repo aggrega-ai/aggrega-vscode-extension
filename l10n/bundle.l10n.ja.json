@@ -108,6 +108,7 @@
   "the downloaded {0} did not answer `version -o json` ({1}), so it was deleted": "ダウンロードした {0} が `version -o json` に応答しなかったため（{1}）、削除しました",
   "the downloaded {0} reports version {1} rather than {2}, so it was deleted": "ダウンロードした {0} はバージョン {2} ではなく {1} を報告したため、削除しました",
   "the downloaded {0} could not be put in place at {1} ({2}), so it was deleted": "ダウンロードした {0} を {1} に配置できなかったため（{2}）、削除しました",
+  "Aggrega: could not read the third-party licenses from the compiler at {0}: {1}": "Aggrega: {0} のコンパイラからサードパーティライセンスを読み取れませんでした: {1}",
   "Aggrega: using the compiler found on PATH at {0}, version not reported.": "Aggrega: PATH 上の {0} にあるコンパイラを使用しています（バージョンは報告されていません）。",
   "Aggrega: using the compiler found on PATH at {0}, version {1}.": "Aggrega: PATH 上の {0} にあるコンパイラ（バージョン {1}）を使用しています。",
   "Download": "ダウンロード",

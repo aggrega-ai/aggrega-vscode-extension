@@ -108,6 +108,7 @@
   "the downloaded {0} did not answer `version -o json` ({1}), so it was deleted": "다운로드한 {0}이(가) `version -o json`에 응답하지 않아({1}) 삭제했습니다",
   "the downloaded {0} reports version {1} rather than {2}, so it was deleted": "다운로드한 {0}이(가) {2}이(가) 아닌 버전 {1}을(를) 보고하여 삭제했습니다",
   "the downloaded {0} could not be put in place at {1} ({2}), so it was deleted": "다운로드한 {0}을(를) {1}에 배치할 수 없어({2}) 삭제했습니다",
+  "Aggrega: could not read the third-party licenses from the compiler at {0}: {1}": "Aggrega: {0}의 컴파일러에서 서드파티 라이선스를 읽을 수 없습니다: {1}",
   "Aggrega: using the compiler found on PATH at {0}, version not reported.": "Aggrega: PATH의 {0}에서 찾은 컴파일러를 사용합니다. 버전은 보고되지 않았습니다.",
   "Aggrega: using the compiler found on PATH at {0}, version {1}.": "Aggrega: PATH의 {0}에서 찾은 컴파일러(버전 {1})를 사용합니다.",
   "Download": "다운로드",

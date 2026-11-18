@@ -17,6 +17,7 @@
   "command.aggrega.getStarted.locateCompiler.title": "Aggrega: Sahip olduğum bir derleyiciyi göster",
   "command.aggrega.getStarted.downloadCompiler.title": "Aggrega: Derleyiciyi indir",
   "command.aggrega.compiler.selectVersion.title": "Aggrega: Derleyici sürümünü seç",
+  "command.aggrega.compiler.showLicenses.title": "Aggrega: Derleyicinin üçüncü taraf lisanslarını göster",
   "command.aggrega.getStarted.draftRelease.title": "Aggrega: Bir Release taslağı oluştur",
   "command.aggrega.getStarted.seedRegistry.title": "Aggrega: Resmî hub ile ilk kurulumu yap",
   "command.aggrega.getStarted.seedNamedRegistry.title": "Aggrega: Adını verdiğim bir kayıt defteriyle ilk kurulumu yap",
