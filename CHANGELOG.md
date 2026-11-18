@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- The extension's own words show in Hindi when VS Code runs in Hindi.
+
 ## [0.9.3] - 2026-11-17
 
 ## [0.9.2] - 2026-11-15
