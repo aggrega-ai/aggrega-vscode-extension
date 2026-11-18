@@ -24,30 +24,36 @@ name: Package and publish
 # in that commit.
 #
 # 🔴 A MANUAL RUN IS ALWAYS A DRY RUN, AND IT USES NO VERSION. Started by hand from
-# any branch, it builds and uploads the package, then runs each marketplace's
-# verify mode, whatever DRY_RUN reads: no publish step runs on a manual run. It
-# needs no tag, so no version's tag is spent on it:
+# main, it builds and uploads the package, then runs each marketplace's verify
+# mode, whatever DRY_RUN reads: no publish step runs on a manual run. It needs no
+# tag, so no version's tag is spent on it:
 #
-#   gh workflow run package-and-publish.yml --repo aggrega-ai/aggrega-vscode-extension --ref <branch>
+#   gh workflow run package-and-publish.yml --repo aggrega-ai/aggrega-vscode-extension --ref main
 #
-# The run uses this file as <branch> holds it. The managed identity trusts
-# release tags only, so with the identity configured a manual run does not sign
-# in to the Visual Studio Marketplace: the Marketplace job skips the Azure
-# sign-in, the member id lookup and the sign-in check, says so in its log, and
-# leaves that check to a release tag's run. With VSCE_PAT configured instead, a
-# manual run checks that token, which no federated credential governs. The
-# package and the Open VSX check run either way, since neither signs in to Azure.
+# The run uses this file as main holds it. Both publish jobs name the release
+# environment, whose branch and tag rule admits main and release tags; a manual
+# run from any other branch fails those two jobs at the environment, after the
+# package job. The managed identity's federated credential names the environment,
+# so with the identity configured a manual run signs in to the Visual Studio
+# Marketplace as the identity, prints its member id and checks the sign-in. With
+# VSCE_PAT configured instead, a manual run checks that token, which no federated
+# credential governs. The Open VSX check runs either way.
 #
 # Settings, by name:
-#   secrets   SUBMODULE_APP_CLIENT_ID    the organization App that reads the
+#   repository secrets
+#             SUBMODULE_APP_CLIENT_ID    the organization App that reads the
 #             SUBMODULE_APP_PRIVATE_KEY  private sibling repositories
+#   release-environment secrets
+#             OVSX_PAT                   the Open VSX access token
+#             VSCE_PAT                   a Marketplace personal access token, read
+#                                        only when none of the three Azure
+#                                        variables below is set
+#   release-environment variables
 #             AZURE_CLIENT_ID            the managed identity the Marketplace job
 #             AZURE_TENANT_ID            signs in as, through GitHub Actions'
 #             AZURE_SUBSCRIPTION_ID      OpenID Connect login
-#             VSCE_PAT                   a Marketplace personal access token, read
-#                                        only when none of the three above is set
-#             OVSX_PAT                   the Open VSX access token
-#   variables AGGREGA_RUNNER             the package job's runner label (optional,
+#   repository variable
+#             AGGREGA_RUNNER             the package job's runner label (optional,
 #                                        a hosted runner by default)
 
 on:
@@ -242,18 +248,23 @@ jobs:
     # the token in VSCE_PAT instead; when only some are set, or neither the
     # identity nor the token is, it refuses before anything runs.
     #
-    # Only a job whose run the identity's federated credentials name can sign in
-    # as the identity, and any such job that asks for an OpenID Connect token can;
-    # only this job asks.
+    # The job names the release environment, and the identity's federated
+    # credential names that environment: a run of this job, from a release tag or
+    # from a manual run on main, presents the environment's subject when it asks
+    # for an OpenID Connect token. Any job naming the environment and asking for
+    # that token could sign in as the identity; only this job asks. publish-open-vsx
+    # is in the environment too and cannot mint an OIDC token, since it holds no
+    # id-token permission.
     #
     # A hosted runner, whatever the package job uses: it carries the Azure CLI the
     # sign-in goes through, and it is discarded after the job, so no sign-in
     # outlives it.
     #
-    # A pushed release tag, or a manual run, which is always a dry run and, with
-    # the managed identity configured, does not sign in (see the top of this file).
+    # A pushed release tag, or a manual run, which is always a dry run (see the
+    # top of this file).
     needs: package
     if: (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) || github.event_name == 'workflow_dispatch'
+    environment: release
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -264,27 +275,22 @@ jobs:
     steps:
       - name: Choose how to sign in
         id: sign-in
-        # Each HAS_ value is only whether a secret is set; no secret's value
-        # reaches this step.
+        # The three Azure values are identifiers, read as variables; HAS_TOKEN is
+        # only whether VSCE_PAT is set, so no secret's value reaches this step.
         env:
-          HAS_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID != '' }}
-          HAS_TENANT_ID: ${{ secrets.AZURE_TENANT_ID != '' }}
-          HAS_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID != '' }}
+          AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
           HAS_TOKEN: ${{ secrets.VSCE_PAT != '' }}
-          EVENT: ${{ github.event_name }}
         run: |
           set -euo pipefail
           set_count=0
-          for has in "$HAS_CLIENT_ID" "$HAS_TENANT_ID" "$HAS_SUBSCRIPTION_ID"; do
-            if [ "$has" = true ]; then set_count=$((set_count + 1)); fi
+          for value in "$AZURE_CLIENT_ID" "$AZURE_TENANT_ID" "$AZURE_SUBSCRIPTION_ID"; do
+            if [ -n "$value" ]; then set_count=$((set_count + 1)); fi
           done
           if [ "$set_count" -eq 3 ]; then
             echo "identity=true" >> "$GITHUB_OUTPUT"
-            if [ "$EVENT" = workflow_dispatch ]; then
-              echo "not signing in to the Visual Studio Marketplace: the managed identity AZURE_CLIENT_ID names trusts release tags only, so a release tag's run checks the sign-in"
-            else
-              echo "signing in with the managed identity AZURE_CLIENT_ID names"
-            fi
+            echo "signing in with the managed identity AZURE_CLIENT_ID names"
           elif [ "$set_count" -gt 0 ]; then
             echo "::error::AZURE_CLIENT_ID, AZURE_TENANT_ID and AZURE_SUBSCRIPTION_ID are only partly set; set all three to sign in with the managed identity, or none of them to sign in with VSCE_PAT" >&2
             exit 1
@@ -354,14 +360,12 @@ jobs:
           echo "package: ${files[0]}"
 
       - name: Sign in to Azure as the managed identity
-        # Not on a manual run: the identity trusts release tags only and would
-        # refuse the run's branch.
-        if: ${{ steps.sign-in.outputs.identity == 'true' && github.event_name != 'workflow_dispatch' }}
+        if: ${{ steps.sign-in.outputs.identity == 'true' }}
         uses: azure/login@v2
         with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
       - name: Print the managed identity's Marketplace member id (dry run)
         # The identity can publish only once it is added to package.json's
@@ -372,9 +376,9 @@ jobs:
         # sign-in asks for), and prints its id alone, never the rest of the
         # profile, so the id can be added to the publisher, as the sign-in check
         # below needs. A failed lookup does not stop the job: the sign-in check
-        # runs whatever this step finds. Not on a manual run, which does not sign
-        # in as the identity.
-        if: ${{ env.DRY_RUN != 'false' && github.event_name != 'workflow_dispatch' && steps.sign-in.outputs.identity == 'true' }}
+        # runs whatever this step finds. On a manual run too, which is always a
+        # dry run.
+        if: ${{ (env.DRY_RUN != 'false' || github.event_name == 'workflow_dispatch') && steps.sign-in.outputs.identity == 'true' }}
         continue-on-error: true
         timeout-minutes: 3
         run: |
@@ -383,9 +387,9 @@ jobs:
           az rest -u https://app.vssps.visualstudio.com/_apis/profile/profiles/me --resource 499b84ac-1321-427f-aa17-267ca6975798 --query id -o tsv
 
       - name: Check the sign-in (dry run)
-        # A manual run checks VSCE_PAT's token, but not the managed identity,
-        # which it does not sign in as.
-        if: ${{ (env.DRY_RUN != 'false' || github.event_name == 'workflow_dispatch') && (github.event_name != 'workflow_dispatch' || steps.sign-in.outputs.identity != 'true') }}
+        # Checks the managed identity's sign-in, or VSCE_PAT's token when no
+        # identity is configured.
+        if: ${{ env.DRY_RUN != 'false' || github.event_name == 'workflow_dispatch' }}
         # 🔴 BOUNDED, BECAUSE THE ENTRA ID SIGN-IN WAITS MINUTES BEFORE IT REFUSES.
         # With no usable sign-in it tries the managed-identity endpoint of an Azure
         # machine, which does not answer here, and gives up only after several
@@ -421,9 +425,12 @@ jobs:
     # Connect token, and the script refuses unless OVSX_PAT holds an access token,
     # so a publish here always signs in with OVSX_PAT.
     #
+    # The job names the release environment, which holds OVSX_PAT.
+    #
     # A pushed release tag, or a manual run, which is always a dry run.
     needs: package
     if: (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) || github.event_name == 'workflow_dispatch'
+    environment: release
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
