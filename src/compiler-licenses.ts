@@ -32,11 +32,26 @@ export async function showCompilerLicenses(deps: CompilerLicensesDeps): Promise<
   try {
     notices = await deps.run(deps.binaryPath, ['version', '--licenses']);
   } catch (err) {
-    // The runtime's report of a failed run carries what the program printed on
-    // lines of its own; its first line is what fits inside one message.
-    const firstLine = describeError(err).split('\n')[0].trim();
+    // What the compiler printed on stderr says why it failed (a compiler older
+    // than the command says the flag is unknown); its first non-empty line is
+    // what fits inside one message. Without stderr, the first line of the
+    // runtime's report of the failed run stands.
+    const firstLine = firstStderrLine(err) ?? describeError(err).split('\n')[0].trim();
     deps.showError(l10n.t('Aggrega: could not read the third-party licenses from the compiler at {0}: {1}', deps.binaryPath, firstLine));
     return;
   }
   await deps.open(notices, 'plaintext');
+}
+
+// firstStderrLine is the first non-empty line of the stderr a failed run carries
+// (a string or bytes on the thrown value), trimmed, or null when it carries none.
+function firstStderrLine(err: unknown): string | null {
+  const raw = err && typeof err === 'object' ? (err as { stderr?: unknown }).stderr : undefined;
+  const text = typeof raw === 'string' ? raw : raw instanceof Uint8Array ? Buffer.from(raw).toString('utf8') : '';
+  for (const line of text.split('\n')) {
+    if (line.trim() !== '') {
+      return line.trim();
+    }
+  }
+  return null;
 }

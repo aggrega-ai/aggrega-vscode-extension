@@ -58,6 +58,33 @@ describe('showCompilerLicenses', () => {
     assert.ok(rec.errors[0].includes('Command failed: /missing/aggrega version --licenses'), rec.errors[0]);
     assert.ok(!rec.errors[0].includes('second line of stderr'), rec.errors[0]);
   });
+
+  it('shows the first non-empty line of the compiler\'s stderr when the failure carries one', async () => {
+    const rec = recorder();
+    await showCompilerLicenses(
+      deps(rec, '/old/aggrega', async () => {
+        throw Object.assign(new Error('Command failed: /old/aggrega version --licenses\nError: unknown flag: --licenses'), {
+          stderr: '\n  \nError: unknown flag: --licenses\nUsage: aggrega version [flags]\n',
+        });
+      }),
+    );
+    assert.deepStrictEqual(rec.opened, []);
+    assert.strictEqual(rec.errors.length, 1);
+    assert.ok(rec.errors[0].includes('/old/aggrega'), rec.errors[0]);
+    assert.ok(rec.errors[0].includes('Error: unknown flag: --licenses'), rec.errors[0]);
+    assert.ok(!rec.errors[0].includes('Command failed'), rec.errors[0]);
+    assert.ok(!rec.errors[0].includes('Usage:'), rec.errors[0]);
+  });
+
+  it('falls back to the failure\'s first line when its stderr is empty', async () => {
+    const rec = recorder();
+    await showCompilerLicenses(
+      deps(rec, '/old/aggrega', async () => {
+        throw Object.assign(new Error('Command failed: /old/aggrega version --licenses'), { stderr: ' \n' });
+      }),
+    );
+    assert.ok(rec.errors[0].includes('Command failed: /old/aggrega version --licenses'), rec.errors[0]);
+  });
 });
 
 describe('the show-licenses command declaration', () => {
