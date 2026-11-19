@@ -534,7 +534,7 @@
       const line = el('div', 'legend-row');
       const swatch = el('span', `legend-swatch legend-swatch-${row.swatch}`);
       if (row.swatch === 'edge') { swatch.appendChild(edgeSwatch()); }
-      if (row.colour) { swatch.style.borderLeftColor = row.colour; }
+      if (row.colour) { swatch.style.borderInlineStartColor = row.colour; }
       line.appendChild(swatch);
       line.appendChild(el('span', 'legend-text', row.text));
       legendEl.appendChild(line);

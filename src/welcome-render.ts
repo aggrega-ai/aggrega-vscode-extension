@@ -365,6 +365,9 @@ export interface WelcomeDocumentOptions {
   // composing, and the version the running server reported, for the page's
   // last line.
   server: ServerReading;
+  // document is the language the panel's words are in and the direction it reads
+  // in. Absent, the document declares English, left to right.
+  document?: l10n.DocumentLanguage;
 }
 
 // welcomeDocumentHtml composes the whole panel.
@@ -387,6 +390,7 @@ export interface WelcomeDocumentOptions {
 // server's line is the very last, and a region of its own, because it moves on
 // the language server's lifecycle and nothing else.
 export function welcomeDocumentHtml(opts: WelcomeDocumentOptions): string {
+  const { lang, dir } = opts.document ?? { lang: 'en', dir: 'ltr' };
   const csp = [
     `default-src 'none'`,
     `img-src ${opts.cspSource}`,
@@ -395,7 +399,7 @@ export function welcomeDocumentHtml(opts: WelcomeDocumentOptions): string {
   ].join('; ');
 
   return `<!DOCTYPE html>
-<html lang="en">
+<html lang="${escapeHtml(lang)}" dir="${escapeHtml(dir)}">
 <head>
   <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy" content="${csp}">

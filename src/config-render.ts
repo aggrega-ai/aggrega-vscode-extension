@@ -661,6 +661,9 @@ export interface ConfigDocumentOptions {
   nonce: string;
   styleUri: string;
   cspSource: string;
+  // document is the language the panel's words are in and the direction it reads
+  // in. Absent, the document declares English, left to right.
+  document?: l10n.DocumentLanguage;
 }
 
 // configDocumentHtml composes the whole document.
@@ -674,6 +677,7 @@ export interface ConfigDocumentOptions {
 // source or any widening of the policy — which is why the policy below is
 // unchanged by their presence.
 export function configDocumentHtml(opts: ConfigDocumentOptions): string {
+  const { lang, dir } = opts.document ?? { lang: 'en', dir: 'ltr' };
   const csp = [
     `default-src 'none'`,
     `style-src ${opts.cspSource}`,
@@ -681,7 +685,7 @@ export function configDocumentHtml(opts: ConfigDocumentOptions): string {
   ].join('; ');
 
   return `<!DOCTYPE html>
-<html lang="en">
+<html lang="${escapeHtml(lang)}" dir="${escapeHtml(dir)}">
 <head>
   <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy" content="${csp}">

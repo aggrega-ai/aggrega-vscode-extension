@@ -103,24 +103,35 @@ export type MessageArgument = string | number | boolean;
 // calls.
 type EditorLookup = Pick<typeof vscode.l10n, 't'>;
 
-// reached is the editor's lookup once it has been looked for: the lookup, or null
-// where there is no editor carrying one.
-let reached: EditorLookup | null | undefined;
+// EditorModule is the part of the editor's API this module reads: the
+// localization namespace and the display language.
+interface EditorModule {
+  l10n?: Partial<EditorLookup> & { uri?: unknown };
+  env?: { language?: string };
+}
 
-// editorLookup answers the editor's lookup, looking for it once.
-function editorLookup(): EditorLookup | null {
+// reached is the editor's module once it has been looked for: the module, or null
+// where there is no editor to load.
+let reached: EditorModule | null | undefined;
+
+// editorModule answers the editor's module, loading it once.
+function editorModule(): EditorModule | null {
   if (reached === undefined) {
     reached = null;
     try {
-      const editor = require('vscode') as { l10n?: Partial<EditorLookup> } | undefined;
-      if (typeof editor?.l10n?.t === 'function') {
-        reached = editor.l10n as EditorLookup;
-      }
+      reached = (require('vscode') as EditorModule | undefined) ?? null;
     } catch {
       // No editor: the English message is written here.
     }
   }
   return reached;
+}
+
+// editorLookup answers the editor's lookup, or null where there is no editor
+// carrying one.
+function editorLookup(): EditorLookup | null {
+  const lookup = editorModule()?.l10n;
+  return typeof lookup?.t === 'function' ? (lookup as EditorLookup) : null;
 }
 
 // t answers message in the editor's language, its placeholders filled with args.
@@ -188,4 +199,46 @@ function format(message: string, args: readonly MessageArgument[]): string {
     const value = (args as unknown as Record<string, MessageArgument | undefined>)[key];
     return value === undefined ? match : String(value);
   });
+}
+
+// DocumentLanguage is the language a webview document declares for the words it
+// shows, and the direction that language reads in.
+export interface DocumentLanguage {
+  lang: string;
+  dir: 'ltr' | 'rtl';
+}
+
+// RTL_BASE_LANGUAGES are the base languages read right to left, used where the
+// runtime's own locale data carries no text direction.
+const RTL_BASE_LANGUAGES: readonly string[] = ['ar', 'fa', 'he', 'ur'];
+
+// languageDirection answers the direction tag reads in. The runtime's locale data
+// decides where it carries one; otherwise the base language is looked up in a
+// fixed list. A tag that is not a language tag reads left to right.
+export function languageDirection(tag: string): 'ltr' | 'rtl' {
+  try {
+    const locale = new Intl.Locale(tag) as Intl.Locale & {
+      getTextInfo?: () => { direction?: string };
+      textInfo?: { direction?: string };
+    };
+    const info = typeof locale.getTextInfo === 'function' ? locale.getTextInfo() : locale.textInfo;
+    if (info?.direction === 'rtl' || info?.direction === 'ltr') {
+      return info.direction;
+    }
+    return RTL_BASE_LANGUAGES.includes(locale.language) ? 'rtl' : 'ltr';
+  } catch {
+    return 'ltr';
+  }
+}
+
+// documentLanguage answers the language and direction of the words the extension
+// writes into a webview: the editor's display language where the extension's
+// bundle for it is loaded, and English otherwise — an editor with no bundle shows
+// the English messages, so the document never claims a language its words are not
+// in.
+export function documentLanguage(): DocumentLanguage {
+  const editor = editorModule();
+  const language = editor?.env?.language;
+  const tag = editor?.l10n?.uri !== undefined && typeof language === 'string' && language !== '' ? language : 'en';
+  return { lang: tag, dir: languageDirection(tag) };
 }

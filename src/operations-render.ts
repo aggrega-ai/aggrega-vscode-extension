@@ -780,11 +780,12 @@ export interface OperationsDocumentOptions extends OperationsBody {
   codiconUri: string;
   scriptUri: string;
   cspSource: string;
-  // language is the editor's display language, which the document declares so
-  // assistive technology reads the panel's words in the language they are
-  // written in. Absent, the document declares English, the language of every
+  // document is the language the panel's words are in and the direction it reads
+  // in, which the document declares so assistive technology reads the words in
+  // the language they are written in and the layout follows the direction.
+  // Absent, the document declares English, left to right, the language of every
   // message the lookup answers where there is no translation.
-  language?: string;
+  document?: l10n.DocumentLanguage;
 }
 
 // operationsDocumentHtml composes the whole panel.
@@ -800,6 +801,7 @@ export interface OperationsDocumentOptions extends OperationsBody {
 // ships beside the stylesheet and is named here — without it every icon on the
 // panel is silently absent.
 export function operationsDocumentHtml(opts: OperationsDocumentOptions): string {
+  const { lang, dir } = opts.document ?? { lang: 'en', dir: 'ltr' };
   const csp = [
     `default-src 'none'`,
     `img-src ${opts.cspSource}`,
@@ -809,7 +811,7 @@ export function operationsDocumentHtml(opts: OperationsDocumentOptions): string 
   ].join('; ');
 
   return `<!DOCTYPE html>
-<html lang="${escapeHtml(opts.language ?? 'en')}">
+<html lang="${escapeHtml(lang)}" dir="${escapeHtml(dir)}">
 <head>
   <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy" content="${csp}">

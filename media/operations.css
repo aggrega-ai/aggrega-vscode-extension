@@ -101,7 +101,7 @@ body {
   grid-template-columns: subgrid;
   align-items: center;
   min-width: 0;
-  text-align: left;
+  text-align: start;
   font-family: inherit;
   font-size: inherit;
   color: inherit;
@@ -173,7 +173,7 @@ body {
 .selector-label {
   grid-column: label-start / label-end;
   min-width: 0;
-  margin-left: 0.4rem;
+  margin-inline-start: 0.4rem;
   overflow: hidden;
   text-overflow: ellipsis;
   font-weight: 600;
@@ -186,7 +186,7 @@ body {
 .selector-value {
   grid-column: value-start / value-end;
   min-width: 0;
-  margin-left: 0.4rem;
+  margin-inline-start: 0.4rem;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -199,7 +199,7 @@ body {
    panel invented. */
 .selector-warning {
   grid-column: mark-start / mark-end;
-  margin-left: 0.4rem;
+  margin-inline-start: 0.4rem;
   color: var(--vscode-editorWarning-foreground);
 }
 
@@ -398,7 +398,7 @@ body {
   width: 100%;
   min-width: 0;
   height: 22px;
-  text-align: left;
+  text-align: start;
   font-family: inherit;
   font-size: inherit;
   color: inherit;
@@ -424,7 +424,7 @@ body {
 
 /* One level of indent under the heading, matching a tree's child indent. */
 .groups-sections .op {
-  padding-left: 1.5rem;
+  padding-inline-start: 1.5rem;
 }
 
 /* In the section shape the operations are full-width rows, so the caret is a
@@ -447,7 +447,8 @@ body {
   color: inherit;
   background: none;
   border-radius: 0;
-  padding: 0 0.6rem 0 2.5rem;
+  padding-block: 0;
+  padding-inline: 2.5rem 0.6rem;
 }
 
 .groups-sections .op-caret-label {
@@ -657,7 +658,7 @@ body {
   gap: 0.1rem;
   width: 100%;
   min-width: 0;
-  text-align: left;
+  text-align: start;
   font-family: inherit;
   font-size: inherit;
   color: inherit;
@@ -715,7 +716,7 @@ body {
   gap: 0.4rem;
   width: 100%;
   min-width: 0;
-  text-align: left;
+  text-align: start;
   font-family: inherit;
   font-size: inherit;
   color: inherit;
@@ -858,4 +859,11 @@ body.vscode-high-contrast .op-caret[aria-expanded="true"],
 body.vscode-high-contrast-light .op[aria-expanded="true"],
 body.vscode-high-contrast-light .op-caret[aria-expanded="true"] {
   border-color: var(--vscode-contrastActiveBorder, var(--vscode-focusBorder));
+}
+
+/* The chevron of a closed section points to the inline end, so where the panel
+   reads right to left the right-pointing glyph is drawn mirrored. The open
+   chevron points down and is not mirrored. */
+:root[dir="rtl"] .section-head .codicon-chevron-right {
+  transform: scaleX(-1);
 }

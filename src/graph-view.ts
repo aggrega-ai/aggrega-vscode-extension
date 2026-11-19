@@ -47,8 +47,8 @@ import {
 } from './connection-at-cursor';
 import { DaemonErrorRouting, WhoAsked, describeError } from './error-surfaces';
 import { reportGraphFailure } from './graph-failure';
-import { escapeHtml } from './html';
 import * as l10n from './l10n';
+import { graphDocumentHtml } from './graph-render';
 import { RendersOnReady } from './readiness';
 import { CancellationSignal } from './cancellation';
 import { withCancellableProgress } from './progress';
@@ -854,70 +854,22 @@ async function openSource(workspaceRoot: string, sourceFile: string): Promise<vo
   }
 }
 
-// graphHtml builds the webview document: a strict CSP allowing only the
-// nonce'd inline bootstrap plus the five local scripts (elk bundle + the
-// layout model + the attachment projection + the candidate projection + the
-// graph renderer), served through webview-scoped URIs. Its own words are looked
-// up and escaped, so a translation is written into the document as text.
+// graphHtml builds the webview document from the addresses the editor resolves
+// for this panel's own resources.
 function graphHtml(webview: vscode.Webview, extensionUri: vscode.Uri): string {
-  const nonce = makeNonce();
-  const elkUri = webview.asWebviewUri(
-    vscode.Uri.joinPath(extensionUri, 'node_modules', 'elkjs', 'lib', 'elk.bundled.js'),
-  );
-  const modelUri = webview.asWebviewUri(
-    vscode.Uri.joinPath(extensionUri, 'media', 'graph-model.js'),
-  );
-  const attachmentsUri = webview.asWebviewUri(
-    vscode.Uri.joinPath(extensionUri, 'media', 'attachments-model.js'),
-  );
-  const candidatesUri = webview.asWebviewUri(
-    vscode.Uri.joinPath(extensionUri, 'media', 'candidates-model.js'),
-  );
-  const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'graph.js'));
-  const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'graph.css'));
-  const csp = [
-    `default-src 'none'`,
-    `img-src ${webview.cspSource}`,
-    `style-src ${webview.cspSource}`,
-    `script-src 'nonce-${nonce}' ${webview.cspSource}`,
-  ].join('; ');
-
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta http-equiv="Content-Security-Policy" content="${csp}">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <link href="${styleUri}" rel="stylesheet">
-  <title>${escapeHtml(l10n.t('Aggrega Graph'))}</title>
-</head>
-<body>
-  <div id="status" class="status">${escapeHtml(l10n.t('Select a Release to render its topology.'))}</div>
-  <svg id="canvas" xmlns="http://www.w3.org/2000/svg"></svg>
-  <!-- The layout has to size every box around the text it will hold, and it
-       runs before any of the graph is in the document. This text element is in
-       the document from the start, parked off to the side of the viewport, so
-       there is somewhere to measure a string before there is a graph to draw.
-       It is moved out of sight rather than hidden: an element the browser does
-       not lay out reports no text advance at all. -->
-  <svg id="measure" class="measure" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
-    <text id="measure-text"></text>
-  </svg>
-  <aside id="legend" class="legend hidden"></aside>
-  <aside id="panel" class="panel hidden">
-    <header class="panel-head">
-      <span id="panel-title" class="panel-title"></span>
-      <button id="panel-close" class="panel-close" title="${escapeHtml(l10n.t('Close'))}">✕</button>
-    </header>
-    <div id="panel-body" class="panel-body"></div>
-  </aside>
-  <script nonce="${nonce}" src="${elkUri}"></script>
-  <script nonce="${nonce}" src="${modelUri}"></script>
-  <script nonce="${nonce}" src="${attachmentsUri}"></script>
-  <script nonce="${nonce}" src="${candidatesUri}"></script>
-  <script nonce="${nonce}" src="${scriptUri}"></script>
-</body>
-</html>`;
+  const resource = (...segments: string[]): string =>
+    webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, ...segments)).toString();
+  return graphDocumentHtml({
+    nonce: makeNonce(),
+    cspSource: webview.cspSource,
+    elkUri: resource('node_modules', 'elkjs', 'lib', 'elk.bundled.js'),
+    modelUri: resource('media', 'graph-model.js'),
+    attachmentsUri: resource('media', 'attachments-model.js'),
+    candidatesUri: resource('media', 'candidates-model.js'),
+    scriptUri: resource('media', 'graph.js'),
+    styleUri: resource('media', 'graph.css'),
+    document: l10n.documentLanguage(),
+  });
 }
 
 // makeNonce returns a random token for the CSP script allowlist. Math.random is

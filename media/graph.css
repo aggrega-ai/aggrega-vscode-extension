@@ -13,6 +13,10 @@ html, body {
 }
 
 #canvas {
+  /* The drawing reads left to right whatever the panel's direction: the layout
+     runs left to right, and the attribute on the element does not reach an SVG
+     element's computed direction. */
+  direction: ltr;
   width: 100vw;
   height: 100vh;
   display: block;
@@ -37,7 +41,7 @@ html, body {
 .status {
   position: fixed;
   top: 8px;
-  left: 8px;
+  inset-inline-start: 8px;
   padding: 4px 10px;
   border-radius: 4px;
   background: var(--vscode-editorWidget-background);
@@ -58,22 +62,24 @@ html, body {
   display: none;
 }
 
-/* The text-measuring rig. It is parked outside the viewport rather than hidden,
+/* The text-measuring rig. It is clipped away rather than hidden or moved aside,
    because an element the browser does not lay out has no text advance to report
    and every string would measure as nothing. It takes no pointer events and is
    one pixel of layout, so it changes nothing a reader can see or reach. */
 .measure {
   position: fixed;
-  left: -10000px;
-  top: 0;
-  width: 1px;
-  height: 1px;
-  overflow: visible;
+  inset-block-start: 0;
+  inset-inline-start: 0;
+  inline-size: 1px;
+  block-size: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
   pointer-events: none;
 }
 
-/* The legend, lower left. It sits outside the pan/zoom group so it stays put
-   and stays the same size whatever the reader does to the canvas — which is why
+/* The legend, in the lower inline-start corner. It sits outside the pan/zoom
+   group so it stays put and stays the same size whatever the reader does to the canvas — which is why
    a drawing's frame is fitted to the room above it, read off its box as drawn
    (aboveTheLegend in graph.js), rather than to the whole canvas — and it names
    the parts of the drawing that cannot be worked out by looking: which box is
@@ -82,7 +88,7 @@ html, body {
    colours do not mean. */
 .legend {
   position: fixed;
-  left: 8px;
+  inset-inline-start: 8px;
   bottom: 8px;
   /* Bounded against the viewport as well as absolutely, so it cannot reach
      under the attachments panel — which takes up to half the width — on a
@@ -118,6 +124,9 @@ html, body {
    so a change to a container's border or the accent bar's width shows up in the
    legend rather than leaving it describing a drawing that has moved on. */
 .legend-swatch {
+  /* The swatches depict the drawing, which always reads left to right, so the
+     leading edge of one is its left edge whatever the panel's direction. */
+  direction: ltr;
   flex: none;
   display: inline-block;
   width: 18px;
@@ -141,7 +150,7 @@ html, body {
 .legend-swatch-accent {
   background: var(--vscode-button-background);
   border: 1px solid var(--vscode-contrastBorder, var(--vscode-panel-border));
-  border-left: 5px solid #e69f00;
+  border-inline-start: 5px solid #e69f00;
 }
 
 /* The box holding the nodes in no declared grouping, bordered as that box is. */
@@ -175,7 +184,7 @@ html, body {
 }
 
 .legend-swatch-type {
-  border-left-width: 5px;
+  border-inline-start-width: 5px;
 }
 
 .legend-text {
@@ -281,14 +290,14 @@ html, body {
 .panel {
   position: fixed;
   top: 0;
-  right: 0;
+  inset-inline-end: 0;
   bottom: 0;
   width: 340px;
   max-width: 50vw;
   display: flex;
   flex-direction: column;
   background: var(--vscode-editorWidget-background);
-  border-left: 1px solid var(--vscode-editorWidget-border);
+  border-inline-start: 1px solid var(--vscode-editorWidget-border);
   color: var(--vscode-editorWidget-foreground);
   z-index: 20;
   overflow: hidden;
@@ -485,7 +494,7 @@ html, body {
 }
 
 .slot .candidate {
-  margin-left: 10px;
+  margin-inline-start: 10px;
 }
 
 .slot .facts {

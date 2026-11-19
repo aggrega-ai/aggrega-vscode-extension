@@ -111,16 +111,16 @@ body {
   flex: none;
   width: 0;
   height: 0;
-  border-left: 0.32rem solid transparent;
-  border-right: 0.32rem solid transparent;
+  border-inline-start: 0.32rem solid transparent;
+  border-inline-end: 0.32rem solid transparent;
   border-top: 0.4rem solid currentColor;
 }
 
 .step-toggle[aria-expanded="false"]::before {
   border-top: 0.32rem solid transparent;
   border-bottom: 0.32rem solid transparent;
-  border-left: 0.4rem solid currentColor;
-  border-right: 0;
+  border-inline-start: 0.4rem solid currentColor;
+  border-inline-end: 0;
 }
 
 .step-toggle:hover {
@@ -174,7 +174,7 @@ body {
 
 .step-bullets {
   margin: 0 0 0.75rem;
-  padding-left: 1.25rem;
+  padding-inline-start: 1.25rem;
 }
 
 .step-bullets li {

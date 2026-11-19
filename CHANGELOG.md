@@ -10,6 +10,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - The extension's own words show in Traditional Chinese when VS Code runs in Traditional Chinese.
 
+### Fixed
+
+- The extension's panels declare the language their words are in, so screen readers read them in it.
+
 ## [0.10.0] - 2026-11-19
 
 ### Added

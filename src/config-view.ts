@@ -95,6 +95,7 @@ export function activateConfigPanel(
         .asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'media', 'config.css'))
         .toString(),
       cspSource: target.webview.cspSource,
+      document: l10n.documentLanguage(),
     });
   };
 

@@ -513,7 +513,7 @@ class OperationsViewProvider implements vscode.WebviewViewProvider {
       scriptUri: this.resource(view.webview, 'operations.js'),
       cspSource: view.webview.cspSource,
       // The panel's words are in the editor's language, so the document says so.
-      language: vscode.env.language,
+      document: l10n.documentLanguage(),
       ...this.body(),
     });
   }

@@ -54,6 +54,12 @@
     });
   }
 
+  // readsRightToLeft reports whether the words around element run right to left,
+  // as the browser computes it from the document's declared direction.
+  function readsRightToLeft(element) {
+    return getComputedStyle(element).direction === 'rtl';
+  }
+
   // controlsIn reports the controls a roving container's arrow keys move
   // between: the ones a reader can see. A disabled control is left out because
   // it cannot hold focus, and so is every control inside a closed section — the
@@ -217,7 +223,10 @@
     // A menu of choices keeps the left edges. Its control is the operation's own
     // full-width button, so the left edges already agree with what the reader
     // pressed and there is nothing narrow to hang from.
-    const from = holdsDials(menu) ? at.right - width : at.left;
+    // The edges named here are the inline ones: read right to left, the caret
+    // sits at the left of its control, and the menu hangs from the left.
+    const rtl = readsRightToLeft(document.documentElement);
+    const from = (holdsDials(menu) !== rtl) ? at.right - width : at.left;
     // Kept inside the panel's own width, and left of the panel's scroll bar
     // where it draws one: the window's own width counts the scroll bar in, so a
     // menu kept inside that would run its last few pixels under the bar. The
@@ -573,16 +582,22 @@
     const container = control.closest('[data-roving]');
     if (!container) { return; }
     const vertical = container.dataset.orientation === 'vertical';
+    // The sideways keys follow the reading direction: toward the inline end is
+    // the right arrow where the control reads left to right and the left arrow
+    // where it reads right to left.
+    const rtl = readsRightToLeft(control);
+    const inlineEnd = rtl ? 'ArrowLeft' : 'ArrowRight';
+    const inlineStart = rtl ? 'ArrowRight' : 'ArrowLeft';
 
     // In the section shape the sideways keys open and close a group, as they do
     // in a tree, rather than moving between controls.
     if (vertical && control.dataset.toggle !== undefined) {
-      if (event.key === 'ArrowRight' && control.getAttribute('aria-expanded') !== 'true') {
+      if (event.key === inlineEnd && control.getAttribute('aria-expanded') !== 'true') {
         toggleSection(control.dataset.toggle, true);
         event.preventDefault();
         return;
       }
-      if (event.key === 'ArrowLeft' && control.getAttribute('aria-expanded') === 'true') {
+      if (event.key === inlineStart && control.getAttribute('aria-expanded') === 'true') {
         toggleSection(control.dataset.toggle, false);
         event.preventDefault();
         return;
@@ -592,8 +607,8 @@
     const controls = controlsIn(container);
     const at = controls.indexOf(control);
     if (at === -1) { return; }
-    const next = vertical ? 'ArrowDown' : 'ArrowRight';
-    const previous = vertical ? 'ArrowUp' : 'ArrowLeft';
+    const next = vertical ? 'ArrowDown' : inlineEnd;
+    const previous = vertical ? 'ArrowUp' : inlineStart;
     let target = null;
     if (event.key === next) { target = controls[Math.min(at + 1, controls.length - 1)]; }
     if (event.key === previous) { target = controls[Math.max(at - 1, 0)]; }

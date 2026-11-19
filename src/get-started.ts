@@ -743,6 +743,7 @@ function welcomeHtml(
     opensWithEditor,
     versions,
     server,
+    document: l10n.documentLanguage(),
   });
 }
 

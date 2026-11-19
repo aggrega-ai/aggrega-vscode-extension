@@ -46,7 +46,7 @@ body {
 
 .config-layers {
   margin: 0.25rem 0 0.75rem;
-  padding-left: 1.25rem;
+  padding-inline-start: 1.25rem;
 }
 
 .config-note {
@@ -85,8 +85,8 @@ body {
 
 .config-setting {
   margin: 0.35rem 0 0 0;
-  padding-left: 1rem;
-  border-left: 2px solid var(--vscode-panel-border);
+  padding-inline-start: 1rem;
+  border-inline-start: 2px solid var(--vscode-panel-border);
 }
 
 .config-label {
@@ -148,7 +148,7 @@ body {
 }
 
 .config-table caption {
-  text-align: left;
+  text-align: start;
   color: var(--vscode-descriptionForeground);
   margin: 0 0 0.5rem;
 }
@@ -162,7 +162,7 @@ body {
 }
 
 .config-table thead th {
-  text-align: left;
+  text-align: start;
   font-weight: 600;
   padding: 0.4rem 0.5rem;
   border-bottom: 1px solid var(--vscode-panel-border);
@@ -178,7 +178,7 @@ body {
 
 .config-table td,
 .config-table tbody th {
-  text-align: left;
+  text-align: start;
   font-weight: normal;
   padding: 0.4rem 0.5rem;
   border-bottom: 1px solid var(--vscode-panel-border);
@@ -213,7 +213,7 @@ body {
 .config-table th:first-child,
 .config-table td:first-child {
   position: sticky;
-  left: 0;
+  inset-inline-start: 0;
   /* min-width, and deliberately not width or max-width: a table laid out from
      its content treats those two as suggestions and sizes the column to its
      longest unbroken run, which for a path breaking only at its own separators
@@ -302,7 +302,7 @@ body {
    editor marks a changed setting with on its own settings page. */
 .config-mark {
   color: var(--vscode-settings-modifiedItemIndicator, var(--vscode-textLink-foreground));
-  margin-right: 0.35em;
+  margin-inline-end: 0.35em;
 }
 
 /* "none" reads as the answer it is rather than as a value a setting could hold. */
@@ -315,7 +315,7 @@ body {
    project, drawn as the note it stands for is in the per-setting shape. */
 .config-global {
   display: inline-block;
-  margin-left: 0.35em;
+  margin-inline-start: 0.35em;
   padding: 0 0.3em;
   border-radius: 3px;
   font-size: 0.85rem;
