@@ -54,10 +54,11 @@ export function graphDocumentHtml(opts: GraphDocumentOptions): string {
   <svg id="canvas" dir="ltr" xmlns="http://www.w3.org/2000/svg"></svg>
   <!-- The layout has to size every box around the text it will hold, and it
        runs before any of the graph is in the document. This text element is in
-       the document from the start, parked off to the side of the viewport, so
-       there is somewhere to measure a string before there is a graph to draw.
-       It is moved out of sight rather than hidden: an element the browser does
-       not lay out reports no text advance at all. -->
+       the document from the start, in a one-pixel box at the viewport's corner
+       that is clipped to nothing and takes no pointer events, so there is
+       somewhere to measure a string before there is a graph to draw. It is
+       clipped rather than hidden: an element the browser does not lay out
+       reports no text advance at all. -->
   <svg id="measure" class="measure" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
     <text id="measure-text"></text>
   </svg>
