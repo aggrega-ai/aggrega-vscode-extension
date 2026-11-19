@@ -42,7 +42,7 @@ name: Package and publish
 # Settings, by name:
 #   repository secrets
 #             SUBMODULE_APP_CLIENT_ID    the organization App that reads the
-#             SUBMODULE_APP_PRIVATE_KEY  private sibling repositories
+#             SUBMODULE_APP_PRIVATE_KEY  sibling repositories' contents
 #   release-environment secrets
 #             OVSX_PAT                   the Open VSX access token
 #             VSCE_PAT                   a Marketplace personal access token, read
@@ -96,16 +96,21 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: Mint org app token for private-sibling access
-        # The extension compiles only beside two private sibling repositories:
+      - name: Mint the token that reads the sibling repositories
+        # The extension compiles only beside two sibling repositories:
         # the wire contract it type-checks against and the compiler, whose
-        # build-version recipe stamps the package. The token reads them.
+        # build-version recipe stamps the package. The token is minted for those
+        # two repositories alone and asks to read their contents and nothing else.
         id: app-token
         uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
         with:
           client-id: ${{ secrets.SUBMODULE_APP_CLIENT_ID }}
           private-key: ${{ secrets.SUBMODULE_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
+          repositories: |
+            aggrega-abi
+            aggrega-cli
+          permission-contents: read
 
       # Every checkout keeps its token out of the repository's configuration
       # (persist-credentials: false): the build reads the checkouts and never
@@ -154,6 +159,10 @@ jobs:
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: '24.21.0'
+          # No package manager cache: this job builds or publishes what the release
+          # ships, so it restores nothing from the Actions cache, which other
+          # workflow runs can write.
+          package-manager-cache: false
 
       - name: Refuse a tag that is not a release of this version on main
         # A pushed tag is the only run that can publish, so it must name a
@@ -302,16 +311,19 @@ jobs:
             exit 1
           fi
 
-      - name: Mint org app token for private-sibling access
+      - name: Mint the token that reads the wire contract
         # The publish runs the packager installed from the extension's lockfile,
         # and installing the extension's dependencies needs the wire contract
-        # beside it.
+        # beside it. The token is minted for aggrega-abi alone and asks to read
+        # its contents and nothing else.
         id: app-token
         uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
         with:
           client-id: ${{ secrets.SUBMODULE_APP_CLIENT_ID }}
           private-key: ${{ secrets.SUBMODULE_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
+          repositories: aggrega-abi
+          permission-contents: read
 
       - name: Check out the extension
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
@@ -333,6 +345,10 @@ jobs:
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: '24.21.0'
+          # No package manager cache: this job builds or publishes what the release
+          # ships, so it restores nothing from the Actions cache, which other
+          # workflow runs can write.
+          package-manager-cache: false
 
       - name: Install the packager from the lockfile
         working-directory: aggrega-vscode-extension
@@ -436,16 +452,19 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: Mint org app token for private-sibling access
+      - name: Mint the token that reads the wire contract
         # The publish runs the Open VSX client installed from the extension's
         # lockfile, and installing the extension's dependencies needs the wire
-        # contract beside it.
+        # contract beside it. The token is minted for aggrega-abi alone and asks
+        # to read its contents and nothing else.
         id: app-token
         uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
         with:
           client-id: ${{ secrets.SUBMODULE_APP_CLIENT_ID }}
           private-key: ${{ secrets.SUBMODULE_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
+          repositories: aggrega-abi
+          permission-contents: read
 
       - name: Check out the extension
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
@@ -467,6 +486,10 @@ jobs:
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: '24.21.0'
+          # No package manager cache: this job builds or publishes what the release
+          # ships, so it restores nothing from the Actions cache, which other
+          # workflow runs can write.
+          package-manager-cache: false
 
       - name: Install the Open VSX client from the lockfile
         working-directory: aggrega-vscode-extension
