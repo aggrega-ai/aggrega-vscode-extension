@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- The extension's own words show in Traditional Chinese when VS Code runs in Traditional Chinese.
+
 ## [0.10.0] - 2026-11-19
 
 ### Added
