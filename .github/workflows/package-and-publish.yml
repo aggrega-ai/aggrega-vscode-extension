@@ -101,7 +101,7 @@ jobs:
         # the wire contract it type-checks against and the compiler, whose
         # build-version recipe stamps the package. The token reads them.
         id: app-token
-        uses: actions/create-github-app-token@v3
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
         with:
           client-id: ${{ secrets.SUBMODULE_APP_CLIENT_ID }}
           private-key: ${{ secrets.SUBMODULE_APP_PRIVATE_KEY }}
@@ -114,7 +114,7 @@ jobs:
       - name: Check out the extension with full history and tags
         # The package's build stamp names the release tag the commit carries,
         # which needs the extension's history and tags.
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           path: aggrega-vscode-extension
           fetch-depth: 0
@@ -122,7 +122,7 @@ jobs:
           persist-credentials: false
 
       - name: Check out the wire contract beside it
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           repository: aggrega-ai/aggrega-abi
           ref: ${{ env.SIBLING_REF }}
@@ -133,7 +133,7 @@ jobs:
           persist-credentials: false
 
       - name: Check out the compiler beside it
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           repository: aggrega-ai/aggrega-cli
           ref: ${{ env.SIBLING_REF }}
@@ -151,7 +151,7 @@ jobs:
         # record does not cover. The npm this Node release bundles honours that
         # denial; an npm that predates allowScripts ignores it and runs the
         # script. Move this version only to one whose bundled npm honours it.
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: '24.21.0'
 
@@ -211,7 +211,7 @@ jobs:
             --out "$PACKAGE_DIR/out"
 
       - name: Upload the package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: vsix
           path: ${{ steps.package-dir.outputs.dir }}/out/*.vsix
@@ -307,20 +307,20 @@ jobs:
         # and installing the extension's dependencies needs the wire contract
         # beside it.
         id: app-token
-        uses: actions/create-github-app-token@v3
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
         with:
           client-id: ${{ secrets.SUBMODULE_APP_CLIENT_ID }}
           private-key: ${{ secrets.SUBMODULE_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
 
       - name: Check out the extension
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           path: aggrega-vscode-extension
           persist-credentials: false
 
       - name: Check out the wire contract beside it
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           repository: aggrega-ai/aggrega-abi
           ref: ${{ env.SIBLING_REF }}
@@ -330,7 +330,7 @@ jobs:
 
       - name: Set up Node
         # The same exact version as the package job, for the same reason.
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: '24.21.0'
 
@@ -339,7 +339,7 @@ jobs:
         run: npm ci --no-audit --no-fund
 
       - name: Download the package
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: vsix
           path: ${{ runner.temp }}/vsix
@@ -361,7 +361,7 @@ jobs:
 
       - name: Sign in to Azure as the managed identity
         if: ${{ steps.sign-in.outputs.identity == 'true' }}
-        uses: azure/login@v2
+        uses: azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6 # v2.3.1
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
@@ -441,20 +441,20 @@ jobs:
         # lockfile, and installing the extension's dependencies needs the wire
         # contract beside it.
         id: app-token
-        uses: actions/create-github-app-token@v3
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
         with:
           client-id: ${{ secrets.SUBMODULE_APP_CLIENT_ID }}
           private-key: ${{ secrets.SUBMODULE_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
 
       - name: Check out the extension
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           path: aggrega-vscode-extension
           persist-credentials: false
 
       - name: Check out the wire contract beside it
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           repository: aggrega-ai/aggrega-abi
           ref: ${{ env.SIBLING_REF }}
@@ -464,7 +464,7 @@ jobs:
 
       - name: Set up Node
         # The same exact version as the package job, for the same reason.
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: '24.21.0'
 
@@ -473,7 +473,7 @@ jobs:
         run: npm ci --no-audit --no-fund
 
       - name: Download the package
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: vsix
           path: ${{ runner.temp }}/vsix
