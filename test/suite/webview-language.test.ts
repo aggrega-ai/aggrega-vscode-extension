@@ -8,6 +8,7 @@ import { documentLanguage, languageDirection } from '../../src/l10n';
 import { operationsDocumentHtml } from '../../src/operations-render';
 import { welcomeDocumentHtml } from '../../src/welcome-render';
 import { configPanelModel } from '../../src/config-model';
+import { loadAgainstEditorStub } from '../helpers/editor-stub';
 
 const ARABIC = { lang: 'ar', dir: 'rtl' } as const;
 
@@ -73,5 +74,22 @@ describe('the language and direction a panel declares', () => {
 
   it('declares English where no editor is running', () => {
     assert.deepStrictEqual(documentLanguage(), { lang: 'en', dir: 'ltr' });
+  });
+
+  it('declares Arabic right to left where the editor shows Arabic and the extension\'s bundle is loaded', () => {
+    const editor = { env: { language: 'ar' }, l10n: { uri: { fsPath: 'bundle.l10n.ar.json' } } };
+    // The module reaches the editor on its first call, not when it loads, so the
+    // stand-in stays in place for that call as well as for the load.
+    const nodeModule = require('module') as { _load: (request: string, ...rest: unknown[]) => unknown };
+    const restoreLoad = nodeModule._load;
+    nodeModule._load = function (this: unknown, request: string, ...rest: unknown[]): unknown {
+      return request === 'vscode' ? editor : restoreLoad.apply(this, [request, ...rest]);
+    };
+    try {
+      const l10nModule = loadAgainstEditorStub<{ documentLanguage: typeof documentLanguage }>(editor, 'l10n');
+      assert.deepStrictEqual(l10nModule.documentLanguage(), ARABIC);
+    } finally {
+      nodeModule._load = restoreLoad;
+    }
   });
 });

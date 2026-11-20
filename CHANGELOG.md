@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 
 - The extension's own words show in Traditional Chinese when VS Code runs in Traditional Chinese.
+- The extension's own words show in Arabic when VS Code's display language is Arabic.
 
 ### Fixed
 
