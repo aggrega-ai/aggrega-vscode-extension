@@ -14,6 +14,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 
 - The extension's panels declare the language their words are in, so screen readers read them in it.
+- The extension drives the 0.10 compilers: Select Compiler Version offers them and a download installs the newest 0.10 release.
 
 ## [0.10.0] - 2026-11-19
 
