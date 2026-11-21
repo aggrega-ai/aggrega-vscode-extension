@@ -40,9 +40,6 @@ name: Package and publish
 # credential governs. The Open VSX check runs either way.
 #
 # Settings, by name:
-#   repository secrets
-#             SUBMODULE_APP_CLIENT_ID    the organization App that reads the
-#             SUBMODULE_APP_PRIVATE_KEY  sibling repositories' contents
 #   release-environment secrets
 #             OVSX_PAT                   the Open VSX access token
 #             VSCE_PAT                   a Marketplace personal access token, read
@@ -96,22 +93,6 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: Mint the token that reads the sibling repositories
-        # The extension compiles only beside two sibling repositories:
-        # the wire contract it type-checks against and the compiler, whose
-        # build-version recipe stamps the package. The token is minted for those
-        # two repositories alone and asks to read their contents and nothing else.
-        id: app-token
-        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
-        with:
-          client-id: ${{ secrets.SUBMODULE_APP_CLIENT_ID }}
-          private-key: ${{ secrets.SUBMODULE_APP_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
-          repositories: |
-            aggrega-abi
-            aggrega-cli
-          permission-contents: read
-
       # Every checkout keeps its token out of the repository's configuration
       # (persist-credentials: false): the build reads the checkouts and never
       # fetches from GitHub again, so nothing later in the job, the installed
@@ -127,6 +108,10 @@ jobs:
           persist-credentials: false
 
       - name: Check out the wire contract beside it
+        # The extension compiles only beside two sibling repositories, both
+        # public: the wire contract it type-checks against and the compiler,
+        # whose build-version recipe stamps the package. The run's own token
+        # reads them.
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           repository: aggrega-ai/aggrega-abi
@@ -134,7 +119,6 @@ jobs:
           path: aggrega-abi
           fetch-depth: 0
           fetch-tags: true
-          token: ${{ steps.app-token.outputs.token }}
           persist-credentials: false
 
       - name: Check out the compiler beside it
@@ -145,7 +129,6 @@ jobs:
           path: aggrega-cli
           fetch-depth: 0
           fetch-tags: true
-          token: ${{ steps.app-token.outputs.token }}
           persist-credentials: false
 
       - name: Set up Node
@@ -311,20 +294,6 @@ jobs:
             exit 1
           fi
 
-      - name: Mint the token that reads the wire contract
-        # The publish runs the packager installed from the extension's lockfile,
-        # and installing the extension's dependencies needs the wire contract
-        # beside it. The token is minted for aggrega-abi alone and asks to read
-        # its contents and nothing else.
-        id: app-token
-        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
-        with:
-          client-id: ${{ secrets.SUBMODULE_APP_CLIENT_ID }}
-          private-key: ${{ secrets.SUBMODULE_APP_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
-          repositories: aggrega-abi
-          permission-contents: read
-
       - name: Check out the extension
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
@@ -332,12 +301,15 @@ jobs:
           persist-credentials: false
 
       - name: Check out the wire contract beside it
+        # The publish runs the packager installed from the extension's
+        # lockfile, and installing the extension's dependencies needs the wire
+        # contract beside it. The public repository is read with the run's own
+        # token.
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           repository: aggrega-ai/aggrega-abi
           ref: ${{ env.SIBLING_REF }}
           path: aggrega-abi
-          token: ${{ steps.app-token.outputs.token }}
           persist-credentials: false
 
       - name: Set up Node
@@ -452,20 +424,6 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: Mint the token that reads the wire contract
-        # The publish runs the Open VSX client installed from the extension's
-        # lockfile, and installing the extension's dependencies needs the wire
-        # contract beside it. The token is minted for aggrega-abi alone and asks
-        # to read its contents and nothing else.
-        id: app-token
-        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
-        with:
-          client-id: ${{ secrets.SUBMODULE_APP_CLIENT_ID }}
-          private-key: ${{ secrets.SUBMODULE_APP_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
-          repositories: aggrega-abi
-          permission-contents: read
-
       - name: Check out the extension
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
@@ -473,12 +431,15 @@ jobs:
           persist-credentials: false
 
       - name: Check out the wire contract beside it
+        # The publish runs the Open VSX client installed from the extension's
+        # lockfile, and installing the extension's dependencies needs the wire
+        # contract beside it. The public repository is read with the run's own
+        # token.
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           repository: aggrega-ai/aggrega-abi
           ref: ${{ env.SIBLING_REF }}
           path: aggrega-abi
-          token: ${{ steps.app-token.outputs.token }}
           persist-credentials: false
 
       - name: Set up Node
