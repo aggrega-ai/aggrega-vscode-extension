@@ -100,7 +100,7 @@ jobs:
       - name: Check out the extension with full history and tags
         # The package's build stamp names the release tag the commit carries,
         # which needs the extension's history and tags.
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           path: aggrega-vscode-extension
           fetch-depth: 0
@@ -112,7 +112,7 @@ jobs:
         # public: the wire contract it type-checks against and the compiler,
         # whose build-version recipe stamps the package. The run's own token
         # reads them.
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: aggrega-ai/aggrega-abi
           ref: ${{ env.SIBLING_REF }}
@@ -122,7 +122,7 @@ jobs:
           persist-credentials: false
 
       - name: Check out the compiler beside it
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: aggrega-ai/aggrega-cli
           ref: ${{ env.SIBLING_REF }}
@@ -139,7 +139,7 @@ jobs:
         # record does not cover. The npm this Node release bundles honours that
         # denial; an npm that predates allowScripts ignores it and runs the
         # script. Move this version only to one whose bundled npm honours it.
-        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24.21.0'
           # No package manager cache: this job builds or publishes what the release
@@ -203,7 +203,7 @@ jobs:
             --out "$PACKAGE_DIR/out"
 
       - name: Upload the package
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: vsix
           path: ${{ steps.package-dir.outputs.dir }}/out/*.vsix
@@ -295,7 +295,7 @@ jobs:
           fi
 
       - name: Check out the extension
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           path: aggrega-vscode-extension
           persist-credentials: false
@@ -305,7 +305,7 @@ jobs:
         # lockfile, and installing the extension's dependencies needs the wire
         # contract beside it. The public repository is read with the run's own
         # token.
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: aggrega-ai/aggrega-abi
           ref: ${{ env.SIBLING_REF }}
@@ -314,7 +314,7 @@ jobs:
 
       - name: Set up Node
         # The same exact version as the package job, for the same reason.
-        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24.21.0'
           # No package manager cache: this job builds or publishes what the release
@@ -327,7 +327,7 @@ jobs:
         run: npm ci --no-audit --no-fund
 
       - name: Download the package
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: vsix
           path: ${{ runner.temp }}/vsix
@@ -349,7 +349,7 @@ jobs:
 
       - name: Sign in to Azure as the managed identity
         if: ${{ steps.sign-in.outputs.identity == 'true' }}
-        uses: azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6 # v2.3.1
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
@@ -425,7 +425,7 @@ jobs:
       contents: read
     steps:
       - name: Check out the extension
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           path: aggrega-vscode-extension
           persist-credentials: false
@@ -435,7 +435,7 @@ jobs:
         # lockfile, and installing the extension's dependencies needs the wire
         # contract beside it. The public repository is read with the run's own
         # token.
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: aggrega-ai/aggrega-abi
           ref: ${{ env.SIBLING_REF }}
@@ -444,7 +444,7 @@ jobs:
 
       - name: Set up Node
         # The same exact version as the package job, for the same reason.
-        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24.21.0'
           # No package manager cache: this job builds or publishes what the release
@@ -457,7 +457,7 @@ jobs:
         run: npm ci --no-audit --no-fund
 
       - name: Download the package
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: vsix
           path: ${{ runner.temp }}/vsix
