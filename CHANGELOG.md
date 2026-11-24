@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.10.3] - 2026-11-24
+
 ### Added
 
 - The extension's own words show in Thai when VS Code's display language is Thai.
