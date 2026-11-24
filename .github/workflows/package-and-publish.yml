@@ -3,11 +3,11 @@ name: Package and publish
 # Builds the extension's installable package (a .vsix) and publishes that one
 # file to the Visual Studio Marketplace and to Open VSX.
 #
-# The package job runs on every push and pull request to main or dev, on every
-# release tag and on every manual run. It builds the package once, with
-# scripts/vsix.js, and uploads it as this run's artifact `vsix`. `node
-# scripts/vsix.js --help` is the contract of every step below that runs the
-# script.
+# The package job runs on every push and pull request to main or to a release
+# branch, on every release tag and on every manual run. It builds the package
+# once, with scripts/vsix.js, and uploads it as this run's artifact `vsix`.
+# `node scripts/vsix.js --help` is the contract of every step below that runs
+# the script.
 #
 # 🔴 ONLY A PUSHED RELEASE TAG CAN PUBLISH, AND DRY_RUN DECIDES WHETHER IT DOES.
 # A listing on either marketplace is public from the moment it is published. A
@@ -55,12 +55,12 @@ name: Package and publish
 
 on:
   push:
-    branches: [main, dev]
+    branches: [main, 'release/**']
     # A release tag: vMAJOR.MINOR.PATCH, with no pre-release suffix.
     tags:
       - "v[0-9]+.[0-9]+.[0-9]+"
   pull_request:
-    branches: [main, dev]
+    branches: [main, 'release/**']
   # A manual run: always a dry run, whatever DRY_RUN reads (see above).
   workflow_dispatch:
 
@@ -73,11 +73,6 @@ env:
   # that commit to publish; nothing else in this file changes. A manual run is
   # a dry run whatever this line says.
   DRY_RUN: false
-  # The branch every sibling checkout reads. The siblings follow the branch
-  # under test: a run on dev, or a pull request into it, reads their dev; every
-  # other run, a release tag's included, reads their main. The kits' pdk.yml in
-  # aggrega-pdk keeps the same value, so a change here is made there too.
-  SIBLING_REF: ${{ (github.ref_name == 'dev' || github.base_ref == 'dev') && 'dev' || 'main' }}
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
@@ -110,12 +105,13 @@ jobs:
       - name: Check out the wire contract beside it
         # The extension compiles only beside two sibling repositories, both
         # public: the wire contract it type-checks against and the compiler,
-        # whose build-version recipe stamps the package. The run's own token
-        # reads them.
+        # whose build-version recipe stamps the package. Every sibling checkout
+        # in this file reads that repository's main branch, with the run's own
+        # token.
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           repository: aggrega-ai/aggrega-abi
-          ref: ${{ env.SIBLING_REF }}
+          ref: main
           path: aggrega-abi
           fetch-depth: 0
           fetch-tags: true
@@ -125,7 +121,7 @@ jobs:
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           repository: aggrega-ai/aggrega-cli
-          ref: ${{ env.SIBLING_REF }}
+          ref: main
           path: aggrega-cli
           fetch-depth: 0
           fetch-tags: true
@@ -308,7 +304,7 @@ jobs:
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           repository: aggrega-ai/aggrega-abi
-          ref: ${{ env.SIBLING_REF }}
+          ref: main
           path: aggrega-abi
           persist-credentials: false
 
@@ -438,7 +434,7 @@ jobs:
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           repository: aggrega-ai/aggrega-abi
-          ref: ${{ env.SIBLING_REF }}
+          ref: main
           path: aggrega-abi
           persist-credentials: false
 
