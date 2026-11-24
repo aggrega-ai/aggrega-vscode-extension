@@ -12,7 +12,8 @@ name: Package and publish
 # 🔴 ONLY A PUSHED RELEASE TAG CAN PUBLISH, AND DRY_RUN DECIDES WHETHER IT DOES.
 # A listing on either marketplace is public from the moment it is published. A
 # publish step runs only on a pushed release tag, v followed by package.json's
-# version (v0.1.0 for 0.1.0) on a commit of main; the package job refuses any
+# version (v0.1.0 for 0.1.0) on a commit of main or of the release branch of its
+# major and minor version (release/v0.1 for v0.1.0); the package job refuses any
 # other tag before it builds, so neither publish job starts. No branch push and
 # no pull request reaches the publish jobs. DRY_RUN, under env below, is the one
 # switch: unless it reads false, a tag's run signs in to each marketplace, checks
@@ -24,19 +25,20 @@ name: Package and publish
 # in that commit.
 #
 # 🔴 A MANUAL RUN IS ALWAYS A DRY RUN, AND IT USES NO VERSION. Started by hand from
-# main, it builds and uploads the package, then runs each marketplace's verify
-# mode, whatever DRY_RUN reads: no publish step runs on a manual run. It needs no
-# tag, so no version's tag is spent on it:
+# a release branch, it builds and uploads the package, then runs each
+# marketplace's verify mode, whatever DRY_RUN reads: no publish step runs on a
+# manual run. It needs no tag, so no version's tag is spent on it:
 #
-#   gh workflow run package-and-publish.yml --repo aggrega-ai/aggrega-vscode-extension --ref main
+#   gh workflow run package-and-publish.yml --repo aggrega-ai/aggrega-vscode-extension --ref release/vX.Y
 #
-# The run uses this file as main holds it. Both publish jobs name the release
-# environment, whose branch and tag rule admits main and release tags; a manual
-# run from any other branch fails those two jobs at the environment, after the
-# package job. The managed identity's federated credential names the environment,
-# so with the identity configured a manual run signs in to the Visual Studio
-# Marketplace as the identity, prints its member id and checks the sign-in. With
-# VSCE_PAT configured instead, a manual run checks that token, which no federated
+# The run uses this file as that branch holds it. Both publish jobs name the
+# release environment, whose branch and tag rule admits the branches matching
+# release/* and the release tags; a manual run from any other branch, main
+# included, fails those two jobs at the environment, after the package job. The
+# managed identity's federated credential names the environment, so with the
+# identity configured a manual run signs in to the Visual Studio Marketplace as
+# the identity, prints its member id and checks the sign-in. With VSCE_PAT
+# configured instead, a manual run checks that token, which no federated
 # credential governs. The Open VSX check runs either way.
 #
 # Settings, by name:
@@ -143,11 +145,15 @@ jobs:
           # workflow runs can write.
           package-manager-cache: false
 
-      - name: Refuse a tag that is not a release of this version on main
+      - name: Refuse a tag that is not a release of this version on main or its release branch
         # A pushed tag is the only run that can publish, so it must name a
         # release of this extension: v followed by package.json's version, on a
-        # commit of main. Anything else stops here, before the package is built,
-        # so neither publish job starts and nothing signs in.
+        # commit of main or of release/vX.Y, the release branch of the tag's
+        # major and minor version (release/v0.10 for v0.10.3), where a fix to a
+        # released version is made and released. The checkout above fetched
+        # every branch, so both are at hand. Anything else stops here, before
+        # the package is built, so neither publish job starts and nothing signs
+        # in.
         if: ${{ startsWith(github.ref, 'refs/tags/') }}
         working-directory: aggrega-vscode-extension
         env:
@@ -163,11 +169,20 @@ jobs:
             echo "::error::this checkout holds no main branch to find the tagged commit on" >&2
             exit 1
           fi
-          if ! git merge-base --is-ancestor HEAD refs/remotes/origin/main; then
-            echo "::error::the tag $TAG names a commit that is not on main; tag a commit of main" >&2
+          release_branch="release/${TAG%.*}"
+          on=""
+          for branch in main "$release_branch"; do
+            if git show-ref --verify --quiet "refs/remotes/origin/$branch" \
+              && git merge-base --is-ancestor HEAD "refs/remotes/origin/$branch"; then
+              on="$branch"
+              break
+            fi
+          done
+          if [ -z "$on" ]; then
+            echo "::error::the tag $TAG names a commit on neither main nor $release_branch; tag a commit of one of them" >&2
             exit 1
           fi
-          echo "release tag $TAG: package.json's version $version, on a commit of main"
+          echo "release tag $TAG: package.json's version $version, on a commit of $on"
 
       - name: Make this run's package directory
         # 🔴 A DIRECTORY NO EARLIER RUN HAS USED. A self-hosted runner can keep
@@ -236,12 +251,12 @@ jobs:
     # the token in VSCE_PAT instead; when only some are set, or neither the
     # identity nor the token is, it refuses before anything runs.
     #
-    # The job names the release environment, and the identity's federated
-    # credential names that environment: a run of this job, from a release tag or
-    # from a manual run on main, presents the environment's subject when it asks
-    # for an OpenID Connect token. Any job naming the environment and asking for
-    # that token could sign in as the identity; only this job asks. publish-open-vsx
-    # is in the environment too and cannot mint an OIDC token, since it holds no
+    # The job names the release environment, and the identity's federated credential
+    # names that environment: a run of this job, from a release tag or from a manual
+    # run on a release branch, presents the environment's subject when it asks for
+    # an OpenID Connect token. Any job naming the environment and asking for that
+    # token could sign in as the identity; only this job asks. publish-open-vsx is
+    # in the environment too and cannot mint an OIDC token, since it holds no
     # id-token permission.
     #
     # A hosted runner, whatever the package job uses: it carries the Azure CLI the
