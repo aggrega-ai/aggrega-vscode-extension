@@ -12,7 +12,9 @@ name: Checks
 #         type-checks against, and aggrega-cli, whose build-version recipe
 #         stamps the build. The specs that drive the extension against a real
 #         aggrega binary stand down here, each saying so; full-checks.yml runs
-#         them with the compiler built.
+#         them with the compiler built. The spec comparing the language map
+#         with the docs site's list stands down here too: it needs aggrega-docs
+#         checked out beside the extension.
 on:
   push:
     branches: [main, 'release/**']

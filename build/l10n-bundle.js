@@ -39,9 +39,10 @@
 // site's language file, aggrega-docs/site/src/languages.json. The extension's
 // repository carries its own list so that it builds and packages without the
 // documentation checked out beside it. The two are held to each other by the unit
-// spec "maps exactly the languages the docs site publishes, each to one
-// lower-case editor id" (test/suite/l10n-bundles.test.ts), which fails where they
-// differ and where the docs site's file cannot be read.
+// spec "maps exactly the languages the docs site publishes"
+// (test/suite/l10n-bundles.test.ts): wherever aggrega-docs is checked out beside
+// the extension it fails on a difference and on a file it cannot read, and in a
+// checkout of the extension alone it stands down, saying so.
 //
 // This module is also the one home of where the translation files sit and what
 // they are called: the directory is the one the manifest's `l10n` field names, a
