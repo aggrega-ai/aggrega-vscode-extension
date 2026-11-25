@@ -1,0 +1,72 @@
+name: Workflow audit
+
+# Audits this repository's GitHub Actions files with zizmor, offline, whenever a
+# push to main or to a release branch, or a pull request into main, changes a
+# file under .github/. Any finding fails the run; a finding is excused only
+# inline, on the line it names, with a `# zizmor: ignore[<audit>]` comment
+# giving the reason.
+#
+# The input is every tracked workflow, composite action and Dependabot file at
+# the top of the repository, handed to zizmor as explicit paths. --no-config
+# turns off the discovery of a zizmor.yml, so no file in the repository excuses
+# a finding, and --strict-collection makes a file zizmor cannot parse, or that
+# fails its schema, an error rather than a skipped input.
+#
+# zizmor is one exact release, downloaded from its GitHub release and refused
+# unless both the archive and the binary in it carry the SHA-256 written here.
+on:
+  push:
+    branches: [main, 'release/**']
+    paths: ['.github/**']
+  pull_request:
+    branches: [main]
+    paths: ['.github/**']
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  zizmor:
+    name: Audit the workflows
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    env:
+      ZIZMOR_VERSION: '1.32.0'
+      ZIZMOR_ASSET: zizmor-x86_64-unknown-linux-gnu.tar.gz
+      ZIZMOR_ASSET_SHA256: bb110cc765eca9cd7efb2e284a956be5974c60027b0970f16397d86208a9957b
+      ZIZMOR_BINARY_SHA256: 04d55fb88e582a8e9a9ce6b4753df723fc44c35e0d1a8e8771db9e017066c6df
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+
+      - name: Install the pinned zizmor
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/zizmor"
+          mkdir -p "$dir"
+          curl -fsSL -o "$dir/$ZIZMOR_ASSET" \
+            "https://github.com/zizmorcore/zizmor/releases/download/v${ZIZMOR_VERSION}/${ZIZMOR_ASSET}"
+          echo "$ZIZMOR_ASSET_SHA256  $dir/$ZIZMOR_ASSET" | sha256sum -c -
+          tar -xzf "$dir/$ZIZMOR_ASSET" -C "$dir" zizmor
+          echo "$ZIZMOR_BINARY_SHA256  $dir/zizmor" | sha256sum -c -
+          echo "$dir" >> "$GITHUB_PATH"
+
+      - name: Audit every tracked workflow, action and Dependabot file
+        run: |
+          set -euo pipefail
+          mapfile -t inputs < <(git ls-files \
+            | grep -E '^\.github/(workflows/[^/]+\.ya?ml|actions/(.*/)?action\.ya?ml|dependabot\.ya?ml)$' \
+            | LC_ALL=C sort)
+          if [ "${#inputs[@]}" -eq 0 ]; then
+            echo "::error::no workflow, action or Dependabot file is tracked; nothing to audit"
+            exit 1
+          fi
+          zizmor --no-config --persona regular --format plain --color never --no-progress \
+            --strict-collection --offline "${inputs[@]}"

@@ -1,0 +1,79 @@
+name: Checks
+
+# The checks every push to main or to a release branch, and every pull request
+# into main, runs on a GitHub-hosted runner, beside the package job of
+# package-and-publish.yml. A newer push to the same branch or pull request
+# cancels the run it supersedes.
+#
+#   test  installs the extension from its lockfile and runs its unit suite
+#         (npm test: compile, then mocha). The suite compiles beside two public
+#         sibling repositories, checked out at their main branch as the package
+#         job checks them out: the wire contract in aggrega-abi, which it
+#         type-checks against, and aggrega-cli, whose build-version recipe
+#         stamps the build. The specs that drive the extension against a real
+#         aggrega binary stand down here, each saying so; full-checks.yml runs
+#         them with the compiler built.
+on:
+  push:
+    branches: [main, 'release/**']
+  pull_request:
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Run the unit suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the extension with its history and tags
+        # The build stamp names the release tag the commit carries.
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          path: aggrega-vscode-extension
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+
+      - name: Check out the wire contract beside it
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          repository: aggrega-ai/aggrega-abi
+          ref: main
+          path: aggrega-abi
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+
+      - name: Check out the compiler beside it
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          repository: aggrega-ai/aggrega-cli
+          ref: main
+          path: aggrega-cli
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+
+      - name: Set up Node
+        # The exact release the package job uses, for the same reason: its
+        # bundled npm honours package.json's allowScripts.
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: '24.21.0'
+          package-manager-cache: false
+
+      - name: Install from the lockfile
+        working-directory: aggrega-vscode-extension
+        run: npm ci --no-audit --no-fund
+
+      - name: Run the unit suite
+        working-directory: aggrega-vscode-extension
+        run: npm test
