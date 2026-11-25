@@ -1,0 +1,138 @@
+name: Full checks
+
+# The checks too long for every push, on GitHub-hosted runners: nightly, when
+# main has moved since the last successful run of this workflow on main, and
+# whenever started by hand. A red run is reported through GitHub's notification
+# of a failed workflow run.
+#
+#   main-moved        reads the commit the last successful run of this workflow
+#                     on main checked and, on a nightly run, skips every other
+#                     job when main is still at that commit. A run started by
+#                     hand runs every job.
+#   compiler-fixture  runs the unit suite with the compiler fixture
+#                     (AGGREGA_EDITOR_COMPILER_FIXTURE=1): the suite builds the
+#                     aggrega binary from the aggrega-cli checkout beside this
+#                     one and drives the extension against it. That binary
+#                     embeds the guests the checkout holds, so aggrega-cli's own
+#                     build script builds them first, with the Rust toolchains
+#                     they pin and aggrega-hub's plugin overlays beside it.
+on:
+  schedule:
+    - cron: '29 3 * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  main-moved:
+    name: Decide whether main moved since the last successful run
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read # lists this workflow's earlier runs on main
+    outputs:
+      run: ${{ steps.decide.outputs.run }}
+    steps:
+      - name: Compare main with the commit the last successful run checked
+        id: decide
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" != schedule ]; then
+            echo "a run started by hand runs every job"
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          workflow="${GITHUB_WORKFLOW_REF%@*}"
+          workflow="${workflow##*/}"
+          last="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow/runs?branch=main&status=success&per_page=1" \
+            --jq '.workflow_runs[0].head_sha // ""')"
+          if [ "$last" = "$HEAD_SHA" ]; then
+            echo "main is at $HEAD_SHA, the commit the last successful run checked: nothing to run"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "main is at $HEAD_SHA; the last successful run checked ${last:-no commit yet}"
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  compiler-fixture:
+    name: Run the unit suite against the compiler
+    needs: main-moved
+    if: needs.main-moved.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the extension with its history and tags
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          path: aggrega-vscode-extension
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+
+      - name: Check out the wire contract beside it
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          repository: aggrega-ai/aggrega-abi
+          ref: main
+          path: aggrega-abi
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+
+      - name: Check out the compiler beside it
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          repository: aggrega-ai/aggrega-cli
+          ref: main
+          path: aggrega-cli
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+
+      - name: Check out the catalog beside it
+        # The compiler's build holds its guests to the plugin overlays here and
+        # generates their entities from them.
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          repository: aggrega-ai/aggrega-hub
+          ref: main
+          path: aggrega-hub
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: aggrega-cli/go.mod
+          cache: false
+
+      - name: Install the Rust toolchains the compiler's guests pin
+        run: aggrega-cli/scripts/install-guest-rust-toolchains.sh --github-env "$RUNNER_TEMP/rust"
+
+      - name: Build the compiler's guests
+        run: aggrega-cli/scripts/build.sh
+
+      - name: Set up Node
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: '24.21.0'
+          package-manager-cache: false
+
+      - name: Install from the lockfile
+        working-directory: aggrega-vscode-extension
+        run: npm ci --no-audit --no-fund
+
+      - name: Run the unit suite with the compiler fixture
+        working-directory: aggrega-vscode-extension
+        env:
+          AGGREGA_EDITOR_COMPILER_FIXTURE: '1'
+        run: npm test
