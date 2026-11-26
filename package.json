@@ -2,7 +2,7 @@
   "name": "aggrega",
   "displayName": "%displayName%",
   "description": "%description%",
-  "version": "0.10.3",
+  "version": "0.10.4",
   "publisher": "aggrega-ai",
   "license": "Apache-2.0",
   "repository": {
