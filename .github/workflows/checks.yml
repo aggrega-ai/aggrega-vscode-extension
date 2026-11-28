@@ -37,7 +37,7 @@ jobs:
     steps:
       - name: Check out the extension with its history and tags
         # The build stamp names the release tag the commit carries.
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           path: aggrega-vscode-extension
           fetch-depth: 0
@@ -45,7 +45,7 @@ jobs:
           persist-credentials: false
 
       - name: Check out the wire contract beside it
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: aggrega-ai/aggrega-abi
           ref: main
@@ -55,7 +55,7 @@ jobs:
           persist-credentials: false
 
       - name: Check out the compiler beside it
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: aggrega-ai/aggrega-cli
           ref: main
@@ -67,7 +67,7 @@ jobs:
       - name: Set up Node
         # The exact release the package job uses, for the same reason: its
         # bundled npm honours package.json's allowScripts.
-        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24.21.0'
           package-manager-cache: false
